@@ -1,7 +1,7 @@
 ---
 name: spec-archive
 description: Manually archive user-selected FRs or milestones by `git mv` into `specs/frs/archive/` (and optionally `specs/plan/archive/`) with a diff approval gate. Accepts ULID, tracker ID/URL, or `M<N>`. Escape hatch for /implement Phase 4 auto-archival gaps.
-argument-hint: '<ULID, tracker ID, tracker URL, or M<N>>'
+argument-hint: '<ULID, tracker ID, tracker URL, or M<N>> [--plan-only] [--parked] | --backfill-milestone-labels [--apply | --dry-run]'
 ---
 
 # Spec Archive

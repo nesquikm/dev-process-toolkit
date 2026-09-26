@@ -61,7 +61,7 @@ Declare `allowed-tools:` in SKILL.md frontmatter when the skill is **read-only b
 
 If the skill needs write or shell access (most skills do — `setup`, `implement`, `gate-check`, etc.), **omit the field** and inherit the session's full allowlist. Adding `allowed-tools:` to a write-capable skill silently strips its capabilities at runtime.
 
-The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, which carries `allowed-tools: Read, Glob, Grep, Skill` because it audits specs against the codebase without ever editing; the other 26 skills omit the field by design.
+The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, which carries `allowed-tools: Read, Glob, Grep, Skill, Bash(bun run:*)` because it audits specs against the codebase without ever editing — the one shell grant is scoped to `bun run`, for the toolkit's own deterministic helpers; the other 26 skills omit the field by design.
 
 ## Skill Types in the SDD Toolkit
 
@@ -88,7 +88,7 @@ The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, whic
 ### 2. Implement (end-to-end orchestrator)
 - **Purpose**: Full feature lifecycle from understanding → TDD → three-stage review → handoff
 - **Invocation**: User-invoked with task reference
-- **Key pattern**: 4-phase pipeline with three-stage bounded self-review loop (spec compliance → code quality → hardening)
+- **Key pattern**: 4-phase pipeline (plus a Phase 5 milestone-close prompt on `/implement M<N>`) with three-stage bounded self-review loop (spec compliance → code quality → hardening)
 
 ### 3. TDD (multi-agent orchestrator)
 - **Purpose**: RED → GREEN → REFACTOR → AUDIT for one FR via four forked subagents with strict context isolation per STE-225 + STE-296
@@ -102,7 +102,7 @@ The toolkit's canonical read-only example is `skills/spec-review/SKILL.md`, whic
 
 ### 5. Spec Review (compliance audit)
 - **Purpose**: Check implementation against spec requirements
-- **Invocation**: User-invoked or within /implement (Stage A of self-review)
+- **Invocation**: User-invoked (`/implement`'s Stage A is its own inline AC walk; it does not invoke `/spec-review`)
 - **Key pattern**: Read-only analysis with traceability matrix
 
 ### 5b. Spec Archive (manual archival escape hatch)
@@ -199,7 +199,7 @@ agent: Explore    # Built-in: Explore, Plan, general-purpose, or a custom name f
 ---
 ```
 
-Seven shipped skills carry this frontmatter, so the failure modes and prompt-passing ergonomics are road-tested here rather than hypothetical. Each pairs `context: fork` with an `agent:` naming its own subagent, carries `user-invocable: false` so it stays off the slash menu, and returns a single fenced result block its orchestrator parses — `tdd-result`, `tdd-spec-review-result` and `spec-review-result` respectively. The pairing is enforced: `/gate-check` probe #39 (`tdd_orchestrator_integrity`) hard-fails if a TDD child loses it, and probes #50, #51 and #54 cover the audit fork and the two research forks.
+Seven shipped skills carry this frontmatter, so the failure modes and prompt-passing ergonomics are road-tested here rather than hypothetical. Each pairs `context: fork` with an `agent:` naming its own subagent, carries `user-invocable: false` so it stays off the slash menu, and returns a single fenced result block its orchestrator parses — `tdd-result` (the three action forks), `tdd-spec-review-result`, `spec-review-result`, `spec-research-result` and `deps-research-result`. The pairing is enforced: `/gate-check` probe #39 (`tdd_orchestrator_integrity`) hard-fails if a TDD child loses it, and probes #50, #51 and #54 cover the audit fork and the two research forks.
 
 Two skills carry `user-invocable: false` WITHOUT being fork children — `/upgrade` and `setup-template`. They are dispatched by name (by `/gate-check` probe #69's remedy and by `/setup --template`), not forked, so do not read the frontmatter flag as a fork marker on its own.
 

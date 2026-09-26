@@ -1,8 +1,10 @@
 // ticket_ownership — STE-606 (M_947c79) § 1 "The ownership decision".
 //
 // Decides whether ONE fetched ticket (Jira `getJiraIssue`, Linear `get_issue`)
-// is this repository's before /implement imports or claims it. Classification
-// reuses STE-605's `normalizeContainerPage` + `classifyTicket`; the FR
+// is this repository's before /implement imports or claims it. The answer is
+// read by the shared reader (`tracker_answer.ts` — a plain or wrapped Jira
+// answer, a Linear answer keyed by `id`), and classification reuses STE-605's
+// `normalizeContainerItems` + `classifyTicket`; the FR
 // bindings counted are only those TRACKED in the git index (an import writes
 // its FR file before it syncs, so a file merely on disk proves nothing).
 //
@@ -17,8 +19,9 @@
 //                         allowed only after an explicit adopt question.
 
 import { join, resolve } from "node:path";
-import { adapterOf, classifyTicket, normalizeContainerPage, readJsonFile } from "./container_ownership";
+import { adapterOf, classifyTicket, normalizeContainerItems, readJsonFile } from "./container_ownership";
 import { trackerIdsOf } from "./reconcile_tracker_local";
+import { linearTeamKeyOf, readTrackerItem } from "./tracker_answer";
 import { announceReceipt, printable, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding, type WorkspaceAdapterKey, type WorkspaceBinding } from "./workspace_binding";
 
@@ -113,31 +116,22 @@ export function readTrackedBindings(projectRoot: string): TrackedBindings {
   return unread.length > 0 ? { ids, count, gitError: `could not read committed ${unread.join(", ")}` } : { ids, count };
 }
 
-function nameOf(v: unknown): string | null {
-  if (typeof v === "string" && v.length > 0) return v;
-  if (v && typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    for (const k of ["key", "name", "displayName"]) {
-      if (typeof o[k] === "string" && (o[k] as string).length > 0) return o[k] as string;
-    }
-  }
-  return null;
-}
-
 /** Why the ticket's project (or Linear team) differs from the binding, or null when it matches. */
 function projectMismatch(
   adapter: WorkspaceAdapterKey,
   project: string | null,
-  rawTicket: Record<string, unknown>,
+  key: string,
   binding: WorkspaceBinding,
 ): string | null {
   if (binding.project !== undefined && project !== binding.project) {
     return `ticket project ${project ?? "<none>"} differs from this repository's ${binding.project}`;
   }
   if (adapter === "linear" && binding.team !== undefined) {
-    const team = nameOf(rawTicket["team"]);
-    // An absent team cannot be compared, so it cannot be proven this team's.
-    if (team === null) return `ticket carries no team to compare with this repository's ${binding.team}`;
+    // A Linear answer's `team` is the team's DISPLAY name, never its key: the
+    // key is the identifier's prefix (`linearTeamKeyOf`, a named assumption).
+    // A key that yields none cannot be proven this team's.
+    const team = linearTeamKeyOf(key);
+    if (team === null) return `ticket ${key} carries no team key to compare with this repository's ${binding.team}`;
     if (team !== binding.team) return `ticket team ${team} differs from this repository's ${binding.team}`;
   }
   return null;
@@ -152,9 +146,9 @@ export function decideTicketOwnership(input: {
   const projectRoot = resolve(input.projectRoot);
   const adapter = adapterOf(projectRoot);
   const binding = input.binding ?? readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
-  if (!input.ticket || typeof input.ticket !== "object") throw new Error("ticket_ownership: ticket is not a JSON object");
-  const raw = input.ticket as Record<string, unknown>;
-  const [ticket] = normalizeContainerPage({ issues: [raw] }, adapter, binding.shared);
+  const read = readTrackerItem(adapter, input.ticket);
+  if (!read.ok) throw new Error(`ticket_ownership: ${read.reason}`);
+  const [ticket] = normalizeContainerItems([read.item], adapter, binding.shared);
   if (ticket === undefined) throw new Error("ticket_ownership: no ticket read");
   if (ticket.project === null) throw new Error(`ticket_ownership: required field \`project\` is missing on ticket ${ticket.key}`);
   const cls = classifyTicket(ticket, binding);
@@ -168,7 +162,7 @@ export function decideTicketOwnership(input: {
   if (tracked.ids.has(ticket.key)) {
     return { ...base, verdict: "owned", reason: `a tracked FR file in this repository binds ${ticket.key}` };
   }
-  const mismatch = projectMismatch(adapter, ticket.project, raw, binding);
+  const mismatch = projectMismatch(adapter, ticket.project, ticket.key, binding);
   if (mismatch !== null) return { ...base, verdict: "foreign-project", reason: `${mismatch}; refused` };
   if (cls === "ours") return { ...base, verdict: "owned", reason: `${ticket.key} carries this repository's tag ${binding.repoTag}` };
   if (cls === "sibling") {

@@ -24,6 +24,8 @@
 // Pattern clone of `parseSpecResearchBlock` (STE-230).
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   DEPS_RESEARCH_BANNER,
   DEPS_RESEARCH_SECTIONS,
@@ -262,4 +264,49 @@ describe("AC-STE-301.11 — missing third section ⇒ format violation", () => {
       expect(r.reason.toLowerCase()).toMatch(/section|missing|count|3 |three/);
     }
   });
+});
+
+// R3 (docs audit, 2026-09-23) — the vacuous-exit shape one document ORDERED
+// was rejected by the parser that grades it.
+//
+// Three artifacts, two of them normative: `skills/deps-research/SKILL.md`
+// prescribed an EMPTY fenced block (banner + open + close, no content lines);
+// `agents/deps-researcher.md` prescribed the canonical headers with
+// `- (none found)`; and `parseDepsResearchBlock` requires the three headings,
+// so it rejected the skill's shape outright. Two of the three already agreed,
+// so the skill moved rather than the parser — loosening the parser would make
+// an empty block indistinguishable from a fork that died mid-emit.
+//
+// This row grades the AGREEMENT rather than any one of them: it builds the
+// block from the module's own banner and section constants, checks the parser
+// accepts it, and checks BOTH shipped documents prescribe that shape and no
+// longer prescribe the empty one.
+describe("R3 — the vacuous-exit shape the documents prescribe is the shape the parser accepts", () => {
+  const pluginRoot = join(import.meta.dir, "..");
+  const fence = "`".repeat(3);
+  const canonicalNoneFound = [
+    DEPS_RESEARCH_BANNER,
+    `${fence}deps-research-result`,
+    ...DEPS_RESEARCH_SECTIONS.flatMap((s) => [s, "- (none found)"]),
+    fence,
+  ].join("\n");
+
+  test("the parser accepts the canonical `- (none found)` block", () => {
+    const r = parseDepsResearchBlock(canonicalNoneFound);
+    expect(r.ok, r.ok ? "" : r.reason).toBe(true);
+  });
+
+  test("CONTROL — it still rejects the EMPTY block the skill used to prescribe, so this is a real disagreement and not a formatting taste", () => {
+    const empty = [DEPS_RESEARCH_BANNER, `${fence}deps-research-result`, fence].join("\n");
+    const r = parseDepsResearchBlock(empty);
+    expect(r.ok).toBe(false);
+  });
+
+  for (const rel of ["skills/deps-research/SKILL.md", "agents/deps-researcher.md"]) {
+    test(`${rel} prescribes the accepted shape and not the rejected one`, () => {
+      const text = readFileSync(join(pluginRoot, rel), "utf-8");
+      expect(text, "it names the placeholder bullet the parser accepts").toContain("- (none found)");
+      expect(text, "and no longer orders a content-less block").not.toMatch(/empty `deps-research-result` fenced block/);
+    });
+  }
 });

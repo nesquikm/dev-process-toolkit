@@ -220,6 +220,21 @@ function plantMonolith(root: string): void {
  * Started / Development heading, so detection is cold and the honest answer
  * is knowable. A runnable tree is deliberately left to gate probe #80.
  */
+/**
+ * A Linear-mode tree whose `### Linear` binding names its team by display name
+ * — the state `linear-team-key` detects (a team key is the prefix of the team's
+ * issue identifiers; the display name refuses every create decision). The
+ * whole CLAUDE.md is replaced: `mode: linear` is the entry's precondition, and
+ * no other entry reads the binding, so this plants exactly one row.
+ */
+function plantLinearDisplayNameTeam(root: string): void {
+  writeFileSync(
+    join(root, "CLAUDE.md"),
+    "# Project\n\n## Task Tracking\n\nmode: linear\nmcp_server: linear\n\n### Linear\n\nteam: Example Team Display Name\nproject: Example Project\n",
+    "utf-8",
+  );
+}
+
 function plantVerificationBlockWithoutRunCmd(root: string): void {
   const path = join(root, "CLAUDE.md");
   writeFileSync(
@@ -604,6 +619,7 @@ describe("AC-STE-394.9 — each live legacy state renders exactly its own row", 
     ["monolith-split", plantMonolith],
     ["mode-none-sequential-milestone", plantModeNoneSequentialPlan],
     ["verification-run-keys", plantVerificationBlockWithoutRunCmd],
+    ["linear-team-key", plantLinearDisplayNameTeam],
   ];
 
   // Completeness guard. Without it the table above is a hand-maintained list

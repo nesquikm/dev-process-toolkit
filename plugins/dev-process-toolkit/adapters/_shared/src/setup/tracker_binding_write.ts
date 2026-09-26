@@ -50,6 +50,11 @@ export function renderSharedTrackerSentinel(input: SharedTrackerSentinelInput): 
 export interface TrackerSubsectionOptions {
   project: string;
   team?: string;
+  /**
+   * `jira_issue_type` — Jira only. Given, the writer owns the line; omitted, it
+   * preserves whatever is there, like every other key it is not handed.
+   */
+  issueType?: string;
   shared?: { repoTag: string } | "unshare";
 }
 
@@ -192,6 +197,22 @@ export function writeTrackerSubsection(
       `${context}, key=team, value=""`,
     );
   }
+  if (opts.issueType !== undefined) {
+    if (adapter !== "jira") {
+      throw new TrackerBindingWriteError(
+        `jira_issue_type is a Jira key; a \`### Linear\` binding has no issue type.`,
+        `drop --issue-type on a Linear binding.`,
+        `${context}, key=jira_issue_type, adapter=${adapter}`,
+      );
+    }
+    if (opts.issueType.trim().length === 0) {
+      throw new TrackerBindingWriteError(
+        `--issue-type was given an empty value; the writer never writes an empty \`jira_issue_type:\`.`,
+        `pass the Jira issue type (e.g. --issue-type Task), or omit --issue-type to leave the existing line as it is.`,
+        `${context}, key=jira_issue_type, value=""`,
+      );
+    }
+  }
   const shared = opts.shared;
   if (shared !== undefined && shared !== "unshare" && !REPO_TAG_RE.test(shared.repoTag)) {
     throw new TrackerBindingWriteError(
@@ -260,6 +281,7 @@ export function writeTrackerSubsection(
 
   if (opts.team !== undefined) setKey(sub, "team", opts.team, []);
   setKey(sub, "project", opts.project, ["team"]);
+  if (opts.issueType !== undefined) setKey(sub, "jira_issue_type", opts.issueType, ["team", "project"]);
 
   let paragraph: string | null = null;
   if (shared === "unshare") {
@@ -324,7 +346,7 @@ function usage(): never {
   process.stderr.write(
     `${nfr10Message(
       "TrackerBindingWriteError: invalid arguments.",
-      "usage: tracker_binding_write.ts <projectRoot> <jira|linear> --project <p> [--team <t>] [--shared <tag> | --unshare]",
+      "usage: tracker_binding_write.ts <projectRoot> <jira|linear> --project <p> [--team <t>] [--issue-type <t>] [--shared <tag> | --unshare]",
       `argv=${process.argv.slice(2).join(" ")}`,
     )}\n`,
   );
@@ -339,6 +361,7 @@ if (import.meta.main) {
     const flag = rest[i];
     if (flag === "--project") opts.project = rest[++i] ?? "";
     else if (flag === "--team") opts.team = rest[++i] ?? "";
+    else if (flag === "--issue-type") opts.issueType = rest[++i] ?? "";
     else if (flag === "--shared") {
       if (opts.shared === "unshare") usage();
       opts.shared = { repoTag: rest[++i] ?? "" };

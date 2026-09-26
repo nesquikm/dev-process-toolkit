@@ -253,7 +253,7 @@ sub-section under `## Task Tracking`, and `/gate-check` probe #25
 (`task-tracking-workspace-binding-present`) hard-fails without it — a
 missing sub-section, a missing key, or an empty value all fail:
 
-  ### Linear        team: <team-name>       project: <project-name>
+  ### Linear        team: <team-key>        project: <project-name>
   ### Jira          project: <PROJECT-KEY>
 
 The probe exists because tickets created without `project` silently

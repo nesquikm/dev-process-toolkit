@@ -39,6 +39,8 @@
 // thing, so a project that never sets the key never starts refusing runs that
 // worked yesterday.
 
+import { linearTeamKeyOf, readTrackerListing, trackerItemKey } from "./tracker_answer";
+
 // ---------------------------------------------------------------- the compare
 
 /**
@@ -153,7 +155,7 @@ export interface IdempotencyCandidate {
 
 export interface IdempotencySearchResult {
   candidates: readonly IdempotencyCandidate[];
-  /** true when the last page still reports more results (Jira `isLast: false`, Linear `hasNextPage: true`). */
+  /** true when the last page does not prove nothing follows (Jira `isLast: false` or wrapped `hasNextPage: true`, Linear `hasNextPage: true`). */
   capped: boolean;
 }
 
@@ -271,7 +273,6 @@ export interface DecisionCandidate {
   issuetype?: string;
   /** Linear project-milestone id; `null` = the row sits in no milestone. */
   milestone?: string | null;
-  team?: string;
 }
 
 /** The conjuncts the query carried, plus the title being created. */
@@ -282,6 +283,7 @@ export interface DecisionQuery {
   milestoneLabel?: string;
   /** Linear: checked client-side — `list_issues` has no milestone input. */
   linearMilestone?: string;
+  /** Linear: the binding's team KEY, graded against each row's identifier prefix. */
   team?: string;
   repoTag?: string;
 }
@@ -303,7 +305,10 @@ function refusal(reason: IdempotencyRefusalReason): CreateDecision {
 /** Does `c` fail a conjunct the query carried? Only carried fields are graded. */
 function violatesQuery(c: DecisionCandidate, q: DecisionQuery): boolean {
   if (c.project !== undefined && c.project !== q.projectKey) return true;
-  if (q.team !== undefined && c.team !== undefined && c.team !== q.team) return true;
+  // A Linear row's `team` is the team's display name, never its key: the key
+  // is the identifier's prefix (a named assumption, `linearTeamKeyOf`), and a
+  // key that yields no prefix cannot be proven this team's.
+  if (q.team !== undefined && linearTeamKeyOf(c.key) !== q.team) return true;
   if (q.parentKey !== undefined && c.parent !== undefined && c.parent !== q.parentKey) return true;
   // An Epic is a container, never the ticket being created.
   if (c.issuetype !== undefined && c.issuetype === "Epic") return true;
@@ -590,36 +595,48 @@ function labelList(v: unknown, needed: boolean): string[] | undefined {
   });
 }
 
+/**
+ * The saved pages, read as ONE chain by the shared reader (`readTrackerListing`):
+ * a page in no observed shape, a page after the first without the
+ * `requestCursor` it was fetched with (or one that does not match the previous
+ * page's `next`), a repeated cursor or a key on two pages makes the set
+ * unreadable — a dropped middle page can no longer read as a complete miss and
+ * authorise a create. The listing is capped when its final page does not prove
+ * nothing follows.
+ */
+function readPages(
+  tracker: "jira" | "linear",
+  raw: unknown[],
+): { items: Record<string, unknown>[]; capped: boolean } {
+  const r = readTrackerListing(tracker, raw);
+  if (!r.ok) throw new UnreadablePage(r.reason);
+  return { items: r.items, capped: !r.last };
+}
+
 function readJiraPages(
   raw: unknown[],
   q: DecisionQuery,
 ): { candidates: DecisionCandidate[]; capped: boolean } {
+  const { items, capped } = readPages("jira", raw);
   const candidates: DecisionCandidate[] = [];
-  let capped = false;
-  for (const page of raw) {
-    if (!isObj(page) || !Array.isArray(page.issues) || typeof page.isLast !== "boolean") {
-      throw new UnreadablePage("not a Jira search page (`issues` + `isLast`)");
+  for (const issue of items) {
+    const f = issue.fields;
+    if (typeof issue.key !== "string" || !isObj(f) || typeof f.summary !== "string") {
+      throw new UnreadablePage("a candidate lacks `key` or `summary`");
     }
-    capped = !page.isLast;
-    for (const issue of page.issues) {
-      const f = isObj(issue) ? issue.fields : undefined;
-      if (!isObj(issue) || typeof issue.key !== "string" || !isObj(f) || typeof f.summary !== "string") {
-        throw new UnreadablePage("a candidate lacks `key` or `summary`");
-      }
-      const project = refName(f.project);
-      const issuetype = refName(f.issuetype);
-      if (project === undefined) throw new UnreadablePage("a candidate lacks `project`");
-      if (issuetype === undefined) throw new UnreadablePage("a candidate lacks `issuetype`");
-      const labels = labelList(f.labels, Boolean(q.repoTag || q.milestoneLabel));
-      candidates.push({
-        key: issue.key,
-        title: f.summary,
-        project,
-        issuetype,
-        parent: f.parent == null ? null : (refName(f.parent) ?? null),
-        ...(labels ? { labels } : {}),
-      });
-    }
+    const project = refName(f.project);
+    const issuetype = refName(f.issuetype);
+    if (project === undefined) throw new UnreadablePage("a candidate lacks `project`");
+    if (issuetype === undefined) throw new UnreadablePage("a candidate lacks `issuetype`");
+    const labels = labelList(f.labels, Boolean(q.repoTag || q.milestoneLabel));
+    candidates.push({
+      key: issue.key,
+      title: f.summary,
+      project,
+      issuetype,
+      parent: f.parent == null ? null : (refName(f.parent) ?? null),
+      ...(labels ? { labels } : {}),
+    });
   }
   return { candidates, capped };
 }
@@ -628,45 +645,34 @@ function readLinearPages(
   raw: unknown[],
   q: DecisionQuery,
 ): { candidates: DecisionCandidate[]; capped: boolean } {
+  const { items, capped } = readPages("linear", raw);
   const candidates: DecisionCandidate[] = [];
-  let capped = false;
-  for (const page of raw) {
-    if (
-      !isObj(page) ||
-      !Array.isArray(page.issues) ||
-      !isObj(page.pageInfo) ||
-      typeof page.pageInfo.hasNextPage !== "boolean"
-    ) {
-      throw new UnreadablePage("not a Linear list_issues page (`issues` + `pageInfo`)");
+  for (const issue of items) {
+    if (typeof issue.title !== "string") {
+      throw new UnreadablePage("a candidate lacks `title`");
     }
-    capped = page.pageInfo.hasNextPage;
-    for (const issue of page.issues) {
-      if (!isObj(issue) || typeof issue.title !== "string") {
-        throw new UnreadablePage("a candidate lacks `title`");
-      }
-      const key = refName(issue.identifier) ?? refName(issue.id);
-      const project = refName(issue.project);
-      if (key === undefined) throw new UnreadablePage("a candidate lacks `identifier`");
-      if (project === undefined) throw new UnreadablePage("a candidate lacks `project`");
-      if (q.linearMilestone !== undefined && !("projectMilestone" in issue)) {
-        throw new UnreadablePage("a candidate lacks `projectMilestone`");
-      }
-      const team = refName(issue.team);
-      // A team conjunct the query carried must be checkable on every row: an
-      // absent `team` would otherwise skip that conjunct, never violate it.
-      if (q.team !== undefined && team === undefined) {
-        throw new UnreadablePage("a candidate lacks `team`");
-      }
-      const labels = labelList(issue.labels, Boolean(q.repoTag));
-      candidates.push({
-        key,
-        title: issue.title,
-        project,
-        milestone: milestoneId(issue.projectMilestone),
-        ...(team === undefined ? {} : { team }),
-        ...(labels ? { labels } : {}),
-      });
+    // A Linear row's key is its top-level `id` (`STE-618`).
+    const key = trackerItemKey("linear", issue);
+    const project = refName(issue.project);
+    if (key === null) throw new UnreadablePage("a candidate's `id` is not a ticket key");
+    if (project === undefined) throw new UnreadablePage("a candidate lacks `project`");
+    if (q.linearMilestone !== undefined && !("projectMilestone" in issue)) {
+      throw new UnreadablePage("a candidate lacks `projectMilestone`");
     }
+    // A team conjunct the query carried must be checkable on every row: the
+    // row's `team` is the team's DISPLAY name, so the conjunct reads the key
+    // from the identifier's prefix, and an id that yields none fails closed.
+    if (q.team !== undefined && linearTeamKeyOf(key) === null) {
+      throw new UnreadablePage(`candidate ${key} carries no team key in its identifier`);
+    }
+    const labels = labelList(issue.labels, Boolean(q.repoTag));
+    candidates.push({
+      key,
+      title: issue.title,
+      project,
+      milestone: milestoneId(issue.projectMilestone),
+      ...(labels ? { labels } : {}),
+    });
   }
   return { candidates, capped };
 }

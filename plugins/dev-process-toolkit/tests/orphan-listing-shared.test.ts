@@ -543,6 +543,76 @@ describe("AC-STE-605.8 — unreadable input", () => {
     });
   });
 
+  // Jira answers `description: null` for a ticket created without one (live: an
+  // Epic `/spec-write` created, 2026-09-23); null is requested-and-empty, not missing.
+  test("a shared-mode ticket whose `description` is null lists exactly as an empty description", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const withNull = jiraPage(TWO_REPO);
+      const withEmpty = jiraPage(TWO_REPO);
+      ((withNull.issues[5] as { fields: Record<string, unknown> }).fields).description = null;
+      ((withEmpty.issues[5] as { fields: Record<string, unknown> }).fields).description = "";
+      const nulled = okList(list(fe, [writePage(withNull)])).stdout;
+      expect(nulled).toBe(okList(list(fe, [writePage(withEmpty)])).stdout);
+    });
+  });
+
+  // The twins the nullable-description carve-out needs: `description` is the ONLY
+  // field whose null reads as present-and-empty. A null `labels` is the field the
+  // ownership decision is made of, and a null `creator` is the field that says who
+  // wrote it; neither is empty-by-shape, and a page that answers null for them was
+  // not answered — it must still refuse, or the carve-out has quietly become "any
+  // missing field is fine".
+  for (const field of ["labels", "creator"] as const) {
+    test(`REFUSAL TWIN — a shared-mode ticket whose \`${field}\` is null still refuses, and names that field`, async () => {
+      await withRoots((fe) => {
+        declareJira(fe, FE_TAG);
+        const page = jiraPage(TWO_REPO);
+        ((page.issues[5] as { fields: Record<string, unknown> }).fields)[field] = null;
+        const r = list(fe, [writePage(page)]);
+        expect(r.code, `expected a refusal, got:\n${r.stdout}`).not.toBe(0);
+        expect(`${r.stdout}${r.stderr}`).toContain(field);
+      });
+    });
+  }
+
+  // The Linear call site of the same carve-out. `NULLABLE_SHARED` is one set read
+  // by both, so the Jira rows above would stay green if the Linear side had been
+  // missed — the mirror this milestone has already shipped seven times.
+  test("LINEAR TWIN — a null `description` lists exactly as an empty one", async () => {
+    await withRoots((fe) => {
+      declareLinear(fe, FE_TAG);
+      const rows = (): Ticket[] => [
+        { key: "STE-901", title: "FE one", labels: [FE_TAG], creator: "Fe Dev", backLink: true },
+        { key: "STE-903", title: "Hand filed", labels: [], creator: "Pat Manager" },
+      ];
+      const nulled = linearPage(rows()) as { issues?: Array<Record<string, unknown>>; [k: string]: unknown };
+      const emptied = linearPage(rows()) as typeof nulled;
+      const listOf = (p: typeof nulled): Array<Record<string, unknown>> =>
+        (p.issues as Array<Record<string, unknown>> | undefined) ?? ((p as { nodes?: Array<Record<string, unknown>> }).nodes ?? []);
+      listOf(nulled)[1]!.description = null;
+      listOf(emptied)[1]!.description = "";
+      expect(okList(list(fe, [writePage(nulled)])).stdout).toBe(okList(list(fe, [writePage(emptied)])).stdout);
+    });
+  });
+
+  for (const field of ["labels", "createdBy"] as const) {
+    test(`LINEAR REFUSAL TWIN — a null \`${field}\` still refuses, and names that field`, async () => {
+      await withRoots((fe) => {
+        declareLinear(fe, FE_TAG);
+        const page = linearPage([
+          { key: "STE-901", title: "FE one", labels: [FE_TAG], creator: "Fe Dev", backLink: true },
+          { key: "STE-903", title: "Hand filed", labels: [], creator: "Pat Manager" },
+        ]) as Record<string, unknown>;
+        const rows = ((page.issues as Array<Record<string, unknown>> | undefined) ?? (page.nodes as Array<Record<string, unknown>>));
+        rows[1]![field] = null;
+        const r = list(fe, [writePage(page)]);
+        expect(r.code, `expected a refusal, got:\n${r.stdout}`).not.toBe(0);
+        expect(`${r.stdout}${r.stderr}`).toContain(field);
+      });
+    });
+  }
+
   test("CONTROL: the same label-less ticket lists in an undeclared repository", async () => {
     await withRoots((fe) => {
       declareJira(fe, null);

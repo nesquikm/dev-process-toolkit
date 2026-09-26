@@ -141,26 +141,41 @@ export function jiraIssue(t: Ticket): Record<string, unknown> {
   };
 }
 
-export function jiraPage(tickets: Ticket[], isLast = true) {
-  return { issues: tickets.map(jiraIssue), isLast };
+/**
+ * A Jira search page in either measured shape: plain `{ issues, isLast,
+ * nextPageToken? }`, or wrapped `{ context, issues: { nodes, pageInfo } }`.
+ */
+export function jiraPage(tickets: Ticket[], isLast = true, shape: "plain" | "wrapped" = "plain") {
+  const rows = tickets.map(jiraIssue);
+  if (shape === "wrapped") {
+    return {
+      issues: { nodes: rows, webUrl: "https://fixture.invalid/issues", pageInfo: { hasNextPage: !isLast, endCursor: isLast ? null : "cursor-page-2" } },
+      context: { toolName: "searchJiraIssuesUsingJql" },
+    };
+  }
+  return { issues: rows, isLast, ...(isLast ? {} : { nextPageToken: "token-page-2" }) };
 }
 
-/** One Linear `list_issues` row. */
+/**
+ * One Linear `list_issues` row in the measured shape (tests/fixtures/
+ * live-shapes/linear/list_issues.last.json): keyed by top-level `id`, no
+ * `identifier`, its `team` the team's DISPLAY name.
+ */
 export function linearIssue(t: Ticket): Record<string, unknown> {
   return {
     id: t.key,
-    identifier: t.key,
     title: t.title,
     labels: [...t.labels],
     description: description(t),
     createdBy: t.creator,
     project: "DPT",
-    team: "STE",
+    team: "Example Team Display Name",
   };
 }
 
+/** A Linear `list_issues` page in the measured shape: top-level `hasNextPage`, a `cursor` only when more follow. */
 export function linearPage(tickets: Ticket[], hasNextPage = false) {
-  return { issues: tickets.map(linearIssue), pageInfo: { hasNextPage, endCursor: null } };
+  return { issues: tickets.map(linearIssue), hasNextPage, ...(hasNextPage ? { cursor: "cursor-page-2" } : {}) };
 }
 
 // The two-repo Jira container of AC-STE-605.1.

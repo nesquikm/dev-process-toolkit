@@ -237,7 +237,7 @@ async function gradeSiblingLeg(projectRoot: string, plan: ShippedPlan): Promise<
       const [archived, live] = siblingPlanPaths(sibling.root, milestone);
       violation(
         `sibling ${sibling.name} holds no plan for ${milestone} at ${live} or ${archived} (no plan)`,
-        `write the ${milestone} plan in sibling ${sibling.name}, ${orDrop(sibling.name)}`,
+        `have ${sibling.name} plan ${milestone} from its own session — not from here, ${orDrop(sibling.name)}`,
       );
       continue;
     }

@@ -1,0 +1,31 @@
+{
+  "provenance": {
+    "measured_at": "2026-09-21",
+    "method": "read-only-call",
+    "request": {
+      "team": "STE",
+      "limit": 2
+    },
+    "note": "a label listing: the standard Linear page, labels + hasNextPage + cursor"
+  },
+  "answer": {
+    "labels": [
+      {
+        "id": "d1fbe4b9-4abf-45fb-85b3-754389214c9b",
+        "name": "archive-candidate",
+        "color": "#94a2b3",
+        "description": "Safe to archive in Linear: shipped milestone refs (M1–M66), …",
+        "archivedAt": null
+      },
+      {
+        "id": "35ed70bf-c45d-4046-af93-93529a1d9b15",
+        "name": "needs-technical-review",
+        "color": "#F2C94C",
+        "description": "FR has placeholders in Technical Design / Testing sections; …",
+        "archivedAt": null
+      }
+    ],
+    "hasNextPage": true,
+    "cursor": "35ed70bf-c45d-4046-af93-93529a1d9b15"
+  }
+}

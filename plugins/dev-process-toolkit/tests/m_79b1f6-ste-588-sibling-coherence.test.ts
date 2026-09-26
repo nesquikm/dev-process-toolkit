@@ -1,3 +1,4 @@
+import { heldRemedy, FROM_ITS_OWN_SESSION } from "../adapters/_shared/src/sibling_release.ts";
 // M_79b1f6 / STE-588 — the ship-coherence gate grades a milestone's sibling half.
 //
 // THE DEFECT, stated once: probe #63 graded a shipped (archived, stamped) plan
@@ -960,4 +961,76 @@ describe("AC-STE-588.13 — the three violation reasons are distinct", () => {
       }
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Live leg 7 (2026-09-24) — a remedy that named a file but not its writer.
+//
+// `spans_repos.ts` refused a declaration with "write specs/plan/<M>.md in the
+// sibling repository first". A child rooted in A obeyed it literally, wrote
+// into B, and `sibling-file-write` correctly flagged the run. The remedy was
+// never bad advice — it is good advice to a human operator, who knows without
+// being told that "in the sibling repository" means going there. It became a
+// defect when the skill's rule 4 told every child to fix what a refusal names:
+// a rule that makes children act on prose turns every piece of prose they can
+// reach into an interface.
+//
+// `heldRemedy` renders EVERY held-sibling remedy through one switch, so the
+// actor clause is appended once at its exit and a case added later inherits it.
+// These rows exist because a blanket append is wrong for the two states whose
+// remedy acts on THIS repository — and because the first implementation of this
+// fix excluded only `idle`, which would have told a reader to go elsewhere for
+// a change only they can make.
+// ---------------------------------------------------------------------------
+describe("heldRemedy — the actor clause reaches cross-repository acts and not local ones", () => {
+  const sib = (state: string) =>
+    ({ name: "sib-b", declaredPath: "../sib-b", root: "/tmp/sib-b", state }) as unknown as Parameters<typeof heldRemedy>[0];
+
+  test("a CROSS-REPOSITORY act carries the actor clause", () => {
+    for (const state of ["no-plan", "busy", "not-started", "not-toolkit-managed", "different-container", "unreadable", "one-sided"]) {
+      expect(heldRemedy(sib(state), "M_X_1"), `${state} should name who acts`).toContain(FROM_ITS_OWN_SESSION);
+    }
+  });
+
+  test("REFUSAL TWIN — a LOCAL act does NOT carry it: the reader owns that change", () => {
+    // Both edit THIS repository's own `spans_repos:` key. Telling their reader
+    // that "the sibling's own operator does this" sends them away from a file
+    // only they own, which is worse than the under-specification being fixed.
+    for (const state of ["unlocatable", "not-a-repository"]) {
+      expect(heldRemedy(sib(state), "M_X_1"), `${state} is a local act`).not.toContain(FROM_ITS_OWN_SESSION);
+    }
+  });
+
+  test("an idle sibling has no remedy at all, and gains no clause", () => {
+    expect(heldRemedy(sib("idle"), "M_X_1")).toBe("");
+  });
+});
+
+// M_2306b6 / STE-616 — a MIXED remedy carries the actor clause on its
+// cross-repository half only.
+//
+// `not-toolkit-managed` and `different-container` each offer an act in the
+// sibling OR an edit to THIS repository's `spans_repos:`. One clause appended at
+// the end sat after the LOCAL half, telling the reader the sibling's operator
+// drops an entry from a file only the reader owns. A per-state boolean cannot
+// express a mixed remedy, so these two are split rather than re-classified;
+// LOCAL_ACT_STATES stays as it is.
+describe("heldRemedy — a mixed remedy puts the actor clause on its cross-repository half", () => {
+  const sib = (state: string) =>
+    ({ name: "sib-b", declaredPath: "../sib-b", root: "/tmp/sib-b", state }) as unknown as Parameters<typeof heldRemedy>[0];
+  const cases: Array<[string, string, string]> = [
+    ["not-toolkit-managed", "run /dev-process-toolkit:setup in sibling sib-b", "point its path under spans_repos: at the toolkit-managed checkout"],
+    ["different-container", "bind sibling sib-b to this repository's tracker project in its CLAUDE.md", "drop it from spans_repos:"],
+  ];
+  for (const [state, remote, local] of cases) {
+    test(`${state}: the clause follows the sibling's act and precedes this repository's`, () => {
+      const r = heldRemedy(sib(state), "M_X_1");
+      const at = (x: string) => r.indexOf(x);
+      expect(at(remote), r).toBeGreaterThanOrEqual(0);
+      expect(at(local), r).toBeGreaterThan(at(remote));
+      expect(at(FROM_ITS_OWN_SESSION), r).toBe(at(remote) + remote.length);
+      expect(r.endsWith(FROM_ITS_OWN_SESSION), "the local half does not end in the clause").toBe(false);
+      expect(r.slice(at(FROM_ITS_OWN_SESSION) + FROM_ITS_OWN_SESSION.length), "the local half says whose act it is").toMatch(/in this repository/);
+    });
+  }
 });

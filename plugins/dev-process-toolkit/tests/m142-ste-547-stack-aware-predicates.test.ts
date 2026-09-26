@@ -500,13 +500,20 @@ describe("AC-STE-547.4 — the TypeScript layout's shipped expectations are unto
 // only `package.json` (the TypeScript stack, which is the layout this AC is
 // about). NO path may NARROW — old `tdd-required` → new anything else.
 //
-// Exactly ONE narrowing is sanctioned, and it is named: `weird__tests__dir/x.ts`.
+// Exactly TWO narrowings are sanctioned, and each is named. The first is
+// `weird__tests__dir/x.ts`.
 // The retired TRIGGER tested the SUBSTRING `p.includes("__tests__")` while the
 // retired CARVE-OUT tested the segment-anchored `(^|\/)__tests__(\/|$)`, so the
 // old code contradicted itself on that path — it required /tdd for a file it
 // simultaneously declared not to be a source or test file. The new agreement on
 // `no-fr` is deliberate, and a fix that restores the substring rule to make the
 // difference vanish is a regression, not a repair.
+//
+// The second is `__tests__/fixtures/data.json` (M_2306b6 / STE-616): DATA in a
+// fixtures directory is not a test, so it no longer raises the /tdd trigger.
+// Requiring it deadlocked the live smoke, whose pre-flight demands its JSON
+// evidence bundles committed while no honest red-before proof for data exists.
+// Its own two-sided rows live in `m_2306b6-ste-616-fixture-data-not-tdd.test.ts`.
 // ===========================================================================
 
 // --- verbatim transcription of the retired predicates (HEAD) ---------------
@@ -557,6 +564,9 @@ function classifyRetired(paths: string[]): string {
 
 /** The one path where the retired code contradicted itself; see the note above. */
 const SANCTIONED_NARROWING = "weird__tests__dir/x.ts";
+
+/** STE-616: fixture data is not a test; see the note above. */
+const SANCTIONED_FIXTURE_DATA = "__tests__/fixtures/data.json";
 
 const PARITY_CORPUS: ReadonlyArray<{ label: string; paths: string[] }> = [
   // Paths the retired __tests__ rules reached.
@@ -632,6 +642,7 @@ describe("AC-STE-547.4 — no TypeScript path narrows against the retired predic
     const narrowed = difference()
       .filter((d) => d.old === "tdd-required" && d.now !== "tdd-required")
       .filter((d) => d.label !== SANCTIONED_NARROWING)
+      .filter((d) => d.label !== SANCTIONED_FIXTURE_DATA)
       .map((d) => `${d.label}: tdd-required → ${d.now}`);
     expect(narrowed).toEqual([]);
   });
@@ -655,6 +666,14 @@ describe("AC-STE-547.4 — no TypeScript path narrows against the retired predic
     // The segment-anchored sibling still fires — the exception is the missing
     // slash, not the `__tests__` name.
     expect(classifyIn(["weird/__tests__/x.ts"], CORPUS_ROOT)).toBe(
+      "tdd-required",
+    );
+  });
+
+  test("the STE-616 fixture-data narrowing is real, and code beside it is not narrowed", () => {
+    expect(classifyRetired([SANCTIONED_FIXTURE_DATA])).toBe("tdd-required");
+    expect(classifyIn([SANCTIONED_FIXTURE_DATA], CORPUS_ROOT)).toBe("no-fr");
+    expect(classifyIn(["__tests__/fixtures/helper.ts"], CORPUS_ROOT)).toBe(
       "tdd-required",
     );
   });

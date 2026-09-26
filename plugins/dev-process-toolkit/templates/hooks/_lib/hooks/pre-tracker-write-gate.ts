@@ -38,6 +38,7 @@ import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shar
 // this gate and the gate-receipt front door reach it here; a second copy is how
 // the two gates came to disagree about the one rule.
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
+import { readTrackerItem, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
 /** Kept exported from here, where it was declared until the two gates started sharing it. */
 export { simpleCommandWords } from "../../../../adapters/_shared/src/shell_invocations.ts";
@@ -85,7 +86,7 @@ export const TRACKER_WRITE_TOOLS: readonly string[] = [...ATLASSIAN_WRITE_TOOLS,
 /** The hooks.json PreToolUse matcher, generated from `TRACKER_WRITE_TOOLS`: any server spelling. */
 export const TRACKER_WRITE_MATCHER = `^mcp__.+__(${TRACKER_WRITE_TOOLS.join("|")})$`;
 
-/** §1 — inventory names that only read (tests/fixtures/tracker-tool-inventory.json, AC-STE-607.2). */
+/** §1 — inventory names that only read (adapters/_shared/data/tracker-tool-inventory.json, AC-STE-607.2). */
 export const TRACKER_READ_TOOLS: readonly string[] = [
   // atlassian
   "atlassianUserInfo",
@@ -756,6 +757,15 @@ function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAd
  * one turn cannot both take one receipt, however their hooks interleave. The
  * gated call's own tool_use never spends (it is where the walk stops); when it
  * is absent from the transcript it is taken to come after every other create.
+ *
+ * A create whose RECORDED result proves it never reached the tracker (`neverRan`:
+ * a hook or permission refusal, a user rejection, a 4xx) took nothing, so it
+ * spends nothing. Live Linear leg 2, step 17: a create matching its receipt was
+ * refused by this hook for want of an attach-target receipt, the walk spent the
+ * receipt on it anyway, and the corrected create was refused as "spent" with no
+ * legal path left (`decide --attempt retry-1` answered miss). A create with no
+ * result yet (a pending parallel sibling) or an ambiguous one (a timeout, a 5xx)
+ * still spends, exactly as before.
  */
 function createsBefore(
   lines: string[],
@@ -763,10 +773,18 @@ function createsBefore(
   gatedId: string | undefined,
   kind: CreateKind = TICKET_CREATES,
 ): Array<{ line: number; shape: CreateShape }> {
+  const neverReached = new Set<string>();
+  for (const p of parseLines(lines)) {
+    if (!p) continue;
+    for (const b of p.blocks) {
+      if (b.type === "tool_result" && typeof b.tool_use_id === "string" && b.is_error === true && neverRan(p, b)) neverReached.add(b.tool_use_id);
+    }
+  }
   const out: Array<{ line: number; shape: CreateShape }> = [];
   for (let idx = 0; idx < lines.length; idx++) {
     for (const b of contentBlocks(lines[idx]!)) {
       if (gatedId !== undefined && b.id === gatedId) return out;
+      if (typeof b.id === "string" && neverReached.has(b.id)) continue;
       const c = kind.pick(b, adapter);
       if (c) out.push({ line: idx, shape: kind.shape(c) });
     }
@@ -1249,25 +1267,19 @@ function namesKey(text: string, key: string): boolean {
 }
 
 /**
- * The ONE key a create's result names as created: the top-level `key` (Jira)
- * or `identifier` (Linear), or the same field of a top-level `issue`. Every
- * other key the result echoes — a parent Epic, a linked sibling — was not
- * created by this call. A result that is not JSON falls back to the first key
- * carrying the create's own Jira project prefix, and otherwise names nothing.
+ * The ONE key a create's result names as created, read by the shared reader
+ * (`tracker_answer.ts`): a Jira create's `key` — plain, or the one node of a
+ * wrapped answer — or a Linear create's top-level `id` (`STE-619`; the
+ * measured answer carries no `identifier`). Every other key the result echoes
+ * — a parent Epic, a linked sibling — was not created by this call, and a
+ * JSON answer in no measured shape names nothing. A result that is not JSON
+ * falls back to the first key carrying the create's own Jira project prefix,
+ * and otherwise names nothing.
  */
 function createdKeyOf(text: string, call: TrackerCall): string | null {
-  const pick = (o: unknown): string | null => {
-    if (!o || typeof o !== "object") return null;
-    const r = o as Record<string, unknown>;
-    for (const f of ["key", "identifier"]) {
-      const v = r[f];
-      if (typeof v === "string" && TICKET_KEY.test(v)) return v.toUpperCase();
-    }
-    return null;
-  };
   try {
-    const parsed = JSON.parse(text) as Record<string, unknown> | null;
-    return pick(parsed) ?? pick(parsed?.issue);
+    const read = readTrackerItem(call.adapter, JSON.parse(text));
+    return read.ok ? trackerItemKey(call.adapter, read.item) : null;
   } catch {
     const project = callShape(call.adapter, call.input).project;
     if (call.adapter !== "jira" || project === "") return null;
@@ -1362,7 +1374,9 @@ function consentLines(parsed: Array<ParsedLine | null>, key: string, verb: "Impo
     if (text) {
       const v = resolveInterviewAnswer(text, "tracker_orphan_import");
       const values = Array.isArray(v) ? v : [v];
-      if (values.some((x) => typeof x === "string" && namesKey(x, key))) out.push(idx);
+      // Exactly the ask's rule: the value is consent only when it IS the label
+      // (D-8 — a value merely naming the key read `Skip <KEY>` as consent).
+      if (values.some((x) => x === label)) out.push(idx);
     }
   });
   return out;
@@ -1610,8 +1624,9 @@ function gateMilestoneCreate(
  * §5 — a `container` call in a declared target, decided (AC-STE-608.10): an
  * Epic create or a `save_milestone` without `id` needs a create decision; no
  * toolkit flow edits a milestone, writes a project, or retires, restores or
- * renames a label; the one other permitted write is a `create_issue_label`
- * of the target's own `repo_tag`.
+ * renames a label; the one other permitted write is a label create of the
+ * target's own `repo_tag` — `create_issue_label`, or `save_issue_label` with no
+ * `id` (the create the Linear MCP steers to; it marks the former deprecated).
  */
 function gateContainer(
   call: TrackerCall,
@@ -1653,11 +1668,19 @@ function gateContainer(
       `leave the project to a person in the tracker; ${decideRemedy}.`,
     );
   }
-  if (call.tool === "create_issue_label") {
+  // A label CREATE: `create_issue_label`, or `save_issue_label` with no `id` —
+  // the Linear MCP marks create_issue_label deprecated and steers a model to
+  // save_issue_label, so the permit must cover both or the recommended tool is
+  // refused. A save_issue_label WITH an id is a rename, refused below.
+  if (call.tool === "create_issue_label" || (call.tool === "save_issue_label" && (call.input.id === undefined || call.input.id === null || call.input.id === ""))) {
     const name = typeof call.input.name === "string" ? call.input.name : "";
-    if (name !== "" && targets.some((t) => t.binding.repoTag === name)) return 0;
+    // Only a PLAIN label: a label group, or a label nested under one, named like
+    // the repo tag has no honest use, so it falls to the refusal below.
+    const parent = call.input.parent;
+    const plain = call.input.isGroup !== true && (parent === undefined || parent === null || parent === "");
+    if (plain && name !== "" && targets.some((t) => t.binding.repoTag === name)) return 0;
     return refuse(
-      `${where}: create_issue_label "${name}" is not a declared target's repo tag (${targets.map((t) => t.binding.repoTag ?? "none").join(", ")}), and no toolkit flow creates any other label.${note}`,
+      `${where}: ${call.tool} "${name}" is not a declared target's repo tag (${targets.map((t) => t.binding.repoTag ?? "none").join(", ")}), and no toolkit flow creates any other label.${note}`,
       `create only this repository's own tag label (name = its repo_tag); ${decideRemedy}.`,
     );
   }

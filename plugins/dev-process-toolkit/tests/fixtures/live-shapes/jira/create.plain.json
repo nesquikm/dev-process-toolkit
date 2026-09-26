@@ -1,0 +1,19 @@
+{
+  "provenance": {
+    "measured_at": "2026-08-24",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+      "projectKey": "FY",
+      "issueTypeName": "Task",
+      "summary": "Asset weight — re-encode published assets to webp, add Cache…",
+      "description": "<elided>"
+    },
+    "note": "plain shape, recorded from the claude.ai Atlassian connector (the same server family flips shape; mcp__atlassian search is recorded both ways)"
+  },
+  "answer": {
+    "id": "62097",
+    "key": "FY-32",
+    "self": "https://api.atlassian.com/ex/jira/aaaaaaaa-aaaa-4aaa-8aaa-000000000001/rest/api/3/issue/62097"
+  }
+}

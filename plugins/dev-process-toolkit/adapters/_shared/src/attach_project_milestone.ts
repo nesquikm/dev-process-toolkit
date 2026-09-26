@@ -1215,7 +1215,8 @@ export function planFileHeadingToMilestoneName(planFilePath: string): string {
 // Resolves the container a feature request's ticket will attach to BEFORE the
 // ticket exists, through `resolveAttachTarget` alone (no second find leg),
 // against a saved listing in the STE-608 decision front door's format, parsed
-// by that front door's own `readListingFile`. Prints `surface=` (plus `key=` /
+// by that front door's own `readListingFile` — and a create decided by a name
+// miss in a listing not proven complete refuses. Prints `surface=` (plus `key=` /
 // `id=` when the surface has one) and writes one `attach-target` receipt under
 // <projectRoot>. Everything is decided first and written last: every refusal
 // exits 1 with an NFR-10 message on stderr, nothing on stdout, nothing on disk.
@@ -1497,6 +1498,20 @@ async function runAttachFrontDoor(argv: readonly string[]): Promise<string[]> {
 
   // A permanent refusal propagates with its own NFR-10 text.
   const target = await resolveAttachTarget(provider, project, milestoneName, { sleep: async () => {} });
+
+  // A create decided by a NAME miss is only as good as the listing's
+  // completeness. The shared reader (`tracker_answer.ts`, via readListingFile)
+  // proves a Jira listing last or refuses it, but a Linear `list_milestones`
+  // answer of a full LINEAR_MILESTONE_WINDOW rows proves nothing about the
+  // milestones past it: a same-name milestone there would be duplicated.
+  // Identifier-keyed misses already refuse inside the resolver.
+  if (target.surface === "object-create" && !listing.complete) {
+    throw attachRefusal(
+      `Refusing: "${milestoneName}" is not in the listing, but the listing holds ${listing.rowKeys.length} rows — a full list_milestones window, which proves nothing about the milestones past it — so its absence is not proven and a create could duplicate it.`,
+      `search project ${project} for "${milestoneName}" past the first ${listing.rowKeys.length} milestones; if it exists, bind the plan to it, otherwise create it deliberately and resolve again.`,
+      `mode=${mode}, project=${project}, milestone=${milestoneName}, rows=${listing.rowKeys.length}, complete=false`,
+    );
+  }
 
   // STE-611 AC-STE-611.7 — provenance: in a shared repository, a resolved
   // existing container is bound only by a plan already committed at HEAD or by

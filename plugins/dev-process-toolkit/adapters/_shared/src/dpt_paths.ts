@@ -141,5 +141,14 @@ function assertPathSafeSessionId(sessionId: string): void {
  */
 export function receiptsDir(projectRoot: string, sessionId: string): string {
   assertPathSafeSessionId(sessionId);
-  return join(dptRoot(projectRoot), "ledger", "receipts", sessionId);
+  return join(receiptsRoot(projectRoot), sessionId);
+}
+
+/**
+ * The directory holding every session's receipts, `<projectRoot>/.dpt/ledger/receipts`.
+ * Composed here, beside `receiptsDir`, so a reader that walks all sessions (the
+ * live grader) does not become a second composer of the segment (AC-STE-602.7).
+ */
+export function receiptsRoot(projectRoot: string): string {
+  return join(dptRoot(projectRoot), "ledger", "receipts");
 }

@@ -67,7 +67,7 @@ NFR-10 canonical shape during `/setup`.
 | `addCommentToJiraIssue` | `mcp__atlassian__addCommentToJiraIssue` | Available on the live MCP surface (smoke-test #5 enumerated tool list) for callers that need to post a markdown comment. Pass `contentFormat: "markdown"`. No /implement-internal caller today. |
 | Project visibility probe | `mcp__atlassian__getVisibleJiraProjects` | Called by `/setup` step 7b before any other Jira operation; refuses with NFR-10 canonical shape when the configured `project` key is not visible to the authenticated principal. |
 | `listMilestones` (optional driver method) | `mcp__atlassian__searchJiraIssuesUsingJql` | Enumerate milestone Epics via `issuetype = Epic` (primary leg) and union the grandfathered `milestone-<M-token>` labels (legacy leg). Both legs paginate with client-side union-grammar filters, dedupe, and return bare `M_<epic-key>` / `M<N>` tokens. Best-effort: any failure ⇒ `[]`. Pure read; see § Milestone Listing below. |
-| `list_active_frs` | `mcp__atlassian__searchJiraIssuesUsingJql` | The orphan-listing read: JQL `project = <KEY> AND statusCategory != Done` with `fields: [key, summary, issuetype, labels, description, creator, project]`, paginated with `nextPageToken` until the response carries `isLast: true`. Save every page verbatim as a JSON file; the saved pages feed the front doors — `container_ownership.ts` (`list` / `consent`, see `docs/spec-write-tracker-mode.md` § Orphan listing) and probe #49's `tracker_local_reconciliation_drift.ts` — which classify each ticket by its labels and refuse a page lacking `labels` or `description` in shared mode. Pure read; no mutation. |
+| `list_active_frs` | `mcp__atlassian__searchJiraIssuesUsingJql` | The orphan-listing read: JQL `project = <KEY> AND statusCategory != Done` with `fields: [key, summary, issuetype, labels, description, creator, project]`, paginated with `nextPageToken` until the response carries `isLast: true` — or, when the Atlassian server answers in its wrapped shape (`context` + `issues.nodes`), with `issues.pageInfo.endCursor` until `issues.pageInfo.hasNextPage` is false; the server was observed to flip between the two within days, and the front doors read both. Save every page verbatim as a JSON file — each page after the first with the cursor it was fetched with added as a top-level `requestCursor`, so a dropped or reordered page shows as a broken chain; the saved pages feed the front doors — `container_ownership.ts` (`list` / `consent`, see `docs/spec-write-tracker-mode.md` § Orphan listing) and probe #49's `tracker_local_reconciliation_drift.ts` — which classify each ticket by its labels and refuse a page lacking `labels` or `description` in shared mode. Pure read; no mutation. |
 
 > **No `deleteJiraIssue` tool.** The MCP surface does not expose issue
 > deletion. `/spec-archive` for Jira transitions the ticket to `Done` (or a
@@ -305,7 +305,7 @@ the canonical form (no round-trip loop).
         by hand) and refuses, non-zero, a tag the create would not forward.
      2. `mcp__atlassian__searchJiraIssuesUsingJql` with exactly that `jql`
         and those `fields` — no edits to either.
-     3. Save every returned page verbatim as a JSON file, then
+     3. Save every returned page verbatim as a JSON file (each page after the first with its `requestCursor`, the cursor it was fetched with), then
         `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [container] --attempt fast`
         — prints ONE JSON line `{ outcome, key?, reason?, capability?, createPayload? }`.
         Run it as ONE plain command (no `cd … &&`, `;`, pipe or redirection):
@@ -675,13 +675,13 @@ driver simply supplies this method.
 1. **Epic leg (primary)** — `mcp__atlassian__searchJiraIssuesUsingJql` with
    `jql = "project = <projectKey> AND issuetype = Epic ORDER BY created DESC"`
    (project key from `### Jira`.project), paginating page by page. Feed each
-   page's Epics (`{ key, summary }`) into the helper's `fetchEpicPage`.
+   raw search answer, verbatim — plain or wrapped — into the helper's `fetchEpicPage`.
    Client-side name filter: an Epic counts iff its summary's first
    whitespace-delimited word is a valid milestone token (union grammar); each
    match contributes `M_<epic-key>` (key verbatim).
 2. **Label leg (grandfathered labels and freshly minted Epics)** — the same JQL tool with
    `jql = "project = <projectKey> AND labels IS NOT EMPTY ORDER BY created DESC"`,
-   feeding each page's issues (their `labels` arrays) into `fetchPage`.
+   feeding each raw search answer, verbatim, into `fetchPage`.
    This JQL deliberately carries no `issuetype` filter, and that absence is
    what lets the label leg return an Epic carrying the `milestone-M_<epic-key>`
    label the mint writes — so a repo joining a shared project finds a freshly
@@ -702,7 +702,8 @@ driver simply supplies this method.
 
 **Pagination cap, no silent truncation.** Each leg paginates to a documented
 cap (`MILESTONE_PAGE_CAP`, default 50; overridable via `opts.pageCap`). If the
-cap is reached before a page reports `isLast`, the helper stops that leg and
+cap is reached before a page proves it is the last (plain `isLast`, or wrapped
+`issues.pageInfo.hasNextPage: false`), the helper stops that leg and
 surfaces a one-line log (`opts.log`) noting pages may have been dropped —
 never a silent truncation.
 
