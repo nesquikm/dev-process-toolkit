@@ -42,7 +42,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -67,6 +67,16 @@ const RUN_DATE = "2026-09-21";
 const KICKOFF = "230148c9";
 const REAL_PLAN = "specs/plan/M_2306b6.md";
 const REAL_PLAN_SUITE = `${PLUGIN_REL}/tests/m_2306b6-ste-618-live-proof-real-plan.test.ts`;
+/**
+ * The real plan's text, found by the gate's own resolver (AC-STE-618.1: "at
+ * either path"). Reading the live path only went red the moment the milestone
+ * was archived on its way to the release, although the gate resolves both.
+ */
+async function realPlanText(): Promise<{ rel: string; text: string }> {
+  const r = (await import(GATE_PATH)).resolvePlan(REPO, REAL_PLAN) as { ok: true; rel: string; abs: string } | { ok: false; reason: string; detail: string };
+  if (!r.ok) throw new Error(`the real plan does not resolve: ${r.reason} — ${r.detail}`);
+  return { rel: r.rel, text: readFileSync(r.abs, "utf-8") };
+}
 const RELEASED = "2.99.0"; // the base repo's CHANGELOG carries this heading
 const UNRELEASED = "2.98.0"; // ...and not this one
 const RUN_VERSION = PLUGIN_VERSION; // the plugin version every synthetic bundle records at its run; the base CHANGELOG carries it too
@@ -474,7 +484,19 @@ describe("AC-STE-618.1 — the Live proof table", () => {
     const root = base().root;
     const s = await setup(root);
     expect(liveProofCapBreaches(root, s.planPath)).toEqual([]);
-    expect(liveProofCapBreaches(REPO, REAL_PLAN)).toEqual([]);
+    // The narrative scan measures ACTIVE plans only and never enters
+    // specs/plan/archive/. Once the milestone is archived, the same section is
+    // measured from a scratch root holding the resolved plan's text at the
+    // active path, so the cap is still checked rather than silently skipped.
+    const real = await realPlanText();
+    const scratch = mkdtempSync(join(tmpdir(), "ste618-cap-"));
+    try {
+      mkdirSync(join(scratch, "specs", "plan"), { recursive: true });
+      writeFileSync(join(scratch, REAL_PLAN), real.text);
+      expect(liveProofCapBreaches(scratch, REAL_PLAN)).toEqual([]);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
   }, T);
 
   test("NEGATIVE CONTROL — a Live proof section that breaches the plan narrative cap fails the same check", async () => {
@@ -1070,7 +1092,7 @@ describe("AC-STE-618.8 — the closing guard", () => {
   // and landed the real-plan suite together, so the guard's trigger has fired
   // and it is satisfied by the suite existing — the state this now pins.
   test("AFTER THE LIVE PROOF: the real plan's rows are filled, the guard's trigger has fired, and the real-plan suite satisfies it", async () => {
-    const rows = liveProofRows(readFileSync(join(REPO, REAL_PLAN), "utf-8"));
+    const rows = liveProofRows((await realPlanText()).text);
     const [header, ...body] = rows;
     expect(header![0]).toBe("Tracker");
     expect(body.map((r) => r[0]).sort()).toEqual(["jira", "linear"]);
@@ -1178,8 +1200,9 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
 // ===========================================================================
 
 describe("AC-STE-618.9 — the real plan", () => {
-  test("the milestone-level acceptance table carries the front-door command with expected exit 0", () => {
-    const text = readFileSync(join(REPO, REAL_PLAN), "utf-8");
+  test("the milestone-level acceptance table carries the front-door command with expected exit 0", async () => {
+    // The command spells the live path; the gate resolves it at either path, so it stays right once archived.
+    const { text } = await realPlanText();
     const row = text.split("\n").find((l) => l.startsWith("|") && l.includes("live_proof_gate.ts"));
     expect(row, "a milestone-level acceptance row runs the gate").not.toBeUndefined();
     const cells = row!.slice(1, -1).split("|").map((c) => c.trim());
