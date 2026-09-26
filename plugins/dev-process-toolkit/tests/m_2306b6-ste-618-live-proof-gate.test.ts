@@ -1065,17 +1065,25 @@ describe("AC-STE-618.8 — the closing guard", () => {
     expect(ok.ok).toBe(true);
   }, T);
 
-  test("TODAY: the real plan's rows read pending, the FR is active, and the guard is quiet", async () => {
+  // Until the second leg's evidence commit this test pinned the pre-proof state
+  // ("the rows read pending, the guard is quiet"). That commit filled both rows
+  // and landed the real-plan suite together, so the guard's trigger has fired
+  // and it is satisfied by the suite existing — the state this now pins.
+  test("AFTER THE LIVE PROOF: the real plan's rows are filled, the guard's trigger has fired, and the real-plan suite satisfies it", async () => {
     const rows = liveProofRows(readFileSync(join(REPO, REAL_PLAN), "utf-8"));
     const [header, ...body] = rows;
     expect(header![0]).toBe("Tracker");
     expect(body.map((r) => r[0]).sort()).toEqual(["jira", "linear"]);
-    for (const r of body) expect(r.slice(1).every((c) => c === "pending"), `row ${r[0]} reads pending`).toBe(true);
-    expect(existsSync(join(REPO, "specs", "frs", "STE-618.md"))).toBe(true);
+    for (const r of body) expect(r.slice(1).some((c) => c === "pending"), `row ${r[0]} reads no pending cell`).toBe(false);
+    expect(existsSync(join(REPO, REAL_PLAN_SUITE)), "the real-plan suite exists").toBe(true);
     const gate = await shippedGate();
     const g = await gate.realPlanSuiteGuard({ repoRoot: REPO, fr: "STE-618", planPath: REAL_PLAN, suitePath: REAL_PLAN_SUITE });
     expect(g.ok).toBe(true);
     expect(g.reason).toBeNull();
+    expect(g.detail).toMatch(/reads other than pending/);
+    const missing = await gate.realPlanSuiteGuard({ repoRoot: REPO, fr: "STE-618", planPath: REAL_PLAN, suitePath: `${PLUGIN_REL}/tests/no-such-real-plan-suite.test.ts` });
+    expect(missing.ok, "CONTROL: the same guard without the suite refuses").toBe(false);
+    expect(missing.reason).toBe("real-plan-suite-missing");
   }, T);
 });
 
@@ -1179,12 +1187,16 @@ describe("AC-STE-618.9 — the real plan", () => {
     expect(cells[2]).toMatch(/^exit 0\b/);
   });
 
-  test("TODAY the front door over the real plan exits 1 naming pending", () => {
+  // Pinned "exits 1 naming pending" until the evidence commit filled the table.
+  // Now it pins the plan's own milestone-acceptance row: exit 0, both trackers
+  // pass, and a mode line (pre-release until /ship-milestone stamps shipped_in).
+  test("AFTER THE LIVE PROOF the front door over the real plan exits 0 with jira pass and linear pass", () => {
     const out = frontDoor(REPO, REAL_PLAN);
-    expect(out.code).toBe(1);
+    expect(out.code, `${out.stdout}\n${out.stderr}`).toBe(0);
     const lines = out.stdout.split("\n");
-    expect(lines.find((l) => /^jira\b/.test(l))).toMatch(/\bpending\b/);
-    expect(lines.find((l) => /^linear\b/.test(l))).toMatch(/\bpending\b/);
+    expect(lines[0]).toMatch(/^mode=(pre-release|post-release)$/);
+    expect(lines.find((l) => /^jira\b/.test(l))).toBe("jira pass");
+    expect(lines.find((l) => /^linear\b/.test(l))).toBe("linear pass");
   }, T);
 });
 
