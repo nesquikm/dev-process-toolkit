@@ -2243,6 +2243,47 @@ const answeredBefore = (s: BundleSession, index: number, label: string): boolean
   return consentTimes(s, label).some((t) => t < at);
 };
 
+/**
+ * STE-643 — mirrors the hook's `answeredAfter` rule: a `milestone-decision`
+ * receipt recording `default: "forbidden"` authorises its write only after an
+ * AskUserQuestion — after the decision's announcement (call `from`) and before
+ * the write (call `to`), in the write's own chain — that names the decision's
+ * key or title in a question's own text, offers the
+ * consent label among its options, and whose recorded answer is exactly that
+ * label. The label is computed from the decision's act, key and title, never
+ * from `evidence.options`. An errored question authorises nothing. A decision
+ * whose default is not forbidden needs no answer.
+ * Twin: `answeredAfter` / `consentLabel` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ * (separate modules by design — keep both in step).
+ */
+function forbiddenDecisionConsented(s: BundleSession, decision: BundleReceipt, from: number, to: number): boolean {
+  const ev = decision.evidence;
+  if (ev.default !== "forbidden") return true;
+  const key = str(ev.key);
+  const title = str(ev.title);
+  const label = ev.act === "join" ? `Join \`${key}\`` : `Create \`${title}\``;
+  const namesKey = (text: string): boolean =>
+    key !== "" && new RegExp(`(^|[^A-Za-z0-9_-])${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_]|-[0-9])`).test(text);
+  for (let j = from + 1; j < to && j < s.calls.length; j++) {
+    const c = s.calls[j]!;
+    if (c.name !== "AskUserQuestion" || c.result.isError) continue;
+    // The hook reads only the gated call's own transcript, so a question
+    // asked in another chain (a subagent's sidechain) never consents for it.
+    if (c.sidechain !== s.calls[to]?.sidechain) continue;
+    const questions = (c.input as { questions?: unknown }).questions;
+    const text = Array.isArray(questions) ? questions.map((q) => String((q as { question?: unknown } | null)?.question ?? "")).join("\n") : "";
+    if (!(namesKey(text) || (title !== "" && text.includes(title)))) continue;
+    const offers = Array.isArray(questions) && questions.some((q) => {
+      const options = (q as { options?: unknown } | null)?.options;
+      return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
+    });
+    if (!offers) continue;
+    const answers = [...c.result.text.matchAll(/"="([^"]*)"(?=[.,]\s|[.,]?$)/g)].map((m) => m[1]);
+    if (answers.length > 0 && answers.every((a) => a === label)) return true;
+  }
+  return false;
+}
+
 const rootOfPath = (p: string): Root | null => (/^<([AB])>\//.exec(p)?.[1] as Root | undefined) ?? null;
 
 /**
@@ -2383,11 +2424,15 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
       } else if (cls === "milestone-create") {
         const project = tracker === "jira" ? str(c.input.projectKey) : str(c.input.project);
         const name = tracker === "jira" ? str(c.input.summary) : str(c.input.name);
-        const decision = before
-          .map((a) => receiptOf(a, "milestone-decision"))
-          .find((r) => r !== null && !spent.has(r.path) && r.evidence.act === "create" && sameName(str(r.container), project) && str(r.evidence.title) === name);
+        const found = before
+          .map((a) => ({ a, r: receiptOf(a, "milestone-decision") }))
+          .find(({ r }) => r !== null && !spent.has(r.path) && r.evidence.act === "create" && sameName(str(r.container), project) && str(r.evidence.title) === name);
+        const decision = found?.r ?? null;
         if (!decision) why = `milestone-container create of "${name}" in ${project} follows no unspent create decision announced by resolve_milestone_identity.ts for that project and title`;
-        else spent.add(decision.path);
+        else {
+          spent.add(decision.path);
+          if (!forbiddenDecisionConsented(s, decision, found!.a.index, i)) why = `milestone-container create of "${name}" in ${project} relied on a create decision (${decision.path}) that printed default=forbidden, and no AskUserQuestion after it was answered "Create \`${name}\`"`;
+        }
       } else {
         const subjects = subjectKeys(c);
         const keys = subjects.filter(inRunContainers);
@@ -2407,16 +2452,25 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           const owned = (k: string): boolean => {
             if (created.has(k)) return true;
             if ([...roots].some((r) => b.repos[r].frBindings.some((f) => f.key.toUpperCase() === k))) return true;
-            return before.some((a) => {
+            const receipted = before.some((a) => {
               const reuse = receiptOf(a, "reuse");
               if (reuse && str(reuse.evidence.key).toUpperCase() === k) return true;
               const bind = receiptOf(a, "binding");
               if (bind && bind.subject.toUpperCase() === k && (bind.decision !== "adopt" || answeredBefore(s, a.index, `Adopt ${k}`))) return true;
               const imp = receiptOf(a, "import");
-              if (imp && imp.subject.toUpperCase() === k && answeredBefore(s, a.index, `Import ${k}`)) return true;
-              const join = tracker === "jira" && labelsOnly ? receiptOf(a, "milestone-decision") : null;
-              return join !== null && join.evidence.act === "join" && str(join.evidence.key).toUpperCase() === k;
+              return imp !== null && imp.subject.toUpperCase() === k && answeredBefore(s, a.index, `Import ${k}`);
             });
+            if (receipted) return true;
+            if (tracker !== "jira" || !labelsOnly) return false;
+            // STE-643 — as in the hook's gateJoinedLabels, the LATEST join of
+            // the key governs: a later forbidden, unanswered join is not
+            // rescued by an earlier allowed one.
+            let latest: { a: ModuleAnnouncement; join: BundleReceipt } | null = null;
+            for (const a of before) {
+              const join = receiptOf(a, "milestone-decision");
+              if (join && join.evidence.act === "join" && str(join.evidence.key).toUpperCase() === k) latest = { a, join };
+            }
+            return latest !== null && forbiddenDecisionConsented(s, latest.join, latest.a.index, i);
           };
           const ok = bareTool(c.name) === "createIssueLink" ? keys.some(owned) : keys.every(owned);
           if (!ok) why = `write on ${keys.join(", ")} follows no receipt, creation or FR binding in this session that makes the key its repository's`;
