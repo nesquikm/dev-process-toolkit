@@ -693,10 +693,26 @@ describe("AC-STE-616.14 — no vacuous scenario", () => {
 // AC-STE-616.11 — the matcher, the classified inventory, the spawned hook
 // ===========================================================================
 
+let gatedCopies = 0;
+
 async function spawnHook(tracker: Tracker, root: string, tool: string, input: Record<string, unknown>, transcript: string, server: string): Promise<ProcRun> {
+  // STE-641: the hook waits up to 2000 ms for the gated call's own tool_use
+  // line, so each run grades a per-run copy of the transcript ending in it, as
+  // Claude Code's flushed transcript does — without it every gated-write case
+  // here would wait the full budget.
+  gatedCopies += 1;
+  const runTranscript = `${transcript}.run-${gatedCopies}.jsonl`;
+  const body = existsSync(transcript) ? readFileSync(transcript, "utf-8") : "";
+  const gated = JSON.stringify({
+    type: "assistant",
+    sessionId: "s616-ac11",
+    timestamp: new Date().toISOString(),
+    message: { id: `msg_616_ac11_${gatedCopies}`, role: "assistant", content: [{ type: "tool_use", id: "toolu_616_ac11", name: `mcp__${server}__${tool}`, input }] },
+  });
+  writeFileSync(runTranscript, `${body}${body === "" || body.endsWith("\n") ? "" : "\n"}${gated}\n`);
   const payload = JSON.stringify({
     session_id: "s616-ac11",
-    transcript_path: transcript,
+    transcript_path: runTranscript,
     cwd: root,
     hook_event_name: "PreToolUse",
     tool_name: `mcp__${server}__${tool}`,
