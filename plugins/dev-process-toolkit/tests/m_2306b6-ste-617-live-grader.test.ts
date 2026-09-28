@@ -3116,7 +3116,8 @@ describe("HARDENING 1 — ungated-write covers every write the tracker-write hoo
       const s = session(b, "S3");
       const decide = s.calls.findIndex((c) => /resolve_milestone_identity\.ts/.test(String(c.input.command ?? "")));
       expect(decide, "CONTROL — the decision run is followed by the container create").toBe(1);
-      swapCalls(s, decide, decide + 1);
+      // STE-644: the re-list sits between the decision and the create, so the swap names the create.
+      swapCalls(s, decide, s.calls.indexOf(createCallOf(s)));
       expect(ungatedIn(grade(b), s.sessionId)).toBe(true);
       expect(codes(grade(buildPassingBundle(t)))).not.toContain("ungated-write");
     });
@@ -3664,11 +3665,12 @@ describe("MEASURED SHAPES — the grader reads tracker answers only through trac
         }
         return [];
       };
-      expect(listings.map(keysOf), "CONTROL — each recorded milestone listing carries no paging field").toEqual([["milestones"], ["milestones"]]);
+      // STE-644: three listings — A's decision listing, A's re-list before its create, B's decision listing.
+      expect(listings.map(keysOf), "CONTROL — each recorded milestone listing carries no paging field").toEqual([["milestones"], ["milestones"], ["milestones"]]);
       const r = gradeExtracted(extractFor(m));
       expect({ outcome: r.outcome, unlisted: findingsOf(r, "unlisted-decision") }).toEqual({ outcome: "pass", unlisted: [] });
       const listed = extractedBundle(extractFor(m)).sessions.filter((s) => s.marker === "S3").flatMap((s) => s.calls.filter((c) => /__list_milestones$/.test(c.name)));
-      expect(listed.map((c) => c.result.lastPage)).toEqual([true, true]);
+      expect(listed.map((c) => c.result.lastPage)).toEqual([true, true, true]);
     });
   });
   test("HIGH-B, REFUSAL TWIN — a listing of exactly LINEAR_MILESTONE_WINDOW rows is not proven complete, so B's join decision is unlisted-decision; one row fewer is listed", () => {
@@ -5271,5 +5273,96 @@ describe("AC-STE-643.8 — the live grader grades a write that relied on an unan
   test("jira: CONTROL (HIR P4) — a forbidden title join, then a LATER allowed key join, then the labels write → not ungated-write", () => {
     const { b, w } = twoJoins(["title", "key"]);
     expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// STE-644 (M_101065) — the live grader mirrors the hook's re-list rule: a
+// milestone-container create is gated only when, after its create decision,
+// the session recorded a canonical, complete re-list of the project's
+// containers whose last result is within 120 s of the create, holding no open
+// same-title container. The passing bundle's S3 mint re-lists; each fixture
+// below differs from it in that re-list alone. RED at d7ae0187: the grader
+// accepts the decision alone.
+// ===========================================================================
+
+describe("STE-644 — the live grader grades a milestone create without a qualifying re-list as ungated-write", () => {
+  for (const t of TRACKERS) {
+    /** S3 A's mint and its re-list (the call just before the create). */
+    const mint = (b: LiveBundle) => {
+      const s = session(b, "S3");
+      const create = createCallOf(s);
+      const relist = s.calls[s.calls.indexOf(create) - 1]!;
+      const decide = bashCall(s, /resolve_milestone_identity\.ts/);
+      return { s, create, relist, decide };
+    };
+
+    test(`${t}: CONTROL — the passing bundle's S3 mint re-lists after its decision and the create is not ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { s, create, relist, decide } = mint(b);
+      expect(relist.name.endsWith(t === "jira" ? "searchJiraIssuesUsingJql" : "list_milestones"), "CONTROL — the call before the create is the re-list").toBe(true);
+      expect(s.calls.indexOf(decide)).toBeLessThan(s.calls.indexOf(relist));
+      expect(ungatedAt(grade(b), create.ref)).toBe(false);
+    });
+    test(`${t}: AC-STE-644.1 — the same create with the re-list removed is ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { s, create, relist } = mint(b);
+      s.calls.splice(s.calls.indexOf(relist), 1);
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: AC-STE-644.1 — a re-list recorded BEFORE the decision does not gate the create (ungated-write)`, () => {
+      const b = buildPassingBundle(t);
+      const { s, create, relist, decide } = mint(b);
+      swapCalls(s, s.calls.indexOf(decide), s.calls.indexOf(relist));
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: AC-STE-644.2 — a create sent 121 s after the re-list's result is ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { create, relist } = mint(b);
+      create.at = new Date(Date.parse(relist.at) + 121_000).toISOString();
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: AC-STE-644.5 — a re-list holding an open container of the create's title is ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { create, relist } = mint(b);
+      const name = String(t === "jira" ? create.input.summary : create.input.name);
+      const dup: TrackerItem = {
+        key: t === "jira" ? `${b.run.container}-190` : "5f3a9cff-7d2e-4f00-9a00-0000000000fe",
+        summary: name,
+        labels: [],
+        status: t === "jira" ? "To Do" : "",
+        parent: null,
+        milestone: null,
+        issueType: t === "jira" ? "Epic" : null,
+        kind: t === "jira" ? "issue" : "milestone",
+        container: t === "jira" ? b.run.container : "",
+      };
+      relist.result.items = [dup];
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: AC-STE-644.4 — a re-list whose last page is not proven last is ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { create, relist } = mint(b);
+      relist.result.lastPage = false;
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+  }
+
+  test("jira: AC-STE-644.3 — a re-list narrowed by summary (the decision listing's own JQL) is ungated-write", () => {
+    const b = buildPassingBundle("jira");
+    const { create, relist } = (() => {
+      const s = session(b, "S3");
+      const c = createCallOf(s);
+      return { create: c, relist: s.calls[s.calls.indexOf(c) - 1]! };
+    })();
+    relist.input.jql = `project = ${b.run.container} AND issuetype = Epic AND summary ~ "${NONCE}"`;
+    expect(ungatedAt(grade(b), create.ref)).toBe(true);
+  });
+  test("linear: AC-STE-644.3 — a list_milestones of another project is ungated-write", () => {
+    const b = buildPassingBundle("linear");
+    const s = session(b, "S3");
+    const create = createCallOf(s);
+    s.calls[s.calls.indexOf(create) - 1]!.input.project = "Some Other Project";
+    expect(ungatedAt(grade(b), create.ref)).toBe(true);
   });
 });

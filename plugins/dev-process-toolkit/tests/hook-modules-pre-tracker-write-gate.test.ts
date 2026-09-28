@@ -315,6 +315,20 @@ function adoptReceipt(root: string, key: string): string {
 
 let transcriptSeq = 0;
 
+/** STE-644 — the canonical container listing of project GF (adapters/jira.md). */
+const CANONICAL_JQL = "project = GF AND issuetype = Epic";
+
+interface RelistOpts {
+  ageMs?: number;
+  jql?: string;
+  pages?: Array<Record<string, unknown>[]>;
+  tracker?: "jira" | "linear";
+  project?: string;
+  firstToken?: string | null;
+  lastProven?: boolean;
+  isError?: boolean;
+}
+
 type AskOutcome = { answer: string } | "error" | "denied";
 
 /** A session transcript in the real Claude Code JSONL shape. */
@@ -327,23 +341,30 @@ class Session {
     return `toolu_607_${String(this.seq).padStart(5, "0")}`;
   }
 
-  toolUse(name: string, input: unknown): string {
+  /**
+   * STE-644: every tool_use / tool_result line carries a record-level ISO
+   * `timestamp`, as Claude Code stamps each record; `at` overrides "now"
+   * (the re-list freshness legs age a listing this way).
+   */
+  toolUse(name: string, input: unknown, at?: string): string {
     const id = this.nextId();
     this.lines.push(
       JSON.stringify({
         type: "assistant",
         sessionId: SESSION,
+        timestamp: at ?? new Date().toISOString(),
         message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
       }),
     );
     return id;
   }
 
-  toolResult(id: string, content: unknown, isError = false, extra: Record<string, unknown> = {}): void {
+  toolResult(id: string, content: unknown, isError = false, extra: Record<string, unknown> = {}, at?: string): void {
     this.lines.push(
       JSON.stringify({
         type: "user",
         sessionId: SESSION,
+        timestamp: at ?? new Date().toISOString(),
         message: {
           role: "user",
           content: [
@@ -446,6 +467,44 @@ class Session {
       );
     }
     return id;
+  }
+
+  /**
+   * STE-644 — a harness-recorded re-list of the project's containers: Jira
+   * `searchJiraIssuesUsingJql` pages (canonical JQL `project = GF AND
+   * issuetype = Epic` unless `jql` narrows it), chained by `nextPageToken`
+   * from an unpaged first request to a page saying `isLast: true`; or one
+   * Linear `list_milestones` answer for `project` (default DPT). Every line
+   * is stamped `ageMs` before now.
+   *   pages       — the rows per page (default one page holding `rows`)
+   *   firstToken  — the first request carries this token (not unpaged)
+   *   lastProven  — false: the final page says `isLast: false` and hands a token
+   *   isError     — the listing's results are errors
+   */
+  relist(rows: Record<string, unknown>[], o: RelistOpts = {}): void {
+    const at = new Date(Date.now() - (o.ageMs ?? 0)).toISOString();
+    const text = (v: unknown) => [{ type: "text", text: JSON.stringify(v) }];
+    if ((o.tracker ?? "jira") === "linear") {
+      const id = this.toolUse(LINEAR("list_milestones"), { project: o.project ?? "DPT" }, at);
+      this.toolResult(id, o.isError ? "Linear 500" : text({ milestones: rows }), o.isError === true, {}, at);
+      return;
+    }
+    const pages = o.pages ?? [rows];
+    pages.forEach((pageRows, i) => {
+      const last = i === pages.length - 1;
+      const token = i === 0 ? (o.firstToken ?? null) : `relist-tok-${i}`;
+      const input = {
+        cloudId: CLOUD,
+        jql: o.jql ?? CANONICAL_JQL,
+        fields: ["summary", "status", "issuetype", "project", "labels"],
+        maxResults: 100,
+        ...(token === null ? {} : { nextPageToken: token }),
+      };
+      const proven = last && o.lastProven !== false;
+      const answer = { issues: pageRows, isLast: proven, ...(proven ? {} : { nextPageToken: `relist-tok-${i + 1}` }) };
+      const id = this.toolUse(JIRA("searchJiraIssuesUsingJql"), input, at);
+      this.toolResult(id, o.isError ? "Jira 500" : text(answer), o.isError === true, {}, at);
+    });
   }
 
   save(dir: string): string {
@@ -1976,6 +2035,7 @@ function pendingToolUsesOneLine(s: Session, uses: Array<{ id: string; name: stri
     JSON.stringify({
       type: "assistant",
       sessionId: SESSION,
+      timestamp: new Date().toISOString(),
       message: { role: "assistant", content: uses.map((u) => ({ type: "tool_use", ...u })) },
     }),
   );
@@ -3197,6 +3257,7 @@ describe("AC-STE-608.10 (a) — an Epic create needs a create decision for the s
     const s = new Session();
     const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
     s.bash(d.command, d.out);
+    s.relist([]); // STE-644: a fresh canonical re-list after the decision
     expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
   }, 30_000);
 
@@ -3284,6 +3345,7 @@ describe("AC-STE-608.10 (b) — save_milestone", () => {
     const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: [] });
     const s = new Session();
     s.bash(d.command, d.out);
+    s.relist([], { tracker: "linear" }); // STE-644
     expectPermit(await runSh(LINEAR("save_milestone"), { project: "DPT", name: "Payouts" }, { cwd: root, transcript: s.save(scratch) }));
   }, 30_000);
 
@@ -3462,6 +3524,7 @@ describe("AC-STE-608.10 hardening — only the decision front door's own run ann
     const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
     const s = new Session();
     s.bash(d.command, d.out);
+    s.relist([]); // STE-644
     expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
   }, 30_000);
 });
@@ -3474,6 +3537,7 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
       const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
       const s = new Session();
       s.bash(d.command, d.out);
+      s.relist([]); // STE-644
       pending(s, [
         { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
         { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
@@ -3495,6 +3559,7 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
     const s = new Session();
     s.bash(d.command, d.out);
     s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), "PreToolUse:mcp__atlassian__createJiraIssue hook error: [x]: Refusing: createJiraIssue in <BE>: refused for another reason.", true);
+    s.relist([]); // STE-644
     expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
   }, 30_000);
 
@@ -3543,6 +3608,7 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
     s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Refunds"), { id: "10150", key: "GF-150", self: "x" }, false);
     const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
     s.bash(d.command, d.out);
+    s.relist([epicRow("GF-150", "BE Refunds")]); // STE-644: another title's open Epic refuses nothing
     expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
   }, 30_000);
 
@@ -3558,6 +3624,7 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
         const d = realResolve(w.be, ["jira", "GF", "--title", title], w.scratch, EMPTY_JIRA_PAGE);
         s.bash(d.command, d.out);
       }
+      s.relist([]); // STE-644
       pending(s, [
         { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
         { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Refunds") },
@@ -3578,6 +3645,7 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
         const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
         s.bash(d.command, d.out);
       }
+      s.relist([]); // STE-644
       pending(s, [
         { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
         { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
@@ -4076,6 +4144,7 @@ describe("M_685ff6 review — the latest decision for a title governs its create
     s.bash(early.command, early.out);
     const later = realResolve(w.be, ["jira", "GF", "--title", "Payouts"], w.scratch, EMPTY_JIRA_PAGE);
     s.bash(later.command, later.out);
+    s.relist([]); // STE-644 — the listing the later create decision was made on
     expectPermit(
       await runSh(JIRA("createJiraIssue"), EPIC_CREATE("Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }),
     );
@@ -4267,6 +4336,7 @@ describe("M_685ff6 review r2 — the latest decision governs a title by the ONE 
       { issues: [epicRow("GF-85", "Payments")], isLast: true },
     );
     s.bash(later.command, later.out);
+    s.relist([epicRow("GF-85", "Payments")]); // STE-644
     expectPermit(
       await runSh(JIRA("createJiraIssue"), EPIC_CREATE("payouts"), { cwd: w.be, transcript: s.save(w.scratch) }),
     );
@@ -4555,6 +4625,7 @@ describe("AC-STE-641.2 / .3 — a gated line that never arrives", () => {
     const epic = new Session();
     const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
     epic.bash(d.command, d.out);
+    epic.relist([]); // STE-644
     expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: epic.save(w.scratch), toolUseId: GATED_641 }));
 
     const w2 = makeWorld();
@@ -4983,6 +5054,7 @@ describe("STE-643 — a forbidden default needs an answered consent", () => {
       const { root, transcript } = cappedCreate(50, (s, d) => {
         s.bash(d.command, d.out);
         askCreate(s, { answer: CREATE_PAYOUTS });
+        s.relist(cappedRows(50), { tracker: "linear" }); // STE-644: consent permits the 50-row re-list
       });
       expectPermit(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript }));
     }, 60_000);
@@ -5005,7 +5077,10 @@ describe("STE-643 — a forbidden default needs an answered consent", () => {
     }, 90_000);
 
     test("AC-STE-643.5 control — 49 rows (default=allowed), no answer → exit 0", async () => {
-      const { root, transcript } = cappedCreate(49);
+      const { root, transcript } = cappedCreate(49, (s, d) => {
+        s.bash(d.command, d.out);
+        s.relist(cappedRows(49), { tracker: "linear" }); // STE-644
+      });
       expectPermit(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript }));
     }, 60_000);
   });
@@ -5053,5 +5128,239 @@ describe("STE-643 — a forbidden default needs an answered consent", () => {
         expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }), "GF-85");
       }, 60_000);
     }
+  });
+});
+
+// ===========================================================================
+// STE-644 (M_101065) — a container create needs a fresh, complete re-list of
+// its project. After the permitting create decision, the transcript must hold
+// a harness-recorded, non-error listing of the project's containers: Jira
+// `project = <P> AND issuetype = Epic` (modulo whitespace, case, quoting and a
+// trailing ORDER BY), or Linear `list_milestones` for the create's project;
+// one page chain from an unpaged request to a proven-last page; every row
+// carrying the fields the check reads; its last result within 120 s of the
+// gated call. An open same-title container in it refuses by key. Every
+// refused leg below exits 0 at d7ae0187 (the decision alone permits).
+// ===========================================================================
+
+const doneEpicRow = (key: string, summary: string) => {
+  const r = epicRow(key, summary);
+  return { ...r, fields: { ...r.fields, status: { name: "Done", statusCategory: { key: "done" } } } };
+};
+/** An Epic row missing one field the check reads. */
+const rowWithout = (field: "summary" | "status") => {
+  const r = epicRow("GF-7", "Unrelated epic");
+  const fields: Record<string, unknown> = { ...r.fields };
+  delete fields[field];
+  return { ...r, fields };
+};
+
+/** A Jira transcript: the real create decision for "BE Payouts", then `arrange` (default: nothing). */
+function epicDecided(w: World, arrange: (s: Session) => void = () => {}, before: (s: Session) => void = () => {}): string {
+  const s = new Session();
+  before(s);
+  const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+  s.bash(d.command, d.out);
+  arrange(s);
+  return s.save(w.scratch);
+}
+
+const EPIC_PAYOUTS = EPIC_CREATE("BE Payouts");
+/** The no-qualifying-re-list remedy names the canonical listing and the freshness bound. */
+const RELIST_REMEDY = /project = GF AND issuetype = Epic/;
+
+async function gradeCases(cases: Array<[string, string]>, cwd: string, tool = JIRA("createJiraIssue"), input: unknown = EPIC_PAYOUTS): Promise<Run[]> {
+  return mapBounded(cases, HOOK_SPAWN_LIMIT, ([, transcript]) => runSh(tool, input, { cwd, transcript }));
+}
+
+function eachRefused(cases: Array<[string, string]>, runs: Run[], ...needles: Array<string | RegExp>): void {
+  runs.forEach((r, i) => {
+    try {
+      expectRefusal(r, ...needles);
+    } catch (e) {
+      throw new Error(`${cases[i]![0]}: ${(e as Error).message}`);
+    }
+  });
+}
+
+function eachPermitted(cases: Array<[string, string]>, runs: Run[]): void {
+  runs.forEach((r, i) => {
+    try {
+      expectPermit(r);
+    } catch (e) {
+      throw new Error(`${cases[i]![0]}: ${(e as Error).message}`);
+    }
+  });
+}
+
+describe("STE-644 — a container create needs a fresh, complete re-list of its project", () => {
+  test("AC-STE-644.1 — a create decision with NO re-list after it → exit 2 naming the canonical re-list (a re-list BEFORE the decision does not count)", async () => {
+    const w = makeWorld();
+    const cases: Array<[string, string]> = [
+      ["no re-list", epicDecided(w)],
+      ["a re-list before the decision", epicDecided(w, () => {}, (s) => s.relist([]))],
+      ["only an errored re-list", epicDecided(w, (s) => s.relist([], { isError: true }))],
+    ];
+    const runs = await gradeCases(cases, w.be);
+    eachRefused(cases, runs, RELIST_REMEDY);
+  }, 90_000);
+
+  test("AC-STE-644.2 — a re-list whose last result is 121 s older than the gated call → exit 2; control: 100 s old → exit 0", async () => {
+    const w = makeWorld();
+    const stale = epicDecided(w, (s) => s.relist([], { ageMs: 121_000 }));
+    const fresh = epicDecided(w, (s) => s.relist([], { ageMs: 100_000 }));
+    const [r1, r2] = await gradeCases([["121 s", stale], ["100 s", fresh]], w.be);
+    expectRefusal(r1!, RELIST_REMEDY);
+    expectPermit(r2!);
+  }, 60_000);
+
+  test("AC-STE-644.3 — a narrowed or foreign JQL, or rows without summary or status → exit 2", async () => {
+    const w = makeWorld();
+    const jqls = [
+      'project = GF AND issuetype = Epic AND summary ~ "BE Payouts"',
+      "project = GF AND issuetype = Epic AND statusCategory != Done",
+      "project = GF AND issuetype = Epic AND key = GF-85",
+      "project = GF AND issuetype = Epic AND created >= -7d",
+      "project = GF AND issuetype = Epic AND labels = team-be",
+      "project = GF AND issuetype = Epic OR project = NEX",
+      "project = GF AND NOT issuetype = Epic",
+      "project = NEX AND issuetype = Epic",
+      "issuetype = Epic",
+      // Review round 1: a Unicode lookalike keyword (Cyrillic Е in Epic) is not the canonical scope.
+      "project = GF AND issuetype = \u0415pic",
+    ];
+    const cases: Array<[string, string]> = [
+      ...jqls.map((jql): [string, string] => [`JQL ${jql}`, epicDecided(w, (s) => s.relist([], { jql }))]),
+      ["a row without summary", epicDecided(w, (s) => s.relist([rowWithout("summary")]))],
+      ["a row without status", epicDecided(w, (s) => s.relist([rowWithout("status")]))],
+      ["another project's keys", epicDecided(w, (s) => s.relist([epicRow("NEX-5", "Other work")]))],
+    ];
+    const runs = await gradeCases(cases, w.be);
+    eachRefused(cases, runs, RELIST_REMEDY); // review round 1: the refusal is the re-list one, not a coincidental other
+  }, 120_000);
+
+  test("AC-STE-607.9 on the container path — a 5,000-line transcript, decision and canonical re-list → the Epic create exits 0 inside 5000 ms (measured time recorded)", async () => {
+    const w = makeWorld();
+    const filler = "x".repeat(400);
+    const transcript = epicDecided(
+      w,
+      (s) => s.relist([epicRow("GF-12", "Other work")]),
+      (s) => {
+        let n = 0;
+        while (s.lines.length < 4990) {
+          if (n % 3 === 0) s.text(`Working on step ${n}. ${filler}`);
+          else s.bash(`ls -la src/step-${n}`, `total ${n}\n${filler}`);
+          n += 1;
+        }
+      },
+    );
+    const lines = readFileSync(transcript, "utf-8").split("\n").filter((l) => l !== "").length;
+    expect(lines).toBeGreaterThanOrEqual(4990);
+    const t0 = performance.now();
+    const r = await runSh(JIRA("createJiraIssue"), EPIC_PAYOUTS, { cwd: w.be, transcript });
+    const elapsed = performance.now() - t0;
+    console.log(`AC-STE-607.9 (container path) measured: ${elapsed.toFixed(0)} ms for ${lines} transcript lines (budget 5000 ms)`);
+    expectPermit(r);
+    expect(elapsed).toBeLessThan(5000);
+  }, 60_000);
+
+  test("AC-STE-644.3 control — the canonical JQL modulo whitespace, case, quoting and ORDER BY qualifies → exit 0", async () => {
+    const w = makeWorld();
+    const jqls = [
+      "project = GF AND issuetype = Epic",
+      "  PROJECT   =   GF   and   IssueType = epic  ",
+      'project = "GF" AND issuetype = "Epic"',
+      "project = 'GF' AND issuetype = Epic ORDER BY created DESC",
+    ];
+    const cases = jqls.map((jql): [string, string] => [`JQL ${jql}`, epicDecided(w, (s) => s.relist([epicRow("GF-9", "Another epic")], { jql }))]);
+    eachPermitted(cases, await gradeCases(cases, w.be));
+  }, 90_000);
+
+  test("AC-STE-644.4 — a chain not from an unpaged request, or not ending on a proven-last page → exit 2; control: a complete two-page chain → exit 0", async () => {
+    const w = makeWorld();
+    const page1 = [epicRow("GF-9", "Another epic")];
+    const page2 = [epicRow("GF-10", "Yet another epic")];
+    const cases: Array<[string, string]> = [
+      ["the second page alone", epicDecided(w, (s) => s.relist(page2, { firstToken: "relist-tok-1" }))],
+      ["a final page not proven last", epicDecided(w, (s) => s.relist(page1, { lastProven: false }))],
+      ["two pages, the last not proven", epicDecided(w, (s) => s.relist([], { pages: [page1, page2], lastProven: false }))],
+    ];
+    const runs = await gradeCases(cases, w.be);
+    eachRefused(cases, runs, RELIST_REMEDY); // review round 1: the refusal is the re-list one, not a coincidental other
+    const [ok] = await gradeCases([["complete chain", epicDecided(w, (s) => s.relist([], { pages: [page1, page2] }))]], w.be);
+    expectPermit(ok!);
+  }, 90_000);
+
+  test("AC-STE-644.5 — an open same-title Epic in the re-list refuses naming its key: on page 1, on page 2, and by the normalized title", async () => {
+    const w = makeWorld();
+    const cases: Array<[string, string, string]> = [
+      ["page 1", epicDecided(w, (s) => s.relist([epicRow("GF-190", "BE Payouts")])), "GF-190"],
+      ["page 2", epicDecided(w, (s) => s.relist([], { pages: [[epicRow("GF-9", "Another epic")], [epicRow("GF-191", "BE Payouts")]] })), "GF-191"],
+      ["normalized title", epicDecided(w, (s) => s.relist([epicRow("GF-192", "be  payouts")])), "GF-192"],
+    ];
+    const runs = await gradeCases(cases.map(([l, t]) => [l, t]), w.be);
+    runs.forEach((r, i) => {
+      try {
+        expectRefusal(r, cases[i]![2], "--join-key");
+      } catch (e) {
+        throw new Error(`${cases[i]![0]}: ${(e as Error).message}`);
+      }
+    });
+  }, 90_000);
+
+  test("AC-STE-644.6 — a qualifying re-list with no open same-title Epic permits: other titles only, and a same-title Epic that is Done → exit 0", async () => {
+    const w = makeWorld();
+    const cases: Array<[string, string]> = [
+      ["other titles only", epicDecided(w, (s) => s.relist([epicRow("GF-9", "Another epic"), epicRow("GF-10", "BE Payouts II")]))],
+      ["a same-title Epic that is Done", epicDecided(w, (s) => s.relist([doneEpicRow("GF-190", "BE Payouts")]))],
+      ["an empty project", epicDecided(w, (s) => s.relist([]))],
+    ];
+    eachPermitted(cases, await gradeCases(cases, w.be));
+  }, 90_000);
+
+  describe("Linear — list_milestones for the create's project", () => {
+    const SAVE = { project: "DPT", name: "Payouts" };
+    function milestoneDecided(root: string, scratch: string, decidedOn: number, arrange: (s: Session) => void = () => {}): string {
+      const s = new Session();
+      const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(decidedOn) });
+      s.bash(d.command, d.out);
+      arrange(s);
+      return s.save(scratch);
+    }
+    const SAME_ID = "7a1c3f00-0000-4000-8000-0000000000aa";
+
+    test("refused: no re-list; another project's list; a same-name milestone (named by id); a row with no name; AC-STE-644.8 — exactly 50 rows after an allowed decision → exit 2", async () => {
+      const root = linearRepo(BE_TAG);
+      const scratch = tempDir("644-linear");
+      const cases: Array<[string, string]> = [
+        ["no re-list", milestoneDecided(root, scratch, 0)],
+        ["another project's list", milestoneDecided(root, scratch, 0, (s) => s.relist([], { tracker: "linear", project: "Other" }))],
+        ["a same-name milestone", milestoneDecided(root, scratch, 0, (s) => s.relist([{ id: SAME_ID, name: "Payouts" }], { tracker: "linear" }))],
+        ["a row with no name", milestoneDecided(root, scratch, 0, (s) => s.relist([{ id: SAME_ID }], { tracker: "linear" }))],
+        ["exactly 50 rows (AC-STE-644.8)", milestoneDecided(root, scratch, 49, (s) => s.relist(cappedRows(50), { tracker: "linear" }))],
+      ];
+      const runs = await gradeCases(cases, root, LINEAR("save_milestone"), SAVE);
+      eachRefused(cases, runs);
+      expect(runs[2]!.stderr).toContain(SAME_ID);
+      // Review round 1: every other case is refused for want of a qualifying
+      // re-list — its remedy names the Linear listing — never coincidentally.
+      for (const i of [0, 1, 3, 4]) expect(runs[i]!.stderr, cases[i]![0]).toContain("`list_milestones` for project DPT");
+    }, 120_000);
+
+    test("permitted: 49 rows without the name; and 50 rows after an answered \"Create `Payouts`\" (the only way past a full window) → exit 0", async () => {
+      const root = linearRepo(BE_TAG);
+      const scratch = tempDir("644-linear-permit");
+      const cases: Array<[string, string]> = [
+        ["49 rows", milestoneDecided(root, scratch, 0, (s) => s.relist(cappedRows(49), { tracker: "linear" }))],
+        [
+          "50 rows after consent",
+          milestoneDecided(root, scratch, 50, (s) => {
+            askConsent(s, CREATE_PAYOUTS_QUESTION, [CREATE_PAYOUTS, SKIP_PAYOUTS], { answer: CREATE_PAYOUTS });
+            s.relist(cappedRows(50), { tracker: "linear" });
+          }),
+        ],
+      ];
+      eachPermitted(cases, await gradeCases(cases, root, LINEAR("save_milestone"), SAVE));
+    }, 90_000);
   });
 });
