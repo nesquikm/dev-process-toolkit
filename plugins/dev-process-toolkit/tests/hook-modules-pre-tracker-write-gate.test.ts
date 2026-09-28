@@ -45,6 +45,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 // that never returns still fails, 60 s later.
 setDefaultTimeout(60_000);
 import {
+  appendFileSync,
   chmodSync,
   copyFileSync,
   existsSync,
@@ -468,20 +469,73 @@ interface RunOpts {
   transcript: string;
   sessionId?: string;
   pluginRoot?: string;
-  /** The gated call's own tool_use id (default `toolu_607_pending`). */
-  toolUseId?: string;
+  /** The gated call's own tool_use id (default `toolu_607_pending`); `null` sends a payload with no tool_use_id. */
+  toolUseId?: string | null;
+  /**
+   * STE-641: by default the run grades a per-run COPY of `transcript` with the
+   * gated call's own tool_use line appended (message.id + ISO timestamp), as
+   * Claude Code's transcript holds it once flushed. `stale: true` opts out: the
+   * hook reads `transcript` exactly as given (a transcript lagging the call).
+   */
+  stale?: boolean;
+  /** A subagent payload's `agent_id` (operator ruling R5: graded as at HEAD, no wait). */
+  agentId?: string;
+}
+
+const DEFAULT_GATED_ID = "toolu_607_pending";
+
+function gatedIdOf(o: RunOpts): string | null {
+  return o.toolUseId === null ? null : (o.toolUseId ?? DEFAULT_GATED_ID);
+}
+
+let gatedCopySeq = 0;
+
+/** The gated call's own transcript line, in the one-line-per-tool_use layout Claude Code writes. */
+function gatedLine(tool: string, input: unknown, id: string, messageId = `msg_gated_${id}`): string {
+  return JSON.stringify({
+    type: "assistant",
+    sessionId: SESSION,
+    timestamp: new Date().toISOString(),
+    message: { id: messageId, role: "assistant", content: [{ type: "tool_use", id, name: tool, input }] },
+  });
+}
+
+/**
+ * STE-641 — the transcript path a run hands the hook: a per-run copy of
+ * `o.transcript` ending in the gated call's own tool_use line. Passes the path
+ * through untouched when the run opts out (`stale`), carries no tool_use_id,
+ * names a path that is not a readable file (the unreadable-transcript legs), or
+ * already holds the id (the pending-sibling legs).
+ */
+function withGatedLine(tool: string, input: unknown, o: RunOpts): string {
+  const id = gatedIdOf(o);
+  if (o.stale === true || id === null) return o.transcript;
+  let body: string;
+  try {
+    body = readFileSync(o.transcript, "utf-8");
+  } catch {
+    return o.transcript;
+  }
+  if (body.includes(`"id":"${id}"`)) return o.transcript;
+  gatedCopySeq += 1;
+  const copy = `${o.transcript}.run-${gatedCopySeq}.jsonl`;
+  const sep = body === "" || body.endsWith("\n") ? "" : "\n";
+  writeFileSync(copy, `${body}${sep}${gatedLine(tool, input, id)}\n`);
+  return copy;
 }
 
 function payload(tool: string, input: unknown, o: RunOpts): string {
+  const id = gatedIdOf(o);
   return JSON.stringify({
     session_id: o.sessionId ?? SESSION,
-    transcript_path: o.transcript,
+    transcript_path: withGatedLine(tool, input, o),
     cwd: o.cwd,
     permission_mode: "default",
     hook_event_name: "PreToolUse",
     tool_name: tool,
     tool_input: input,
-    tool_use_id: o.toolUseId ?? "toolu_607_pending",
+    ...(id === null ? {} : { tool_use_id: id }),
+    ...(o.agentId === undefined ? {} : { agent_id: o.agentId }),
   });
 }
 
@@ -1883,8 +1937,30 @@ describe("AC-STE-607.10 — blocking-gate derivation: the recorded exemption", (
 // never authorises another project of the same team.
 // ===========================================================================
 
-/** Append an assistant message whose tool_uses have NOT run (no tool_result yet). */
+let pendingMessageSeq = 0;
+
+/**
+ * Append an assistant message whose tool_uses have NOT run (no tool_result
+ * yet), in the layout Claude Code writes (STE-641, measured): one transcript
+ * line per tool_use, every line carrying the same `message.id`.
+ */
 function pendingToolUses(s: Session, uses: Array<{ id: string; name: string; input: unknown }>): void {
+  pendingMessageSeq += 1;
+  const messageId = `msg_pending_${String(pendingMessageSeq).padStart(5, "0")}`;
+  for (const u of uses) {
+    s.lines.push(
+      JSON.stringify({
+        type: "assistant",
+        sessionId: SESSION,
+        timestamp: new Date().toISOString(),
+        message: { id: messageId, role: "assistant", content: [{ type: "tool_use", ...u }] },
+      }),
+    );
+  }
+}
+
+/** The legacy layout: one assistant line carrying every pending tool_use. */
+function pendingToolUsesOneLine(s: Session, uses: Array<{ id: string; name: string; input: unknown }>): void {
   s.lines.push(
     JSON.stringify({
       type: "assistant",
@@ -1893,6 +1969,12 @@ function pendingToolUses(s: Session, uses: Array<{ id: string; name: string; inp
     }),
   );
 }
+
+/** Both transcript layouts of one assistant turn's parallel tool_uses (STE-641). */
+const PENDING_LAYOUTS = [
+  ["one line per tool_use", pendingToolUses],
+  ["legacy one line", pendingToolUsesOneLine],
+] as const;
 
 describe("STE-607 audit — the gated call itself, floors per target, Linear project match", () => {
   test("the pending create's own tool_use, already in the transcript, does not spend its receipt → exit 0 (control: a create that RAN does)", async () => {
@@ -2157,39 +2239,70 @@ describe("M_947c79 review — a receipt announcement proves the deciding command
 });
 
 describe("M_947c79 review — parallel creates cannot share one receipt (AC-STE-607.3)", () => {
-  test("two pending creates in one assistant turn: the first is permitted, the second refused as spent", async () => {
-    const w = makeWorld();
-    const s = new Session();
-    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
-    withAttachTarget(s, w.be, { scratch: w.scratch });
-    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
-    pendingToolUses(s, [
-      { id: "toolu_607_first", name: JIRA("createJiraIssue"), input: jiraCreate() },
-      { id: "toolu_607_second", name: JIRA("createJiraIssue"), input: jiraCreate() },
-    ]);
-    const transcript = s.save(w.scratch);
-    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_first" }));
-    expectRefusal(
-      await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_second" }),
-      /spent/,
-    );
-  }, 30_000);
+  // Re-graded by STE-641 on both transcript layouts: Claude Code writes one
+  // line per tool_use (sharing message.id); the legacy fixture wrote one line.
+  for (const [layout, pending] of PENDING_LAYOUTS) {
+    test(`[${layout}] two pending creates in one assistant turn: the first is permitted, the second refused as spent`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+      withAttachTarget(s, w.be, { scratch: w.scratch });
+      s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+      pending(s, [
+        { id: "toolu_607_first", name: JIRA("createJiraIssue"), input: jiraCreate() },
+        { id: "toolu_607_second", name: JIRA("createJiraIssue"), input: jiraCreate() },
+      ]);
+      const transcript = s.save(w.scratch);
+      expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_first" }));
+      // STE-641: the second may be refused as a parallel duplicate (checked
+      // before receipts) instead of as spent — either way it is refused.
+      expectRefusal(
+        await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_second" }),
+        /spent|parallel/i,
+      );
+    }, 30_000);
 
-  test("CONTROL — two pending creates with two receipts: both permitted", async () => {
-    const w = makeWorld();
-    const s = new Session();
-    // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
-    withAttachTarget(s, w.be, { scratch: w.scratch });
-    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
-    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
-    pendingToolUses(s, [
-      { id: "toolu_607_first", name: JIRA("createJiraIssue"), input: jiraCreate() },
-      { id: "toolu_607_second", name: JIRA("createJiraIssue"), input: jiraCreate() },
-    ]);
-    const transcript = s.save(w.scratch);
-    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_first" }));
-    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_second" }));
-  }, 30_000);
+    // STE-641 re-grade: this CONTROL used two identical titles. Two pending
+    // creates of the SAME ticket are a parallel duplicate however many receipts
+    // exist (AC-STE-641.9), so the control that both are permitted now uses
+    // DIFFERENT titles, each with its own receipt (AC-STE-641.10).
+    test(`[${layout}] CONTROL — two pending creates with different titles, each with its own receipt: both permitted (AC-STE-641.10)`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      // Amended by AC-STE-611.3: the create also needs an attach-target receipt.
+      withAttachTarget(s, w.be, { scratch: w.scratch });
+      s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }), "fast", "BE payout export");
+      s.announceDecide(w.be, createReceipt(w.be, { title: "BE refund export" }), "fast", "BE refund export");
+      const a = jiraCreate({ title: "BE payout export" });
+      const b = jiraCreate({ title: "BE refund export" });
+      pending(s, [
+        { id: "toolu_607_first", name: JIRA("createJiraIssue"), input: a },
+        { id: "toolu_607_second", name: JIRA("createJiraIssue"), input: b },
+      ]);
+      const transcript = s.save(w.scratch);
+      expectPermit(await runHook(JIRA("createJiraIssue"), a, { cwd: w.be, transcript, toolUseId: "toolu_607_first" }));
+      expectPermit(await runHook(JIRA("createJiraIssue"), b, { cwd: w.be, transcript, toolUseId: "toolu_607_second" }));
+    }, 30_000);
+
+    test(`[${layout}] two pending IDENTICAL creates with two matching receipts: the first is permitted, the second refused as a parallel duplicate (AC-STE-641.9 / .12)`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      withAttachTarget(s, w.be, { scratch: w.scratch });
+      s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+      s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+      pending(s, [
+        { id: "toolu_607_first", name: JIRA("createJiraIssue"), input: jiraCreate() },
+        { id: "toolu_607_second", name: JIRA("createJiraIssue"), input: jiraCreate() },
+      ]);
+      const transcript = s.save(w.scratch);
+      expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_first" }));
+      const second = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_second" });
+      expectRefusal(second, "toolu_607_first", /parallel/i);
+      // AC-STE-641.12: a pending same-turn sibling is not a lost create — the
+      // retry-search remedy does not apply to it.
+      expect(second.stderr).not.toMatch(/--attempt retry-/);
+    }, 30_000);
+  }
 });
 
 describe("M_947c79 review — a Linear create naming its container by id or slug is unresolvable (AC-STE-607.4 / §4)", () => {
@@ -3250,22 +3363,26 @@ describe("AC-STE-608.10 hardening — only the decision front door's own run ann
 });
 
 describe("AC-STE-608.10 hardening — one create decision authorises ONE container create", () => {
-  test("two pending Epic creates on one decision: the first is permitted, the second refused as spent", async () => {
-    const w = makeWorld();
-    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
-    const s = new Session();
-    s.bash(d.command, d.out);
-    pendingToolUses(s, [
-      { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
-      { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
-    ]);
-    const transcript = s.save(w.scratch);
-    const [first, second] = await mapBounded(["toolu_608_first", "toolu_608_second"], HOOK_SPAWN_LIMIT, (toolUseId) =>
-      runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript, toolUseId }),
-    );
-    expectPermit(first!);
-    expectRefusal(second!, /spent/, RESOLVE);
-  }, 30_000);
+  // Re-graded by STE-641 on both transcript layouts.
+  for (const [layout, pending] of PENDING_LAYOUTS) {
+    test(`[${layout}] two pending Epic creates on one decision: the first is permitted, the second refused as spent`, async () => {
+      const w = makeWorld();
+      const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      pending(s, [
+        { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
+        { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
+      ]);
+      const transcript = s.save(w.scratch);
+      const [first, second] = await mapBounded(["toolu_608_first", "toolu_608_second"], HOOK_SPAWN_LIMIT, (toolUseId) =>
+        runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript, toolUseId }),
+      );
+      expectPermit(first!);
+      // STE-641: refused as spent or as a parallel duplicate of its sibling.
+      expectRefusal(second!, /spent|parallel/i, RESOLVE);
+    }, 30_000);
+  }
 
   // The same walk spends milestone decisions: a refused Epic create must not take its decision either.
   test("NOT spent: an Epic create REFUSED by this hook took nothing — the next Epic create on that decision → exit 0", async () => {
@@ -3286,23 +3403,51 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
     expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }), /spent|may have made/);
   }, 30_000);
 
-  test("control: two decisions, two pending Epic creates → both permitted", async () => {
-    const w = makeWorld();
-    const s = new Session();
-    for (let i = 0; i < 2; i++) {
-      const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
-      s.bash(d.command, d.out);
-    }
-    pendingToolUses(s, [
-      { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
-      { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
-    ]);
-    const transcript = s.save(w.scratch);
-    const runs = await mapBounded(["toolu_608_first", "toolu_608_second"], HOOK_SPAWN_LIMIT, (toolUseId) =>
-      runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript, toolUseId }),
-    );
-    for (const r of runs) expectPermit(r);
-  }, 30_000);
+  // STE-641 re-grade: this control used two decisions of ONE title. Two
+  // pending Epic creates of the same title are a parallel duplicate however
+  // many decisions exist (AC-STE-641.11), so the both-permitted control now
+  // uses DIFFERENT titles, one decision each.
+  for (const [layout, pending] of PENDING_LAYOUTS) {
+    test(`[${layout}] control: two decisions of different titles, two pending Epic creates → both permitted (AC-STE-641.11)`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      for (const title of ["BE Payouts", "BE Refunds"]) {
+        const d = realResolve(w.be, ["jira", "GF", "--title", title], w.scratch, EMPTY_JIRA_PAGE);
+        s.bash(d.command, d.out);
+      }
+      pending(s, [
+        { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
+        { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Refunds") },
+      ]);
+      const transcript = s.save(w.scratch);
+      const runs = await mapBounded(
+        [["toolu_608_first", "BE Payouts"], ["toolu_608_second", "BE Refunds"]] as const,
+        HOOK_SPAWN_LIMIT,
+        ([toolUseId, title]) => runSh(JIRA("createJiraIssue"), EPIC_CREATE(title), { cwd: w.be, transcript, toolUseId }),
+      );
+      for (const r of runs) expectPermit(r);
+    }, 30_000);
+
+    test(`[${layout}] two decisions of ONE title, two pending Epic creates of it → the second is refused as a parallel duplicate (AC-STE-641.11 / .12)`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      for (let i = 0; i < 2; i++) {
+        const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+        s.bash(d.command, d.out);
+      }
+      pending(s, [
+        { id: "toolu_608_first", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
+        { id: "toolu_608_second", name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") },
+      ]);
+      const transcript = s.save(w.scratch);
+      const [first, second] = await mapBounded(["toolu_608_first", "toolu_608_second"], HOOK_SPAWN_LIMIT, (toolUseId) =>
+        runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript, toolUseId }),
+      );
+      expectPermit(first!);
+      expectRefusal(second!, "toolu_608_first", /parallel/i);
+      expect(second!.stderr).not.toMatch(/--attempt retry-/);
+    }, 30_000);
+  }
 });
 
 // ===========================================================================
@@ -4028,4 +4173,354 @@ describe("M_685ff6 review r2 — a Linear milestone argument binds by id, by nam
     const payload = decideFor(s, root, "payouts");
     expectPermit(await runHook(LINEAR("save_issue"), payload, { cwd: root, transcript: s.save(scratch) }));
   }, 60_000);
+});
+
+// ===========================================================================
+// STE-641 (M_101065) — the tracker-write gate grades a transcript that holds
+// its own call. Claude Code can flush a tool_use line up to ~150 ms after the
+// tool starts (measured 2026-09-28, STE-641 § Measurement), so the hook waits up to GATED_LINE_WAIT_MS for the
+// gated call's own line, refuses creates with a retry remedy when it never
+// arrives, and orders same-turn creates by (line, position) so both transcript
+// layouts grade alike. RED at fb26d21e: no `awaitGatedLine` export, the hook
+// grades the first read, and a one-line-layout parallel duplicate is permitted.
+// ===========================================================================
+
+interface GatedWait {
+  GATED_LINE_WAIT_MS: number;
+  awaitGatedLine: (
+    read: () => string[] | null,
+    id: string,
+    waitMs: number,
+    sleep: (ms: number) => void,
+  ) => { lines: string[] | null; stale: boolean };
+}
+
+async function gatedWait(): Promise<GatedWait> {
+  return (await import(MODULE_PATH)) as unknown as GatedWait;
+}
+
+const GATED_641 = "toolu_641_gated";
+
+const toolUseLine = (id: string): string =>
+  JSON.stringify({
+    type: "assistant",
+    sessionId: SESSION,
+    message: { id: `msg_${id}`, role: "assistant", content: [{ type: "tool_use", id, name: JIRA("createJiraIssue"), input: jiraCreate() }] },
+  });
+
+/** A reader that lacks `id` for its first `absent` reads, then holds it; records every read and sleep. */
+function scriptedReader(id: string, absent: number): { read: () => string[] | null; reads: Array<string[]>; sleeps: number[]; sleep: (ms: number) => void } {
+  const reads: Array<string[]> = [];
+  const sleeps: number[] = [];
+  const read = () => {
+    const lines = reads.length < absent ? [toolUseLine("toolu_641_other")] : [toolUseLine("toolu_641_other"), toolUseLine(id)];
+    reads.push(lines);
+    return lines;
+  };
+  return { read, reads, sleeps, sleep: (ms: number) => void sleeps.push(ms) };
+}
+
+describe("AC-STE-641.6 / .7 — awaitGatedLine, the pure bounded wait", () => {
+  test("GATED_LINE_WAIT_MS is exported and equals 2000 (AC-STE-641.7's bound; the lag itself is measured by the orchestrator)", async () => {
+    const m = await gatedWait();
+    expect(m.GATED_LINE_WAIT_MS).toBe(2000);
+  });
+
+  test("a reader absent three times, then present → exactly 3 sleeps, and the read returned is the first that holds the id", async () => {
+    const m = await gatedWait();
+    const r = scriptedReader(GATED_641, 3);
+    const out = m.awaitGatedLine(r.read, GATED_641, 2000, r.sleep);
+    expect(out.stale).toBe(false);
+    expect(r.reads.length).toBe(4);
+    expect(r.sleeps.length).toBe(3);
+    expect(out.lines).toBe(r.reads[3]!);
+    expect(out.lines!.some((l) => l.includes(GATED_641))).toBe(true);
+  });
+
+  test("a first read that holds the id → returned as is, no sleep", async () => {
+    const m = await gatedWait();
+    const r = scriptedReader(GATED_641, 0);
+    const out = m.awaitGatedLine(r.read, GATED_641, 2000, r.sleep);
+    expect(out).toEqual({ lines: r.reads[0]!, stale: false });
+    expect(out.lines).toBe(r.reads[0]!);
+    expect(r.reads.length).toBe(1);
+    expect(r.sleeps).toEqual([]);
+  });
+
+  test("a null first read (unreadable transcript) → no sleep, no re-read, not stale", async () => {
+    const m = await gatedWait();
+    let reads = 0;
+    const sleeps: number[] = [];
+    const out = m.awaitGatedLine(() => (reads++, null), GATED_641, 2000, (ms) => void sleeps.push(ms));
+    expect(out.lines).toBeNull();
+    expect(out.stale).toBe(false);
+    expect(reads).toBe(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  test("a reader that never holds the id → stale after at most ceil(2000/25)+1 reads, sleeping the whole budget in steps of at most 25 ms", async () => {
+    const m = await gatedWait();
+    const r = scriptedReader(GATED_641, Number.MAX_SAFE_INTEGER);
+    const out = m.awaitGatedLine(r.read, GATED_641, 2000, r.sleep);
+    expect(out.stale).toBe(true);
+    expect(r.reads.length).toBeGreaterThan(1);
+    expect(r.reads.length).toBeLessThanOrEqual(Math.ceil(2000 / 25) + 1);
+    for (const ms of r.sleeps) {
+      expect(ms).toBeGreaterThan(0);
+      expect(ms).toBeLessThanOrEqual(25);
+    }
+    const slept = r.sleeps.reduce((a, b) => a + b, 0);
+    expect(slept).toBeLessThanOrEqual(2000);
+    expect(slept).toBeGreaterThanOrEqual(2000 - 25);
+  });
+
+  test("CONTROL — a line that only MENTIONS the id (a text block) does not hold it: the wait continues", async () => {
+    const m = await gatedWait();
+    const mention = JSON.stringify({ type: "assistant", sessionId: SESSION, message: { role: "assistant", content: [{ type: "text", text: `about ${GATED_641}` }] } });
+    let reads = 0;
+    const sleeps: number[] = [];
+    const out = m.awaitGatedLine(() => (reads++, [mention]), GATED_641, 100, (ms) => void sleeps.push(ms));
+    expect(out.stale).toBe(true);
+    expect(sleeps.length).toBeGreaterThan(0);
+  });
+});
+
+describe("AC-STE-641.8 — the pending-sibling fixture writes the layout Claude Code writes", () => {
+  test("pendingToolUses: one line per tool_use sharing one message.id; pendingToolUsesOneLine: the legacy single line", () => {
+    const uses = [
+      { id: "toolu_641_a", name: JIRA("createJiraIssue"), input: jiraCreate() },
+      { id: "toolu_641_b", name: JIRA("createJiraIssue"), input: jiraCreate({ title: "Other" }) },
+    ];
+    const real = new Session();
+    pendingToolUses(real, uses);
+    expect(real.lines.length).toBe(2);
+    const parsed = real.lines.map((l) => JSON.parse(l) as { message: { id?: string; content: Array<{ type: string; id: string }> } });
+    expect(parsed.map((p) => p.message.content.map((b) => `${b.type}:${b.id}`))).toEqual([["tool_use:toolu_641_a"], ["tool_use:toolu_641_b"]]);
+    expect(typeof parsed[0]!.message.id).toBe("string");
+    expect(parsed[0]!.message.id).toBe(parsed[1]!.message.id);
+
+    const legacy = new Session();
+    pendingToolUsesOneLine(legacy, uses);
+    expect(legacy.lines.length).toBe(1);
+    const one = JSON.parse(legacy.lines[0]!) as { message: { content: Array<{ id: string }> } };
+    expect(one.message.content.map((b) => b.id)).toEqual(["toolu_641_a", "toolu_641_b"]);
+
+    // A second turn gets its own message.id.
+    pendingToolUses(real, [uses[0]!]);
+    expect((JSON.parse(real.lines[2]!) as { message: { id: string } }).message.id).not.toBe(parsed[0]!.message.id);
+  });
+
+  test("the run helper appends the gated line to a per-run copy; `stale` and a missing path pass the transcript through", async () => {
+    const scratch = tempDir("641-helper");
+    const s = new Session();
+    s.text("hello");
+    const transcript = s.save(scratch);
+    const before = readFileSync(transcript, "utf-8");
+    const path = JSON.parse(payload(JIRA("createJiraIssue"), jiraCreate(), { cwd: scratch, transcript, toolUseId: GATED_641 })).transcript_path as string;
+    expect(path).not.toBe(transcript);
+    expect(readFileSync(transcript, "utf-8")).toBe(before);
+    const last = JSON.parse(readFileSync(path, "utf-8").trimEnd().split("\n").pop()!) as { timestamp: string; message: { id: string; content: Array<{ id: string }> } };
+    expect(last.message.content[0]!.id).toBe(GATED_641);
+    expect(typeof last.message.id).toBe("string");
+    expect(Number.isNaN(Date.parse(last.timestamp))).toBe(false);
+    expect(JSON.parse(payload(JIRA("createJiraIssue"), jiraCreate(), { cwd: scratch, transcript, stale: true })).transcript_path).toBe(transcript);
+    const missing = join(scratch, "none.jsonl");
+    expect(JSON.parse(payload(JIRA("createJiraIssue"), jiraCreate(), { cwd: scratch, transcript: missing })).transcript_path).toBe(missing);
+  });
+});
+
+/**
+ * Spawn the hook on a transcript holding only `prefix`; after `appendAfterMs`
+ * append `rest` plus the gated call's own line (never, when null), as Claude
+ * Code's flush does. Returns the run and its wall time.
+ */
+async function runLagging(
+  tool: string,
+  input: unknown,
+  o: { cwd: string; scratch: string; prefix: string[]; rest: string[]; appendAfterMs: number | null; sh?: boolean },
+): Promise<{ r: Run; ms: number; transcript: string }> {
+  transcriptSeq += 1;
+  const transcript = join(o.scratch, `lagging-${transcriptSeq}.jsonl`);
+  writeFileSync(transcript, o.prefix.map((l) => `${l}\n`).join(""));
+  const opts: RunOpts = { cwd: o.cwd, transcript, toolUseId: GATED_641, stale: true };
+  const t0 = performance.now();
+  const pending = o.sh ? runSh(tool, input, opts) : runHook(tool, input, opts);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (o.appendAfterMs !== null) {
+    timer = setTimeout(() => {
+      appendFileSync(transcript, [...o.rest, gatedLine(tool, input, GATED_641)].map((l) => `${l}\n`).join(""));
+    }, o.appendAfterMs);
+  }
+  const r = await pending;
+  if (timer) clearTimeout(timer);
+  return { r, ms: performance.now() - t0, transcript };
+}
+
+/** The fastest of three runs: machine load cannot pass for a wait. */
+async function fastest(fn: () => Promise<Run>): Promise<{ ms: number; r: Run }> {
+  let best = Infinity;
+  let last: Run | undefined;
+  for (let i = 0; i < 3; i++) {
+    const t0 = performance.now();
+    last = await fn();
+    best = Math.min(best, performance.now() - t0);
+  }
+  return { ms: best, r: last! };
+}
+
+const CREATED_GF_150 = { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" };
+
+describe("AC-STE-641.1 — a gated line that arrives within the wait: the verdict of the complete transcript", () => {
+  test("FE-1: an edit of a key this session created, whose create lines and gated line land +300 ms after the spawn → exit 0 (control: the complete transcript → exit 0)", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.text("Creating the BE ticket.");
+    const cut = s.lines.length;
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), CREATED_GF_150);
+    const edit = { cloudId: CLOUD, issueIdOrKey: "GF-150", fields: { summary: "BE payout export (renamed)" } };
+    expectPermit(await runHook(JIRA("editJiraIssue"), edit, { cwd: w.be, transcript: s.save(w.scratch), toolUseId: GATED_641 }));
+    const { r } = await runLagging(JIRA("editJiraIssue"), edit, {
+      cwd: w.be, scratch: w.scratch, prefix: s.lines.slice(0, cut), rest: s.lines.slice(cut), appendAfterMs: 300,
+    });
+    expectPermit(r);
+  }, 30_000);
+
+  test("S3: a duplicate create whose earlier (successful) create lands +300 ms after the spawn → exit 2 (control: the complete transcript → exit 2)", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    withAttachTarget(s, w.be, { scratch: w.scratch });
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const cut = s.lines.length;
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), CREATED_GF_150);
+    expectRefusal(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch), toolUseId: GATED_641 }));
+    const { r } = await runLagging(JIRA("createJiraIssue"), jiraCreate(), {
+      cwd: w.be, scratch: w.scratch, prefix: s.lines.slice(0, cut), rest: s.lines.slice(cut), appendAfterMs: 300,
+    });
+    expectRefusal(r);
+  }, 30_000);
+});
+
+describe("AC-STE-641.2 / .3 — a gated line that never arrives", () => {
+  test("a ticket create, a container create and a joined-labels edit into a declared container → exit 2 after the wait, naming the transcript, the id and the retry", async () => {
+    const w = makeWorld();
+    const ticket = new Session();
+    withAttachTarget(ticket, w.be, { scratch: w.scratch });
+    ticket.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    // Control: the same create on the complete transcript is permitted.
+    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: ticket.save(w.scratch), toolUseId: GATED_641 }));
+
+    const epic = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    epic.bash(d.command, d.out);
+    expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: epic.save(w.scratch), toolUseId: GATED_641 }));
+
+    const w2 = makeWorld();
+    const joined = new Session();
+    const j = realResolve(
+      w2.be,
+      ["jira", "GF", "--join-key", "GF-85", "--sibling", siblingWithPlan(w2)],
+      w2.scratch,
+      { issues: [epicRow("GF-85", "Payouts", ["team-x"])], isLast: true },
+    );
+    joined.bash(j.command, j.out);
+    const merge = { cloudId: CLOUD, issueIdOrKey: "GF-85", fields: { labels: ["team-x", "milestone-M_GF_85"] } };
+    expectPermit(await runSh(JIRA("editJiraIssue"), merge, { cwd: w2.be, transcript: joined.save(w2.scratch), toolUseId: GATED_641 }));
+
+    const cases = [
+      { label: "ticket create", tool: JIRA("createJiraIssue"), input: jiraCreate(), cwd: w.be, scratch: w.scratch, lines: ticket.lines, sh: false },
+      { label: "container create", tool: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts"), cwd: w.be, scratch: w.scratch, lines: epic.lines, sh: true },
+      { label: "joined-labels edit", tool: JIRA("editJiraIssue"), input: merge, cwd: w2.be, scratch: w2.scratch, lines: joined.lines, sh: true },
+    ];
+    const runs = await mapBounded(cases, HOOK_SPAWN_LIMIT, (c) =>
+      runLagging(c.tool, c.input, { cwd: c.cwd, scratch: c.scratch, prefix: c.lines, rest: [], appendAfterMs: null, sh: c.sh }),
+    );
+    runs.forEach(({ r, ms, transcript }, i) => {
+      const label = cases[i]!.label;
+      try {
+        expectRefusal(r, transcript, GATED_641, "retry the same call");
+      } catch (e) {
+        throw new Error(`${label}: ${(e as Error).message}`);
+      }
+      expect(ms, `${label} waited the budget before refusing`).toBeGreaterThanOrEqual(1900);
+    });
+  }, 60_000);
+
+  test("a ticket write refused while the gated line is absent names the lag, never \"this session did not create it\" (control: a tracked key keeps its permit)", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.text("Working.");
+    const { r } = await runLagging(JIRA("transitionJiraIssue"), transition("GF-150"), {
+      cwd: w.be, scratch: w.scratch, prefix: s.lines, rest: [], appendAfterMs: null,
+    });
+    expectRefusal(r, GATED_641, /lag/i, "GF-150");
+    expect(r.stderr).not.toContain("this session did not create it");
+    expect(r.stderr).toContain("the ticket is not owned by the declared target");
+
+    const tracked = await runLagging(JIRA("transitionJiraIssue"), transition("GF-111"), {
+      cwd: w.be, scratch: w.scratch, prefix: s.lines, rest: [], appendAfterMs: null,
+    });
+    expectPermit(tracked.r);
+  }, 30_000);
+});
+
+describe("AC-STE-641.4 / .5 — calls that never wait", () => {
+  test("a call bound by no declared target (an undeclared repository; another project's container) → silent exit 0 in under 1000 ms, with the gated line absent", async () => {
+    const w = makeWorld();
+    const undeclared = tempDir("641-undeclared");
+    declareJira(undeclared, null);
+    gitInit(undeclared);
+    const transcript = new Session().save(w.scratch);
+    const cases: Array<[string, string, unknown, string]> = [
+      ["undeclared create", JIRA("createJiraIssue"), jiraCreate(), undeclared],
+      ["undeclared transition", JIRA("transitionJiraIssue"), transition("GF-101"), undeclared],
+      ["OPS-project create", JIRA("createJiraIssue"), { ...jiraCreate({ parent: null }), projectKey: "OPS" }, w.be],
+      ["OPS-project transition", JIRA("transitionJiraIssue"), transition("OPS-1"), w.be],
+    ];
+    const measured: string[] = [];
+    for (const [label, tool, input, cwd] of cases) {
+      const { ms, r } = await fastest(() => runHook(tool, input, { cwd, transcript, toolUseId: GATED_641, stale: true }));
+      measured.push(`${label} ${ms.toFixed(0)} ms`);
+      try {
+        expectSilent(r);
+      } catch (e) {
+        throw new Error(`${label}: ${(e as Error).message}`);
+      }
+      expect(ms, label).toBeLessThan(1000);
+    }
+    console.log(`AC-STE-641.4 no-wait paths: ${measured.join(", ")} (fastest of 3; budget 1000 ms)`);
+  }, 60_000);
+
+  test("no tool_use_id, or an `agent_id` payload, on a transcript lacking the gated line → the HEAD verdict with no wait (control: the same create with an id waits and refuses)", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    withAttachTarget(s, w.be, { scratch: w.scratch });
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const transcript = s.save(w.scratch);
+    const noId = await fastest(() => runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: null }));
+    expectPermit(noId.r);
+    expect(noId.ms, "no tool_use_id").toBeLessThan(1000);
+    const agent = await fastest(() =>
+      runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: GATED_641, stale: true, agentId: "agent_641" }),
+    );
+    expectPermit(agent.r);
+    expect(agent.ms, "agent_id payload").toBeLessThan(1000);
+    // The refusal side of the HEAD verdict, no id: a key nobody created.
+    const refused = await fastest(() => runHook(JIRA("transitionJiraIssue"), transition("GF-150"), { cwd: w.be, transcript, toolUseId: null }));
+    expectRefusal(refused.r, "GF-150");
+    expect(refused.ms, "no tool_use_id refusal").toBeLessThan(1000);
+    // Control: the same create WITH an id and no agent_id waits and refuses as stale.
+    const t0 = performance.now();
+    const stale = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: GATED_641, stale: true });
+    expectRefusal(stale, GATED_641, "retry the same call");
+    expect(performance.now() - t0).toBeGreaterThanOrEqual(1900);
+  }, 60_000);
+
+  test("an unreadable (missing) transcript → HEAD's unreadable wording, no wait", async () => {
+    const w = makeWorld();
+    const missing = join(w.scratch, "641-no-such-transcript.jsonl");
+    const { ms, r } = await fastest(() => runHook(JIRA("transitionJiraIssue"), transition("GF-150"), { cwd: w.be, transcript: missing, toolUseId: GATED_641 }));
+    expectRefusal(r, /unreadable/, missing);
+    expect(r.stderr).not.toContain("retry the same call");
+    expect(ms).toBeLessThan(1000);
+  }, 30_000);
 });

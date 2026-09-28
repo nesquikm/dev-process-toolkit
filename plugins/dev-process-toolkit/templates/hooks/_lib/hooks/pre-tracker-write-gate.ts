@@ -274,6 +274,28 @@ function refuse(what: string, remedy: string): 2 {
   return 2;
 }
 
+/** STE-641 — the gated call's own tool_use line never reached the transcript within the wait. */
+interface StaleRead {
+  path: string;
+  id: string;
+}
+
+/** STE-641 — refuse a create-class write graded on a transcript that lacks its own line. */
+function refuseStale(where: string, stale: StaleRead, note: string): 2 {
+  return refuse(
+    `${where}: the session transcript (${stale.path}) still lacks this call's own tool_use line (${stale.id}) after ${GATED_LINE_WAIT_MS} ms, so the lines written in its turn cannot be graded — the transcript lags the call.${note}`,
+    `retry the same call unchanged; do not re-run a deciding command for it.`,
+  );
+}
+
+/** STE-641 — refuse a create that duplicates a still-pending create in its own assistant turn. */
+function refuseParallelDuplicate(where: string, subject: string, why: string, remedy: string, note: string): 2 {
+  return refuse(
+    `${where}: it duplicates ${subject}, a parallel create in the same assistant turn that has not finished, so ${why}.${note}`,
+    `drop this parallel duplicate: ${remedy}`,
+  );
+}
+
 function sessionIdOf(payload: HookPayload): string {
   return typeof payload.session_id === "string" ? payload.session_id : "";
 }
@@ -750,13 +772,19 @@ function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAd
  * The create tool_uses ordered BEFORE the gated call, in transcript order
  * (line, then position within an assistant message).
  *
- * Claude Code writes a tool_use to the transcript BEFORE its PreToolUse hook
- * runs (measured on a live transcript), so the gated call — and every parallel
- * sibling of its assistant turn — is already there, run or not. Receipts are
- * allocated in this order whether or not a create has run yet: two creates in
- * one turn cannot both take one receipt, however their hooks interleave. The
- * gated call's own tool_use never spends (it is where the walk stops); when it
- * is absent from the transcript it is taken to come after every other create.
+ * Claude Code does NOT reliably write a tool_use to the transcript before its
+ * PreToolUse hook reads it: measured 2026-09-28 (STE-641, AC-STE-641.7), a
+ * parallel call's line lands up to ~150 ms after the tool itself starts, and
+ * the line's own `timestamp` (stamped when its message starts streaming)
+ * precedes that arrival by seconds. run() therefore re-reads for up to
+ * GATED_LINE_WAIT_MS until the gated call's own tool_use is in the read, and
+ * refuses a create graded without it as stale; once that line is in, every
+ * earlier line is too (the file is append-only). Receipts are allocated in
+ * this order whether or not a create has run yet: two creates in one turn
+ * cannot both take one receipt, however their hooks interleave. The gated
+ * call's own tool_use never spends (it is where the walk stops); when it is
+ * absent (no tool_use_id, a subagent call, a stale read) it is taken to come
+ * after every other create.
  *
  * A create whose RECORDED result proves it never reached the tracker (`neverRan`:
  * a hook or permission refusal, a user rejection, a 4xx) took nothing, so it
@@ -833,15 +861,32 @@ interface LostCreate {
   id: string;
   shape: CreateShape;
   why: string;
+  /** STE-641 — a pending sibling in the gated call's own assistant message. */
+  parallel: boolean;
+}
+
+/** The assistant message id a transcript line carries, or "". */
+function messageIdOf(p: ParsedLine): string {
+  const m = p.raw.message as { id?: unknown } | undefined;
+  return m && typeof m.id === "string" ? m.id : "";
 }
 
 /**
- * §4 — create tool_uses of an EARLIER turn than the gated call whose outcome is
+ * §4 — create tool_uses ordered BEFORE the gated call whose outcome is
  * unknown: an error result that does not prove the call never ran (a timeout,
  * a 5xx, an interrupt), or no result at all. Such a create may have made its
  * ticket, and a tracker search can lag its index, so an honest re-run of
- * `decide --attempt fast` can miss it (the GF-90/GF-91 double create). Parallel
- * siblings of the gated call are pending, not lost.
+ * `decide --attempt fast` can miss it (the GF-90/GF-91 double create).
+ *
+ * Creates are ordered by a running (line, position) ordinal over tool_use
+ * blocks, as createsBefore walks them, so the one-line-per-message and the
+ * one-line-per-tool_use layouts order them alike. The bounded wait in run()
+ * guarantees the gated call's own line is in the read (the 2026-09-28
+ * measurement: lines land up to ~150 ms after the tool starts, their
+ * `timestamp` seconds earlier), so a no-result create ordered before it is
+ * visible and counts. One that shares the gated call's assistant message is a
+ * same-turn sibling: `parallel` marks it, and the gates refuse the call as a
+ * parallel duplicate rather than point at the retry search.
  */
 function lostCreates(
   parsed: Array<ParsedLine | null>,
@@ -849,15 +894,26 @@ function lostCreates(
   gatedId: string | undefined,
   kind: CreateKind = TICKET_CREATES,
 ): LostCreate[] {
-  const gatedLine = gatedId === undefined ? -1 : parsed.findIndex((p) => p?.blocks.some((b) => b.id === gatedId) ?? false);
-  const creates = new Map<string, { line: number; shape: CreateShape }>();
+  // STE-641 — a running (line, position) ordinal over tool_use blocks, as
+  // createsBefore walks them: both transcript layouts order creates alike.
+  let ordinal = 0;
+  let gatedOrdinal = -1;
+  let gatedLine = -1;
+  let gatedMessage = "";
+  const creates = new Map<string, { ordinal: number; line: number; message: string; shape: CreateShape }>();
   const outcome = new Map<string, string | null>(); // id → why it is lost, or null when it is settled
   parsed.forEach((p, idx) => {
     if (!p) return;
     for (const b of p.blocks) {
+      if (b.type === "tool_use") ordinal++;
+      if (b.type === "tool_use" && gatedId !== undefined && b.id === gatedId && gatedOrdinal < 0) {
+        gatedOrdinal = ordinal;
+        gatedLine = idx;
+        gatedMessage = messageIdOf(p);
+      }
       if (b.type === "tool_use" && typeof b.id === "string" && b.id !== gatedId) {
         const c = kind.pick(b, adapter);
-        if (c) creates.set(b.id, { line: idx, shape: kind.shape(c) });
+        if (c) creates.set(b.id, { ordinal, line: idx, message: messageIdOf(p), shape: kind.shape(c) });
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string" && creates.has(b.tool_use_id)) {
         const lost = b.is_error === true && !neverRan(p, b);
         outcome.set(b.tool_use_id, lost ? `its result was an error: ${resultText(b.content).trim().split("\n")[0]!.slice(0, 120)}` : null);
@@ -866,9 +922,11 @@ function lostCreates(
   });
   const out: LostCreate[] = [];
   for (const [id, c] of creates) {
-    if (gatedLine >= 0 && c.line >= gatedLine) continue;
-    const why = outcome.has(id) ? outcome.get(id)! : gatedLine >= 0 ? "it has no result" : null;
-    if (why !== null) out.push({ id, shape: c.shape, why });
+    if (gatedOrdinal >= 0 && c.ordinal >= gatedOrdinal) continue;
+    const why = outcome.has(id) ? outcome.get(id)! : gatedOrdinal >= 0 ? "it has no result" : null;
+    if (why === null) continue;
+    const sibling = !outcome.has(id) && (c.line === gatedLine || (gatedMessage !== "" && c.message === gatedMessage));
+    out.push({ id, shape: c.shape, why, parallel: sibling });
   }
   return out;
 }
@@ -905,6 +963,7 @@ function gateCreate(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
+  stale: StaleRead | null = null,
 ): ExitCode {
   const shape = callShape(call.adapter, call.input);
   if (shape.project === "" && shape.team === "") {
@@ -937,11 +996,21 @@ function gateCreate(
   }
   const tag = target.binding.repoTag ?? "";
   const where = `${call.tool} in ${target.root}`;
+  if (stale !== null) return refuseStale(where, stale, note);
 
   // §4 — after a create whose outcome is unknown, no create receipt — fresh or
   // not — authorises another create of that ticket: only the retry path, which
   // finds it and reuses it, proceeds.
   const lost = lostCreates(parseLines(transcript), call.adapter, call.toolUseId).find((c) => sameTicket(c.shape, shape));
+  if (lost?.parallel) {
+    return refuseParallelDuplicate(
+      where,
+      `"${shape.title}" (${lost.id})`,
+      "no create receipt authorises a second create of that ticket",
+      `send one create per ticket in a turn, and once ${lost.id}'s result names the ticket it made, write to that ticket.`,
+      note,
+    );
+  }
   if (lost) {
     return refuse(
       `${where}: an earlier create of "${shape.title}" (${lost.id}) may have made the ticket — ${lost.why} — so no create receipt authorises another create of it; a fresh \`--attempt fast\` search can miss a ticket the tracker has not indexed yet.${note}`,
@@ -1430,6 +1499,7 @@ function gateTicket(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
+  stale: StaleRead | null = null,
 ): ExitCode {
   const keys = subjectKeys(call);
   if (keys.length === 0) {
@@ -1460,9 +1530,11 @@ function gateTicket(
   if (permitted) return 0;
   const named = (isLink ? bound : unowned).map((k) => k.key);
   const targetRoots = [...new Set(inScope.flatMap((k) => k.targets.map((t) => t.root)))].join(", ");
+  // STE-641 — a lagging read cannot see a create, so name the lag first.
+  const lag = stale === null ? "" : `retry the same call once first — the transcript read lags this call (its tool_use ${stale.id} is not in it yet); `;
   return refuse(
-    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, this session did not create it, and no reuse, binding or consented import receipt names it.${note}`,
-    `run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json> [--adopt]")} (or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry.`,
+    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${note}`,
+    `${lag}run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json> [--adopt]")} (or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry.`,
   );
 }
 
@@ -1570,12 +1642,23 @@ function gateMilestoneCreate(
   targets: DeclaredTarget[],
   where: string,
   note: string,
+  stale: StaleRead | null = null,
 ): ExitCode {
+  if (stale !== null) return refuseStale(where, stale, note);
   const want = MILESTONE_CREATES.shape(call);
   const name = call.adapter === "jira" ? "Epic" : "project milestone";
   const lost = lostCreates(parseLines(transcript), call.adapter, call.toolUseId, MILESTONE_CREATES).find((c) =>
     sameTicket(c.shape, want),
   );
+  if (lost?.parallel) {
+    return refuseParallelDuplicate(
+      where,
+      `the ${name} "${want.title}" (${lost.id})`,
+      "no decision authorises a second create of it",
+      `send one create per ${name} in a turn — the decision ${frontDoor("--title <title>")} wrote authorises one create.`,
+      note,
+    );
+  }
   if (lost) {
     return refuse(
       `${where}: an earlier create of the ${name} "${want.title}" (${lost.id}) may have made it — ${lost.why} — so no decision authorises another create of it.${note}`,
@@ -1635,6 +1718,7 @@ function gateContainer(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
+  stale: StaleRead | null = null,
 ): ExitCode {
   const kind = containerKind(call.tool);
   const shape = callShape(call.adapter, call.input);
@@ -1654,7 +1738,7 @@ function gateContainer(
   const decideRemedy = `milestone containers are decided by ${frontDoor("--title <title>")} (or \`--join-key <key>\` to take an existing one) ${PLAIN_RULE}`;
 
   if (isMilestoneCreate(call.tool, call.input)) {
-    return gateMilestoneCreate(call, sessionId, transcript, announcements, targets, where, note);
+    return gateMilestoneCreate(call, sessionId, transcript, announcements, targets, where, note, stale);
   }
   if (call.tool === "save_milestone") {
     return refuse(
@@ -1709,6 +1793,7 @@ function gateJoinedLabels(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
+  stale: StaleRead | null = null,
 ): ExitCode | null {
   if (call.adapter !== "jira" || call.tool !== "editJiraIssue") return null;
   const fields = call.input.fields;
@@ -1739,6 +1824,7 @@ function gateJoinedLabels(
   const labels = stringList((fields as Record<string, unknown>).labels);
   const required = milestone === null ? join.labels : [...join.labels, milestone];
   const missing = required.filter((l) => !labels.includes(l));
+  if (stale !== null) return refuseStale(`editJiraIssue on ${key}, an Epic joined by ${join.path}`, stale, note);
   if (milestone !== null && missing.length === 0) return 0;
   return refuse(
     `editJiraIssue on ${key}, an Epic joined by ${join.path}: the labels [${labels.join(", ")}] ${milestone === null ? `cannot be checked — the receipt names no milestone id` : `drop ${missing.map((l) => `"${l}"`).join(", ")}`}; a labels write replaces the whole set, so it would clobber the labels the listing showed.${note}`,
@@ -1830,39 +1916,112 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
   return notes.join("");
 }
 
+/** STE-641 — how long the gate waits for the gated call's own tool_use line to reach the transcript. */
+export const GATED_LINE_WAIT_MS = 2000;
+const GATED_LINE_POLL_MS = 25;
+
+/** Whether a read holds a tool_use block whose `id` is `id` (a mere mention in text does not count). */
+function holdsToolUse(lines: string[], id: string): boolean {
+  return lines.some((line) => line.includes(id) && contentBlocks(line).some((b) => b.type === "tool_use" && b.id === id));
+}
+
+/**
+ * STE-641 — re-read the transcript until it holds the gated call's own
+ * tool_use line, for at most `waitMs`. Claude Code flushes that line shortly
+ * after the hook starts reading, so a first read may lack the call and every
+ * line written in its turn. An unreadable first read is returned as is.
+ * `stale` is true when the budget ran out with the line still absent.
+ */
+export function awaitGatedLine(
+  read: () => string[] | null,
+  id: string,
+  waitMs: number,
+  sleep: (ms: number) => void,
+): { lines: string[] | null; stale: boolean } {
+  let lines = read();
+  if (lines === null) return { lines, stale: false };
+  let slept = 0;
+  while (!holdsToolUse(lines, id)) {
+    if (slept >= waitMs) return { lines, stale: true };
+    const step = Math.min(GATED_LINE_POLL_MS, waitMs - slept);
+    sleep(step);
+    slept += step;
+    const next = read();
+    if (next !== null) lines = next;
+  }
+  return { lines, stale: false };
+}
+
+type Graded = { exit: ExitCode } | { scan: AnnouncementScan; declared: DeclaredTarget[] };
+
+/** Announcements, declarations and the declared targets of one transcript read; an exit when grading ends there. */
+function gradeRead(payload: HookPayload, call: TrackerCall, lines: string[], sessionId: string): Graded {
+  // One pass over the transcript for announcements, shared by candidate
+  // resolution and every gate below (no session id → nothing announced).
+  const scan = scanAnnouncements(lines, sessionId);
+  const declarations = readDeclarations(candidateRoots(payload, scan.announcements), call.adapter);
+  for (const d of declarations) {
+    if (d.ok) continue;
+    return {
+      exit: refuse(
+        `${call.tool} — the declaration in ${d.root} cannot be read: ${d.error.split("\n")[0]}`,
+        `fix the shared-container declaration in ${join(d.root, "CLAUDE.md")} and retry.`,
+      ),
+    };
+  }
+  const declared: DeclaredTarget[] = declarations.flatMap((d) => (d.ok && d.binding.shared ? [d] : []));
+  if (declared.length === 0) return { exit: 0 }; // §3 — byte-identical when undeclared
+  const floor = checkFloors(call, declared);
+  if (floor !== 0) return { exit: floor };
+  return { scan, declared };
+}
+
 export function run(stdin: string): ExitCode {
   const payload = parseHookPayload(stdin);
   if (!payload) return 0; // §6 — fail-open outside a session
   const call = identifyTrackerCall(payload);
   if (!call) return 0;
 
-  const transcript = readTranscriptLines(payload);
+  let transcript = readTranscriptLines(payload);
   const sessionId = sessionIdOf(payload);
-  const lines = transcript ?? [];
-  // One pass over the transcript for announcements, shared by candidate
-  // resolution and every gate below (no session id → nothing announced).
-  const scan = scanAnnouncements(lines, sessionId);
-  const announcements = scan.announcements;
-  const declarations = readDeclarations(candidateRoots(payload, announcements), call.adapter);
-  for (const d of declarations) {
-    if (d.ok) continue;
-    return refuse(
-      `${call.tool} — the declaration in ${d.root} cannot be read: ${d.error.split("\n")[0]}`,
-      `fix the shared-container declaration in ${join(d.root, "CLAUDE.md")} and retry.`,
-    );
-  }
-  const declared: DeclaredTarget[] = declarations.flatMap((d) => (d.ok && d.binding.shared ? [d] : []));
-  if (declared.length === 0) return 0; // §3 — byte-identical when undeclared
+  let lines = transcript ?? [];
+  let graded = gradeRead(payload, call, lines, sessionId);
+  if ("exit" in graded) return graded.exit;
 
-  const floor = checkFloors(call, declared);
-  if (floor !== 0) return floor;
+  // STE-641 — the gated call's own line may not be flushed yet: wait for it
+  // when this call writes into a declared target, then grade the final read.
+  const id = payload.tool_use_id;
+  const first = transcript;
+  let stale: StaleRead | null = null;
+  if (
+    first !== null &&
+    typeof id === "string" &&
+    !holdsToolUse(first, id) &&
+    graded.declared.some((d) => bindsCall(call, d)) &&
+    (payload as { agent_id?: unknown }).agent_id === undefined
+  ) {
+    let reads = 0;
+    const waited = awaitGatedLine(
+      () => (reads++ === 0 ? first : readTranscriptLines(payload)),
+      id,
+      GATED_LINE_WAIT_MS,
+      (ms) => Bun.sleepSync(ms),
+    );
+    transcript = waited.lines;
+    if (waited.stale) stale = { path: payload.transcript_path || "no transcript_path", id };
+    lines = transcript ?? [];
+    graded = gradeRead(payload, call, lines, sessionId);
+    if ("exit" in graded) return graded.exit;
+  }
+  const { scan, declared } = graded;
+  const announcements = scan.announcements;
 
   const note = unreadableInputsNote(payload, transcript, scan);
-  if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note);
-  if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note);
-  const joined = gateJoinedLabels(call, sessionId, announcements, declared, note);
+  if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note, stale);
+  if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note, stale);
+  const joined = gateJoinedLabels(call, sessionId, announcements, declared, note, stale);
   if (joined !== null) return joined;
-  return gateTicket(call, sessionId, lines, announcements, declared, note);
+  return gateTicket(call, sessionId, lines, announcements, declared, note, stale);
 }
 
 /**
