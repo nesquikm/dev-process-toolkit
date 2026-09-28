@@ -85,7 +85,7 @@ normalizing whitespace and case: exactly one match joins that milestone, two or
 more refuse and name every candidate with its identifier, and no match — or a
 provider carrying no `listMilestones` — refuses instead of creating. A join
 never creates. The toolkit makes every other mint with the approved decision of
-`resolve_milestone_identity.ts` as `expect`, so it performs that act or refuses; only a bare mint with neither option still finds by title.
+`resolve_milestone_identity.ts` as `expect`, so it performs that act or refuses; only a bare mint with neither option still finds by title. A decision printed with `default=forbidden` (a listing of exactly 50 milestones, possibly capped) also prints `options=` — ``Create `<title>` `` / ``Skip `<title>` `` — and in a shared repository the tracker-write hook permits the `save_milestone` create only after an `AskUserQuestion` offering those labels was answered exactly ``Create `<title>` `` after the decision.
 
 The milestone KEEPS the human title — it is never renamed to the canonical form.
 That is deliberate and is why the binding above matches by KEY: once the identity

@@ -559,7 +559,7 @@ after normalizing whitespace and case: exactly one match joins that Epic, two
 or more refuse and name every candidate with its key, and no match — or a
 provider carrying no `listEpics` — refuses instead of creating. A join never
 creates. The toolkit makes every other mint with the approved decision of
-`resolve_milestone_identity.ts` as `expect`, so it performs that act or refuses; only a bare mint with neither option still finds by title.
+`resolve_milestone_identity.ts` as `expect`, so it performs that act or refuses; only a bare mint with neither option still finds by title. A decision printed with `default=forbidden` (a shared title join) also prints `options=` — ``Join `<KEY>` `` / ``Skip `<KEY>` `` — and in a shared repository the tracker-write hook permits the join's labels edit and any FR create attached through it only after an `AskUserQuestion` offering those labels was answered exactly ``Join `<KEY>` `` after the decision.
 
 The mint surfaces NO capability row: it is a step of its own, not an attach
 outcome, and the attach that follows FINDS the Epic and returns `capability:

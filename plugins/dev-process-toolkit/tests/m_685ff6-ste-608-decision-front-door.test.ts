@@ -182,6 +182,8 @@ describe("AC-STE-608.5 — the decision front door prints the decision and write
     expect(out.get("listing")).toBe("3 rows, 1 closed excluded");
     expect(out.get("gate")).toBeTruthy();
     expect(out.get("default")).toBe("allowed");
+    // AC-STE-643.6 — no `options=` beside `default=allowed`.
+    expect(out.has("options")).toBe(false);
 
     const files = receiptFiles(root);
     expect(files.length).toBe(1);
@@ -355,10 +357,12 @@ describe("AC-STE-608.6 — gate= names the act, default= follows the binding", (
     const unsharedJoin = ok(runDoor([unshared, "jira", "GF", joinable(), "--title", "Payouts"]));
     expect(unsharedJoin.get("act")).toBe("join");
     expect(unsharedJoin.get("default")).toBe("allowed");
+    expect(unsharedJoin.has("options")).toBe(false);
 
     const sharedCreate = ok(runDoor([jiraRoot("shared"), "jira", "GF", writeListing({ issues: [], isLast: true }), "--title", "Payouts"]));
     expect(sharedCreate.get("act")).toBe("create");
     expect(sharedCreate.get("default")).toBe("allowed");
+    expect(sharedCreate.has("options")).toBe(false);
 
     const sharedLinear = linearRoot("shared");
     expectRefusal(runDoor([sharedLinear, "linear", "DPT", writeListing({ milestones: [{ id: UUID_A, name: "Payouts" }] }), "--title", "Payouts"]), sharedLinear, "--sibling");
@@ -477,6 +481,33 @@ describe("M_685ff6 review — a 50-row Linear listing is flagged possibly capped
     const out = ok(runDoor([root, "linear", "DPT", writeListing({ milestones: rows(49) }), "--title", "Payouts"]));
     expect(out.get("listing")).not.toContain("possibly capped");
     expect(out.get("default")).toBe("allowed");
+  });
+
+  // STE-643 (AC-STE-643.6): an `options=` line is printed if and only if
+  // `default=forbidden` is, and the receipt's evidence records the same labels.
+  test("AC-STE-643.6 — 50 rows, a create → options= prints the two consent labels, and evidence.options records them", () => {
+    const root = linearRoot("unshared");
+    const r = runDoor([root, "linear", "DPT", writeListing({ milestones: rows(50) }), "--title", "Payouts"]);
+    const out = ok(r);
+    expect(out.get("default")).toBe("forbidden");
+    const labels = ["Create `Payouts`", "Skip `Payouts`"];
+    expect(out.get("options")).toBe(JSON.stringify(labels));
+    const lines = r.stdout.split("\n");
+    expect(lines.indexOf(`options=${JSON.stringify(labels)}`), "options= follows the default= line").toBe(lines.indexOf("default=forbidden") + 1);
+    const files = receiptFiles(root);
+    expect(files.length).toBe(1);
+    const receipt = JSON.parse(readFileSync(files[0]!, "utf-8")) as { evidence: Record<string, unknown> };
+    expect(receipt.evidence.options).toEqual(labels);
+  });
+
+  test("AC-STE-643.6 control — 49 rows (default=allowed) prints no options= and records no evidence.options", () => {
+    const root = linearRoot("unshared");
+    const r = runDoor([root, "linear", "DPT", writeListing({ milestones: rows(49) }), "--title", "Payouts"]);
+    const out = ok(r);
+    expect(out.get("default")).toBe("allowed");
+    expect(out.has("options")).toBe(false);
+    const receipt = JSON.parse(readFileSync(receiptFiles(root)[0]!, "utf-8")) as { evidence: Record<string, unknown> };
+    expect("options" in receipt.evidence).toBe(false);
   });
 
   test("(control) a Jira listing of 50 rows is not flagged: its page proves isLast", () => {

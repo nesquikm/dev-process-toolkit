@@ -4766,3 +4766,292 @@ describe("AC-STE-642.10 / .11 — only a command that runs a deciding module und
     expectRefusal(await refuseBare(s), /\b1 Bash command\(s\) ran a deciding subcommand/, `bun run "$F" decide`);
   });
 });
+
+// ===========================================================================
+// STE-643 (M_101065) — a default=forbidden decision authorises no write until
+// it is answered. The decision front door prints `default=forbidden` for a
+// shared title join and for a create over a possibly capped Linear listing; the
+// hook permits the writes such a decision would authorise (a labels-only join
+// edit, an FR create attached through it, the container create) only after a
+// harness-recorded AskUserQuestion, asked after the decision's announcement,
+// naming the key or title and answered EXACTLY "Join `<KEY>`" / "Create
+// `<title>`". A decision printed `default=allowed` permits as at HEAD. RED at
+// abfe236d: every forbidden-default leg below exits 0.
+// ===========================================================================
+
+/**
+ * The consent AskUserQuestion, recorded in the shape Claude Code writes it
+ * (the same shape as `Session.ask`): a tool_use whose input carries the
+ * question and the printed `options=` labels, and a tool_result with the
+ * harness sentence plus `toolUseResult.answers`. An `error` or `denied`
+ * outcome is an is_error tool_result, as the harness records those.
+ */
+function askConsent(s: Session, question: string, labels: string[], outcome: AskOutcome): string {
+  const questions = [
+    {
+      question,
+      header: "Milestone",
+      multiSelect: false,
+      options: labels.map((label) => ({ label, description: label.startsWith("Skip") ? "Leave it." : "Proceed." })),
+    },
+  ];
+  const id = s.toolUse("AskUserQuestion", { questions });
+  if (outcome === "error") {
+    s.toolResult(id, "<tool_use_error>InputValidationError: AskUserQuestion failed</tool_use_error>", true);
+  } else if (outcome === "denied") {
+    s.toolResult(
+      id,
+      "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.",
+      true,
+    );
+  } else {
+    s.toolResult(
+      id,
+      `Your questions have been answered: "${question}"="${outcome.answer}". You can now continue with these answers in mind.`,
+      false,
+      { toolUseResult: { questions, answers: { [question]: outcome.answer } } },
+    );
+  }
+  return id;
+}
+
+const JOIN_GF_85 = "Join `GF-85`";
+const SKIP_GF_85 = "Skip `GF-85`";
+const JOIN_GF_85_QUESTION = "Join the existing Epic GF-85 \"Payouts\" as this repository's milestone?";
+const askJoinGF85 = (s: Session, outcome: AskOutcome): string => askConsent(s, JOIN_GF_85_QUESTION, [JOIN_GF_85, SKIP_GF_85], outcome);
+/** Matches the refusal naming the consent it needs, with or without the label's backticks. */
+const NAMES_JOIN_GF_85 = /Join `?GF-85`?/;
+
+/** A shared title join of GF-85 ("Payouts", labels [team-x]) through the REAL front door; default=forbidden. */
+function forbiddenTitleJoin(w: World): Resolved {
+  const d = realResolve(
+    w.be,
+    ["jira", "GF", "--title", "Payouts", "--sibling", siblingWithPlan(w)],
+    w.scratch,
+    { issues: [epicRow("GF-85", "Payouts", ["team-x"])], isLast: true },
+  );
+  if (!d.out.split("\n").includes("default=forbidden")) throw new Error(`fixture: the title join did not print default=forbidden:\n${d.out}`);
+  return d;
+}
+
+/** A key join of GF-85 through the REAL front door; default=allowed. */
+function allowedKeyJoin(w: World): Resolved {
+  const d = realResolve(
+    w.be,
+    ["jira", "GF", "--join-key", "GF-85", "--sibling", siblingWithPlan(w)],
+    w.scratch,
+    { issues: [epicRow("GF-85", "Payouts", ["team-x"])], isLast: true },
+  );
+  if (!d.out.split("\n").includes("default=allowed")) throw new Error(`fixture: the key join did not print default=allowed:\n${d.out}`);
+  return d;
+}
+
+const MERGE_GF_85 = { cloudId: CLOUD, issueIdOrKey: "GF-85", fields: { labels: ["team-x", "milestone-M_GF_85"] } };
+
+const cappedRows = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({ id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, name: `Old ${i}` }));
+
+const CREATE_PAYOUTS = "Create `Payouts`";
+const SKIP_PAYOUTS = "Skip `Payouts`";
+const CREATE_PAYOUTS_QUESTION = "Create the project milestone \"Payouts\" in DPT? The listing may be capped at 50.";
+
+describe("STE-643 — a forbidden default needs an answered consent", () => {
+  describe("(a) AC-STE-643.1 / .4 — a labels-only edit after a forbidden title join", () => {
+    test("no answer → exit 2 naming the consent `Join GF-85` (HEAD exits 0)", async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      const r = await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) });
+      expectRefusal(r, NAMES_JOIN_GF_85);
+    }, 60_000);
+
+    test("(permit twin) answered exactly \"Join `GF-85`\" after the decision → exit 0", async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      askJoinGF85(s, { answer: JOIN_GF_85 });
+      expectPermit(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+    }, 60_000);
+
+    test("AC-STE-643.4 — answered \"Skip `GF-85`\", answered before the decision, errored, denied, typed by the operator, unbackticked, or another key's join → exit 2", async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const build = (arrange: (s: Session) => void): string => {
+        const s = new Session();
+        arrange(s);
+        return s.save(w.scratch);
+      };
+      const cases: Array<[string, string]> = [
+        ["answered Skip", build((s) => { s.bash(d.command, d.out); askJoinGF85(s, { answer: SKIP_GF_85 }); })],
+        ["answered before the decision", build((s) => { askJoinGF85(s, { answer: JOIN_GF_85 }); s.bash(d.command, d.out); })],
+        ["errored", build((s) => { s.bash(d.command, d.out); askJoinGF85(s, "error"); })],
+        ["denied", build((s) => { s.bash(d.command, d.out); askJoinGF85(s, "denied"); })],
+        ["the label without backticks", build((s) => { s.bash(d.command, d.out); askJoinGF85(s, { answer: "Join GF-85" }); })],
+        [
+          "a join of another key answered",
+          build((s) => {
+            s.bash(d.command, d.out);
+            askConsent(s, "Join the existing Epic GF-99 as this repository's milestone?", ["Join `GF-99`", "Skip `GF-99`"], { answer: "Join `GF-99`" });
+          }),
+        ],
+        [
+          "an operator message typing the label (not a harness-recorded answer)",
+          build((s) => { s.bash(d.command, d.out); s.userText(JOIN_GF_85); }),
+        ],
+        [
+          // Review round 1: the label always carries the key, so only the
+          // QUESTION text can prove the question is about this decision.
+          "the right label as an option of a question that names neither the key nor the title",
+          build((s) => {
+            s.bash(d.command, d.out);
+            askConsent(s, "Shall I tidy the labels on this board?", [JOIN_GF_85, "Leave them"], { answer: JOIN_GF_85 });
+          }),
+        ],
+      ];
+      const runs = await mapBounded(cases, HOOK_SPAWN_LIMIT, ([, transcript]) =>
+        runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript }),
+      );
+      runs.forEach((r, i) => {
+        try {
+          expectRefusal(r, NAMES_JOIN_GF_85);
+        } catch (e) {
+          throw new Error(`${cases[i]![0]}: ${(e as Error).message}`);
+        }
+      });
+    }, 90_000);
+  });
+
+  describe("(b) AC-STE-643.2 — an FR create attached through a forbidden title join", () => {
+    function attachThroughTitleJoin(answer: AskOutcome | null): { w: World; transcript: string; decision: Resolved } {
+      const w = makeWorld();
+      const s = new Session();
+      const d = realResolve(
+        w.be,
+        ["jira", "GF", "--title", "Payouts", "--sibling", siblingWithPlan(w)],
+        w.scratch,
+        GF_85_PAGE,
+      );
+      if (!d.out.split("\n").includes("default=forbidden")) throw new Error(`fixture: the title join did not print default=forbidden:\n${d.out}`);
+      s.bash(d.command, d.out);
+      if (answer !== null) askJoinGF85(s, answer);
+      const plan = planIn(w.be, "M_GF_85", "Payouts", false);
+      const a = attached(w.be, "GF", plan, w.scratch, GF_85_PAGE);
+      expect(JSON.parse(readFileSync(a.receipt!, "utf-8")).evidence.provenance.receipt, "CONTROL — the attach target's provenance is the title join").toBe(resolve(d.receipt));
+      s.bash(a.command, a.out);
+      s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+      return { w, transcript: s.save(w.scratch), decision: d };
+    }
+
+    test("no answer → exit 2 naming the decision receipt and the required answer (HEAD exits 0)", async () => {
+      const { w, transcript, decision } = attachThroughTitleJoin(null);
+      const r = await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript });
+      expectRefusal(r, NAMES_JOIN_GF_85, decision.receipt);
+    }, 60_000);
+
+    test("(permit twin) answered \"Join `GF-85`\" after the decision → exit 0", async () => {
+      const { w, transcript } = attachThroughTitleJoin({ answer: JOIN_GF_85 });
+      expectPermit(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript }));
+    }, 60_000);
+
+    test("AC-STE-643.4 — answered \"Skip `GF-85`\" → exit 2", async () => {
+      const { w, transcript } = attachThroughTitleJoin({ answer: SKIP_GF_85 });
+      expectRefusal(await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript }), NAMES_JOIN_GF_85);
+    }, 60_000);
+  });
+
+  describe("(c) AC-STE-643.3 — a Linear milestone create decided over a possibly capped listing", () => {
+    function cappedCreate(rows: number, arrange: (s: Session, d: Resolved) => void = (s, d) => s.bash(d.command, d.out)): { root: string; transcript: string } {
+      const root = linearRepo(BE_TAG);
+      const scratch = tempDir("643-capped");
+      const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(rows) });
+      const s = new Session();
+      arrange(s, d);
+      return { root, transcript: s.save(scratch) };
+    }
+    const askCreate = (s: Session, outcome: AskOutcome) =>
+      askConsent(s, CREATE_PAYOUTS_QUESTION, [CREATE_PAYOUTS, SKIP_PAYOUTS], outcome);
+    const SAVE = { project: "DPT", name: "Payouts" };
+
+    test("50 rows, no answer → save_milestone exits 2 naming `Create Payouts` (HEAD exits 0)", async () => {
+      const { root, transcript } = cappedCreate(50);
+      expectRefusal(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript }), /Create `?Payouts`?/);
+    }, 60_000);
+
+    test("(permit twin) 50 rows, answered \"Create `Payouts`\" after the decision → exit 0", async () => {
+      const { root, transcript } = cappedCreate(50, (s, d) => {
+        s.bash(d.command, d.out);
+        askCreate(s, { answer: CREATE_PAYOUTS });
+      });
+      expectPermit(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript }));
+    }, 60_000);
+
+    test("AC-STE-643.4 — 50 rows, answered Skip, answered before the decision, errored or denied → exit 2", async () => {
+      const cases: Array<[string, { root: string; transcript: string }]> = [
+        ["Skip", cappedCreate(50, (s, d) => { s.bash(d.command, d.out); askCreate(s, { answer: SKIP_PAYOUTS }); })],
+        ["before", cappedCreate(50, (s, d) => { askCreate(s, { answer: CREATE_PAYOUTS }); s.bash(d.command, d.out); })],
+        ["error", cappedCreate(50, (s, d) => { s.bash(d.command, d.out); askCreate(s, "error"); })],
+        ["denied", cappedCreate(50, (s, d) => { s.bash(d.command, d.out); askCreate(s, "denied"); })],
+      ];
+      const runs = await mapBounded(cases, HOOK_SPAWN_LIMIT, ([, c]) => runSh(LINEAR("save_milestone"), SAVE, { cwd: c.root, transcript: c.transcript }));
+      runs.forEach((r, i) => {
+        try {
+          expectRefusal(r, /Create `?Payouts`?/);
+        } catch (e) {
+          throw new Error(`${cases[i]![0]}: ${(e as Error).message}`);
+        }
+      });
+    }, 90_000);
+
+    test("AC-STE-643.5 control — 49 rows (default=allowed), no answer → exit 0", async () => {
+      const { root, transcript } = cappedCreate(49);
+      expectPermit(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript }));
+    }, 60_000);
+  });
+
+  describe("(d) AC-STE-643.5 — a decision printed default=allowed permits as at HEAD", () => {
+    test("a key join, then a labels edit, no answer → exit 0", async () => {
+      const w = makeWorld();
+      const d = allowedKeyJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      expectPermit(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+    }, 60_000);
+
+    test("HIR P4 — a forbidden title join, then a key join of the same key, then a labels edit, no answer → exit 0", async () => {
+      const w = makeWorld();
+      const s = new Session();
+      const title = forbiddenTitleJoin(w);
+      s.bash(title.command, title.out);
+      const key = allowedKeyJoin(w);
+      s.bash(key.command, key.out);
+      expectPermit(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+    }, 60_000);
+
+    test("(twin) a key join, then a LATER forbidden title join of the same key, then a labels edit, no answer → exit 2: the latest join governs", async () => {
+      const w = makeWorld();
+      const s = new Session();
+      const key = allowedKeyJoin(w);
+      s.bash(key.command, key.out);
+      const title = forbiddenTitleJoin(w);
+      s.bash(title.command, title.out);
+      expectRefusal(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }), NAMES_JOIN_GF_85);
+    }, 60_000);
+  });
+
+  describe("AC-STE-643.7 — a forbidden title join still supersedes an earlier create decision", () => {
+    for (const answered of [false, true]) {
+      test(`create decision, then a forbidden title join (${answered ? "answered Join" : "unanswered"}) → the Epic create stays refused, naming GF-85`, async () => {
+        const w = makeWorld();
+        const s = new Session();
+        const early = realResolve(w.be, ["jira", "GF", "--title", "Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+        s.bash(early.command, early.out);
+        const later = forbiddenTitleJoin(w);
+        s.bash(later.command, later.out);
+        if (answered) askJoinGF85(s, { answer: JOIN_GF_85 });
+        expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }), "GF-85");
+      }, 60_000);
+    }
+  });
+});

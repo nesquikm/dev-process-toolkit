@@ -5082,3 +5082,194 @@ describe("STE-616 — an in-place edit is attributed to its own segment's target
     expect(flagged(b, s.sessionId)).toBe(true);
   });
 });
+
+// ===========================================================================
+// STE-643 (M_101065) AC-STE-643.8 — the live grader mirrors the hook: a
+// labels-only write, or a milestone-container create, that relied on a
+// decision printed `default=forbidden` is `ungated-write` unless an
+// AskUserQuestion asked after that decision's announcement, naming its key or
+// title, was answered EXACTLY "Join `<KEY>`" / "Create `<title>`". Each fixture
+// pair differs only in that answer. RED at abfe236d: the grader accepts any
+// join (or create) decision whatever its default.
+// ===========================================================================
+
+/** A harness-recorded AskUserQuestion answer, in the shape the bundle records one. */
+function consentAsk(question: string, labels: string[], answer: string): { input: Record<string, unknown>; result: ToolCall["result"] } {
+  return {
+    input: { questions: [{ question, header: "Milestone", multiSelect: false, options: labels.map((label) => ({ label })) }] },
+    result: { isError: false, text: `User has answered your questions: "${question}"="${answer}". You can now continue with the user's answers in mind.`, exitCode: null, items: null, lastPage: null },
+  };
+}
+
+describe("AC-STE-643.8 — the live grader grades a write that relied on an unanswered forbidden decision as ungated-write", () => {
+  for (const t of TRACKERS) {
+    /**
+     * S3's span mint, with its create decision printed and recorded as
+     * `default=forbidden` (a possibly capped create), optionally answered
+     * between the decision's announcement and the container create.
+     */
+    const forbiddenMint = (answer: string | null) => {
+      const b = buildPassingBundle(t);
+      const s = session(b, "S3");
+      const decide = bashCall(s, /resolve_milestone_identity\.ts/);
+      const r = announcedReceipt(b, decide);
+      const name = String(r.evidence.title);
+      const labels = [`Create \`${name}\``, `Skip \`${name}\``];
+      Object.assign(r.evidence, { default: "forbidden", options: labels, possiblyCapped: true });
+      decide.result.text = decide.result.text.replace("default=allowed", `default=forbidden\noptions=${JSON.stringify(labels)}`);
+      const create = createCallOf(s);
+      if (answer !== null) {
+        const i = s.calls.indexOf(create);
+        const at = new Date((Date.parse(decide.at) + Date.parse(create.at)) / 2).toISOString();
+        const ask = consentAsk(`Create the milestone "${name}" in ${b.run.container}?`, labels, answer);
+        s.calls.splice(i, 0, { ref: `${s.sessionId}:toolu_643_ask`, at, name: "AskUserQuestion", input: ask.input, result: ask.result, sidechain: false });
+      }
+      return { b, create, labels };
+    };
+
+    test(`${t}: a milestone create after a default=forbidden create decision with NO answer is ungated-write`, () => {
+      const { b, create } = forbiddenMint(null);
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: PERMIT TWIN — the same create after an answered \`Create <title>\` is not ungated-write`, () => {
+      const yes = forbiddenMint(forbiddenMint(null).labels[0]!);
+      expect(ungatedAt(grade(yes.b), yes.create.ref)).toBe(false);
+    });
+    test(`${t}: an answered \`Skip <title>\` authorises nothing (ungated-write)`, () => {
+      const probe = forbiddenMint(null);
+      const skip = forbiddenMint(probe.labels[1]!);
+      expect(ungatedAt(grade(skip.b), skip.create.ref)).toBe(true);
+    });
+    test(`${t}: CONTROL — the passing bundle's default=allowed create decision gates the create with no answer`, () => {
+      const b = buildPassingBundle(t);
+      expect(ungatedAt(grade(b), createCallOf(session(b, "S3")).ref)).toBe(false);
+    });
+  }
+
+  /** A Jira labels-only write in S13 on S3's Epic, relying on a join decision of it announced in S13. */
+  const labelsJoin = (via: "title" | "key", answer: string | null) => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S13");
+    const epic = createdKeys(session(b, "S3"))[0]!;
+    const labels = [`Join \`${epic}\``, `Skip \`${epic}\``];
+    const forbidden = via === "title";
+    const spanTitle = title("S3 span milestone");
+    appendAnnounced(
+      b,
+      s,
+      "milestone-decision",
+      moduleCommand("resolve_milestone_identity.ts", null, via === "title" ? `<B> jira DST <B>/.dpt/tmp/listing.json --title "${spanTitle}" --sibling <A>` : `<B> jira DST <B>/.dpt/tmp/listing.json --join-key ${epic} --sibling <A>`),
+      {
+        subject: via === "title" ? spanTitle : epic,
+        decision: "join",
+        evidence: {
+          act: "join",
+          via,
+          key: epic,
+          ...(via === "title" ? { title: spanTitle } : { joinKey: epic }),
+          name: spanTitle,
+          shared: true,
+          default: forbidden ? "forbidden" : "allowed",
+          ...(forbidden ? { options: labels } : {}),
+        },
+      },
+      `join_${via}`,
+    );
+    if (answer !== null) {
+      const ask = consentAsk(`Join the existing Epic ${epic} "${spanTitle}" as this repository's milestone?`, labels, answer);
+      appendCall(s, "AskUserQuestion", ask.input, ask.result, "ask_643");
+    }
+    const w = appendTicketWrite(b, s, epic, "labels_643", "edit");
+    return { b, w, labels };
+  };
+
+  test("jira: a labels-only write after a default=forbidden title join with NO answer is ungated-write", () => {
+    const { b, w } = labelsJoin("title", null);
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("jira: PERMIT TWIN — the same write after an answered `Join <KEY>` is not ungated-write", () => {
+    const epic = createdKeys(session(buildPassingBundle("jira"), "S3"))[0]!;
+    const { b, w } = labelsJoin("title", `Join \`${epic}\``);
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+  test("jira: an answered `Skip <KEY>` authorises nothing (ungated-write)", () => {
+    const epic = createdKeys(session(buildPassingBundle("jira"), "S3"))[0]!;
+    const { b, w } = labelsJoin("title", `Skip \`${epic}\``);
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("jira: the right `Join <KEY>` label offered under a question naming neither the key nor the title does not consent (ungated-write)", () => {
+    const b = buildPassingBundle("jira");
+    const epic = createdKeys(session(b, "S3"))[0]!;
+    const { b: bundle, w } = labelsJoin("title", `Join \`${epic}\``);
+    const s = session(bundle, "S13");
+    const ask = s.calls.find((c) => c.name === "AskUserQuestion" && c.ref.endsWith("ask_643"));
+    if (!ask) throw new Error("fixture: the consent question is missing");
+    const q = (ask.input.questions as Array<{ question: string }>)[0]!;
+    q.question = "Shall I tidy the labels on this board?";
+    ask.result.text = `User has answered your questions: "${q.question}"="Join \`${epic}\`". You can now continue with the user's answers in mind.`;
+    expect(ungatedAt(grade(bundle), w.ref)).toBe(true);
+  });
+  test("jira: an answered `Join <KEY>` asked only in a subagent's sidechain does not consent for a main-chain write (ungated-write)", () => {
+    const b = buildPassingBundle("jira");
+    const epic = createdKeys(session(b, "S3"))[0]!;
+    const { b: bundle, w } = labelsJoin("title", `Join \`${epic}\``);
+    const s = session(bundle, "S13");
+    const ask = s.calls.find((c) => c.name === "AskUserQuestion" && c.ref.endsWith("ask_643"));
+    if (!ask) throw new Error("fixture: the consent question is missing");
+    ask.sidechain = true;
+    expect(w.sidechain, "CONTROL — the write itself is in the main chain").toBe(false);
+    expect(ungatedAt(grade(bundle), w.ref)).toBe(true);
+  });
+  test("jira: CONTROL — a default=allowed key join gates the same labels-only write with no answer", () => {
+    const { b, w } = labelsJoin("key", null);
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+
+  /**
+   * Two join decisions of S3's Epic in S13, in the given order, then the
+   * labels-only write — the grader mirrors the hook's rule that the LATEST
+   * join for the key governs (hook suite "(d) … (twin)" and HIR P4).
+   */
+  const twoJoins = (order: Array<"title" | "key">) => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S13");
+    const epic = createdKeys(session(b, "S3"))[0]!;
+    const labels = [`Join \`${epic}\``, `Skip \`${epic}\``];
+    const spanTitle = title("S3 span milestone");
+    order.forEach((via, n) => {
+      const forbidden = via === "title";
+      appendAnnounced(
+        b,
+        s,
+        "milestone-decision",
+        moduleCommand("resolve_milestone_identity.ts", null, via === "title" ? `<B> jira DST <B>/.dpt/tmp/listing.json --title "${spanTitle}" --sibling <A>` : `<B> jira DST <B>/.dpt/tmp/listing.json --join-key ${epic} --sibling <A>`),
+        {
+          subject: via === "title" ? spanTitle : epic,
+          decision: "join",
+          evidence: {
+            act: "join",
+            via,
+            key: epic,
+            ...(via === "title" ? { title: spanTitle } : { joinKey: epic }),
+            name: spanTitle,
+            shared: true,
+            default: forbidden ? "forbidden" : "allowed",
+            ...(forbidden ? { options: labels } : {}),
+          },
+        },
+        `join_${via}_${n}`,
+      );
+    });
+    const w = appendTicketWrite(b, s, epic, "labels_643_two", "edit");
+    return { b, w };
+  };
+
+  test("jira: a key join, then a LATER unanswered forbidden title join of the same key, then the labels write → ungated-write (the latest join governs)", () => {
+    const { b, w } = twoJoins(["key", "title"]);
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("jira: CONTROL (HIR P4) — a forbidden title join, then a LATER allowed key join, then the labels write → not ungated-write", () => {
+    const { b, w } = twoJoins(["title", "key"]);
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+});

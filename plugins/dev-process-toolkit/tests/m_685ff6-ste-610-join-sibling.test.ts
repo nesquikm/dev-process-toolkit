@@ -15,7 +15,7 @@
 // Real git roots (GIT_ENV); the listing is a raw Jira Epic search page.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -232,6 +232,14 @@ describe("AC-STE-610.4 — a shared title join with --sibling keeps default=forb
       expect(f.get("act")).toBe("join");
       expect(f.get("via")).toBe("title");
       expect(f.get("default")).toBe("forbidden");
+      // AC-STE-643.6 — a forbidden default prints the consent options and
+      // records the same labels in the receipt's evidence.
+      const labels = [`Join \`${KEY}\``, `Skip \`${KEY}\``];
+      expect(f.get("options")).toBe(JSON.stringify(labels));
+      const files = receipts(t.a);
+      expect(files.length).toBe(1);
+      const receipt = JSON.parse(readFileSync(join(receiptsDir(t.a, SESSION), files[0]!), "utf-8")) as { evidence: Record<string, unknown> };
+      expect(receipt.evidence.options).toEqual(labels);
     });
   }, 30_000);
 
@@ -239,6 +247,10 @@ describe("AC-STE-610.4 — a shared title join with --sibling keeps default=forb
     await withJoin((t) => {
       const f = fields(door(t, "--join-key", KEY, "--sibling", t.b));
       expect(f.get("default")).toBe("allowed");
+      // AC-STE-643.6 control — no `options=` beside `default=allowed`.
+      expect(f.has("options")).toBe(false);
+      const receipt = JSON.parse(readFileSync(join(receiptsDir(t.a, SESSION), receipts(t.a)[0]!), "utf-8")) as { evidence: Record<string, unknown> };
+      expect("options" in receipt.evidence).toBe(false);
     });
   }, 30_000);
 });

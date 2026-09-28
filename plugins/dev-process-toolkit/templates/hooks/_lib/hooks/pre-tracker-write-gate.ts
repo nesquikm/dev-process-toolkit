@@ -1100,7 +1100,7 @@ function gateCreate(
   const matching = seen.filter((r) => createMismatch(call.adapter, shape, r.shape, tag) === null);
   if (matching.some((r) => !r.spent)) {
     const created = createdKeys(parsed, call.adapter);
-    return gateAttachTarget(call, shape, sessionId, announcements, created, target, note);
+    return gateAttachTarget(call, shape, sessionId, announcements, created, target, note, parsed);
   }
 
   if (matching.length > 0) {
@@ -1147,7 +1147,9 @@ interface AttachTarget {
   /** Whether its provenance holds (`provenanceUnproven` is null); an unproven target never permits. */
   proven: boolean;
   /** Why it is unproven, when it is. */
-  unproven: typeof NOT_ANNOUNCED | typeof NOT_CREATED | null;
+  unproven: typeof NOT_ANNOUNCED | typeof NOT_CREATED | typeof NOT_CONSENTED | null;
+  /** STE-643 — the forbidden join decision and the answer it still needs, when `unproven` is `NOT_CONSENTED`. */
+  consent: { receipt: string; label: string } | null;
 }
 
 /**
@@ -1167,20 +1169,28 @@ interface AttachTarget {
  */
 const NOT_ANNOUNCED = "never-announced";
 const NOT_CREATED = "not-created";
+/** STE-643 — a `default=forbidden` join decision no AskUserQuestion after it answered with its consent label. */
+const NOT_CONSENTED = "not-consented";
 
-/** Null when the provenance holds; otherwise why not (`NOT_ANNOUNCED` or `NOT_CREATED`). */
+/**
+ * Null when the provenance holds; otherwise why not (`NOT_ANNOUNCED`,
+ * `NOT_CREATED` or `NOT_CONSENTED`). On `NOT_CONSENTED`, `consent` receives
+ * the decision receipt and the answer it needs.
+ */
 function provenanceUnproven(
   provenance: unknown,
   announcements: Announcement[],
   resolvedKey: string,
   created: ReadonlySet<string>,
-): typeof NOT_ANNOUNCED | typeof NOT_CREATED | null {
+  parsed: Array<ParsedLine | null>,
+  consent: { receipt: string; label: string } = { receipt: "", label: "" },
+): typeof NOT_ANNOUNCED | typeof NOT_CREATED | typeof NOT_CONSENTED | null {
   if (provenance === null || typeof provenance !== "object") return NOT_ANNOUNCED;
   const p = provenance as Record<string, unknown>;
   if (p.kind === "committed" || p.kind === "not-applicable") return null;
   if (p.kind !== "decided" || typeof p.receipt !== "string" || typeof p.sha256 !== "string") return NOT_ANNOUNCED;
   const wanted = resolve(p.receipt);
-  let why: typeof NOT_ANNOUNCED | typeof NOT_CREATED = NOT_ANNOUNCED;
+  let why: typeof NOT_ANNOUNCED | typeof NOT_CREATED | typeof NOT_CONSENTED = NOT_ANNOUNCED;
   for (const x of announcements) {
     if (x.module !== RESOLVE_MODULE || !x.intact || resolve(x.receiptPath) !== wanted) continue;
     let bytes: Buffer;
@@ -1200,6 +1210,25 @@ function provenanceUnproven(
     } catch {
       continue;
     }
+    // STE-643 — a join decision that printed default=forbidden proves its
+    // target only once the operator answered its consent label after it.
+    const ev = (JSON.parse(bytes.toString("utf-8")) as { evidence?: Record<string, unknown> }).evidence ?? {};
+    const forbiddenJoin: ConsentSubject | null =
+      act === "join" && ev.default === "forbidden"
+        ? {
+            line: x.line,
+            act: "join",
+            key: typeof ev.key === "string" ? ev.key : "",
+            title: typeof ev.title === "string" ? ev.title : null,
+          }
+        : null;
+    const label = forbiddenJoin === null ? "" : consentLabel(forbiddenJoin);
+    if (forbiddenJoin !== null && !answeredAfter(parsed, forbiddenJoin, label)) {
+      why = NOT_CONSENTED;
+      consent.receipt = x.receiptPath;
+      consent.label = label;
+      continue;
+    }
     if (act === "join") return null;
     if (act === "create" && resolvedKey !== "" && created.has(resolvedKey.toUpperCase())) return null;
     why = NOT_CREATED;
@@ -1213,6 +1242,7 @@ function attachTargets(
   root: string,
   sessionId: string,
   adapter: WorkspaceAdapterKey,
+  parsed: Array<ParsedLine | null>,
 ): AttachTarget[] {
   const out: AttachTarget[] = [];
   for (const { announcement: a, container, evidence: ev } of frontDoorReceipts(
@@ -1227,10 +1257,12 @@ function attachTargets(
     const key = ev.surface === "parent" && typeof ev.key === "string" ? ev.key : "";
     const id = ev.surface === "object" && typeof ev.id === "string" ? ev.id : "";
     const planFile = typeof ev.planFile === "string" ? ev.planFile : "";
-    const unproven = provenanceUnproven(ev.provenance, announcements, key || id, created);
+    const consent = { receipt: "", label: "" };
+    const unproven = provenanceUnproven(ev.provenance, announcements, key || id, created, parsed, consent);
     out.push({
       proven: unproven === null,
       unproven,
+      consent: unproven === NOT_CONSENTED ? consent : null,
       path: a.receiptPath,
       project: container,
       surface: ev.surface,
@@ -1284,10 +1316,11 @@ function gateAttachTarget(
   created: ReadonlySet<string>,
   target: DeclaredTarget,
   note: string,
+  parsed: Array<ParsedLine | null>,
 ): ExitCode {
   const where = `${call.tool} in ${target.root}`;
   const project = shape.project !== "" ? shape.project : shape.team;
-  const all = attachTargets(announcements, created, target.root, sessionId, call.adapter).filter((t) =>
+  const all = attachTargets(announcements, created, target.root, sessionId, call.adapter, parsed).filter((t) =>
     sameName(t.project, project),
   );
   const inProject = all.filter((t) => t.proven);
@@ -1334,6 +1367,12 @@ function gateAttachTarget(
   if (unproven.length > 0) {
     const last = unproven[unproven.length - 1]!;
     const resolvedKey = last.key || last.id;
+    if (last.unproven === NOT_CONSENTED && last.consent !== null) {
+      return refuse(
+        `${where}: the attach-target receipt (${last.path}) resolved ${resolvedKey} through the join decision ${last.consent.receipt}, which printed default=forbidden — and ${unansweredConsent(last.consent.label)}.${note}`,
+        `ask the operator with AskUserQuestion naming the joined container, offering the printed \`options=\` labels verbatim; create the FR only after the answer is exactly "${last.consent.label}". Then retry.`,
+      );
+    }
     if (last.unproven === NOT_CREATED) {
       return refuse(
         `${where}: the attach-target receipt (${last.path}) resolved the existing container ${resolvedKey}, and the milestone decision it relies on is a CREATE — but no create call of this session returned ${resolvedKey}, so binding to it would be a join the operator never approved.${note}`,
@@ -1659,6 +1698,8 @@ interface MilestoneDecision {
   labels: string[];
   /** The joined container's listed name (joins only); null when the receipt records none. */
   name: string | null;
+  /** STE-643 — the front door printed `default=forbidden` (recorded as `evidence.default`). */
+  forbidden: boolean;
 }
 
 /**
@@ -1694,9 +1735,62 @@ function milestoneDecisions(
       milestoneId: typeof ev.milestoneId === "string" ? ev.milestoneId : "",
       labels: stringList(ev.labels),
       name: typeof ev.name === "string" ? ev.name : null,
+      forbidden: ev.default === "forbidden",
     });
   }
   return out;
+}
+
+/**
+ * STE-643 — what the consent rule reads of a decision: where it was announced
+ * (transcript line), its act, and the key or title a question must name.
+ * Twin: `forbiddenDecisionConsented` in adapters/_shared/src/shared_tracker_live_grader.ts
+ * mirrors this rule for the live grader (separate modules by design — keep both in step).
+ */
+type ConsentSubject = Pick<MilestoneDecision, "line" | "act" | "key" | "title">;
+
+/**
+ * STE-643 — the consent a `default=forbidden` decision needs, computed from
+ * the decision's own act, key and title (never from recorded options).
+ */
+function consentLabel(d: ConsentSubject): string {
+  return d.act === "join" ? `Join \`${d.key}\`` : `Create \`${d.title ?? ""}\``;
+}
+
+/** STE-643 — the refusal clause naming the consent answer a decision still needs. */
+const unansweredConsent = (label: string): string => `no AskUserQuestion after it was answered "${label}"`;
+
+/**
+ * STE-643 — true when an AskUserQuestion after the decision's announcement
+ * names its key or title in a question's own text, offers `label` as an
+ * option, and the harness recorded exactly `label` as the answer.
+ */
+function answeredAfter(parsed: Array<ParsedLine | null>, d: ConsentSubject, label: string): boolean {
+  const asks = new Set<string>();
+  for (let idx = d.line + 1; idx < parsed.length; idx++) {
+    const p = parsed[idx];
+    if (!p) continue;
+    for (const b of p.blocks) {
+      if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string") {
+        const questions = (b.input as { questions?: unknown } | undefined)?.questions;
+        // The QUESTION text must name the decision: the label itself always
+        // carries the key or title, so reading the options too would let a
+        // correctly-labelled option ride an unrelated question.
+        const text = Array.isArray(questions) ? questions.map((q) => String((q as { question?: unknown } | null)?.question ?? "")).join("\n") : "";
+        const names = (d.key !== "" && namesKey(text, d.key)) || (d.title !== null && d.title !== "" && text.includes(d.title));
+        const offers = Array.isArray(questions) && questions.some((q) => {
+          const options = (q as { options?: unknown } | null)?.options;
+          return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
+        });
+        if (names && offers) asks.add(b.id);
+      } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+        if (b.is_error === true || !asks.has(b.tool_use_id)) continue;
+        const answers = selectedAnswers(p, b);
+        if (answers.length > 0 && answers.every((a) => a === label)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** A create decision for the same project and a byte-equal title (AC-STE-608.10 a/b). */
@@ -1770,7 +1864,18 @@ function gateMilestoneCreate(
     );
   }
   const matching = seen.filter((d) => decides(d, want));
-  if (matching.some((d) => !d.spent)) return 0;
+  if (matching.some((d) => !d.spent && (!d.forbidden || answeredAfter(parsed, d, consentLabel(d))))) return 0;
+  // STE-643 — an unspent create decision that printed default=forbidden
+  // permits only once its consent label was answered after it.
+  const unconsented = matching.filter((d) => !d.spent);
+  if (unconsented.length > 0) {
+    const d = unconsented[unconsented.length - 1]!;
+    const label = consentLabel(d);
+    return refuse(
+      `${where}: its create decision (${d.path}) printed default=forbidden — the listing may be capped — and ${unansweredConsent(label)}.${note}`,
+      `ask the operator with AskUserQuestion, naming "${want.title}" and offering "${label}"; only that recorded answer after the decision permits this create.`,
+    );
+  }
   if (matching.length > 0) {
     return refuse(
       `${where}: its create decision (${matching[matching.length - 1]!.path}) is spent — another create of the ${name} "${want.title}" took it, and that create may have made it.${note}`,
@@ -1878,6 +1983,7 @@ function gateJoinedLabels(
   declared: DeclaredTarget[],
   note: string,
   stale: StaleRead | null = null,
+  transcript: string[] = [],
 ): ExitCode | null {
   if (call.adapter !== "jira" || call.tool !== "editJiraIssue") return null;
   const fields = call.input.fields;
@@ -1899,6 +2005,14 @@ function gateJoinedLabels(
   );
   const join = joins[joins.length - 1];
   if (!join) return null;
+  const consent = consentLabel(join);
+  const unconsented = join.forbidden && !answeredAfter(parseLines(transcript), join, consent);
+  if (stale === null && unconsented) {
+    return refuse(
+      `editJiraIssue on ${key}, an Epic joined by ${join.path}: that decision printed default=forbidden, and ${unansweredConsent(consent)}.${note}`,
+      `ask the operator with AskUserQuestion naming ${key}, offering the printed \`options=\` labels verbatim; write the labels only after the answer is exactly "${consent}".`,
+    );
+  }
   let milestone: string | null;
   try {
     milestone = milestoneLabel(join.milestoneId);
@@ -2103,7 +2217,7 @@ export function run(stdin: string): ExitCode {
   const note = unreadableInputsNote(payload, transcript, scan);
   if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note, stale);
   if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note, stale);
-  const joined = gateJoinedLabels(call, sessionId, announcements, declared, note, stale);
+  const joined = gateJoinedLabels(call, sessionId, announcements, declared, note, stale, lines);
   if (joined !== null) return joined;
   return gateTicket(call, sessionId, lines, announcements, declared, note, stale);
 }
