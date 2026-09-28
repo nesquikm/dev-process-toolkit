@@ -31,14 +31,14 @@ import {
 import { normalizeTitleForCompare } from "../../../../adapters/_shared/src/create_idempotency_probe.ts";
 import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_ownership.ts";
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
-import { governingDecision } from "../../../../adapters/_shared/src/milestone_token.ts";
+import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
 // the two gates came to disagree about the one rule.
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
-import { readTrackerItem, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
+import { listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
 /** Kept exported from here, where it was declared until the two gates started sharing it. */
 export { simpleCommandWords } from "../../../../adapters/_shared/src/shell_invocations.ts";
@@ -1793,11 +1793,131 @@ function answeredAfter(parsed: Array<ParsedLine | null>, d: ConsentSubject, labe
   return false;
 }
 
+/** STE-644 — the listing tool a container re-list is read from, per tracker. */
+const RELIST_TOOLS: Readonly<Record<WorkspaceAdapterKey, string>> = { jira: "searchJiraIssuesUsingJql", linear: "list_milestones" };
+
+/** STE-644 — one complete container listing chain: its rows and the transcript line of its last result. */
+interface Relist {
+  items: Record<string, unknown>[];
+  lastLine: number;
+}
+
+/**
+ * STE-644 — the complete, canonical-scope listings of `project`'s containers
+ * recorded after line `from`: non-error results of the adapter's listing tool
+ * whose request `isCanonicalContainerListing` admits, chained from an unpaged
+ * request, each later request carrying the previous page's cursor, read by
+ * tracker_answer's `readTrackerListing` and ending on a page proven last. An
+ * errored or unreadable page breaks its chain, and a chain whose rows fail
+ * `containerListingRowsComplete` (a Jira row without its summary, its status
+ * category or a key with `project`'s prefix; a Linear row without its name)
+ * does not qualify. `consented` (a forbidden decision the operator answered)
+ * admits a full Linear milestone window, which never proves the last page:
+ * the answer is the only way past it. Freshness is not checked here; the
+ * caller filters by `freshBefore`. Twin: `relistedAfter` in
+ * shared_tracker_live_grader.ts, which grades the same rule on a recorded
+ * bundle and cannot check all of it (see there).
+ */
+function relistsAfter(parsed: Array<ParsedLine | null>, from: number, adapter: WorkspaceAdapterKey, project: string, consented = false): Relist[] {
+  const tool = RELIST_TOOLS[adapter];
+  const requests = new Map<string, unknown>();
+  const out: Relist[] = [];
+  let pages: unknown[] | null = null;
+  for (let idx = from + 1; idx < parsed.length; idx++) {
+    const p = parsed[idx];
+    if (!p) continue;
+    for (const b of p.blocks) {
+      if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
+        if (b.name.startsWith("mcp__") && b.name.endsWith(`__${tool}`) && isCanonicalContainerListing(adapter, b.input, project)) requests.set(b.id, b.input);
+        continue;
+      }
+      if (b.type !== "tool_result" || typeof b.tool_use_id !== "string" || !requests.has(b.tool_use_id)) continue;
+      const cursor = listingRequestCursor(adapter, requests.get(b.tool_use_id));
+      requests.delete(b.tool_use_id);
+      let answer: unknown = null;
+      try {
+        answer = b.is_error === true ? null : JSON.parse(resultText(b.content));
+      } catch {
+        answer = null;
+      }
+      if (answer === null || typeof answer !== "object" || Array.isArray(answer)) {
+        pages = null;
+        continue;
+      }
+      if (cursor === null) pages = [answer];
+      else if (pages === null) continue;
+      else pages.push({ ...(answer as Record<string, unknown>), requestCursor: cursor });
+      const read = readTrackerListing(adapter, pages, adapter === "linear" ? "milestones" : "issues");
+      if (read.ok && containerListingRowsComplete(adapter, read.items, project) && (read.last || (consented && adapter === "linear"))) out.push({ items: read.items, lastLine: idx });
+    }
+  }
+  return out;
+}
+
+/** STE-644 (v) — the most a qualifying re-list's last result may precede the gated call. */
+const LISTING_FRESH_MS = 120_000;
+
+/** A transcript line's `timestamp` in epoch ms, or null when absent or unreadable. */
+function lineTime(p: ParsedLine | null | undefined): number | null {
+  const t = p && typeof p.raw.timestamp === "string" ? Date.parse(p.raw.timestamp) : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * STE-644 (v) — whether a re-list's last result is within LISTING_FRESH_MS of
+ * the gated call's own tool_use line. A missing timestamp (either line, or no
+ * gated line at all) is not fresh.
+ */
+function freshBefore(parsed: Array<ParsedLine | null>, relist: Relist, gatedId: string | undefined): boolean {
+  const gated = gatedId === undefined ? undefined : parsed.find((p) => p?.blocks.some((b) => b.type === "tool_use" && b.id === gatedId));
+  const at = lineTime(gated);
+  const last = lineTime(parsed[relist.lastLine]);
+  return at !== null && last !== null && at - last <= LISTING_FRESH_MS;
+}
+
+/** STE-644 — the re-list a container create's refusal asks for. */
+function relistRemedy(adapter: WorkspaceAdapterKey, project: string): string {
+  const query = adapter === "jira" ? `\`project = ${project} AND issuetype = Epic\` (every page, with summary and status)` : `\`list_milestones\` for project ${project} (every row, with its name)`;
+  return `list project ${project}'s containers again after the decision with ${query}, and send the create within 120 s of that read.`;
+}
+
+/**
+ * STE-644 — the key (Linear: the id) of the first OPEN row in `relist` whose
+ * normalized title equals `title`, or null. Open: a Jira row whose
+ * `statusCategory` key is not `done`; any Linear row.
+ */
+function openSameTitle(adapter: WorkspaceAdapterKey, relist: Relist, title: string): string | null {
+  const want = normalizeMilestoneTitle(title);
+  for (const row of relist.items) {
+    if (adapter === "linear") {
+      if (typeof row.name === "string" && normalizeMilestoneTitle(row.name) === want) return String(row.id ?? "");
+      continue;
+    }
+    const f = row.fields as { summary?: unknown; status?: { statusCategory?: { key?: unknown } } } | undefined;
+    if (typeof f?.summary === "string" && normalizeMilestoneTitle(f.summary) === want && f.status?.statusCategory?.key !== "done") return String(row.key ?? "");
+  }
+  return null;
+}
+
 /** A create decision for the same project and a byte-equal title (AC-STE-608.10 a/b). */
 function decides(d: MilestoneDecision, c: CreateShape): boolean {
   return d.act === "create" && sameName(d.project, c.project) && d.title === c.title;
 }
 
+/**
+ * The gate on a milestone-container create (a Jira Epic, a Linear project
+ * milestone). In order, it refuses a create that (STE-642) repeats a create of
+ * the same container this session already made; that no announced create
+ * decision for the same project and byte-equal title permits; or whose only
+ * permitting decisions are spent, or printed default=forbidden with no answer
+ * to their consent label after them (STE-643). Once a decision permits it,
+ * STE-644 further requires a re-list: a `relistsAfter` listing of the
+ * project's containers recorded after that decision, whose last result is
+ * within LISTING_FRESH_MS of this call (`freshBefore`). A fresh re-list that
+ * holds an open container of the same title (`openSameTitle`) refuses with a
+ * join remedy; no fresh re-list refuses with `relistRemedy`. The live grader's
+ * twin of the re-list rule is `relistedAfter` in shared_tracker_live_grader.ts.
+ */
 function gateMilestoneCreate(
   call: TrackerCall,
   sessionId: string,
@@ -1864,7 +1984,24 @@ function gateMilestoneCreate(
     );
   }
   const matching = seen.filter((d) => decides(d, want));
-  if (matching.some((d) => !d.spent && (!d.forbidden || answeredAfter(parsed, d, consentLabel(d))))) return 0;
+  const permitting = matching.find((d) => !d.spent && (!d.forbidden || answeredAfter(parsed, d, consentLabel(d))));
+  if (permitting) {
+    // STE-644 — once the permit is otherwise met, the create needs a later,
+    // complete, canonical-scope listing of the project's containers.
+    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, permitting.forbidden).filter((r) => freshBefore(parsed, r, call.toolUseId));
+    const dup = fresh.map((r) => openSameTitle(call.adapter, r, want.title)).find((k) => k !== null);
+    if (dup !== undefined) {
+      return refuse(
+        `${where}: the re-list of project ${want.project}'s containers after its create decision (${permitting.path}) holds the open ${name} \`${dup}\` titled "${want.title}", so creating it again would duplicate it.${note}`,
+        `join it: decide with --join-key \`${dup}\` --sibling \`<path>\`; nothing is created.`,
+      );
+    }
+    if (fresh.length > 0) return 0;
+    return refuse(
+      `${where}: its create decision (${permitting.path}) has no later, complete listing of project ${want.project}'s containers recorded in this session, so the ${name} "${want.title}" may exist already.${note}`,
+      relistRemedy(call.adapter, want.project),
+    );
+  }
   // STE-643 — an unspent create decision that printed default=forbidden
   // permits only once its consent label was answered after it.
   const unconsented = matching.filter((d) => !d.spent);
