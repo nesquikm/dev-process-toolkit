@@ -412,11 +412,30 @@ export function invokedDecidingModule(command: string): string | null {
  * `cd`-prefixed, or quoted beyond the grammar. Its receipt is ignored, so the
  * refusal names it instead of leaving the model to repeat the same shape.
  */
+const DECIDING_MODULE_PATTERNS = Object.entries(RECEIPT_WRITING_SUBCOMMANDS).map(([m, sub]) => {
+  const mod = m.replace(/\./g, "\\.");
+  return {
+    // `bun … <module>` then an optional closing quote, whitespace, and the
+    // receipt subcommand (any argument for a module with no subcommand).
+    direct: new RegExp(`(?:^|\\s)bun\\b.*${mod}["']?\\s+${sub === null ? "\\S" : `${sub}\\b`}`),
+    assigned: new RegExp(`(?:^|\\s)([A-Za-z_][A-Za-z0-9_]*)=\\S*${mod}`),
+  };
+});
+
 function rejectedDecidingCommand(command: string): boolean {
   if (invokedDecidingModule(command) !== null) return false;
-  return Object.entries(RECEIPT_WRITING_SUBCOMMANDS).some(([m, sub]) =>
-    new RegExp(`${m.replace(/\./g, "\\.")}\\W*\\s+${sub === null ? "\\S" : `${sub}\\b`}`).test(command),
-  );
+  // Only a segment that RUNS a deciding module under `bun` counts; one that
+  // merely names it (`grep`, `rg`, `echo`) runs nothing and is not reported.
+  const segments = command.split(/;|&&|\|\||\||\n/);
+  return DECIDING_MODULE_PATTERNS.some(({ direct, assigned }) => {
+    if (segments.some((seg) => direct.test(seg))) return true;
+    return segments.some((seg, i) => {
+      const name = assigned.exec(seg)?.[1];
+      if (name === undefined) return false;
+      const viaVar = new RegExp(`(?:^|\\s)bun\\b.*(?:\\$${name}\\b|"\\$${name}"|\\$\\{${name}\\})`);
+      return segments.slice(i + 1).some((later) => viaVar.test(later));
+    });
+  });
 }
 
 /**
@@ -636,7 +655,7 @@ function createCallIn(b: ContentBlock, adapter: WorkspaceAdapterKey): TrackerCal
 
 /**
  * Which tool_uses count as creates for the spending walk (`createsBefore`) and
- * the lost-create walk (`lostCreates`), and the shape each is compared by: the
+ * the prior-create walk (`priorCreates`), and the shape each is compared by: the
  * ticket creates of §4, or the milestone-container creates of STE-608.
  */
 interface CreateKind {
@@ -796,21 +815,21 @@ function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAd
  * still spends, exactly as before.
  */
 function createsBefore(
-  lines: string[],
+  parsed: Array<ParsedLine | null>,
   adapter: WorkspaceAdapterKey,
   gatedId: string | undefined,
   kind: CreateKind = TICKET_CREATES,
 ): Array<{ line: number; shape: CreateShape }> {
   const neverReached = new Set<string>();
-  for (const p of parseLines(lines)) {
+  for (const p of parsed) {
     if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_result" && typeof b.tool_use_id === "string" && b.is_error === true && neverRan(p, b)) neverReached.add(b.tool_use_id);
     }
   }
   const out: Array<{ line: number; shape: CreateShape }> = [];
-  for (let idx = 0; idx < lines.length; idx++) {
-    for (const b of contentBlocks(lines[idx]!)) {
+  for (let idx = 0; idx < parsed.length; idx++) {
+    for (const b of parsed[idx]?.blocks ?? []) {
       if (gatedId !== undefined && b.id === gatedId) return out;
       if (typeof b.id === "string" && neverReached.has(b.id)) continue;
       const c = kind.pick(b, adapter);
@@ -865,6 +884,14 @@ interface LostCreate {
   parallel: boolean;
 }
 
+/** STE-642 — a create ordered before the gated call, in the state priorCreates gives it. */
+interface PriorCreate extends LostCreate {
+  /** `unkeyed` — a non-error result naming no created key, treated as lost. */
+  state: "lost" | "settled" | "unkeyed";
+  /** The key a `settled` create returned; "" otherwise. */
+  key: string;
+}
+
 /** The assistant message id a transcript line carries, or "". */
 function messageIdOf(p: ParsedLine): string {
   const m = p.raw.message as { id?: unknown } | undefined;
@@ -872,11 +899,22 @@ function messageIdOf(p: ParsedLine): string {
 }
 
 /**
- * §4 — create tool_uses ordered BEFORE the gated call whose outcome is
- * unknown: an error result that does not prove the call never ran (a timeout,
- * a 5xx, an interrupt), or no result at all. Such a create may have made its
- * ticket, and a tracker search can lag its index, so an honest re-run of
- * `decide --attempt fast` can miss it (the GF-90/GF-91 double create).
+ * §4 / STE-642 — every create tool_use ordered BEFORE the gated call, each with
+ * the state its recorded result gives it:
+ *
+ * - `lost` — an error result that does not prove the call never ran (a
+ *   timeout, a 5xx, an interrupt), or no result at all. Such a create may have
+ *   made its ticket, and a tracker search can lag its index, so an honest
+ *   re-run of `decide --attempt fast` can miss it (the GF-90/GF-91 double
+ *   create). `why` says which.
+ * - `settled` — a non-error result naming the key it created (createdKeyOf,
+ *   or createdMilestoneIdOf for a Linear save_milestone). The gates refuse a
+ *   second same-ticket create naming that key, with no fresh-decide remedy:
+ *   no receipt, fresh or not, authorises it.
+ * - `unkeyed` — a non-error result naming no created key. The create happened
+ *   but its ticket is unknown, so the gates treat it as `lost`.
+ *
+ * A create whose error result proves it never ran (`neverRan`) is excluded.
  *
  * Creates are ordered by a running (line, position) ordinal over tool_use
  * blocks, as createsBefore walks them, so the one-line-per-message and the
@@ -884,24 +922,27 @@ function messageIdOf(p: ParsedLine): string {
  * guarantees the gated call's own line is in the read (the 2026-09-28
  * measurement: lines land up to ~150 ms after the tool starts, their
  * `timestamp` seconds earlier), so a no-result create ordered before it is
- * visible and counts. One that shares the gated call's assistant message is a
- * same-turn sibling: `parallel` marks it, and the gates refuse the call as a
- * parallel duplicate rather than point at the retry search.
+ * visible and counts. A no-result create that shares the gated call's
+ * assistant message is a same-turn sibling: `parallel` marks it, and the gates
+ * refuse the call as a parallel duplicate rather than point at the retry
+ * search.
  */
-function lostCreates(
+function priorCreates(
   parsed: Array<ParsedLine | null>,
   adapter: WorkspaceAdapterKey,
   gatedId: string | undefined,
   kind: CreateKind = TICKET_CREATES,
-): LostCreate[] {
+): PriorCreate[] {
   // STE-641 — a running (line, position) ordinal over tool_use blocks, as
   // createsBefore walks them: both transcript layouts order creates alike.
   let ordinal = 0;
   let gatedOrdinal = -1;
   let gatedLine = -1;
   let gatedMessage = "";
-  const creates = new Map<string, { ordinal: number; line: number; message: string; shape: CreateShape }>();
+  const creates = new Map<string, { ordinal: number; line: number; message: string; shape: CreateShape; call: TrackerCall }>();
   const outcome = new Map<string, string | null>(); // id → why it is lost, or null when it is settled
+  const keys = new Map<string, string>(); // id → the key a settled create returned
+  const succeeded = new Set<string>(); // ids whose result was not an error
   parsed.forEach((p, idx) => {
     if (!p) return;
     for (const b of p.blocks) {
@@ -913,20 +954,34 @@ function lostCreates(
       }
       if (b.type === "tool_use" && typeof b.id === "string" && b.id !== gatedId) {
         const c = kind.pick(b, adapter);
-        if (c) creates.set(b.id, { ordinal, line: idx, message: messageIdOf(p), shape: kind.shape(c) });
+        if (c) creates.set(b.id, { ordinal, line: idx, message: messageIdOf(p), shape: kind.shape(c), call: c });
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string" && creates.has(b.tool_use_id)) {
         const lost = b.is_error === true && !neverRan(p, b);
         outcome.set(b.tool_use_id, lost ? `its result was an error: ${resultText(b.content).trim().split("\n")[0]!.slice(0, 120)}` : null);
+        const made = creates.get(b.tool_use_id)!;
+        const text = resultText(b.content).trim();
+        const key = b.is_error === true ? null : createdKeyOf(text, made.call) ?? (kind === MILESTONE_CREATES && adapter === "linear" ? createdMilestoneIdOf(text) : null);
+        if (key !== null) keys.set(b.tool_use_id, key);
+        if (b.is_error !== true) succeeded.add(b.tool_use_id);
       }
     }
   });
-  const out: LostCreate[] = [];
+  const out: PriorCreate[] = [];
   for (const [id, c] of creates) {
     if (gatedOrdinal >= 0 && c.ordinal >= gatedOrdinal) continue;
+    const key = keys.get(id);
+    if (key !== undefined) {
+      out.push({ id, shape: c.shape, why: "", parallel: false, state: "settled", key });
+      continue;
+    }
+    if (succeeded.has(id)) {
+      out.push({ id, shape: c.shape, why: "its result names no created key", parallel: false, state: "unkeyed", key: "" });
+      continue;
+    }
     const why = outcome.has(id) ? outcome.get(id)! : gatedOrdinal >= 0 ? "it has no result" : null;
     if (why === null) continue;
     const sibling = !outcome.has(id) && (c.line === gatedLine || (gatedMessage !== "" && c.message === gatedMessage));
-    out.push({ id, shape: c.shape, why, parallel: sibling });
+    out.push({ id, shape: c.shape, why, parallel: sibling, state: "lost", key: "" });
   }
   return out;
 }
@@ -998,10 +1053,23 @@ function gateCreate(
   const where = `${call.tool} in ${target.root}`;
   if (stale !== null) return refuseStale(where, stale, note);
 
+  // STE-642 — a create of this ticket that returned its key settled it: no
+  // create receipt, fresh or not, authorises a second create of it.
+  // One parse of the transcript serves every walk below.
+  const parsed = parseLines(transcript);
+  const prior = priorCreates(parsed, call.adapter, call.toolUseId).filter((c) => sameTicket(c.shape, shape));
+  const settled = prior.find((c) => c.state === "settled");
+  if (settled) {
+    return refuse(
+      `${where}: an earlier create of "${shape.title}" (${settled.id}) returned \`${settled.key}\` — no create receipt, fresh or not, authorises a second create of that ticket.${note}`,
+      `write to \`${settled.key}\` (this session created it, so it is owned); for a genuinely second ticket, decide a distinct title, or have the operator create it by hand.`,
+    );
+  }
+
   // §4 — after a create whose outcome is unknown, no create receipt — fresh or
   // not — authorises another create of that ticket: only the retry path, which
   // finds it and reuses it, proceeds.
-  const lost = lostCreates(parseLines(transcript), call.adapter, call.toolUseId).find((c) => sameTicket(c.shape, shape));
+  const lost = prior.find((c) => c.state !== "settled");
   if (lost?.parallel) {
     return refuseParallelDuplicate(
       where,
@@ -1025,13 +1093,13 @@ function gateCreate(
     if (r) seen.push({ line: a.line, path: a.receiptPath, shape: r, spent: false });
   }
   // §4 — each receipt authorises exactly ONE create tool_use after its announcement.
-  for (const c of createsBefore(transcript, call.adapter, call.toolUseId)) {
+  for (const c of createsBefore(parsed, call.adapter, call.toolUseId)) {
     const hit = seen.find((r) => !r.spent && r.line < c.line && createMismatch(call.adapter, c.shape, r.shape, tag) === null);
     if (hit) hit.spent = true;
   }
   const matching = seen.filter((r) => createMismatch(call.adapter, shape, r.shape, tag) === null);
   if (matching.some((r) => !r.spent)) {
-    const created = createdKeys(parseLines(transcript), call.adapter);
+    const created = createdKeys(parsed, call.adapter);
     return gateAttachTarget(call, shape, sessionId, announcements, created, target, note);
   }
 
@@ -1041,15 +1109,17 @@ function gateCreate(
       `run ${DECIDE_CMD} --attempt retry-<N> (${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>")}) to search for the ticket that create may have made: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. In a shared repository a retry never authorises another create. When retry-3 still misses, ask the operator with AskUserQuestion to search the tracker for the ticket by hand: if it exists, save it as <ticket.json> and run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} to write to it; if it does not, the operator creates it by hand — no receipt in this session authorises another create of it.`,
     );
   }
-  if (seen.length > 0) {
-    const last = seen[seen.length - 1];
+  const unspent = seen.filter((r) => !r.spent);
+  if (unspent.length > 0) {
+    const last = unspent[unspent.length - 1];
     return refuse(
       `${where}: the call does not match its create receipt (${last.path}): ${createMismatch(call.adapter, shape, last.shape, tag)}.${note}`,
       `send the payload ${DECIDE_CMD} decided, or run ${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt fast")} again for this one ${PLAIN_RULE}, then retry.`,
     );
   }
+  const allSpent = seen.length > 0 ? ` This session's ${seen.length} create receipt(s) are all spent, each by the create it authorised.` : "";
   return refuse(
-    `${where}: no create receipt announced by ${DECIDE_CMD} in this session authorises it.${note}`,
+    `${where}: no create receipt announced by ${DECIDE_CMD} in this session authorises it.${allSpent}${note}`,
     `run ${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt fast")} in ${target.root} for this ticket ${PLAIN_RULE}, then retry.`,
   );
 }
@@ -1647,9 +1717,23 @@ function gateMilestoneCreate(
   if (stale !== null) return refuseStale(where, stale, note);
   const want = MILESTONE_CREATES.shape(call);
   const name = call.adapter === "jira" ? "Epic" : "project milestone";
-  const lost = lostCreates(parseLines(transcript), call.adapter, call.toolUseId, MILESTONE_CREATES).find((c) =>
+  // STE-642 — a container create that returned its key settled it: no create
+  // decision, fresh or not, authorises a second create of it.
+  // One parse of the transcript serves every walk below.
+  const parsed = parseLines(transcript);
+  const prior = priorCreates(parsed, call.adapter, call.toolUseId, MILESTONE_CREATES).filter((c) =>
     sameTicket(c.shape, want),
   );
+  const settled = prior.find((c) => c.state === "settled");
+  if (settled) {
+    return refuse(
+      `${where}: an earlier create of the ${name} "${want.title}" (${settled.id}) returned \`${settled.key}\` — no create decision, fresh or not, authorises a second create of it.${note}`,
+      `use \`${settled.key}\`; a second ${name} titled "${want.title}" would duplicate it.`,
+    );
+  }
+  // §4 — after a container create whose outcome is unknown, no decision
+  // authorises another create of it.
+  const lost = prior.find((c) => c.state !== "settled");
   if (lost?.parallel) {
     return refuseParallelDuplicate(
       where,
@@ -1668,7 +1752,7 @@ function gateMilestoneCreate(
   const roots = new Set(targets.map((t) => t.root));
   const seen = milestoneDecisions(announcements, roots, sessionId, call.adapter).map((d) => ({ ...d, spent: false }));
   // One create decision authorises ONE container create after its announcement.
-  for (const c of createsBefore(transcript, call.adapter, call.toolUseId, MILESTONE_CREATES)) {
+  for (const c of createsBefore(parsed, call.adapter, call.toolUseId, MILESTONE_CREATES)) {
     const hit = seen.find((d) => !d.spent && d.line < c.line && decides(d, c.shape));
     if (hit) hit.spent = true;
   }

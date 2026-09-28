@@ -1024,8 +1024,19 @@ describe("AC-STE-607.3 — a create needs a matching, unspent create receipt in 
     expectRefusal(await create(s, jiraCreate({ parent: "GF-89" })), /parent/i);
   });
 
+  // Re-graded by STE-642 (AC-STE-642.1 / .2): after a SUCCESS that returned
+  // GF-150 the second create is refused as a settled create naming that key,
+  // never pointed back at `decide … --attempt fast`.
+  test("settled: a second matching create after the first returned GF-150 → exit 2 naming GF-150 and the ticket it made", async () => {
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" }, false);
+    const r = await create(s);
+    expectRefusal(r, "GF-150", /no create receipt, fresh or not, authorises a second create/, /write to `?GF-150/);
+    expect(r.stderr).not.toMatch(/--attempt fast/);
+  });
+
   for (const [label, result, isError] of [
-    ["a success", { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" }, false],
     ["a Gateway-Timeout error", "Error: 504 Gateway Timeout", true],
   ] as const) {
     test(`spent: a second matching create after the first (whose result was ${label}) → exit 2 naming \`decide --attempt\``, async () => {
@@ -2180,14 +2191,24 @@ describe("M_947c79 review — a receipt announcement proves the deciding command
     expectRefusal(await create(s));
   });
 
-  test("re-echoing a SPENT create receipt's announcement does not re-arm it → exit 2", async () => {
+  // Re-graded by STE-642: the first create returned GF-150, so the refusal is
+  // the settled one naming that key. That the echo announces nothing is now
+  // graded at the module layer, where the settled refusal cannot mask it.
+  test("re-echoing a SPENT create receipt's announcement does not re-arm it → exit 2 naming GF-150; the echo announces nothing", async () => {
     const s = new Session();
     const d = realDecide(w.be, { issues: [], isLast: true }, "BE payout export", "fast", { scratch: w.scratch });
     s.bash(d.command, d.out);
     s.mcp(JIRA("createJiraIssue"), jiraCreate(), { id: "10150", key: "GF-150", self: "x" });
     const line = d.out.split("\n").find((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX))!;
+    const echoFrom = s.lines.length;
     s.bash(`echo "${line}" # ${DECIDE}`, line);
-    expectRefusal(await create(s), /spent/);
+    const { scanAnnouncements } = (await import(MODULE_PATH)) as {
+      scanAnnouncements: (lines: string[], sessionId: string) => { announcements: Array<{ line: number }> };
+    };
+    const all = scanAnnouncements(s.lines, SESSION).announcements;
+    expect(all.length).toBe(1); // (control) the real decide's own announcement is seen
+    expect(all.filter((a) => a.line >= echoFrom)).toEqual([]);
+    expectRefusal(await create(s), "GF-150");
   }, 30_000);
 
   test("a forged `binding` receipt (decision owned) echoed with the module name does not own FE's key → exit 2", async () => {
@@ -2790,7 +2811,11 @@ describe("M_947c79 review 2 — container names compare case-insensitively (§3)
 
 describe("M_947c79 review 2 — after a create that may have made the ticket, only the retry path proceeds (AC-STE-607.3)", () => {
   /** decide fast → create (result given) → decide fast AGAIN over an index-lagged empty page → the gated create. */
-  async function reRun(firstResult: { content: unknown; isError: boolean; extra?: Record<string, unknown> }, secondTitle = "BE lagged") {
+  async function reRun(
+    firstResult: { content: unknown; isError: boolean; extra?: Record<string, unknown> },
+    secondTitle = "BE lagged",
+    secondInput: Record<string, unknown> = jiraCreate({ title: secondTitle }),
+  ) {
     const w = makeWorld();
     const s = new Session();
     // Amended by AC-STE-611.3: the create also needs an attach-target receipt. (every leg of this helper)
@@ -2803,7 +2828,86 @@ describe("M_947c79 review 2 — after a create that may have made the ticket, on
     const second = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), secondTitle));
     expect(second.out).toContain(RECEIPT_ANNOUNCEMENT_PREFIX); // an honest search missed: a fresh create receipt was minted
     s.bash(second.command, second.out);
-    return runHook(JIRA("createJiraIssue"), jiraCreate({ title: secondTitle }), { cwd: w.be, transcript: s.save(w.scratch) });
+    return runHook(JIRA("createJiraIssue"), secondInput, { cwd: w.be, transcript: s.save(w.scratch) });
+  }
+
+  // ------------------------------------------------------------ STE-642
+  /** A create's non-error result as the MCP returns it: one text block. */
+  const ok = (answer: unknown) => ({
+    content: [{ type: "text", text: typeof answer === "string" ? answer : JSON.stringify(answer) }],
+    isError: false,
+  });
+  const GF_150 = { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" };
+  /** The fresh-decide shape a mismatch or no-receipt remedy offers. */
+  const FRESH_DECIDE = "[container] --attempt fast";
+
+  test("AC-STE-642.1 / .2 — a create that returned GF-150, then a fresh unspent receipt: the identical create → exit 2 naming GF-150, no fast re-decide offered", async () => {
+    const r = await reRun(ok(GF_150));
+    expectRefusal(r, "GF-150", /no create receipt, fresh or not, authorises a second create/);
+    expect(r.stderr).not.toMatch(/--attempt fast/);
+    expect(r.stderr).not.toContain(FRESH_DECIDE);
+  }, 30_000);
+
+  test("AC-STE-642.3 — the same ticket with labels [] after GF-150 → exit 2 naming GF-150, not the mismatch's fast re-decide", async () => {
+    const r = await reRun(ok(GF_150), "BE lagged", jiraCreate({ title: "BE lagged", labels: [] }));
+    expectRefusal(r, "GF-150");
+    expect(r.stderr).not.toMatch(/--attempt fast/);
+  }, 30_000);
+
+  test("AC-STE-642.7 — a non-error create result naming no key ('Issue created.'), then a fresh receipt: the same ticket → exit 2 offering the retry search", async () => {
+    const r = await reRun(ok("Issue created."));
+    expectRefusal(r, /names no created key/, /--attempt retry-/);
+    expect(r.stderr).not.toContain(FRESH_DECIDE);
+  }, 30_000);
+
+  test("AC-STE-642.5 CONTROL — a success of ANOTHER title does not block this one → exit 0", async () => {
+    expectPermit(await reRun(ok(GF_150), "BE unrelated"));
+  }, 30_000);
+
+  test("AC-STE-642.5 CONTROL — the same title under ANOTHER parent, with its own create receipt and attach-target receipt → exit 0", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    withAttachTarget(s, w.be, { scratch: w.scratch });
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE lagged" }), "fast", "BE lagged");
+    s.mcp(JIRA("createJiraIssue"), jiraCreate({ title: "BE lagged" }), GF_150);
+    // Without an attach target binding GF-89, gateAttachTarget refuses and this control proves nothing.
+    withAttachTarget(s, w.be, { scratch: w.scratch, key: "GF-89" });
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE lagged", parent: "GF-89" }), "fast", "BE lagged");
+    expectPermit(
+      await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE lagged", parent: "GF-89" }), {
+        cwd: w.be,
+        transcript: s.save(w.scratch),
+      }),
+    );
+  }, 30_000);
+
+  test("AC-STE-642.6 CONTROL — a first create rejected by the tracker with a 400 (it never ran): the corrected retry → exit 0", async () => {
+    expectPermit(await reRun({ content: "Error: 400 Bad Request — the field `parent` is required", isError: true }));
+  }, 30_000);
+
+  for (const [layout, pending] of PENDING_LAYOUTS) {
+    test(`[${layout}] AC-STE-642.1 settled-first — GF-150 returned, then a same-ticket create beside a pending sibling of it → exit 2 naming GF-150`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      withAttachTarget(s, w.be, { scratch: w.scratch });
+      const first = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE lagged"));
+      s.bash(first.command, first.out);
+      s.mcp(JIRA("createJiraIssue"), jiraCreate({ title: "BE lagged" }), GF_150);
+      const second = realRun(DECIDE, decideArgv(w.be, savePage(w.scratch, EMPTY_JIRA_PAGE), "BE lagged"));
+      expect(second.out).toContain(RECEIPT_ANNOUNCEMENT_PREFIX);
+      s.bash(second.command, second.out);
+      pending(s, [
+        { id: "toolu_642_sibling", name: JIRA("createJiraIssue"), input: jiraCreate({ title: "BE lagged" }) },
+        { id: "toolu_642_gated", name: JIRA("createJiraIssue"), input: jiraCreate({ title: "BE lagged" }) },
+      ]);
+      const r = await runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE lagged" }), {
+        cwd: w.be,
+        transcript: s.save(w.scratch),
+        toolUseId: "toolu_642_gated",
+      });
+      expectRefusal(r, "GF-150");
+      expect(r.stderr).not.toMatch(/--attempt fast/);
+    }, 30_000);
   }
 
   test("a create that timed out, then an honest `decide --attempt fast` that missed (index lag) → the second create is refused, naming the retry path", async () => {
@@ -3394,13 +3498,52 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
     expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
   }, 30_000);
 
-  test("CONTROL: an Epic create that SUCCEEDED spent its decision — the next one → exit 2 as spent", async () => {
+  // Re-graded by STE-642 (AC-STE-642.4): the refusal names the key the create returned.
+  test("CONTROL: an Epic create that SUCCEEDED spent its decision — the next one → exit 2 naming GF-150", async () => {
     const w = makeWorld();
     const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
     const s = new Session();
     s.bash(d.command, d.out);
     s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" }, false);
-    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }), /spent|may have made/);
+    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }), /GF-150/);
+  }, 30_000);
+
+  test("AC-STE-642.4 — an Epic create that returned GF-150, then a FRESH unspent create decision: the same Epic → exit 2 naming GF-150", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" }, false);
+    const again = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(again.command, again.out);
+    const r = await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, "GF-150", /Epic/);
+  }, 30_000);
+
+  test("AC-STE-642.4 — a Linear save_milestone that returned its id, then a FRESH create decision: the same milestone → exit 2 naming the id", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("lin-642-settled");
+    const created = liveShape("linear", "save_milestone.create");
+    created.name = "Payouts";
+    const s = new Session();
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: [] });
+    s.bash(d.command, d.out);
+    s.mcp(LINEAR("save_milestone"), { project: "DPT", name: "Payouts" }, created);
+    const again = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: [] });
+    s.bash(again.command, again.out);
+    const r = await runSh(LINEAR("save_milestone"), { project: "DPT", name: "Payouts" }, { cwd: root, transcript: s.save(scratch) });
+    expectRefusal(r, new RegExp(String(created.id), "i"), /project milestone/);
+  }, 30_000);
+
+  test("AC-STE-642.5 CONTROL — an Epic create of ANOTHER title returned GF-150: this title's own decision → exit 0", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const other = realResolve(w.be, ["jira", "GF", "--title", "BE Refunds"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(other.command, other.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Refunds"), { id: "10150", key: "GF-150", self: "x" }, false);
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) }));
   }, 30_000);
 
   // STE-641 re-grade: this control used two decisions of ONE title. Two
@@ -4523,4 +4666,103 @@ describe("AC-STE-641.4 / .5 — calls that never wait", () => {
     expect(r.stderr).not.toContain("retry the same call");
     expect(ms).toBeLessThan(1000);
   }, 30_000);
+});
+
+// ===========================================================================
+// STE-642 (M_101065) — the mismatch refusal grades only UNSPENT receipts, and
+// the "not a plain invocation" note counts only commands that RUN a deciding
+// module under bun.
+// ===========================================================================
+
+describe("AC-STE-642.8 / .9 — the mismatch refusal never names a spent receipt", () => {
+  let w: World;
+  beforeAll(() => {
+    w = makeWorld();
+  });
+  const GF_150 = { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" };
+  const createTitled = (s: Session, title: string) =>
+    runHook(JIRA("createJiraIssue"), jiraCreate({ title }), { cwd: w.be, transcript: s.save(w.scratch) });
+
+  test("AC-STE-642.9 — the only receipt was spent by the create it authorised; a create of another title → the no-receipt refusal, stating the receipts are all spent", async () => {
+    const s = new Session();
+    const a = createReceipt(w.be, { title: "BE alpha" });
+    s.announceDecide(w.be, a, "fast", "BE alpha");
+    s.mcp(JIRA("createJiraIssue"), jiraCreate({ title: "BE alpha" }), GF_150);
+    const r = await createTitled(s, "BE gamma");
+    expectRefusal(r, /no create receipt announced by/, /1 create receipt\(s\) are all spent/);
+    expect(r.stderr).not.toContain(a);
+    expect(r.stderr).not.toMatch(/does not match its create receipt/);
+  });
+
+  test("AC-STE-642.8 — B announced first and unspent, A second and spent, the call titled C → the mismatch names B, never A", async () => {
+    const s = new Session();
+    const b = createReceipt(w.be, { title: "BE beta" });
+    const a = createReceipt(w.be, { title: "BE alpha" });
+    s.announceDecide(w.be, b, "fast", "BE beta");
+    s.announceDecide(w.be, a, "fast", "BE alpha");
+    s.mcp(JIRA("createJiraIssue"), jiraCreate({ title: "BE alpha" }), GF_150);
+    const r = await createTitled(s, "BE gamma");
+    expectRefusal(r, /does not match its create receipt/, b);
+    expect(r.stderr).not.toContain(a);
+  });
+
+  test("AC-STE-642.8 CONTROL — A first and spent, B second and unspent, the call titled C → the mismatch names B", async () => {
+    const s = new Session();
+    const a = createReceipt(w.be, { title: "BE alpha" });
+    const b = createReceipt(w.be, { title: "BE beta" });
+    s.announceDecide(w.be, a, "fast", "BE alpha");
+    s.announceDecide(w.be, b, "fast", "BE beta");
+    s.mcp(JIRA("createJiraIssue"), jiraCreate({ title: "BE alpha" }), GF_150);
+    const r = await createTitled(s, "BE gamma");
+    expectRefusal(r, /does not match its create receipt/, b);
+    expect(r.stderr).not.toContain(a);
+  });
+});
+
+describe("AC-STE-642.10 / .11 — only a command that runs a deciding module under bun is 'not a plain invocation'", () => {
+  let w: World;
+  beforeAll(() => {
+    w = makeWorld();
+  });
+  const refuseBare = (s: Session) =>
+    runHook(JIRA("createJiraIssue"), jiraCreate({ title: "BE recogniser" }), { cwd: w.be, transcript: s.save(w.scratch) });
+  const DECIDE_ARGS = `decide "/tmp/proj" /tmp/page.json --title "BE recogniser" --parent GF-85 --attempt fast`;
+  const cdPrefixed = () => `cd "${w.be}" && bun run "${join(ADAPTERS_SRC, DECIDE)}" ${DECIDE_ARGS}`;
+  /** Three read-only commands that merely NAME a deciding module and its receipt subcommand. */
+  const readOnly = () => [
+    `grep -n "${DECIDE} decide" "${join(PLUGIN_ROOT, "docs", "hooks-reference.md")}"`,
+    `rg '${CONFIRM} confirm' skills/ | head -5`,
+    `bun --version; echo "next: ${CONSENT} consent"`,
+  ];
+
+  test("AC-STE-642.10 — three read-only lines after a `cd … &&` run are not counted: the note counts 1 and quotes the `cd` run", async () => {
+    const s = new Session();
+    s.bash(cdPrefixed(), '{"outcome":"create"}');
+    for (const c of readOnly()) s.bash(c, "");
+    const r = await refuseBare(s);
+    expectRefusal(r, /\b1 Bash command\(s\) ran a deciding subcommand in a shape that is not a plain invocation/, `cd "${w.be}" &&`);
+    expect(r.stderr).not.toContain("rg '");
+    expect(r.stderr).not.toContain("bun --version");
+  });
+
+  test("AC-STE-642.10 — read-only lines alone draw no 'not a plain invocation' note", async () => {
+    const s = new Session();
+    for (const c of readOnly()) s.bash(c, "");
+    const r = await refuseBare(s);
+    expectRefusal(r, /no create receipt/);
+    expect(r.stderr).not.toMatch(/not a plain invocation, so any receipt/);
+  });
+
+  test("AC-STE-642.11 CONTROL — `cd <root> && bun run <module> decide …` is counted and quoted", async () => {
+    const s = new Session();
+    s.bash(cdPrefixed(), '{"outcome":"create"}');
+    expectRefusal(await refuseBare(s), /\b1 Bash command\(s\) ran a deciding subcommand/, `cd "${w.be}" &&`);
+  });
+
+  test("AC-STE-642.11 — `F=<module>; bun run \"$F\" decide …` is counted and quoted", async () => {
+    const s = new Session();
+    const cmd = `F="${join(ADAPTERS_SRC, DECIDE)}"; bun run "$F" ${DECIDE_ARGS}`;
+    s.bash(cmd, '{"outcome":"create"}');
+    expectRefusal(await refuseBare(s), /\b1 Bash command\(s\) ran a deciding subcommand/, `bun run "$F" decide`);
+  });
 });
