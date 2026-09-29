@@ -157,6 +157,21 @@ export function readTrackerListing(tracker: TrackerKind, pages: readonly unknown
   return { ok: true, items, last };
 }
 
+/**
+ * STE-644 — the paging position a listing REQUEST was sent with, or null for
+ * an unpaged (first-page) request. The request side of the chain
+ * `readTrackerListing` checks as `requestCursor`: Jira's page token (or a
+ * non-zero `startAt`), Linear's `cursor` / `after`. Read here so no reader
+ * elsewhere spells the paging fields.
+ */
+export function listingRequestCursor(tracker: TrackerKind, input: unknown): string | null {
+  if (!isObj(input)) return null;
+  if (tracker === "linear") return nonEmpty(input.cursor) ? input.cursor : nonEmpty(input.after) ? input.after : null;
+  if (nonEmpty(input.nextPageToken)) return input.nextPageToken;
+  const at = input.startAt;
+  return (typeof at === "number" && at !== 0) || (nonEmpty(at) && at !== "0") ? `startAt=${String(at)}` : null;
+}
+
 /** Read one item answer (a create's, an update's, a fetch's) into the item itself. */
 export function readTrackerItem(tracker: TrackerKind, answer: unknown): ItemRead {
   if (!isObj(answer)) return { ok: false, reason: "the answer is not a JSON object" };

@@ -255,9 +255,27 @@ export function makeSandbox(mode: StubMode): Sandbox {
   return sb;
 }
 
+/**
+ * The absolute checkout roots the maintainer skills spell out as their
+ * `--project-root` (the live install's path, written into the skill text).
+ * They are spellings of the real repo root too: read from the skill itself so
+ * that a run from any other checkout — a git worktree — rebases them into the
+ * sandbox instead of leaving a path the sandboxed stubs rightly refuse.
+ */
+const SKILL_SPELLED_ROOTS: readonly string[] = (() => {
+  const skill = join(repoRoot, ".claude", "skills", "smoke-test", "SKILL.md");
+  if (!existsSync(skill)) return [];
+  const roots = new Set<string>();
+  for (const m of readFileSync(skill, "utf-8").matchAll(/--project-root (\/[^\s\\"']+)/g)) roots.add(m[1]!);
+  roots.delete(repoRoot);
+  return [...roots];
+})();
+
 /** Every `/tmp/` path and every spelling of the real repo root, moved into the sandbox. */
 export function rebase(body: string, sb: Sandbox): string {
-  return body.replaceAll("/tmp/", `${sb.tmp}/`).replaceAll(repoRoot, sb.work);
+  let out = body.replaceAll("/tmp/", `${sb.tmp}/`).replaceAll(repoRoot, sb.work);
+  for (const root of SKILL_SPELLED_ROOTS) out = out.replaceAll(root, sb.work);
+  return out;
 }
 
 /** The caller's environment minus anything a live run could have exported, with the stubs first on PATH. */

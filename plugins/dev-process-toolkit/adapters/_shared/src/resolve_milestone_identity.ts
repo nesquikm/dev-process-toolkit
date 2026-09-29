@@ -725,6 +725,14 @@ async function runDecisionFrontDoor(argv: readonly string[]): Promise<string[]> 
     `gate=${gate}`,
     `default=${forbidden ? "forbidden" : "allowed"}`,
   ];
+  // STE-643 AC-STE-643.6 — a forbidden default names the consent options the
+  // operator answers: join-or-skip the key, or create-or-skip the title.
+  // The consent label is the one the hook and the live grader recompute from
+  // act, key and title (`consentLabel` / `forbiddenDecisionConsented`).
+  const subject = decision.act === "join" ? decision.key : (args.title ?? "");
+  const consent = `${decision.act === "join" ? "Join" : "Create"} \`${subject}\``;
+  const options = forbidden ? [consent, `Skip \`${subject}\``] : undefined;
+  if (options !== undefined) lines.push(`options=${JSON.stringify(options)}`);
   // STE-608 AC-STE-608.9 — a Jira join prints the computed label value: the
   // Epic's labels as listed plus the milestone label, or `unchanged`.
   const observedLabels = decision.act === "join" && args.mode === "jira" ? decision.labels : undefined;
@@ -756,6 +764,7 @@ async function runDecisionFrontDoor(argv: readonly string[]): Promise<string[]> 
       ...(possiblyCapped ? { possiblyCapped: true } : {}),
       ...(sibling !== undefined ? { sibling: { tag: sibling.tag, path: sibling.path, given: args.sibling } } : {}),
       default: forbidden ? "forbidden" : "allowed",
+      ...(options !== undefined ? { options } : {}),
       listing: { file: resolve(args.listingFile), sha256: listing.sha256, rowKeys: listing.rowKeys },
     },
   });

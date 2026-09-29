@@ -693,10 +693,26 @@ describe("AC-STE-616.14 — no vacuous scenario", () => {
 // AC-STE-616.11 — the matcher, the classified inventory, the spawned hook
 // ===========================================================================
 
+let gatedCopies = 0;
+
 async function spawnHook(tracker: Tracker, root: string, tool: string, input: Record<string, unknown>, transcript: string, server: string): Promise<ProcRun> {
+  // STE-641: the hook waits up to 2000 ms for the gated call's own tool_use
+  // line, so each run grades a per-run copy of the transcript ending in it, as
+  // Claude Code's flushed transcript does — without it every gated-write case
+  // here would wait the full budget.
+  gatedCopies += 1;
+  const runTranscript = `${transcript}.run-${gatedCopies}.jsonl`;
+  const body = existsSync(transcript) ? readFileSync(transcript, "utf-8") : "";
+  const gated = JSON.stringify({
+    type: "assistant",
+    sessionId: "s616-ac11",
+    timestamp: new Date().toISOString(),
+    message: { id: `msg_616_ac11_${gatedCopies}`, role: "assistant", content: [{ type: "tool_use", id: "toolu_616_ac11", name: `mcp__${server}__${tool}`, input }] },
+  });
+  writeFileSync(runTranscript, `${body}${body === "" || body.endsWith("\n") ? "" : "\n"}${gated}\n`);
   const payload = JSON.stringify({
     session_id: "s616-ac11",
-    transcript_path: transcript,
+    transcript_path: runTranscript,
     cwd: root,
     hook_event_name: "PreToolUse",
     tool_name: `mcp__${server}__${tool}`,
@@ -896,12 +912,16 @@ function normalisedRefusal(stderr: string): string {
 
 describe("What ships as a known defect", () => {
   for (const tracker of ["jira", "linear"] as const) {
-    test(`KNOWN DEFECT D-4 (${tracker}) — a milestone create decided from a listing captured before the sibling minted is permitted: a fresh session, B's act=create from the stale listing, no join decision, then B's container create — the hook exits 0 and the double holds TWO containers with that title`, async () => {
+    test(`D-4 narrowed by STE-644 (${tracker}) — a milestone create decided from a listing captured before the sibling minted is refused: without a re-list (exit 2, one container, no write); with a re-list after A's mint (exit 2 naming A's key, one container, no write); control: a re-listed title nobody minted is permitted`, async () => {
       const m = await measureKnownDefectD4(tracker, PLUGIN_ROOT);
-      // Measured: pre-tracker-write-gate.ts:1592 permits an unspent create
-      // decision; it cannot see A's container. AC-STE-616.6 requires exit 2
-      // with the write count unchanged — a hook that refuses flips this red.
-      expect(m).toEqual({ decisionAct: "create", exitCode: 0, blocked: false, containersWithTitle: 2, writesAdded: 1 });
+      // Was (v2.90.0, KNOWN DEFECT): exit 0, two containers, one write added.
+      // AC-STE-644.1 — no qualifying re-list after the decision refuses.
+      expect(m.stale).toEqual({ decisionAct: "create", exitCode: 2, blocked: true, containersWithTitle: 1, writesAdded: 0, namesKey: m.stale.namesKey });
+      // AC-STE-644.7 — the discriminating leg: the re-list is READ, and A's container refuses by key.
+      expect(m.relisted).toEqual({ decisionAct: "create", exitCode: 2, blocked: true, containersWithTitle: 1, writesAdded: 0, namesKey: true });
+      expect(m.aKey).not.toBe("");
+      // Control — a qualifying re-list with no such container permits.
+      expect(m.control).toEqual({ decisionAct: "create", exitCode: 0, blocked: false, containersWithTitle: 1, writesAdded: 1, namesKey: false });
     }, SCENARIO_TIMEOUT);
     test(`KNOWN DEFECT D-5 (${tracker}) — a relocated checkout's receipt-location refusal is worded as a label carrying two tags, in both directions: receipt in B's main checkout with the write decided in B's worktree, and receipt in B's worktree with the write decided in B's main checkout`, async () => {
       const m = await measureKnownDefectD5(tracker, PLUGIN_ROOT);

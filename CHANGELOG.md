@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.91.0] — 2026-09-29 — "Once, Asked, Fresh"
+
+### Changed
+
+- The tracker-write gate grades a transcript that holds as much of its own turn as has landed (STE-641). Claude Code writes a message's call lines only after the first call's hook has returned, so a later call of a batch now waits up to 2 s for its own line and is graded on a history that includes its turn, and a same-turn duplicate create whose sibling's line has landed is refused as a parallel duplicate. Every lone or first call into a declared shared target, whose line cannot land in time, waits the full 2 s and is then graded as the last of its turn, as before; nothing is refused for the lag.
+- A `default=forbidden` decision authorises no write until it is answered (STE-643). The milestone decision door now prints the consent options beside a forbidden default, and a shared title join's labels edit, an FR create attached through it, and a possibly capped Linear milestone create are permitted only after an AskUserQuestion about that decision was answered exactly ``Join `<KEY>` `` or ``Create `<title>` ``. An Epic the session created itself needs no join consent; its labels write must still keep every listed label. Unattended runs stop at a forbidden default and wait for a person, by design.
+
+### Fixed
+
+- A ticket or container created in this session is never created again (STE-642). Once a create returns a key, or a success naming none, no receipt or decision authorises a second create of it; the refusal names the key instead of offering another `--attempt fast`. The mismatch refusal no longer names a receipt that is already spent, and a command that only mentions a deciding module is no longer reported as a failed invocation of it.
+- A container create needs a fresh, complete re-list of its project (STE-644). This narrows D-4, the duplicate-container race v2.90.0 shipped as a known defect: an Epic or milestone create decided from a stale listing is now refused unless the session re-listed the project's containers canonically and completely in the last 120 s of grading time, and an open container of the same title in that re-list refuses the create by its key. The live grader holds runs recorded under this hook to the same rule; the committed proof bundles grade exactly as before.
+
+### Known defects
+
+- **D-4 is narrowed, not closed.** A sibling's create that lands inside the 120 s re-list window, Jira's search-index lag, and the operator's permission prompt (shown after the hook permits, so its wait is outside any hook bound) can still let a duplicate container through. The narrowing holds only when every repository sharing the project runs v2.91.0 or later; raise `min_dpt_version` to enforce it.
+- A subagent's tracker call (a payload carrying `agent_id`) is graded on its first transcript read with no wait, and two calls of one message whose lines are not yet on disk are graded without each other, so a same-turn duplicate is refused as a parallel duplicate only when its sibling's line has landed.
+- Still open from v2.90.0: the repoint's resume route skips its checks (D-3); three hook refusals name the wrong cause (D-5 to D-7); and `/gate-check`'s probe #41 entry still carries its false sentence (D-12). These are planned for the next milestone.
+- Also still open, with no fix designed yet: the sibling ship gate reads "archived on some ref" as "archived on every ref" (D-2).
+- `/ship-milestone`'s description says it bumps "the four release files"; this repository's Release Files block lists five.
+
+Total test count at release: 17415 tests, 0 failures, 0 errors.
+
 ## [2.90.0] — 2026-09-26 — "Proven Live"
 
 ### Added
