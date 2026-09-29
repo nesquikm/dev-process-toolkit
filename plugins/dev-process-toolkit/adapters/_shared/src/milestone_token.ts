@@ -198,6 +198,40 @@ export function normalizeMilestoneTitle(t: string): string {
   return normalizeTitleForCompare(t.normalize("NFC")).toLocaleLowerCase("en-US");
 }
 
+/**
+ * STE-644 — the CANONICAL container listing of `project` (adapters/jira.md):
+ * Jira `project = <P> AND issuetype = Epic`, modulo whitespace, keyword and
+ * field case, a quoted project or type, and an optional trailing ORDER BY; a
+ * narrowed query (summary, status, key, created, labels, OR, NOT) is not it.
+ * Linear: a `list_milestones` whose `project` names the container. The one
+ * scope rule both the tracker-write hook and the live grader read.
+ */
+export function isCanonicalContainerListing(tracker: "jira" | "linear", input: unknown, project: string): boolean {
+  if (typeof input !== "object" || input === null || project === "") return false;
+  const i = input as Record<string, unknown>;
+  if (tracker === "linear") return typeof i.project === "string" && i.project.toUpperCase() === project.toUpperCase();
+  if (typeof i.jql !== "string") return false;
+  const m = /^\s*project\s*=\s*(["']?)([A-Za-z][A-Za-z0-9_]*)\1\s+and\s+issuetype\s*=\s*(["']?)epic\3(?:\s+order\s+by\s+[A-Za-z_]+(?:\s+(?:asc|desc))?(?:\s*,\s*[A-Za-z_]+(?:\s+(?:asc|desc))?)*)?\s*$/i.exec(i.jql);
+  return m !== null && m[2]!.toUpperCase() === project.toUpperCase();
+}
+
+/**
+ * STE-644 (iv) — whether every row of a canonical container listing carries
+ * the fields a duplicate check reads: a Jira row its `fields.summary`, its
+ * `fields.status.statusCategory`, and a key with `project`'s prefix; a Linear
+ * row its `name`. One row missing them disqualifies the whole listing.
+ */
+export function containerListingRowsComplete(tracker: "jira" | "linear", items: readonly unknown[], project: string): boolean {
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+  return items.every((row) => {
+    if (!isObj(row)) return false;
+    if (tracker === "linear") return typeof row.name === "string";
+    const f = row.fields;
+    if (!isObj(f) || typeof f.summary !== "string" || !isObj(f.status) || !isObj(f.status.statusCategory)) return false;
+    return typeof row.key === "string" && row.key.toUpperCase().startsWith(`${project.toUpperCase()}-`);
+  });
+}
+
 /** One milestone decision as both of its readers see it (the hook and the attach front door). */
 export interface DecisionFacts {
   readonly act: "create" | "join";

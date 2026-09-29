@@ -205,6 +205,9 @@ function worstCase(): number {
 
 const sha256 = (b: string | Uint8Array) => createHash("sha256").update(b).digest("hex");
 
+/** Review F1 — the grader's re-list scoping, read off the module under test. */
+const F1 = () => grader() as unknown as { HOOK_SOURCE: string; PRE_RELIST_HOOK_SOURCES: ReadonlySet<string>; hookDemandsRelist: (b: LiveBundle) => boolean };
+
 function grade(b: LiveBundle, extra: { hooksJsonPath?: string; inventoryPath?: string; behaviourDigestNow?: string } = {}): LiveVerdict {
   return grader().gradeBundle(b, { behaviourDigestNow: b.run.behaviourDigest.digest, ...extra });
 }
@@ -3116,7 +3119,8 @@ describe("HARDENING 1 — ungated-write covers every write the tracker-write hoo
       const s = session(b, "S3");
       const decide = s.calls.findIndex((c) => /resolve_milestone_identity\.ts/.test(String(c.input.command ?? "")));
       expect(decide, "CONTROL — the decision run is followed by the container create").toBe(1);
-      swapCalls(s, decide, decide + 1);
+      // STE-644: the re-list sits between the decision and the create, so the swap names the create.
+      swapCalls(s, decide, s.calls.indexOf(createCallOf(s)));
       expect(ungatedIn(grade(b), s.sessionId)).toBe(true);
       expect(codes(grade(buildPassingBundle(t)))).not.toContain("ungated-write");
     });
@@ -3664,11 +3668,12 @@ describe("MEASURED SHAPES — the grader reads tracker answers only through trac
         }
         return [];
       };
-      expect(listings.map(keysOf), "CONTROL — each recorded milestone listing carries no paging field").toEqual([["milestones"], ["milestones"]]);
+      // STE-644: three listings — A's decision listing, A's re-list before its create, B's decision listing.
+      expect(listings.map(keysOf), "CONTROL — each recorded milestone listing carries no paging field").toEqual([["milestones"], ["milestones"], ["milestones"]]);
       const r = gradeExtracted(extractFor(m));
       expect({ outcome: r.outcome, unlisted: findingsOf(r, "unlisted-decision") }).toEqual({ outcome: "pass", unlisted: [] });
       const listed = extractedBundle(extractFor(m)).sessions.filter((s) => s.marker === "S3").flatMap((s) => s.calls.filter((c) => /__list_milestones$/.test(c.name)));
-      expect(listed.map((c) => c.result.lastPage)).toEqual([true, true]);
+      expect(listed.map((c) => c.result.lastPage)).toEqual([true, true, true]);
     });
   });
   test("HIGH-B, REFUSAL TWIN — a listing of exactly LINEAR_MILESTONE_WINDOW rows is not proven complete, so B's join decision is unlisted-decision; one row fewer is listed", () => {
@@ -5082,3 +5087,351 @@ describe("STE-616 — an in-place edit is attributed to its own segment's target
     expect(flagged(b, s.sessionId)).toBe(true);
   });
 });
+
+// ===========================================================================
+// STE-643 (M_101065) AC-STE-643.8 — the live grader mirrors the hook: a
+// labels-only write, or a milestone-container create, that relied on a
+// decision printed `default=forbidden` is `ungated-write` unless an
+// AskUserQuestion asked after that decision's announcement, naming its key or
+// title, was answered EXACTLY "Join `<KEY>`" / "Create `<title>`". Each fixture
+// pair differs only in that answer. RED at abfe236d: the grader accepts any
+// join (or create) decision whatever its default.
+// ===========================================================================
+
+/** A harness-recorded AskUserQuestion answer, in the shape the bundle records one. */
+function consentAsk(question: string, labels: string[], answer: string): { input: Record<string, unknown>; result: ToolCall["result"] } {
+  return {
+    input: { questions: [{ question, header: "Milestone", multiSelect: false, options: labels.map((label) => ({ label })) }] },
+    result: { isError: false, text: `User has answered your questions: "${question}"="${answer}". You can now continue with the user's answers in mind.`, exitCode: null, items: null, lastPage: null },
+  };
+}
+
+describe("AC-STE-643.8 — the live grader grades a write that relied on an unanswered forbidden decision as ungated-write", () => {
+  for (const t of TRACKERS) {
+    /**
+     * S3's span mint, with its create decision printed and recorded as
+     * `default=forbidden` (a possibly capped create), optionally answered
+     * between the decision's announcement and the container create.
+     */
+    const forbiddenMint = (answer: string | null) => {
+      const b = buildPassingBundle(t);
+      const s = session(b, "S3");
+      const decide = bashCall(s, /resolve_milestone_identity\.ts/);
+      const r = announcedReceipt(b, decide);
+      const name = String(r.evidence.title);
+      const labels = [`Create \`${name}\``, `Skip \`${name}\``];
+      Object.assign(r.evidence, { default: "forbidden", options: labels, possiblyCapped: true });
+      decide.result.text = decide.result.text.replace("default=allowed", `default=forbidden\noptions=${JSON.stringify(labels)}`);
+      const create = createCallOf(s);
+      if (answer !== null) {
+        const i = s.calls.indexOf(create);
+        const at = new Date((Date.parse(decide.at) + Date.parse(create.at)) / 2).toISOString();
+        const ask = consentAsk(`Create the milestone "${name}" in ${b.run.container}?`, labels, answer);
+        s.calls.splice(i, 0, { ref: `${s.sessionId}:toolu_643_ask`, at, name: "AskUserQuestion", input: ask.input, result: ask.result, sidechain: false });
+      }
+      return { b, create, labels };
+    };
+
+    test(`${t}: a milestone create after a default=forbidden create decision with NO answer is ungated-write`, () => {
+      const { b, create } = forbiddenMint(null);
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: PERMIT TWIN — the same create after an answered \`Create <title>\` is not ungated-write`, () => {
+      const yes = forbiddenMint(forbiddenMint(null).labels[0]!);
+      expect(ungatedAt(grade(yes.b), yes.create.ref)).toBe(false);
+    });
+    test(`${t}: an answered \`Skip <title>\` authorises nothing (ungated-write)`, () => {
+      const probe = forbiddenMint(null);
+      const skip = forbiddenMint(probe.labels[1]!);
+      expect(ungatedAt(grade(skip.b), skip.create.ref)).toBe(true);
+    });
+    test(`${t}: CONTROL — the passing bundle's default=allowed create decision gates the create with no answer`, () => {
+      const b = buildPassingBundle(t);
+      expect(ungatedAt(grade(b), createCallOf(session(b, "S3")).ref)).toBe(false);
+    });
+  }
+
+  /** A Jira labels-only write in S13 on S3's Epic, relying on a join decision of it announced in S13. */
+  const labelsJoin = (via: "title" | "key", answer: string | null, inSession = "S13") => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, inSession);
+    const epic = createdKeys(session(b, "S3"))[0]!;
+    const labels = [`Join \`${epic}\``, `Skip \`${epic}\``];
+    const forbidden = via === "title";
+    const spanTitle = title("S3 span milestone");
+    appendAnnounced(
+      b,
+      s,
+      "milestone-decision",
+      moduleCommand("resolve_milestone_identity.ts", null, via === "title" ? `<B> jira DST <B>/.dpt/tmp/listing.json --title "${spanTitle}" --sibling <A>` : `<B> jira DST <B>/.dpt/tmp/listing.json --join-key ${epic} --sibling <A>`),
+      {
+        subject: via === "title" ? spanTitle : epic,
+        decision: "join",
+        evidence: {
+          act: "join",
+          via,
+          key: epic,
+          ...(via === "title" ? { title: spanTitle } : { joinKey: epic }),
+          name: spanTitle,
+          shared: true,
+          default: forbidden ? "forbidden" : "allowed",
+          ...(forbidden ? { options: labels } : {}),
+        },
+      },
+      `join_${via}`,
+    );
+    if (answer !== null) {
+      const ask = consentAsk(`Join the existing Epic ${epic} "${spanTitle}" as this repository's milestone?`, labels, answer);
+      appendCall(s, "AskUserQuestion", ask.input, ask.result, "ask_643");
+    }
+    const w = appendTicketWrite(b, s, epic, "labels_643", "edit");
+    return { b, w, labels };
+  };
+
+  test("jira: a labels-only write after a default=forbidden title join with NO answer is ungated-write", () => {
+    const { b, w } = labelsJoin("title", null);
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("jira: PERMIT TWIN — the same write after an answered `Join <KEY>` is not ungated-write", () => {
+    const epic = createdKeys(session(buildPassingBundle("jira"), "S3"))[0]!;
+    const { b, w } = labelsJoin("title", `Join \`${epic}\``);
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+  test("jira: an answered `Skip <KEY>` authorises nothing (ungated-write)", () => {
+    const epic = createdKeys(session(buildPassingBundle("jira"), "S3"))[0]!;
+    const { b, w } = labelsJoin("title", `Skip \`${epic}\``);
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("jira: the right `Join <KEY>` label offered under a question naming neither the key nor the title does not consent (ungated-write)", () => {
+    const b = buildPassingBundle("jira");
+    const epic = createdKeys(session(b, "S3"))[0]!;
+    const { b: bundle, w } = labelsJoin("title", `Join \`${epic}\``);
+    const s = session(bundle, "S13");
+    const ask = s.calls.find((c) => c.name === "AskUserQuestion" && c.ref.endsWith("ask_643"));
+    if (!ask) throw new Error("fixture: the consent question is missing");
+    const q = (ask.input.questions as Array<{ question: string }>)[0]!;
+    q.question = "Shall I tidy the labels on this board?";
+    ask.result.text = `User has answered your questions: "${q.question}"="Join \`${epic}\`". You can now continue with the user's answers in mind.`;
+    expect(ungatedAt(grade(bundle), w.ref)).toBe(true);
+  });
+  test("jira: an answered `Join <KEY>` asked only in a subagent's sidechain does not consent for a main-chain write (ungated-write)", () => {
+    const b = buildPassingBundle("jira");
+    const epic = createdKeys(session(b, "S3"))[0]!;
+    const { b: bundle, w } = labelsJoin("title", `Join \`${epic}\``);
+    const s = session(bundle, "S13");
+    const ask = s.calls.find((c) => c.name === "AskUserQuestion" && c.ref.endsWith("ask_643"));
+    if (!ask) throw new Error("fixture: the consent question is missing");
+    ask.sidechain = true;
+    expect(w.sidechain, "CONTROL — the write itself is in the main chain").toBe(false);
+    expect(ungatedAt(grade(bundle), w.ref)).toBe(true);
+  });
+  test("review TWR-4 — ownership first, as the hook: in S3, the session that CREATED the Epic, a labels write after an unanswered forbidden title join is not ungated-write", () => {
+    const { b, w } = labelsJoin("title", null, "S3");
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+  test("jira: CONTROL — a default=allowed key join gates the same labels-only write with no answer", () => {
+    const { b, w } = labelsJoin("key", null);
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+
+  /**
+   * Two join decisions of S3's Epic in S13, in the given order, then the
+   * labels-only write — the grader mirrors the hook's rule that the LATEST
+   * join for the key governs (hook suite "(d) … (twin)" and HIR P4).
+   */
+  const twoJoins = (order: Array<"title" | "key">) => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S13");
+    const epic = createdKeys(session(b, "S3"))[0]!;
+    const labels = [`Join \`${epic}\``, `Skip \`${epic}\``];
+    const spanTitle = title("S3 span milestone");
+    order.forEach((via, n) => {
+      const forbidden = via === "title";
+      appendAnnounced(
+        b,
+        s,
+        "milestone-decision",
+        moduleCommand("resolve_milestone_identity.ts", null, via === "title" ? `<B> jira DST <B>/.dpt/tmp/listing.json --title "${spanTitle}" --sibling <A>` : `<B> jira DST <B>/.dpt/tmp/listing.json --join-key ${epic} --sibling <A>`),
+        {
+          subject: via === "title" ? spanTitle : epic,
+          decision: "join",
+          evidence: {
+            act: "join",
+            via,
+            key: epic,
+            ...(via === "title" ? { title: spanTitle } : { joinKey: epic }),
+            name: spanTitle,
+            shared: true,
+            default: forbidden ? "forbidden" : "allowed",
+            ...(forbidden ? { options: labels } : {}),
+          },
+        },
+        `join_${via}_${n}`,
+      );
+    });
+    const w = appendTicketWrite(b, s, epic, "labels_643_two", "edit");
+    return { b, w };
+  };
+
+  test("jira: a key join, then a LATER unanswered forbidden title join of the same key, then the labels write → ungated-write (the latest join governs)", () => {
+    const { b, w } = twoJoins(["key", "title"]);
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("jira: CONTROL (HIR P4) — a forbidden title join, then a LATER allowed key join, then the labels write → not ungated-write", () => {
+    const { b, w } = twoJoins(["title", "key"]);
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// STE-644 (M_101065) — the live grader mirrors the hook's re-list rule: a
+// milestone-container create is gated only when, after its create decision,
+// the session recorded a canonical, complete re-list of the project's
+// containers whose last result is within 120 s of the create, holding no open
+// same-title container. The passing bundle's S3 mint re-lists; each fixture
+// below differs from it in that re-list alone. RED at d7ae0187: the grader
+// accepts the decision alone.
+// ===========================================================================
+
+describe("STE-644 — the live grader grades a milestone create without a qualifying re-list as ungated-write", () => {
+  for (const t of TRACKERS) {
+    /** S3 A's mint and its re-list (the call just before the create). */
+    const mint = (b: LiveBundle) => {
+      const s = session(b, "S3");
+      const create = createCallOf(s);
+      const relist = s.calls[s.calls.indexOf(create) - 1]!;
+      const decide = bashCall(s, /resolve_milestone_identity\.ts/);
+      return { s, create, relist, decide };
+    };
+
+    test(`${t}: CONTROL — the passing bundle's S3 mint re-lists after its decision and the create is not ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { s, create, relist, decide } = mint(b);
+      expect(relist.name.endsWith(t === "jira" ? "searchJiraIssuesUsingJql" : "list_milestones"), "CONTROL — the call before the create is the re-list").toBe(true);
+      expect(s.calls.indexOf(decide)).toBeLessThan(s.calls.indexOf(relist));
+      expect(ungatedAt(grade(b), create.ref)).toBe(false);
+    });
+    test(`${t}: AC-STE-644.1 — the same create with the re-list removed is ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { s, create, relist } = mint(b);
+      s.calls.splice(s.calls.indexOf(relist), 1);
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: review F1 — a bundle recording the PRESENT (unlisted) hook's hash is held to the re-list; a listed pre-STE-644 hash is not`, () => {
+      const current = createHash("sha256").update(readFileSync(join(pluginRoot, F1().HOOK_SOURCE))).digest("hex");
+      const held = buildPassingBundle(t);
+      held.run.behaviourDigest.files[F1().HOOK_SOURCE] = current;
+      const m1 = mint(held);
+      m1.s.calls.splice(m1.s.calls.indexOf(m1.relist), 1);
+      expect(ungatedAt(grade(held), m1.create.ref), "the present hook is held to the rule").toBe(true);
+      const exempt = buildPassingBundle(t);
+      exempt.run.behaviourDigest.files[F1().HOOK_SOURCE] = [...F1().PRE_RELIST_HOOK_SOURCES][0]!;
+      const m2 = mint(exempt);
+      m2.s.calls.splice(m2.s.calls.indexOf(m2.relist), 1);
+      expect(ungatedAt(grade(exempt), m2.create.ref), "a listed pre-STE-644 hook is exempt").toBe(false);
+    });
+    test(`${t}: AC-STE-644.1 — a re-list recorded BEFORE the decision does not gate the create (ungated-write)`, () => {
+      const b = buildPassingBundle(t);
+      const { s, create, relist, decide } = mint(b);
+      swapCalls(s, s.calls.indexOf(decide), s.calls.indexOf(relist));
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: AC-STE-644.2 — a create sent 121 s after the re-list's result is ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { create, relist } = mint(b);
+      create.at = new Date(Date.parse(relist.at) + 121_000).toISOString();
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: AC-STE-644.5 — a re-list holding an open container of the create's title is ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { create, relist } = mint(b);
+      const name = String(t === "jira" ? create.input.summary : create.input.name);
+      const dup: TrackerItem = {
+        key: t === "jira" ? `${b.run.container}-190` : "5f3a9cff-7d2e-4f00-9a00-0000000000fe",
+        summary: name,
+        labels: [],
+        status: t === "jira" ? "To Do" : "",
+        parent: null,
+        milestone: null,
+        issueType: t === "jira" ? "Epic" : null,
+        kind: t === "jira" ? "issue" : "milestone",
+        container: t === "jira" ? b.run.container : "",
+      };
+      relist.result.items = [dup];
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+    test(`${t}: AC-STE-644.4 — a re-list whose last page is not proven last is ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const { create, relist } = mint(b);
+      relist.result.lastPage = false;
+      expect(ungatedAt(grade(b), create.ref)).toBe(true);
+    });
+  }
+
+  test("jira: AC-STE-644.3 — a re-list narrowed by summary (the decision listing's own JQL) is ungated-write", () => {
+    const b = buildPassingBundle("jira");
+    const { create, relist } = (() => {
+      const s = session(b, "S3");
+      const c = createCallOf(s);
+      return { create: c, relist: s.calls[s.calls.indexOf(c) - 1]! };
+    })();
+    relist.input.jql = `project = ${b.run.container} AND issuetype = Epic AND summary ~ "${NONCE}"`;
+    expect(ungatedAt(grade(b), create.ref)).toBe(true);
+  });
+  test("linear: AC-STE-644.3 — a list_milestones of another project is ungated-write", () => {
+    const b = buildPassingBundle("linear");
+    const s = session(b, "S3");
+    const create = createCallOf(s);
+    s.calls[s.calls.indexOf(create) - 1]!.input.project = "Some Other Project";
+    expect(ungatedAt(grade(b), create.ref)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Review F1 (M_101065 re-cut) — PRE_RELIST_HOOK_SOURCES is frozen at the 18
+// pre-STE-644 hook sources and never holds the present hook's hash, so no edit
+// can quietly exempt runs recorded under a hook that demands the re-list.
+// ===========================================================================
+
+describe("review F1 — the frozen pre-STE-644 hook-source set", () => {
+  test("holds exactly 18 SHA-256 values, none of them the present hook's", () => {
+    expect(F1().PRE_RELIST_HOOK_SOURCES.size).toBe(18);
+    for (const h of F1().PRE_RELIST_HOOK_SOURCES) expect(h).toMatch(/^[0-9a-f]{64}$/);
+    const current = createHash("sha256").update(readFileSync(join(pluginRoot, F1().HOOK_SOURCE))).digest("hex");
+    expect(F1().PRE_RELIST_HOOK_SOURCES.has(current)).toBe(false);
+  });
+  test("review R2-F1-LITERAL — the set is exactly this sorted literal, and excludes the hook source of the round-1 re-cut (43fd0265…)", () => {
+    expect([...F1().PRE_RELIST_HOOK_SOURCES].sort()).toEqual([
+      "05b8d4178d99f3abf4b55f05f6a473637be041c4e6b02c442cfc42e798b1df82",
+      "0810dc547cd2a88e68bc1128224e493c73f7eaa87dbf156fd9b6395561186858",
+      "15f5604b4f3ae2ca6e76e1318dedd57451605ab2a04600fb20fac125df6eb1d3",
+      "2b13d187b0b7159a72b4fb0f6a644e4912e1c0c7377d5df4b0710f5eaeb129d6",
+      "3002d20cff4ba04fed21f1c24e2ffbf5a85ac3c344d08e5d1964b5e16ef836c0",
+      "4caf51055a375f7e9c8a0a9eaa9549937ac339417c09527401a2b8975857fc6b",
+      "60a29002e226872671c8227bc1955128491d0b2906b022eff8573dad609f273a",
+      "638244fff68817e844f9b8b6b2d0747651d1660174b8ac2dedbbd2cb1206cd3f",
+      "735a4f598291a8dd516ba9b6cf185b3b11415e600fc5afc722df015bf11dc56b",
+      "80094c0e8d16489be1f0c2804602a60dfcc958d3cadc5525caad848de3d5fd47",
+      "a8093ce74e86ece5f5c9dd10ddf76b13d5408b8d5e401d5e22a606de7da22da7",
+      "b76b0d8db8a9c27261becaaf6d637737f947a7c9597a54f18b2c5a3e3a29c475",
+      "b7c814864606b3a25f659a93bd30c2526d44fdafbd2a1199a116750c17b6fcb7",
+      "c50945b9b6fab9df69f8908e925dd9b239f584aa9c03d41a02d1ae334a201482",
+      "dc411cd9df2243b2f6e9a12fb5807c9ebf8312d785b52b881af0a9c8e4c984f5",
+      "f2c066df5d58915e82b15f8468cd88e5b2d3fa777a4d052412b4df997b17c248",
+      "f63cdb01cfba9f48a6aa3fc2f62d3b80bdbfaaa907d663205e4aeb68e94c1000",
+      "ff4702900225bad2d87032f3df7b6f30e798ce7a3c1a64f2429dfa6369047258",
+    ]);
+    expect([...F1().PRE_RELIST_HOOK_SOURCES].some((h) => h.startsWith("43fd0265"))).toBe(false);
+  });
+  test("hookDemandsRelist: no recorded hook source, or an unlisted one, is held; a listed one is not", () => {
+    const b = buildPassingBundle("jira");
+    const { HOOK_SOURCE, PRE_RELIST_HOOK_SOURCES, hookDemandsRelist } = F1();
+    delete b.run.behaviourDigest.files[HOOK_SOURCE];
+    expect(hookDemandsRelist(b)).toBe(true);
+    b.run.behaviourDigest.files[HOOK_SOURCE] = "0".repeat(64);
+    expect(hookDemandsRelist(b)).toBe(true);
+    b.run.behaviourDigest.files[HOOK_SOURCE] = [...PRE_RELIST_HOOK_SOURCES][5]!;
+    expect(hookDemandsRelist(b)).toBe(false);
+  });
+});
+

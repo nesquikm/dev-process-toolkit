@@ -173,21 +173,26 @@ export class Session {
     this.flush();
   }
 
+  /**
+   * STE-644: every tool_use and tool_result line carries a record-level ISO
+   * `timestamp` (Claude Code stamps each record); `timestamp` overrides "now".
+   */
   toolUse(name: string, input: unknown, timestamp?: string): string {
     const id = this.nextId();
     this.push({
       type: "assistant",
       sessionId: this.id,
-      ...(timestamp ? { timestamp } : {}),
+      timestamp: timestamp ?? new Date().toISOString(),
       message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
     });
     return id;
   }
 
-  toolResult(id: string, content: unknown, isError = false, extra: Record<string, unknown> = {}): void {
+  toolResult(id: string, content: unknown, isError = false, extra: Record<string, unknown> = {}, timestamp?: string): void {
     this.push({
       type: "user",
       sessionId: this.id,
+      timestamp: timestamp ?? new Date().toISOString(),
       message: {
         role: "user",
         content: [{ tool_use_id: id, type: "tool_result", content, ...(isError ? { is_error: true } : { is_error: false }) }],
@@ -660,11 +665,47 @@ export class Ctx {
     return { tool: "save_milestone", input: { project: LINEAR_PROJECT, name: title } };
   }
 
-  /** Mint: decision (act=create) → container create through the hook → the plan, committed. */
+  /**
+   * STE-644 — the re-list a container create needs after its decision: the
+   * project's containers read from the double through the harness, recorded in
+   * `session` as the tracker answered. Jira: the canonical `project = <P> AND
+   * issuetype = Epic` search, every page, from an unpaged request, each later
+   * request carrying the previous page's token. Linear: one `list_milestones`
+   * for the project.
+   */
+  relist(repo: Pick<FixtureRepo, "server">, session: Session): void {
+    const text = (v: unknown) => [{ type: "text", text: JSON.stringify(v) }];
+    if (this.tracker === "linear") {
+      const input = { project: LINEAR_PROJECT };
+      const id = session.toolUse(`mcp__${repo.server}__list_milestones`, input);
+      session.toolResult(id, text(this.linear.listMilestones(input)));
+      return;
+    }
+    let token: string | null = null;
+    for (let n = 0; n < 100; n++) {
+      const input = {
+        cloudId: "fixture-cloud",
+        jql: `project = ${JIRA_PROJECT} AND issuetype = Epic`,
+        fields: ["summary", "project", "issuetype", "status", "labels"],
+        maxResults: 100,
+        ...(token ? { nextPageToken: token } : {}),
+      };
+      const id = session.toolUse(`mcp__${repo.server}__searchJiraIssuesUsingJql`, input);
+      const page = this.jira.search(input);
+      session.toolResult(id, text(page));
+      const meta = this.jira.pageMeta(page);
+      if (meta.last) return;
+      token = meta.next;
+    }
+    throw new Error("runner: runaway re-list paging");
+  }
+
+  /** Mint: decision (act=create) → re-list (STE-644) → container create through the hook → the plan, committed. */
   async mint(repo: FixtureRepo, session: Session, title: string): Promise<MilestoneRef> {
     const d = await this.resolveMilestone(repo.root, session, { title });
     this.check(d.exitCode === 0, `the milestone decision for "${title}" in ${repo.name} refused (exit ${d.exitCode}): ${d.stderr}`);
     this.eq(d.fields.act, "create", `the milestone decision for a new title "${title}" in ${repo.name} prints act=`);
+    this.relist(repo, session);
     const c = this.milestoneCreateInput(title);
     const w = await this.write(repo, session, c.tool, c.input, { cwd: repo.root });
     this.expectPermitted(w, `the container create of "${title}" under its create decision`);
@@ -1860,30 +1901,60 @@ export async function measureKnownDefectD3(tracker: Tracker, pluginRoot: string)
 }
 
 /**
- * D-4, measured (never skipped): B's milestone create decided `act=create`
- * from a container listing captured BEFORE A minted the same title, in a
- * session with no join decision, is permitted by the hook — the hook cannot
- * see the container A created (`pre-tracker-write-gate.ts:1592`,
- * `if (matching.some((d) => !d.spent)) return 0;`). AC-STE-616.6 requires a
- * refusal (exit 2, write count unchanged).
+ * D-4 — NARROWED by STE-644 (v2.91.0); residuals in STE-644.md stay open. A milestone create decided `act=create`
+ * from a container listing captured BEFORE A minted the same title is no
+ * longer permitted: the hook requires a fresh, complete, canonical re-list of
+ * the project after the decision, and an open same-title container in it
+ * refuses the create by its key. Three legs, each in a fresh B session:
+ *   stale    — B decides on the stale listing and does NOT re-list: exit 2,
+ *              one container of the title, no write added;
+ *   relisted — B decides on the stale listing, then re-lists after A's mint:
+ *              exit 2 naming A's key (the re-list is READ, not merely demanded);
+ *   control  — B decides a title nobody minted and re-lists: exit 0, and the
+ *              double then holds exactly B's one container of that title.
  */
+export interface D4Leg {
+  decisionAct: string | undefined;
+  exitCode: number | undefined;
+  blocked: boolean;
+  containersWithTitle: number;
+  writesAdded: number;
+  namesKey: boolean;
+}
+
 export async function measureKnownDefectD4(
   tracker: Tracker,
   pluginRoot: string,
-): Promise<{ decisionAct: string | undefined; exitCode: number | undefined; blocked: boolean; containersWithTitle: number; writesAdded: number }> {
-  let out = { decisionAct: undefined as string | undefined, exitCode: undefined as number | undefined, blocked: false, containersWithTitle: -1, writesAdded: -1 };
+): Promise<{ aKey: string; stale: D4Leg; relisted: D4Leg; control: D4Leg }> {
+  const none: D4Leg = { decisionAct: undefined, exitCode: undefined, blocked: false, containersWithTitle: -1, writesAdded: -1, namesKey: false };
+  let out = { aKey: "", stale: none, relisted: none, control: none };
   await withSharedTrackerFixture({ tracker, shape: "coexist", pluginRoot }, async (fx) => {
     const ctx = new Ctx(fx, pluginRoot, harnessBlocks);
     const title = "Gamma Release";
+    const containers = (t: string) =>
+      tracker === "jira" ? fx.jira!.issues.filter((i) => i.issuetype === "Epic" && i.summary === t).length : fx.linear!.milestones.filter((m) => m.name === t).length;
     const stale = ctx.containerListing(); // B's listing, captured before A mints
-    await ctx.mint(fx.a, ctx.session("a"), title);
-    const sB = ctx.session("b-stale-only"); // fresh: no join decision in it
-    const d = await ctx.resolveMilestone(fx.b.root, sB, { title }, { listing: stale });
-    const w0 = ctx.writes;
-    const c = ctx.milestoneCreateInput(title);
-    const w = await ctx.write(fx.b, sB, c.tool, c.input, { cwd: fx.b.root });
-    const containers = tracker === "jira" ? fx.jira!.issues.filter((i) => i.issuetype === "Epic" && i.summary === title).length : fx.linear!.milestones.filter((m) => m.name === title).length;
-    out = { decisionAct: d.fields.act, exitCode: w.run?.exitCode, blocked: w.blocked, containersWithTitle: containers, writesAdded: ctx.writes - w0 };
+    const m = await ctx.mint(fx.a, ctx.session("a"), title);
+    const leg = async (label: string, t: string, listing: string, relist: boolean, key: string): Promise<D4Leg> => {
+      const sB = ctx.session(label); // fresh: no join decision in it
+      const d = await ctx.resolveMilestone(fx.b.root, sB, { title: t }, { listing });
+      if (relist) ctx.relist(fx.b, sB);
+      const w0 = ctx.writes;
+      const c = ctx.milestoneCreateInput(t);
+      const w = await ctx.write(fx.b, sB, c.tool, c.input, { cwd: fx.b.root });
+      return {
+        decisionAct: d.fields.act,
+        exitCode: w.run?.exitCode,
+        blocked: w.blocked,
+        containersWithTitle: containers(t),
+        writesAdded: ctx.writes - w0,
+        namesKey: key !== "" && (w.run?.stderr ?? "").includes(key),
+      };
+    };
+    const staleLeg = await leg("b-stale-only", title, stale, false, m.key);
+    const relisted = await leg("b-relisted", title, stale, true, m.key);
+    const control = await leg("b-control", "Delta Release", ctx.containerListing(), true, "");
+    out = { aKey: m.key, stale: staleLeg, relisted, control };
   });
   return out;
 }

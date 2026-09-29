@@ -31,14 +31,14 @@ import {
 import { normalizeTitleForCompare } from "../../../../adapters/_shared/src/create_idempotency_probe.ts";
 import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_ownership.ts";
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
-import { governingDecision } from "../../../../adapters/_shared/src/milestone_token.ts";
+import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
 // the two gates came to disagree about the one rule.
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
-import { readTrackerItem, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
+import { listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
 /** Kept exported from here, where it was declared until the two gates started sharing it. */
 export { simpleCommandWords } from "../../../../adapters/_shared/src/shell_invocations.ts";
@@ -274,6 +274,24 @@ function refuse(what: string, remedy: string): 2 {
   return 2;
 }
 
+/**
+ * STE-641 — the gated call's own tool_use line was not in the read when the
+ * wait ran out. Not a refusal: the read is graded with the call placed after
+ * every recorded line, as when the payload carries no tool_use_id.
+ */
+interface StaleRead {
+  path: string;
+  id: string;
+}
+
+/** STE-641 — refuse a create that duplicates a still-pending create in its own assistant turn. */
+function refuseParallelDuplicate(where: string, subject: string, why: string, remedy: string, note: string): 2 {
+  return refuse(
+    `${where}: it duplicates ${subject}, a parallel create in the same assistant turn that has not finished, so ${why}.${note}`,
+    `drop this parallel duplicate: ${remedy}`,
+  );
+}
+
 function sessionIdOf(payload: HookPayload): string {
   return typeof payload.session_id === "string" ? payload.session_id : "";
 }
@@ -390,11 +408,30 @@ export function invokedDecidingModule(command: string): string | null {
  * `cd`-prefixed, or quoted beyond the grammar. Its receipt is ignored, so the
  * refusal names it instead of leaving the model to repeat the same shape.
  */
+const DECIDING_MODULE_PATTERNS = Object.entries(RECEIPT_WRITING_SUBCOMMANDS).map(([m, sub]) => {
+  const mod = m.replace(/\./g, "\\.");
+  return {
+    // `bun … <module>` then an optional closing quote, whitespace, and the
+    // receipt subcommand (any argument for a module with no subcommand).
+    direct: new RegExp(`(?:^|\\s)bun\\b.*${mod}["']?\\s+${sub === null ? "\\S" : `${sub}\\b`}`),
+    assigned: new RegExp(`(?:^|\\s)([A-Za-z_][A-Za-z0-9_]*)=\\S*${mod}`),
+  };
+});
+
 function rejectedDecidingCommand(command: string): boolean {
   if (invokedDecidingModule(command) !== null) return false;
-  return Object.entries(RECEIPT_WRITING_SUBCOMMANDS).some(([m, sub]) =>
-    new RegExp(`${m.replace(/\./g, "\\.")}\\W*\\s+${sub === null ? "\\S" : `${sub}\\b`}`).test(command),
-  );
+  // Only a segment that RUNS a deciding module under `bun` counts; one that
+  // merely names it (`grep`, `rg`, `echo`) runs nothing and is not reported.
+  const segments = command.split(/;|&&|\|\||\||\n/);
+  return DECIDING_MODULE_PATTERNS.some(({ direct, assigned }) => {
+    if (segments.some((seg) => direct.test(seg))) return true;
+    return segments.some((seg, i) => {
+      const name = assigned.exec(seg)?.[1];
+      if (name === undefined) return false;
+      const viaVar = new RegExp(`(?:^|\\s)bun\\b.*(?:\\$${name}\\b|"\\$${name}"|\\$\\{${name}\\})`);
+      return segments.slice(i + 1).some((later) => viaVar.test(later));
+    });
+  });
 }
 
 /**
@@ -614,7 +651,7 @@ function createCallIn(b: ContentBlock, adapter: WorkspaceAdapterKey): TrackerCal
 
 /**
  * Which tool_uses count as creates for the spending walk (`createsBefore`) and
- * the lost-create walk (`lostCreates`), and the shape each is compared by: the
+ * the prior-create walk (`priorCreates`), and the shape each is compared by: the
  * ticket creates of §4, or the milestone-container creates of STE-608.
  */
 interface CreateKind {
@@ -750,13 +787,20 @@ function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAd
  * The create tool_uses ordered BEFORE the gated call, in transcript order
  * (line, then position within an assistant message).
  *
- * Claude Code writes a tool_use to the transcript BEFORE its PreToolUse hook
- * runs (measured on a live transcript), so the gated call — and every parallel
- * sibling of its assistant turn — is already there, run or not. Receipts are
- * allocated in this order whether or not a create has run yet: two creates in
- * one turn cannot both take one receipt, however their hooks interleave. The
- * gated call's own tool_use never spends (it is where the walk stops); when it
- * is absent from the transcript it is taken to come after every other create.
+ * Claude Code does NOT write a tool_use to the transcript before its
+ * PreToolUse hook reads it: it writes a message's tool_use lines when the
+ * message list next changes — normally the first tool's result, AFTER the
+ * first call's hook has returned (measured 2026-09-28, STE-641 § Measurement:
+ * the first call's line landed after its own result). run() re-reads for up
+ * to GATED_LINE_WAIT_MS, which can find a LATER call of a batch; a lone or
+ * first call never appears, and its read is graded with the call placed after
+ * every recorded line — never refused for the lag. Once the gated line is in,
+ * every earlier line is too (the file is append-only). Receipts are allocated in
+ * this order whether or not a create has run yet: two creates in one turn
+ * cannot both take one receipt, however their hooks interleave. The gated
+ * call's own tool_use never spends (it is where the walk stops); when it is
+ * absent (no tool_use_id, a subagent call, a stale read) it is taken to come
+ * after every other create.
  *
  * A create whose RECORDED result proves it never reached the tracker (`neverRan`:
  * a hook or permission refusal, a user rejection, a 4xx) took nothing, so it
@@ -768,21 +812,21 @@ function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAd
  * still spends, exactly as before.
  */
 function createsBefore(
-  lines: string[],
+  parsed: Array<ParsedLine | null>,
   adapter: WorkspaceAdapterKey,
   gatedId: string | undefined,
   kind: CreateKind = TICKET_CREATES,
 ): Array<{ line: number; shape: CreateShape }> {
   const neverReached = new Set<string>();
-  for (const p of parseLines(lines)) {
+  for (const p of parsed) {
     if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_result" && typeof b.tool_use_id === "string" && b.is_error === true && neverRan(p, b)) neverReached.add(b.tool_use_id);
     }
   }
   const out: Array<{ line: number; shape: CreateShape }> = [];
-  for (let idx = 0; idx < lines.length; idx++) {
-    for (const b of contentBlocks(lines[idx]!)) {
+  for (let idx = 0; idx < parsed.length; idx++) {
+    for (const b of parsed[idx]?.blocks ?? []) {
       if (gatedId !== undefined && b.id === gatedId) return out;
       if (typeof b.id === "string" && neverReached.has(b.id)) continue;
       const c = kind.pick(b, adapter);
@@ -833,44 +877,121 @@ interface LostCreate {
   id: string;
   shape: CreateShape;
   why: string;
+  /** STE-641 — a pending sibling in the gated call's own assistant message. */
+  parallel: boolean;
+}
+
+/** STE-642 — a create ordered before the gated call, in the state priorCreates gives it. */
+interface PriorCreate extends LostCreate {
+  /** `unkeyed` — a non-error result naming no created key, treated as lost. */
+  state: "lost" | "settled" | "unkeyed";
+  /** The key a `settled` create returned; "" otherwise. */
+  key: string;
+}
+
+/** The assistant message id a transcript line carries, or "". */
+function messageIdOf(p: ParsedLine): string {
+  const m = p.raw.message as { id?: unknown } | undefined;
+  return m && typeof m.id === "string" ? m.id : "";
 }
 
 /**
- * §4 — create tool_uses of an EARLIER turn than the gated call whose outcome is
- * unknown: an error result that does not prove the call never ran (a timeout,
- * a 5xx, an interrupt), or no result at all. Such a create may have made its
- * ticket, and a tracker search can lag its index, so an honest re-run of
- * `decide --attempt fast` can miss it (the GF-90/GF-91 double create). Parallel
- * siblings of the gated call are pending, not lost.
+ * §4 / STE-642 — every create tool_use ordered BEFORE the gated call, each with
+ * the state its recorded result gives it:
+ *
+ * - `lost` — an error result that does not prove the call never ran (a
+ *   timeout, a 5xx, an interrupt), or no result at all. Such a create may have
+ *   made its ticket, and a tracker search can lag its index, so an honest
+ *   re-run of `decide --attempt fast` can miss it (the GF-90/GF-91 double
+ *   create). `why` says which.
+ * - `settled` — a non-error result naming the key it created (createdKeyOf,
+ *   or createdMilestoneIdOf for a Linear save_milestone). The gates refuse a
+ *   second same-ticket create naming that key, with no fresh-decide remedy:
+ *   no receipt, fresh or not, authorises it.
+ * - `unkeyed` — a non-error result naming no created key. The create happened
+ *   but its ticket is unknown, so the gates treat it as `lost`.
+ *
+ * A create whose error result proves it never ran (`neverRan`) is excluded.
+ *
+ * Creates are ordered by a running (line, position) ordinal over tool_use
+ * blocks, as createsBefore walks them, so the one-line-per-message and the
+ * one-line-per-tool_use layouts order them alike. When the gated call's own
+ * line is in the read — a later call of a batch, found by the wait in run() —
+ * a no-result create ordered before it counts: if it shares the gated call's
+ * assistant message it is a same-turn sibling, `parallel` marks it, and the
+ * gates refuse the call as a parallel duplicate rather than point at the
+ * retry search. When the line is NOT in the read — a lone or first call,
+ * whose line Claude Code writes only after its hook returns (STE-641
+ * § Re-cut), a payload with no tool_use_id, or a subagent's call — the call is
+ * placed after every recorded line and a create with no result yet is not
+ * counted as lost, exactly as at v2.90.0.
  */
-function lostCreates(
+function priorCreates(
   parsed: Array<ParsedLine | null>,
   adapter: WorkspaceAdapterKey,
   gatedId: string | undefined,
   kind: CreateKind = TICKET_CREATES,
-): LostCreate[] {
-  const gatedLine = gatedId === undefined ? -1 : parsed.findIndex((p) => p?.blocks.some((b) => b.id === gatedId) ?? false);
-  const creates = new Map<string, { line: number; shape: CreateShape }>();
+): PriorCreate[] {
+  // STE-641 — a running (line, position) ordinal over tool_use blocks, as
+  // createsBefore walks them: both transcript layouts order creates alike.
+  let ordinal = 0;
+  let gatedOrdinal = -1;
+  let gatedLine = -1;
+  let gatedMessage = "";
+  const creates = new Map<string, { ordinal: number; line: number; message: string; shape: CreateShape; call: TrackerCall }>();
   const outcome = new Map<string, string | null>(); // id → why it is lost, or null when it is settled
+  const keys = new Map<string, string>(); // id → the key a settled create returned
+  const succeeded = new Set<string>(); // ids whose result was not an error
   parsed.forEach((p, idx) => {
     if (!p) return;
     for (const b of p.blocks) {
+      if (b.type === "tool_use") ordinal++;
+      if (b.type === "tool_use" && gatedId !== undefined && b.id === gatedId && gatedOrdinal < 0) {
+        gatedOrdinal = ordinal;
+        gatedLine = idx;
+        gatedMessage = messageIdOf(p);
+      }
       if (b.type === "tool_use" && typeof b.id === "string" && b.id !== gatedId) {
         const c = kind.pick(b, adapter);
-        if (c) creates.set(b.id, { line: idx, shape: kind.shape(c) });
+        if (c) creates.set(b.id, { ordinal, line: idx, message: messageIdOf(p), shape: kind.shape(c), call: c });
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string" && creates.has(b.tool_use_id)) {
         const lost = b.is_error === true && !neverRan(p, b);
         outcome.set(b.tool_use_id, lost ? `its result was an error: ${resultText(b.content).trim().split("\n")[0]!.slice(0, 120)}` : null);
+        const made = creates.get(b.tool_use_id)!;
+        const text = resultText(b.content).trim();
+        const key = b.is_error === true ? null : createdKeyOf(text, made.call) ?? (kind === MILESTONE_CREATES && adapter === "linear" ? createdMilestoneIdOf(text) : null);
+        if (key !== null) keys.set(b.tool_use_id, key);
+        if (b.is_error !== true) succeeded.add(b.tool_use_id);
       }
     }
   });
-  const out: LostCreate[] = [];
+  const out: PriorCreate[] = [];
   for (const [id, c] of creates) {
-    if (gatedLine >= 0 && c.line >= gatedLine) continue;
-    const why = outcome.has(id) ? outcome.get(id)! : gatedLine >= 0 ? "it has no result" : null;
-    if (why !== null) out.push({ id, shape: c.shape, why });
+    if (gatedOrdinal >= 0 && c.ordinal >= gatedOrdinal) continue;
+    const key = keys.get(id);
+    if (key !== undefined) {
+      out.push({ id, shape: c.shape, why: "", parallel: false, state: "settled", key });
+      continue;
+    }
+    if (succeeded.has(id)) {
+      out.push({ id, shape: c.shape, why: "its result names no created key", parallel: false, state: "unkeyed", key: "" });
+      continue;
+    }
+    const why = outcome.has(id) ? outcome.get(id)! : gatedOrdinal >= 0 ? "it has no result" : null;
+    if (why === null) continue;
+    const sibling = !outcome.has(id) && (c.line === gatedLine || (gatedMessage !== "" && c.message === gatedMessage));
+    out.push({ id, shape: c.shape, why, parallel: sibling, state: "lost", key: "" });
   }
   return out;
+}
+
+/**
+ * The same milestone container: project, and the title under the container
+ * normalizer (normalizeMilestoneTitle — case-insensitive, as the decision door
+ * and the STE-644 re-list compare container titles; review R2-AC642.1).
+ */
+function sameContainer(a: CreateShape, b: CreateShape): boolean {
+  return normalizeMilestoneTitle(a.title) === normalizeMilestoneTitle(b.title) && sameName(a.project, b.project);
 }
 
 /** The same ticket: title (normalized), project and container — labels aside. */
@@ -937,11 +1058,32 @@ function gateCreate(
   }
   const tag = target.binding.repoTag ?? "";
   const where = `${call.tool} in ${target.root}`;
+  // STE-642 — a create of this ticket that returned its key settled it: no
+  // create receipt, fresh or not, authorises a second create of it.
+  // One parse of the transcript serves every walk below.
+  const parsed = parseLines(transcript);
+  const prior = priorCreates(parsed, call.adapter, call.toolUseId).filter((c) => sameTicket(c.shape, shape));
+  const settled = prior.find((c) => c.state === "settled");
+  if (settled) {
+    return refuse(
+      `${where}: an earlier create of "${shape.title}" (${settled.id}) returned \`${settled.key}\` — no create receipt, fresh or not, authorises a second create of that ticket.${note}`,
+      `write to \`${settled.key}\` (this session created it, so it is owned); for a genuinely second ticket, decide a distinct title, or have the operator create it by hand.`,
+    );
+  }
 
   // §4 — after a create whose outcome is unknown, no create receipt — fresh or
   // not — authorises another create of that ticket: only the retry path, which
   // finds it and reuses it, proceeds.
-  const lost = lostCreates(parseLines(transcript), call.adapter, call.toolUseId).find((c) => sameTicket(c.shape, shape));
+  const lost = prior.find((c) => c.state !== "settled");
+  if (lost?.parallel) {
+    return refuseParallelDuplicate(
+      where,
+      `"${shape.title}" (${lost.id})`,
+      "no create receipt authorises a second create of that ticket",
+      `send one create per ticket in a turn, and once ${lost.id}'s result names the ticket it made, write to that ticket.`,
+      note,
+    );
+  }
   if (lost) {
     return refuse(
       `${where}: an earlier create of "${shape.title}" (${lost.id}) may have made the ticket — ${lost.why} — so no create receipt authorises another create of it; a fresh \`--attempt fast\` search can miss a ticket the tracker has not indexed yet.${note}`,
@@ -956,14 +1098,14 @@ function gateCreate(
     if (r) seen.push({ line: a.line, path: a.receiptPath, shape: r, spent: false });
   }
   // §4 — each receipt authorises exactly ONE create tool_use after its announcement.
-  for (const c of createsBefore(transcript, call.adapter, call.toolUseId)) {
+  for (const c of createsBefore(parsed, call.adapter, call.toolUseId)) {
     const hit = seen.find((r) => !r.spent && r.line < c.line && createMismatch(call.adapter, c.shape, r.shape, tag) === null);
     if (hit) hit.spent = true;
   }
   const matching = seen.filter((r) => createMismatch(call.adapter, shape, r.shape, tag) === null);
   if (matching.some((r) => !r.spent)) {
-    const created = createdKeys(parseLines(transcript), call.adapter);
-    return gateAttachTarget(call, shape, sessionId, announcements, created, target, note);
+    const created = createdKeys(parsed, call.adapter);
+    return gateAttachTarget(call, shape, sessionId, announcements, created, target, note, parsed);
   }
 
   if (matching.length > 0) {
@@ -972,15 +1114,17 @@ function gateCreate(
       `run ${DECIDE_CMD} --attempt retry-<N> (${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>")}) to search for the ticket that create may have made: a \`reused\` decision writes a reuse receipt that lets you write to that ticket. In a shared repository a retry never authorises another create. When retry-3 still misses, ask the operator with AskUserQuestion to search the tracker for the ticket by hand: if it exists, save it as <ticket.json> and run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} to write to it; if it does not, the operator creates it by hand — no receipt in this session authorises another create of it.`,
     );
   }
-  if (seen.length > 0) {
-    const last = seen[seen.length - 1];
+  const unspent = seen.filter((r) => !r.spent);
+  if (unspent.length > 0) {
+    const last = unspent[unspent.length - 1];
     return refuse(
       `${where}: the call does not match its create receipt (${last.path}): ${createMismatch(call.adapter, shape, last.shape, tag)}.${note}`,
       `send the payload ${DECIDE_CMD} decided, or run ${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt fast")} again for this one ${PLAIN_RULE}, then retry.`,
     );
   }
+  const allSpent = seen.length > 0 ? ` This session's ${seen.length} create receipt(s) are all spent, each by the create it authorised.` : "";
   return refuse(
-    `${where}: no create receipt announced by ${DECIDE_CMD} in this session authorises it.${note}`,
+    `${where}: no create receipt announced by ${DECIDE_CMD} in this session authorises it.${allSpent}${note}`,
     `run ${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt fast")} in ${target.root} for this ticket ${PLAIN_RULE}, then retry.`,
   );
 }
@@ -1008,7 +1152,9 @@ interface AttachTarget {
   /** Whether its provenance holds (`provenanceUnproven` is null); an unproven target never permits. */
   proven: boolean;
   /** Why it is unproven, when it is. */
-  unproven: typeof NOT_ANNOUNCED | typeof NOT_CREATED | null;
+  unproven: typeof NOT_ANNOUNCED | typeof NOT_CREATED | typeof NOT_CONSENTED | null;
+  /** STE-643 — the forbidden join decision and the answer it still needs, when `unproven` is `NOT_CONSENTED`. */
+  consent: { receipt: string; label: string } | null;
 }
 
 /**
@@ -1028,20 +1174,28 @@ interface AttachTarget {
  */
 const NOT_ANNOUNCED = "never-announced";
 const NOT_CREATED = "not-created";
+/** STE-643 — a `default=forbidden` join decision no AskUserQuestion after it answered with its consent label. */
+const NOT_CONSENTED = "not-consented";
 
-/** Null when the provenance holds; otherwise why not (`NOT_ANNOUNCED` or `NOT_CREATED`). */
+/**
+ * Null when the provenance holds; otherwise why not (`NOT_ANNOUNCED`,
+ * `NOT_CREATED` or `NOT_CONSENTED`). On `NOT_CONSENTED`, `consent` receives
+ * the decision receipt and the answer it needs.
+ */
 function provenanceUnproven(
   provenance: unknown,
   announcements: Announcement[],
   resolvedKey: string,
   created: ReadonlySet<string>,
-): typeof NOT_ANNOUNCED | typeof NOT_CREATED | null {
+  parsed: Array<ParsedLine | null>,
+  consent: { receipt: string; label: string } = { receipt: "", label: "" },
+): typeof NOT_ANNOUNCED | typeof NOT_CREATED | typeof NOT_CONSENTED | null {
   if (provenance === null || typeof provenance !== "object") return NOT_ANNOUNCED;
   const p = provenance as Record<string, unknown>;
   if (p.kind === "committed" || p.kind === "not-applicable") return null;
   if (p.kind !== "decided" || typeof p.receipt !== "string" || typeof p.sha256 !== "string") return NOT_ANNOUNCED;
   const wanted = resolve(p.receipt);
-  let why: typeof NOT_ANNOUNCED | typeof NOT_CREATED = NOT_ANNOUNCED;
+  let why: typeof NOT_ANNOUNCED | typeof NOT_CREATED | typeof NOT_CONSENTED = NOT_ANNOUNCED;
   for (const x of announcements) {
     if (x.module !== RESOLVE_MODULE || !x.intact || resolve(x.receiptPath) !== wanted) continue;
     let bytes: Buffer;
@@ -1061,6 +1215,25 @@ function provenanceUnproven(
     } catch {
       continue;
     }
+    // STE-643 — a join decision that printed default=forbidden proves its
+    // target only once the operator answered its consent label after it.
+    const ev = (JSON.parse(bytes.toString("utf-8")) as { evidence?: Record<string, unknown> }).evidence ?? {};
+    const forbiddenJoin: ConsentSubject | null =
+      act === "join" && ev.default === "forbidden"
+        ? {
+            line: x.line,
+            act: "join",
+            key: typeof ev.key === "string" ? ev.key : "",
+            title: typeof ev.title === "string" ? ev.title : null,
+          }
+        : null;
+    const label = forbiddenJoin === null ? "" : consentLabel(forbiddenJoin);
+    if (forbiddenJoin !== null && !answeredAfter(parsed, forbiddenJoin, label)) {
+      why = NOT_CONSENTED;
+      consent.receipt = x.receiptPath;
+      consent.label = label;
+      continue;
+    }
     if (act === "join") return null;
     if (act === "create" && resolvedKey !== "" && created.has(resolvedKey.toUpperCase())) return null;
     why = NOT_CREATED;
@@ -1074,6 +1247,7 @@ function attachTargets(
   root: string,
   sessionId: string,
   adapter: WorkspaceAdapterKey,
+  parsed: Array<ParsedLine | null>,
 ): AttachTarget[] {
   const out: AttachTarget[] = [];
   for (const { announcement: a, container, evidence: ev } of frontDoorReceipts(
@@ -1088,10 +1262,12 @@ function attachTargets(
     const key = ev.surface === "parent" && typeof ev.key === "string" ? ev.key : "";
     const id = ev.surface === "object" && typeof ev.id === "string" ? ev.id : "";
     const planFile = typeof ev.planFile === "string" ? ev.planFile : "";
-    const unproven = provenanceUnproven(ev.provenance, announcements, key || id, created);
+    const consent = { receipt: "", label: "" };
+    const unproven = provenanceUnproven(ev.provenance, announcements, key || id, created, parsed, consent);
     out.push({
       proven: unproven === null,
       unproven,
+      consent: unproven === NOT_CONSENTED ? consent : null,
       path: a.receiptPath,
       project: container,
       surface: ev.surface,
@@ -1145,10 +1321,11 @@ function gateAttachTarget(
   created: ReadonlySet<string>,
   target: DeclaredTarget,
   note: string,
+  parsed: Array<ParsedLine | null>,
 ): ExitCode {
   const where = `${call.tool} in ${target.root}`;
   const project = shape.project !== "" ? shape.project : shape.team;
-  const all = attachTargets(announcements, created, target.root, sessionId, call.adapter).filter((t) =>
+  const all = attachTargets(announcements, created, target.root, sessionId, call.adapter, parsed).filter((t) =>
     sameName(t.project, project),
   );
   const inProject = all.filter((t) => t.proven);
@@ -1195,6 +1372,12 @@ function gateAttachTarget(
   if (unproven.length > 0) {
     const last = unproven[unproven.length - 1]!;
     const resolvedKey = last.key || last.id;
+    if (last.unproven === NOT_CONSENTED && last.consent !== null) {
+      return refuse(
+        `${where}: the attach-target receipt (${last.path}) resolved ${resolvedKey} through the join decision ${last.consent.receipt}, which printed default=forbidden — and ${unansweredConsent(last.consent.label)}.${note}`,
+        `ask the operator with AskUserQuestion naming the joined container, offering the printed \`options=\` labels verbatim; create the FR only after the answer is exactly "${last.consent.label}". Then retry.`,
+      );
+    }
     if (last.unproven === NOT_CREATED) {
       return refuse(
         `${where}: the attach-target receipt (${last.path}) resolved the existing container ${resolvedKey}, and the milestone decision it relies on is a CREATE — but no create call of this session returned ${resolvedKey}, so binding to it would be a join the operator never approved.${note}`,
@@ -1430,6 +1613,7 @@ function gateTicket(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
+  stale: StaleRead | null = null,
 ): ExitCode {
   const keys = subjectKeys(call);
   if (keys.length === 0) {
@@ -1460,8 +1644,11 @@ function gateTicket(
   if (permitted) return 0;
   const named = (isLink ? bound : unowned).map((k) => k.key);
   const targetRoots = [...new Set(inScope.flatMap((k) => k.targets.map((t) => t.root)))].join(", ");
+  // STE-641 — name the lag as a fact, not a retry: a lone call's own line is
+  // written only after its PreToolUse hook returns, so retrying cannot help.
+  const lag = stale === null ? "" : ` (The transcript read did not yet hold this call's own tool_use ${stale.id}; it was graded as the last call of its turn.)`;
   return refuse(
-    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, this session did not create it, and no reuse, binding or consented import receipt names it.${note}`,
+    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${lag}${note}`,
     `run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json> [--adopt]")} (or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry.`,
   );
 }
@@ -1517,6 +1704,8 @@ interface MilestoneDecision {
   labels: string[];
   /** The joined container's listed name (joins only); null when the receipt records none. */
   name: string | null;
+  /** STE-643 — the front door printed `default=forbidden` (recorded as `evidence.default`). */
+  forbidden: boolean;
 }
 
 /**
@@ -1552,9 +1741,171 @@ function milestoneDecisions(
       milestoneId: typeof ev.milestoneId === "string" ? ev.milestoneId : "",
       labels: stringList(ev.labels),
       name: typeof ev.name === "string" ? ev.name : null,
+      forbidden: ev.default === "forbidden",
     });
   }
   return out;
+}
+
+/**
+ * STE-643 — what the consent rule reads of a decision: where it was announced
+ * (transcript line), its act, and the key or title a question must name.
+ * Twin: `forbiddenDecisionConsented` in adapters/_shared/src/shared_tracker_live_grader.ts
+ * mirrors this rule for the live grader (separate modules by design — keep both in step).
+ */
+type ConsentSubject = Pick<MilestoneDecision, "line" | "act" | "key" | "title">;
+
+/**
+ * STE-643 — the consent a `default=forbidden` decision needs, computed from
+ * the decision's own act, key and title (never from recorded options).
+ */
+function consentLabel(d: ConsentSubject): string {
+  return d.act === "join" ? `Join \`${d.key}\`` : `Create \`${d.title ?? ""}\``;
+}
+
+/** STE-643 — the refusal clause naming the consent answer a decision still needs. */
+const unansweredConsent = (label: string): string => `no AskUserQuestion after it was answered "${label}"`;
+
+/**
+ * STE-643 — true when an AskUserQuestion after the decision's announcement
+ * names its key or title in a question's own text, offers `label` as an
+ * option, and the harness recorded exactly `label` as the answer.
+ */
+function answeredAfter(parsed: Array<ParsedLine | null>, d: ConsentSubject, label: string): boolean {
+  const asks = new Set<string>();
+  for (let idx = d.line + 1; idx < parsed.length; idx++) {
+    const p = parsed[idx];
+    if (!p) continue;
+    for (const b of p.blocks) {
+      if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string") {
+        const questions = (b.input as { questions?: unknown } | undefined)?.questions;
+        // The QUESTION text must name the decision: the label itself always
+        // carries the key or title, so reading the options too would let a
+        // correctly-labelled option ride an unrelated question.
+        const text = Array.isArray(questions) ? questions.map((q) => String((q as { question?: unknown } | null)?.question ?? "")).join("\n") : "";
+        const names = (d.key !== "" && namesKey(text, d.key)) || (d.title !== null && d.title !== "" && text.includes(d.title));
+        const offers = Array.isArray(questions) && questions.some((q) => {
+          const options = (q as { options?: unknown } | null)?.options;
+          return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
+        });
+        if (names && offers) asks.add(b.id);
+      } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+        if (b.is_error === true || !asks.has(b.tool_use_id)) continue;
+        const answers = selectedAnswers(p, b);
+        if (answers.length > 0 && answers.every((a) => a === label)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** STE-644 — the listing tool a container re-list is read from, per tracker. */
+const RELIST_TOOLS: Readonly<Record<WorkspaceAdapterKey, string>> = { jira: "searchJiraIssuesUsingJql", linear: "list_milestones" };
+
+/** STE-644 — one complete container listing chain: its rows and the transcript line of its last result. */
+interface Relist {
+  items: Record<string, unknown>[];
+  lastLine: number;
+}
+
+/**
+ * STE-644 — the complete, canonical-scope listings of `project`'s containers
+ * recorded after line `from`: non-error results of the adapter's listing tool
+ * whose request `isCanonicalContainerListing` admits, chained from an unpaged
+ * request, each later request carrying the previous page's cursor, read by
+ * tracker_answer's `readTrackerListing` and ending on a page proven last. An
+ * errored or unreadable page breaks its chain, and a chain whose rows fail
+ * `containerListingRowsComplete` (a Jira row without its summary, its status
+ * category or a key with `project`'s prefix; a Linear row without its name)
+ * does not qualify. `consented` (a forbidden decision the operator answered)
+ * admits a full Linear milestone window, which never proves the last page:
+ * the answer is the only way past it. Freshness is not checked here; the
+ * caller filters by `freshBefore`. Twin: `relistedAfter` in
+ * shared_tracker_live_grader.ts, which grades the same rule on a recorded
+ * bundle and cannot check all of it (see there).
+ */
+function relistsAfter(parsed: Array<ParsedLine | null>, from: number, adapter: WorkspaceAdapterKey, project: string, consented = false): Relist[] {
+  const tool = RELIST_TOOLS[adapter];
+  const requests = new Map<string, unknown>();
+  const out: Relist[] = [];
+  let pages: unknown[] | null = null;
+  for (let idx = from + 1; idx < parsed.length; idx++) {
+    const p = parsed[idx];
+    if (!p) continue;
+    for (const b of p.blocks) {
+      if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
+        if (b.name.startsWith("mcp__") && b.name.endsWith(`__${tool}`) && isCanonicalContainerListing(adapter, b.input, project)) requests.set(b.id, b.input);
+        continue;
+      }
+      if (b.type !== "tool_result" || typeof b.tool_use_id !== "string" || !requests.has(b.tool_use_id)) continue;
+      const cursor = listingRequestCursor(adapter, requests.get(b.tool_use_id));
+      requests.delete(b.tool_use_id);
+      let answer: unknown = null;
+      try {
+        answer = b.is_error === true ? null : JSON.parse(resultText(b.content));
+      } catch {
+        answer = null;
+      }
+      if (answer === null || typeof answer !== "object" || Array.isArray(answer)) {
+        pages = null;
+        continue;
+      }
+      if (cursor === null) pages = [answer];
+      else if (pages === null) continue;
+      else pages.push({ ...(answer as Record<string, unknown>), requestCursor: cursor });
+      const read = readTrackerListing(adapter, pages, adapter === "linear" ? "milestones" : "issues");
+      if (read.ok && containerListingRowsComplete(adapter, read.items, project) && (read.last || (consented && adapter === "linear"))) out.push({ items: read.items, lastLine: idx });
+    }
+  }
+  return out;
+}
+
+/** STE-644 (v) — the most a qualifying re-list's last result may precede the gated call. */
+const LISTING_FRESH_MS = 120_000;
+/** STE-644 (v), review B1R2-5 — how far a re-list's result may sit in the future (clock skew) and still count. */
+const LISTING_FUTURE_SKEW_MS = 5_000;
+
+/** A transcript line's `timestamp` in epoch ms, or null when absent or unreadable. */
+function lineTime(p: ParsedLine | null | undefined): number | null {
+  const t = p && typeof p.raw.timestamp === "string" ? Date.parse(p.raw.timestamp) : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * STE-644 (v) — whether a re-list's last result is within LISTING_FRESH_MS of
+ * the grading time (`now`). Grading time, never the gated line's own
+ * `timestamp`: that stamp marks when its MESSAGE started streaming, which a
+ * later call of a batch can trail by seconds, so it would widen the window
+ * (review B1R2-2). A result stamped more than LISTING_FUTURE_SKEW_MS in the
+ * future, or with no timestamp, is not fresh (review B1R2-5).
+ */
+function freshBefore(parsed: Array<ParsedLine | null>, relist: Relist, now: number = Date.now()): boolean {
+  const last = lineTime(parsed[relist.lastLine]);
+  return last !== null && now - last <= LISTING_FRESH_MS && now - last >= -LISTING_FUTURE_SKEW_MS;
+}
+
+/** STE-644 — the re-list a container create's refusal asks for. */
+function relistRemedy(adapter: WorkspaceAdapterKey, project: string): string {
+  const query = adapter === "jira" ? `\`project = ${project} AND issuetype = Epic\` (every page, with summary and status)` : `\`list_milestones\` for project ${project} (every row, with its name)`;
+  return `list project ${project}'s containers again after the decision with ${query}, and send the create within 120 s of that read.`;
+}
+
+/**
+ * STE-644 — the key (Linear: the id) of the first OPEN row in `relist` whose
+ * normalized title equals `title`, or null. Open: a Jira row whose
+ * `statusCategory` key is not `done`; any Linear row.
+ */
+function openSameTitle(adapter: WorkspaceAdapterKey, relist: Relist, title: string): string | null {
+  const want = normalizeMilestoneTitle(title);
+  for (const row of relist.items) {
+    if (adapter === "linear") {
+      if (typeof row.name === "string" && normalizeMilestoneTitle(row.name) === want) return String(row.id ?? "");
+      continue;
+    }
+    const f = row.fields as { summary?: unknown; status?: { statusCategory?: { key?: unknown } } } | undefined;
+    if (typeof f?.summary === "string" && normalizeMilestoneTitle(f.summary) === want && f.status?.statusCategory?.key !== "done") return String(row.key ?? "");
+  }
+  return null;
 }
 
 /** A create decision for the same project and a byte-equal title (AC-STE-608.10 a/b). */
@@ -1562,6 +1913,20 @@ function decides(d: MilestoneDecision, c: CreateShape): boolean {
   return d.act === "create" && sameName(d.project, c.project) && d.title === c.title;
 }
 
+/**
+ * The gate on a milestone-container create (a Jira Epic, a Linear project
+ * milestone). In order, it refuses a create that (STE-642) repeats a create of
+ * the same container this session already made; that no announced create
+ * decision for the same project and byte-equal title permits; or whose only
+ * permitting decisions are spent, or printed default=forbidden with no answer
+ * to their consent label after them (STE-643). Once a decision permits it,
+ * STE-644 further requires a re-list: a `relistsAfter` listing of the
+ * project's containers recorded after that decision, whose last result is
+ * within LISTING_FRESH_MS of this call (`freshBefore`). A fresh re-list that
+ * holds an open container of the same title (`openSameTitle`) refuses with a
+ * join remedy; no fresh re-list refuses with `relistRemedy`. The live grader's
+ * twin of the re-list rule is `relistedAfter` in shared_tracker_live_grader.ts.
+ */
 function gateMilestoneCreate(
   call: TrackerCall,
   sessionId: string,
@@ -1573,9 +1938,32 @@ function gateMilestoneCreate(
 ): ExitCode {
   const want = MILESTONE_CREATES.shape(call);
   const name = call.adapter === "jira" ? "Epic" : "project milestone";
-  const lost = lostCreates(parseLines(transcript), call.adapter, call.toolUseId, MILESTONE_CREATES).find((c) =>
-    sameTicket(c.shape, want),
+  // STE-642 — a container create that returned its key settled it: no create
+  // decision, fresh or not, authorises a second create of it.
+  // One parse of the transcript serves every walk below.
+  const parsed = parseLines(transcript);
+  const prior = priorCreates(parsed, call.adapter, call.toolUseId, MILESTONE_CREATES).filter((c) =>
+    sameContainer(c.shape, want),
   );
+  const settled = prior.find((c) => c.state === "settled");
+  if (settled) {
+    return refuse(
+      `${where}: an earlier create of the ${name} "${want.title}" (${settled.id}) returned \`${settled.key}\` — no create decision, fresh or not, authorises a second create of it.${note}`,
+      `use \`${settled.key}\`; a second ${name} titled "${want.title}" would duplicate it.`,
+    );
+  }
+  // §4 — after a container create whose outcome is unknown, no decision
+  // authorises another create of it.
+  const lost = prior.find((c) => c.state !== "settled");
+  if (lost?.parallel) {
+    return refuseParallelDuplicate(
+      where,
+      `the ${name} "${want.title}" (${lost.id})`,
+      "no decision authorises a second create of it",
+      `send one create per ${name} in a turn — the decision ${frontDoor("--title <title>")} wrote authorises one create.`,
+      note,
+    );
+  }
   if (lost) {
     return refuse(
       `${where}: an earlier create of the ${name} "${want.title}" (${lost.id}) may have made it — ${lost.why} — so no decision authorises another create of it.${note}`,
@@ -1585,7 +1973,7 @@ function gateMilestoneCreate(
   const roots = new Set(targets.map((t) => t.root));
   const seen = milestoneDecisions(announcements, roots, sessionId, call.adapter).map((d) => ({ ...d, spent: false }));
   // One create decision authorises ONE container create after its announcement.
-  for (const c of createsBefore(transcript, call.adapter, call.toolUseId, MILESTONE_CREATES)) {
+  for (const c of createsBefore(parsed, call.adapter, call.toolUseId, MILESTONE_CREATES)) {
     const hit = seen.find((d) => !d.spent && d.line < c.line && decides(d, c.shape));
     if (hit) hit.spent = true;
   }
@@ -1603,7 +1991,35 @@ function gateMilestoneCreate(
     );
   }
   const matching = seen.filter((d) => decides(d, want));
-  if (matching.some((d) => !d.spent)) return 0;
+  const permitting = matching.find((d) => !d.spent && (!d.forbidden || answeredAfter(parsed, d, consentLabel(d))));
+  if (permitting) {
+    // STE-644 — once the permit is otherwise met, the create needs a later,
+    // complete, canonical-scope listing of the project's containers.
+    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, permitting.forbidden).filter((r) => freshBefore(parsed, r));
+    const dup = fresh.map((r) => openSameTitle(call.adapter, r, want.title)).find((k) => k !== null);
+    if (dup !== undefined) {
+      return refuse(
+        `${where}: the re-list of project ${want.project}'s containers after its create decision (${permitting.path}) holds the open ${name} \`${dup}\` titled "${want.title}", so creating it again would duplicate it.${note}`,
+        `join it: decide with --join-key \`${dup}\` --sibling \`<path>\`; nothing is created.`,
+      );
+    }
+    if (fresh.length > 0) return 0;
+    return refuse(
+      `${where}: its create decision (${permitting.path}) has no later, complete listing of project ${want.project}'s containers recorded in this session, so the ${name} "${want.title}" may exist already.${note}`,
+      relistRemedy(call.adapter, want.project),
+    );
+  }
+  // STE-643 — an unspent create decision that printed default=forbidden
+  // permits only once its consent label was answered after it.
+  const unconsented = matching.filter((d) => !d.spent);
+  if (unconsented.length > 0) {
+    const d = unconsented[unconsented.length - 1]!;
+    const label = consentLabel(d);
+    return refuse(
+      `${where}: its create decision (${d.path}) printed default=forbidden — the listing may be capped — and ${unansweredConsent(label)}.${note}`,
+      `ask the operator with AskUserQuestion, naming "${want.title}" and offering "${label}"; only that recorded answer after the decision permits this create.`,
+    );
+  }
   if (matching.length > 0) {
     return refuse(
       `${where}: its create decision (${matching[matching.length - 1]!.path}) is spent — another create of the ${name} "${want.title}" took it, and that create may have made it.${note}`,
@@ -1709,6 +2125,7 @@ function gateJoinedLabels(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
+  transcript: string[] = [],
 ): ExitCode | null {
   if (call.adapter !== "jira" || call.tool !== "editJiraIssue") return null;
   const fields = call.input.fields;
@@ -1730,6 +2147,19 @@ function gateJoinedLabels(
   );
   const join = joins[joins.length - 1];
   if (!join) return null;
+  // Review TWR-4 (round 2): an Epic this session created needs no join
+  // consent — it is its own — but its labels write is still a read-merge: the
+  // listed labels and the milestone label below are checked for every joined
+  // Epic, created here or not (AC-STE-608.10 (d)).
+  const createdHere = createdKeys(parseLines(transcript), call.adapter).has(key);
+  const consent = consentLabel(join);
+  const unconsented = !createdHere && join.forbidden && !answeredAfter(parseLines(transcript), join, consent);
+  if (unconsented) {
+    return refuse(
+      `editJiraIssue on ${key}, an Epic joined by ${join.path}: that decision printed default=forbidden, and ${unansweredConsent(consent)}.${note}`,
+      `ask the operator with AskUserQuestion naming ${key}, offering the printed \`options=\` labels verbatim; write the labels only after the answer is exactly "${consent}".`,
+    );
+  }
   let milestone: string | null;
   try {
     milestone = milestoneLabel(join.milestoneId);
@@ -1830,39 +2260,114 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
   return notes.join("");
 }
 
+/** STE-641 — how long the gate waits for the gated call's own tool_use line to reach the transcript. */
+export const GATED_LINE_WAIT_MS = 2000;
+const GATED_LINE_POLL_MS = 25;
+
+/** Whether a read holds a tool_use block whose `id` is `id` (a mere mention in text does not count). */
+function holdsToolUse(lines: string[], id: string): boolean {
+  return lines.some((line) => line.includes(id) && contentBlocks(line).some((b) => b.type === "tool_use" && b.id === id));
+}
+
+/**
+ * STE-641 — re-read the transcript until it holds the gated call's own
+ * tool_use line, for at most `waitMs`. Claude Code writes a message's tool_use
+ * lines only when the message list next changes, so a LATER call of a batch
+ * may find its line during the wait while a lone or first call never will.
+ * An unreadable first read is returned as is. `stale` is true when the budget
+ * ran out with the line still absent; the caller then grades the read with
+ * the call placed last rather than refusing.
+ */
+export function awaitGatedLine(
+  read: () => string[] | null,
+  id: string,
+  waitMs: number,
+  sleep: (ms: number) => void,
+): { lines: string[] | null; stale: boolean } {
+  let lines = read();
+  if (lines === null) return { lines, stale: false };
+  let slept = 0;
+  while (!holdsToolUse(lines, id)) {
+    if (slept >= waitMs) return { lines, stale: true };
+    const step = Math.min(GATED_LINE_POLL_MS, waitMs - slept);
+    sleep(step);
+    slept += step;
+    const next = read();
+    if (next !== null) lines = next;
+  }
+  return { lines, stale: false };
+}
+
+type Graded = { exit: ExitCode } | { scan: AnnouncementScan; declared: DeclaredTarget[] };
+
+/** Announcements, declarations and the declared targets of one transcript read; an exit when grading ends there. */
+function gradeRead(payload: HookPayload, call: TrackerCall, lines: string[], sessionId: string): Graded {
+  // One pass over the transcript for announcements, shared by candidate
+  // resolution and every gate below (no session id → nothing announced).
+  const scan = scanAnnouncements(lines, sessionId);
+  const declarations = readDeclarations(candidateRoots(payload, scan.announcements), call.adapter);
+  for (const d of declarations) {
+    if (d.ok) continue;
+    return {
+      exit: refuse(
+        `${call.tool} — the declaration in ${d.root} cannot be read: ${d.error.split("\n")[0]}`,
+        `fix the shared-container declaration in ${join(d.root, "CLAUDE.md")} and retry.`,
+      ),
+    };
+  }
+  const declared: DeclaredTarget[] = declarations.flatMap((d) => (d.ok && d.binding.shared ? [d] : []));
+  if (declared.length === 0) return { exit: 0 }; // §3 — byte-identical when undeclared
+  const floor = checkFloors(call, declared);
+  if (floor !== 0) return { exit: floor };
+  return { scan, declared };
+}
+
 export function run(stdin: string): ExitCode {
   const payload = parseHookPayload(stdin);
   if (!payload) return 0; // §6 — fail-open outside a session
   const call = identifyTrackerCall(payload);
   if (!call) return 0;
 
-  const transcript = readTranscriptLines(payload);
+  let transcript = readTranscriptLines(payload);
   const sessionId = sessionIdOf(payload);
-  const lines = transcript ?? [];
-  // One pass over the transcript for announcements, shared by candidate
-  // resolution and every gate below (no session id → nothing announced).
-  const scan = scanAnnouncements(lines, sessionId);
-  const announcements = scan.announcements;
-  const declarations = readDeclarations(candidateRoots(payload, announcements), call.adapter);
-  for (const d of declarations) {
-    if (d.ok) continue;
-    return refuse(
-      `${call.tool} — the declaration in ${d.root} cannot be read: ${d.error.split("\n")[0]}`,
-      `fix the shared-container declaration in ${join(d.root, "CLAUDE.md")} and retry.`,
-    );
-  }
-  const declared: DeclaredTarget[] = declarations.flatMap((d) => (d.ok && d.binding.shared ? [d] : []));
-  if (declared.length === 0) return 0; // §3 — byte-identical when undeclared
+  let lines = transcript ?? [];
+  let graded = gradeRead(payload, call, lines, sessionId);
+  if ("exit" in graded) return graded.exit;
 
-  const floor = checkFloors(call, declared);
-  if (floor !== 0) return floor;
+  // STE-641 — the gated call's own line may not be flushed yet: wait for it
+  // when this call writes into a declared target, then grade the final read.
+  const id = payload.tool_use_id;
+  const first = transcript;
+  let stale: StaleRead | null = null;
+  if (
+    first !== null &&
+    typeof id === "string" &&
+    !holdsToolUse(first, id) &&
+    graded.declared.some((d) => bindsCall(call, d)) &&
+    (payload as { agent_id?: unknown }).agent_id === undefined
+  ) {
+    let reads = 0;
+    const waited = awaitGatedLine(
+      () => (reads++ === 0 ? first : readTranscriptLines(payload)),
+      id,
+      GATED_LINE_WAIT_MS,
+      (ms) => Bun.sleepSync(ms),
+    );
+    transcript = waited.lines;
+    if (waited.stale) stale = { path: payload.transcript_path || "no transcript_path", id };
+    lines = transcript ?? [];
+    graded = gradeRead(payload, call, lines, sessionId);
+    if ("exit" in graded) return graded.exit;
+  }
+  const { scan, declared } = graded;
+  const announcements = scan.announcements;
 
   const note = unreadableInputsNote(payload, transcript, scan);
   if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note);
   if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note);
-  const joined = gateJoinedLabels(call, sessionId, announcements, declared, note);
+  const joined = gateJoinedLabels(call, sessionId, announcements, declared, note, lines);
   if (joined !== null) return joined;
-  return gateTicket(call, sessionId, lines, announcements, declared, note);
+  return gateTicket(call, sessionId, lines, announcements, declared, note, stale);
 }
 
 /**

@@ -34,8 +34,8 @@ import { CHILD_LISTING_REJECTED } from "./sibling_release.ts";
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
-import { readTrackerItem, readTrackerPage } from "./tracker_answer";
-import { milestoneIdFromEpicKey, milestoneIdFromLinearMilestone } from "./milestone_token";
+import { listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
+import { isCanonicalContainerListing, milestoneIdFromEpicKey, milestoneIdFromLinearMilestone, normalizeMilestoneTitle } from "./milestone_token";
 
 import {
   linearWorstCase,
@@ -2243,6 +2243,160 @@ const answeredBefore = (s: BundleSession, index: number, label: string): boolean
   return consentTimes(s, label).some((t) => t < at);
 };
 
+/**
+ * STE-643 — mirrors the hook's `answeredAfter` rule: a `milestone-decision`
+ * receipt recording `default: "forbidden"` authorises its write only after an
+ * AskUserQuestion — after the decision's announcement (call `from`) and before
+ * the write (call `to`), in the write's own chain — that names the decision's
+ * key or title in a question's own text, offers the
+ * consent label among its options, and whose recorded answer is exactly that
+ * label. The label is computed from the decision's act, key and title, never
+ * from `evidence.options`. An errored question authorises nothing. A decision
+ * whose default is not forbidden needs no answer.
+ * Twin: `answeredAfter` / `consentLabel` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ * (separate modules by design — keep both in step).
+ */
+function forbiddenDecisionConsented(s: BundleSession, decision: BundleReceipt, from: number, to: number): boolean {
+  const ev = decision.evidence;
+  if (ev.default !== "forbidden") return true;
+  const key = str(ev.key);
+  const title = str(ev.title);
+  const label = ev.act === "join" ? `Join \`${key}\`` : `Create \`${title}\``;
+  const namesKey = (text: string): boolean =>
+    key !== "" && new RegExp(`(^|[^A-Za-z0-9_-])${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_]|-[0-9])`).test(text);
+  for (let j = from + 1; j < to && j < s.calls.length; j++) {
+    const c = s.calls[j]!;
+    if (c.name !== "AskUserQuestion" || c.result.isError) continue;
+    // The hook reads only the gated call's own transcript, so a question
+    // asked in another chain (a subagent's sidechain) never consents for it.
+    if (c.sidechain !== s.calls[to]?.sidechain) continue;
+    const questions = (c.input as { questions?: unknown }).questions;
+    const text = Array.isArray(questions) ? questions.map((q) => String((q as { question?: unknown } | null)?.question ?? "")).join("\n") : "";
+    if (!(namesKey(text) || (title !== "" && text.includes(title)))) continue;
+    const offers = Array.isArray(questions) && questions.some((q) => {
+      const options = (q as { options?: unknown } | null)?.options;
+      return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
+    });
+    if (!offers) continue;
+    const answers = [...c.result.text.matchAll(/"="([^"]*)"(?=[.,]\s|[.,]?$)/g)].map((m) => m[1]);
+    if (answers.length > 0 && answers.every((a) => a === label)) return true;
+  }
+  return false;
+}
+
+/**
+ * STE-644 — the tracker-write hook sources that did NOT demand a re-list
+ * before a container create: the SHA-256 of
+ * templates/hooks/_lib/hooks/pre-tracker-write-gate.ts at every commit that
+ * changed it from e404fdab (the hook's first commit) through d7ae0187 (the
+ * last before STE-644). The grade scopes the re-list rule by these because
+ * the committed proof bundles (tests/fixtures/shared-tracker-live/*) were
+ * recorded under such hooks: their agents were never asked to re-list, so
+ * holding them to it would turn a proven run red after the fact. A run whose
+ * behaviour digest records one of these as its hook is not held to the
+ * re-list; any other hook source (a later commit, a working tree, or none
+ * recorded) is.
+ */
+// Reproduce (review round 1): for each commit in the comments,
+//   git show <commit>:plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-tracker-write-gate.ts | shasum -a 256
+// — the SHA-256 of the file's bytes, as a bundle's behaviour digest records it.
+// Frozen at the pre-STE-644 sources: never add a hook that demands the re-list.
+export const PRE_RELIST_HOOK_SOURCES: ReadonlySet<string> = new Set([
+  "ff4702900225bad2d87032f3df7b6f30e798ce7a3c1a64f2429dfa6369047258", // d7ae0187
+  "f63cdb01cfba9f48a6aa3fc2f62d3b80bdbfaaa907d663205e4aeb68e94c1000", // abfe236d
+  "4caf51055a375f7e9c8a0a9eaa9549937ac339417c09527401a2b8975857fc6b", // fea52c57
+  "b7c814864606b3a25f659a93bd30c2526d44fdafbd2a1199a116750c17b6fcb7", // 1de7034e
+  "638244fff68817e844f9b8b6b2d0747651d1660174b8ac2dedbbd2cb1206cd3f", // 8d794f4f
+  "c50945b9b6fab9df69f8908e925dd9b239f584aa9c03d41a02d1ae334a201482", // e93af85f
+  "2b13d187b0b7159a72b4fb0f6a644e4912e1c0c7377d5df4b0710f5eaeb129d6", // e41cce1d
+  "f2c066df5d58915e82b15f8468cd88e5b2d3fa777a4d052412b4df997b17c248", // ce3765a5
+  "05b8d4178d99f3abf4b55f05f6a473637be041c4e6b02c442cfc42e798b1df82", // e4f84644
+  "a8093ce74e86ece5f5c9dd10ddf76b13d5408b8d5e401d5e22a606de7da22da7", // 053e5a25
+  "0810dc547cd2a88e68bc1128224e493c73f7eaa87dbf156fd9b6395561186858", // c32b4f30
+  "15f5604b4f3ae2ca6e76e1318dedd57451605ab2a04600fb20fac125df6eb1d3", // 1332279f
+  "735a4f598291a8dd516ba9b6cf185b3b11415e600fc5afc722df015bf11dc56b", // 3170dfcd
+  "dc411cd9df2243b2f6e9a12fb5807c9ebf8312d785b52b881af0a9c8e4c984f5", // 80b599d3
+  "80094c0e8d16489be1f0c2804602a60dfcc958d3cadc5525caad848de3d5fd47", // 98df9525
+  "60a29002e226872671c8227bc1955128491d0b2906b022eff8573dad609f273a", // 3ce5a834
+  "3002d20cff4ba04fed21f1c24e2ffbf5a85ac3c344d08e5d1964b5e16ef836c0", // 45a5ba24
+  "b76b0d8db8a9c27261becaaf6d637737f947a7c9597a54f18b2c5a3e3a29c475", // e404fdab
+]);
+export const HOOK_SOURCE = "templates/hooks/_lib/hooks/pre-tracker-write-gate.ts";
+
+/**
+ * STE-644 — whether the run is held to the re-list: true unless the hook
+ * source its behaviour digest records is one of PRE_RELIST_HOOK_SOURCES. A
+ * bundle that records no hook source is held to it.
+ */
+export const hookDemandsRelist = (b: LiveBundle): boolean => !PRE_RELIST_HOOK_SOURCES.has(b.run.behaviourDigest.files[HOOK_SOURCE] ?? "");
+
+/**
+ * STE-644 — the grade's twin of the hook's `relistsAfter` + `freshBefore` +
+ * `openSameTitle`, read on a recorded bundle. Between the decision's
+ * announcement (call `from`) and the create (call `to`), in the create's own
+ * chain (main or sidechain), it looks for a non-error listing of `project`'s
+ * containers whose requests `isCanonicalContainerListing` admits, begun by an
+ * unpaged request (`listingRequestCursor` null) and reaching a page proven last
+ * (`lastPage === true`; with `consented`, any Linear page, as the hook admits
+ * a consented full milestone window). An errored page breaks its chain. Such a
+ * page qualifies only when its call is within LISTING_FRESH_MS before the
+ * create. `dup` is the key of an open same-title row (`normalizeMilestoneTitle`
+ * equality; Jira: a status NAME other than "Done"; Linear: any row) in the
+ * rows gathered so far at the first qualifying page that holds one; `ok` is
+ * whether any page qualified.
+ *
+ * Documented limits, from what a bundle keeps:
+ * - no token continuity: a bundle stores a page's projected items and
+ *   `lastPage`, not the next cursor it handed, so a paged request is chained
+ *   onto whatever page came before it without checking the cursor matches;
+ * - no row completeness: items are projected (`projectItem`), so the raw
+ *   `fields.status.statusCategory` that `containerListingRowsComplete` and the
+ *   hook's open test read is gone; the grade cannot apply that helper and
+ *   reads the projected status name instead;
+ * - one time per call: a call keeps its tool_use time only, so the last
+ *   page's call time stands in for the hook's result-line time.
+ *
+ * Twin: `relistsAfter` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ * (separate modules by design — keep both in step).
+ */
+function relistedAfter(s: BundleSession, tracker: SharedTrackerId, project: string, from: number, to: number, consented: boolean, title: string): { ok: boolean; dup: string | null } {
+  const tool = tracker === "jira" ? "searchJiraIssuesUsingJql" : "list_milestones";
+  const want = normalizeMilestoneTitle(title);
+  let open = false;
+  let rows: TrackerItem[] = [];
+  let ok = false;
+  for (let j = from + 1; j < to && j < s.calls.length; j++) {
+    const c = s.calls[j]!;
+    if (bareTool(c.name) !== tool || c.sidechain !== s.calls[to]?.sidechain || !isCanonicalContainerListing(tracker, c.input, project)) continue;
+    if (c.result.isError) {
+      open = false;
+      continue;
+    }
+    if (listingRequestCursor(tracker, c.input) === null) {
+      open = true;
+      rows = [];
+    }
+    rows = rows.concat(c.result.items ?? []);
+    if (open && (c.result.lastPage === true || (consented && tracker === "linear")) && fresh(c.at, s.calls[to]?.at)) {
+      // AC-STE-644.5 — an open same-title container in the qualifying listing
+      // (Jira: status not Done; Linear: any row) decides a join, not a create.
+      const dup = rows.find((r) => normalizeMilestoneTitle(r.summary) === want && (tracker === "linear" || !/^done$/i.test(r.status)));
+      if (dup) return { ok: false, dup: dup.key };
+      ok = true;
+    }
+  }
+  return { ok, dup: null };
+}
+
+/** STE-644 (v) — the hook's LISTING_FRESH_MS: a re-list's last page older than this before the create does not qualify. */
+const LISTING_FRESH_MS = 120_000;
+
+/** Whether `last` is within LISTING_FRESH_MS before `at`; a missing or unreadable timestamp is not fresh. */
+function fresh(last: string | undefined, at: string | undefined): boolean {
+  const gap = Date.parse(at ?? "") - Date.parse(last ?? "");
+  return Number.isFinite(gap) && gap <= LISTING_FRESH_MS;
+}
+
 const rootOfPath = (p: string): Root | null => (/^<([AB])>\//.exec(p)?.[1] as Root | undefined) ?? null;
 
 /**
@@ -2383,11 +2537,20 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
       } else if (cls === "milestone-create") {
         const project = tracker === "jira" ? str(c.input.projectKey) : str(c.input.project);
         const name = tracker === "jira" ? str(c.input.summary) : str(c.input.name);
-        const decision = before
-          .map((a) => receiptOf(a, "milestone-decision"))
-          .find((r) => r !== null && !spent.has(r.path) && r.evidence.act === "create" && sameName(str(r.container), project) && str(r.evidence.title) === name);
+        const found = before
+          .map((a) => ({ a, r: receiptOf(a, "milestone-decision") }))
+          .find(({ r }) => r !== null && !spent.has(r.path) && r.evidence.act === "create" && sameName(str(r.container), project) && str(r.evidence.title) === name);
+        const decision = found?.r ?? null;
         if (!decision) why = `milestone-container create of "${name}" in ${project} follows no unspent create decision announced by resolve_milestone_identity.ts for that project and title`;
-        else spent.add(decision.path);
+        else {
+          spent.add(decision.path);
+          if (!forbiddenDecisionConsented(s, decision, found!.a.index, i)) why = `milestone-container create of "${name}" in ${project} relied on a create decision (${decision.path}) that printed default=forbidden, and no AskUserQuestion after it was answered "Create \`${name}\`"`;
+          else if (hookDemandsRelist(b)) {
+            const relist = relistedAfter(s, tracker, project, found!.a.index, i, decision.evidence.default === "forbidden", name);
+            if (relist.dup !== null) why = `milestone-container create of "${name}" in ${project} follows a listing of the project's containers that holds the open container \`${relist.dup}\` of that title, so it duplicates it`;
+            else if (!relist.ok) why = `milestone-container create of "${name}" in ${project} follows no complete, canonical listing of the project's containers recorded after its create decision (${decision.path})`;
+          }
+        }
       } else {
         const subjects = subjectKeys(c);
         const keys = subjects.filter(inRunContainers);
@@ -2407,16 +2570,25 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           const owned = (k: string): boolean => {
             if (created.has(k)) return true;
             if ([...roots].some((r) => b.repos[r].frBindings.some((f) => f.key.toUpperCase() === k))) return true;
-            return before.some((a) => {
+            const receipted = before.some((a) => {
               const reuse = receiptOf(a, "reuse");
               if (reuse && str(reuse.evidence.key).toUpperCase() === k) return true;
               const bind = receiptOf(a, "binding");
               if (bind && bind.subject.toUpperCase() === k && (bind.decision !== "adopt" || answeredBefore(s, a.index, `Adopt ${k}`))) return true;
               const imp = receiptOf(a, "import");
-              if (imp && imp.subject.toUpperCase() === k && answeredBefore(s, a.index, `Import ${k}`)) return true;
-              const join = tracker === "jira" && labelsOnly ? receiptOf(a, "milestone-decision") : null;
-              return join !== null && join.evidence.act === "join" && str(join.evidence.key).toUpperCase() === k;
+              return imp !== null && imp.subject.toUpperCase() === k && answeredBefore(s, a.index, `Import ${k}`);
             });
+            if (receipted) return true;
+            if (tracker !== "jira" || !labelsOnly) return false;
+            // STE-643 — as in the hook's gateJoinedLabels, the LATEST join of
+            // the key governs: a later forbidden, unanswered join is not
+            // rescued by an earlier allowed one.
+            let latest: { a: ModuleAnnouncement; join: BundleReceipt } | null = null;
+            for (const a of before) {
+              const join = receiptOf(a, "milestone-decision");
+              if (join && join.evidence.act === "join" && str(join.evidence.key).toUpperCase() === k) latest = { a, join };
+            }
+            return latest !== null && forbiddenDecisionConsented(s, latest.join, latest.a.index, i);
           };
           const ok = bareTool(c.name) === "createIssueLink" ? keys.some(owned) : keys.every(owned);
           if (!ok) why = `write on ${keys.join(", ")} follows no receipt, creation or FR binding in this session that makes the key its repository's`;

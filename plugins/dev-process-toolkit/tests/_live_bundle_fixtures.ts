@@ -485,6 +485,21 @@ class Session {
     return item;
   }
 
+  /**
+   * STE-644 — the re-list a container create needs after its decision: the
+   * CANONICAL listing of the container's milestones (Jira `project = <P> AND
+   * issuetype = Epic` with summary and status; Linear `list_milestones` for
+   * the project), recorded as one complete page.
+   */
+  relistContainers(items: TrackerItem[]): ToolCall {
+    const fx = this.fx;
+    const input =
+      fx.tracker === "jira"
+        ? { cloudId: "cloud-dst", jql: `project = ${fx.container} AND issuetype = Epic`, fields: ["summary", "status", "issuetype", "project", "labels"] }
+        : { project: fx.container };
+    return this.tool(toolName(fx.tracker, this.s.root, "listMilestones"), input, items, true);
+  }
+
   /** A listing of the container's milestones, recorded as its last page. */
   listMilestones(items: TrackerItem[]): ToolCall {
     const fx = this.fx;
@@ -577,6 +592,7 @@ export function buildPassingBundle(tracker: Tracker, opts: BuildOptions = {}): L
     `bun run ${MODULE("resolve_milestone_identity.ts")} <A> ${tracker} ${tracker === "jira" ? shared : `"${shared}"`} <A>/.dpt/tmp/listing.json --title "${spanTitle}"`,
     `act=create\nvia=\nkey=\nmilestoneId=\nlisting=0 rows\ngate=create a new milestone\ndefault=allowed\n${announcement(rMint)}`,
   );
+  s3a.relistContainers([]); // STE-644: the fresh canonical re-list the container create needs
   const epicKey = fx.mintKey(shared, "milestone");
   const epic: TrackerItem = {
     key: epicKey,
