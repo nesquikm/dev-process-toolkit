@@ -2378,7 +2378,7 @@ describe("M_947c79 review — parallel creates cannot share one receipt (AC-STE-
       const transcript = s.save(w.scratch);
       expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_first" }));
       const second = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: "toolu_607_second" });
-      expectRefusal(second, "toolu_607_first", /parallel/i);
+      expectRefusal(second, "toolu_607_first", "a parallel create in the same assistant turn");
       // AC-STE-641.12: a pending same-turn sibling is not a lost create — the
       // retry-search remedy does not apply to it.
       expect(second.stderr).not.toMatch(/--attempt retry-/);
@@ -3594,6 +3594,18 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
     expectRefusal(r, "GF-150", /Epic/);
   }, 30_000);
 
+  test("review R2-AC642.1 — container titles compare case-insensitively: \"be payouts\" after the created Epic \"BE Payouts\" (GF-150) → exit 2 naming GF-150", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" }, false);
+    const again = realResolve(w.be, ["jira", "GF", "--title", "be payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(again.command, again.out);
+    const r = await runSh(JIRA("createJiraIssue"), EPIC_CREATE("be payouts"), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, "GF-150", /Epic/);
+  }, 30_000);
+
   test("review AC642.1 — an Epic whose title differs from the created Epic's only by spacing is the same Epic → exit 2 naming GF-150", async () => {
     const w = makeWorld();
     const s = new Session();
@@ -3676,7 +3688,7 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
         runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript, toolUseId }),
       );
       expectPermit(first!);
-      expectRefusal(second!, "toolu_608_first", /parallel/i);
+      expectRefusal(second!, "toolu_608_first", "a parallel create in the same assistant turn");
       expect(second!.stderr).not.toMatch(/--attempt retry-/);
     }, 30_000);
   }
@@ -4411,11 +4423,12 @@ describe("M_685ff6 review r2 — a Linear milestone argument binds by id, by nam
 
 // ===========================================================================
 // STE-641 (M_101065) — the tracker-write gate grades a transcript that holds
-// its own call. Claude Code can flush a tool_use line up to ~150 ms after the
-// tool starts (measured 2026-09-28, STE-641 § Measurement), so the hook waits up to GATED_LINE_WAIT_MS for the
-// gated call's own line, refuses creates with a retry remedy when it never
-// arrives, and orders same-turn creates by (line, position) so both transcript
-// layouts grade alike. RED at fb26d21e: no `awaitGatedLine` export, the hook
+// its own call where it can. Claude Code writes a message's tool_use lines only
+// after the first call's hook returns (STE-641 § Re-cut), so the hook waits up
+// to GATED_LINE_WAIT_MS for the gated call's own line — a later call of a batch
+// may find it; a lone or first call never does and is graded as the last of
+// its turn, never refused for the lag — and orders same-turn creates by
+// (line, position) so both transcript layouts grade alike. RED at fb26d21e: no `awaitGatedLine` export, the hook
 // grades the first read, and a one-line-layout parallel duplicate is permitted.
 // ===========================================================================
 
@@ -4657,7 +4670,7 @@ describe("AC-STE-641.2 / .3 — a gated line that never lands (a lone or first c
       message: { id: `msg_gated_${GATED_641}`, role: "assistant", content: [{ type: "tool_use", id: "toolu_641_sibling", name: JIRA("createJiraIssue"), input: jiraCreate() }] },
     });
     const { r } = await runLagging(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, scratch: w.scratch, prefix: s.lines, rest: [sibling], appendAfterMs: 300 });
-    expectRefusal(r, /parallel/i, "toolu_641_sibling");
+    expectRefusal(r, "a parallel create in the same assistant turn", "toolu_641_sibling");
   }, 30_000);
 
   test("review B1 (c) — with no gated line, a re-list 121 s before grading time is stale → the re-list refusal; 100 s → permitted", async () => {
@@ -5068,6 +5081,41 @@ describe("STE-643 — a forbidden default needs an answered consent", () => {
       expectRefusal(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: notCreated.save(w.scratch) }), NAMES_JOIN_GF_85);
     }, 60_000);
 
+    // Review round 2 (B1R2-1): the created-Epic exemption covers the join's
+    // CONSENT only — its labels write is still the read-merge of AC-STE-608.10 (d).
+    const CLOBBER_GF_85 = { cloudId: CLOUD, issueIdOrKey: "GF-85", fields: { labels: ["milestone-M_GF_85"] } };
+    const createdThen = (join: Resolved): string[] => {
+      const s = new Session();
+      s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("Payouts"), { key: "GF-85", id: "10085" });
+      s.bash(join.command, join.out);
+      return s.lines;
+    };
+    test("review B1R2-1 (a) — an Epic this session created, then a forbidden title join listing [team-x]: a labels write dropping team-x → exit 2 naming team-x", async () => {
+      const w = makeWorld();
+      const s = new Session();
+      s.lines.push(...createdThen(forbiddenTitleJoin(w)));
+      expectRefusal(await runSh(JIRA("editJiraIssue"), CLOBBER_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }), /team-x/);
+    }, 60_000);
+    test("review B1R2-1 (b) — the same with an allowed --join-key join → exit 2 naming team-x", async () => {
+      const w = makeWorld();
+      const s = new Session();
+      s.lines.push(...createdThen(allowedKeyJoin(w)));
+      expectRefusal(await runSh(JIRA("editJiraIssue"), CLOBBER_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }), /team-x/);
+    }, 60_000);
+    test("review B1R2-1 (c) — a never-lands twin of (a) → exit 2 naming team-x", async () => {
+      const w = makeWorld();
+      const { r } = await runLagging(JIRA("editJiraIssue"), CLOBBER_GF_85, { cwd: w.be, scratch: w.scratch, prefix: createdThen(forbiddenTitleJoin(w)), rest: [], appendAfterMs: null, sh: true });
+      expectRefusal(r, /team-x/);
+    }, 60_000);
+    test("review R2-AC643.4 — an answer of exactly \"Join `GF-85`\" to a question whose OPTIONS omit that label authorises nothing → exit 2", async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      askConsent(s, JOIN_GF_85_QUESTION, [SKIP_GF_85, "Decide later"], { answer: JOIN_GF_85 });
+      expectRefusal(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }), NAMES_JOIN_GF_85);
+    }, 60_000);
+
     test("(permit twin) answered exactly \"Join `GF-85`\" after the decision → exit 0", async () => {
       const w = makeWorld();
       const d = forbiddenTitleJoin(w);
@@ -5149,6 +5197,12 @@ describe("STE-643 — a forbidden default needs an answered consent", () => {
     test("no answer → exit 2 naming the decision receipt and the required answer (HEAD exits 0)", async () => {
       const { w, transcript, decision } = attachThroughTitleJoin(null);
       const r = await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript });
+      expectRefusal(r, NAMES_JOIN_GF_85, decision.receipt);
+    }, 60_000);
+
+    test("review B1R2-3 — never lands: no answer → exit 2 naming the required answer (the line-absent path refuses too)", async () => {
+      const { w, transcript, decision } = attachThroughTitleJoin(null);
+      const r = await runSh(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: GATED_641, stale: true });
       expectRefusal(r, NAMES_JOIN_GF_85, decision.receipt);
     }, 60_000);
 
@@ -5495,3 +5549,91 @@ describe("STE-644 — a container create needs a fresh, complete re-list of its 
     }, 90_000);
   });
 });
+
+// ===========================================================================
+// Review round 2 (M_101065 re-cut) — the line-absent path is the PRODUCTION
+// path for a lone or first call, so every refusal must hold there too
+// (B1R2-3), and container freshness is measured against grading time, never
+// against the gated line's message-START stamp (B1R2-2), within a small
+// future skew (B1R2-5).
+// ===========================================================================
+
+describe("review round 2 — refusals and freshness on the line-absent path", () => {
+  const NEVER = { toolUseId: GATED_641, stale: true } as const;
+
+  test("B1R2-3 — never lands: the F4-b settled create (GF-150, then a fresh receipt) → exit 2 naming GF-150", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    withAttachTarget(s, w.be, { scratch: w.scratch });
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), CREATED_GF_150);
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectRefusal(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch), ...NEVER }), "GF-150", /no create receipt, fresh or not, authorises a second create/);
+  }, 30_000);
+
+  test("B1R2-3 — never lands: an unkeyed prior create ('Issue created.') → exit 2 offering the retry search", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    withAttachTarget(s, w.be, { scratch: w.scratch });
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    s.mcp(JIRA("createJiraIssue"), jiraCreate(), "Issue created.");
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    expectRefusal(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch), ...NEVER }), /names no created key/, "--attempt retry-");
+  }, 30_000);
+
+  test("B1R2-3 — never lands: a labels edit after a forbidden title join, no consent → exit 2 naming Join GF-85", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    expectRefusal(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch), ...NEVER }), NAMES_JOIN_GF_85);
+  }, 60_000);
+
+  test("B1R2-3 — never lands: a Linear capped (50-row) create, no consent → exit 2 naming Create Payouts", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("r2-linear-capped");
+    const s = new Session();
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(50) });
+    s.bash(d.command, d.out);
+    s.relist(cappedRows(50), { tracker: "linear" });
+    expectRefusal(await runSh(LINEAR("save_milestone"), { project: "DPT", name: "Payouts" }, { cwd: root, transcript: s.save(scratch), ...NEVER }), /Create `?Payouts`?/);
+  }, 60_000);
+
+  test("B1R2-3 — never lands, a tool_use_id sent: an Epic create after a re-list 121 s before grading → exit 2 with the re-list remedy", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    s.relist([], { ageMs: 121_000 });
+    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch), ...NEVER }), "project = GF AND issuetype = Epic");
+  }, 60_000);
+
+  test("B1R2-2 — the gated line IS present but stamped at its message start after a slow earlier sibling: a re-list 5 s before that stamp yet 130 s before grading → exit 2", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    s.relist([], { ageMs: 130_000 });
+    s.lines.push(JSON.stringify({
+      type: "assistant",
+      sessionId: SESSION,
+      timestamp: new Date(Date.now() - 125_000).toISOString(),
+      message: { id: "msg_r2_slow_batch", role: "assistant", content: [{ type: "tool_use", id: GATED_641, name: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts") }] },
+    }));
+    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch), toolUseId: GATED_641 }), "project = GF AND issuetype = Epic");
+  }, 60_000);
+
+  test("B1R2-5 — a re-list stamped 10 s in the future is not fresh (exit 2); 2 s of skew is tolerated (exit 0)", async () => {
+    const w = makeWorld();
+    const build = (ageMs: number): string => {
+      const s = new Session();
+      const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+      s.bash(d.command, d.out);
+      s.relist([], { ageMs });
+      return s.save(w.scratch);
+    };
+    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: build(-10_000), toolUseId: null }), "project = GF AND issuetype = Epic");
+    expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: build(-2_000), toolUseId: null }));
+  }, 60_000);
+});
+

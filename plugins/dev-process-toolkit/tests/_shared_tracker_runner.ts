@@ -1901,7 +1901,7 @@ export async function measureKnownDefectD3(tracker: Tracker, pluginRoot: string)
 }
 
 /**
- * D-4 — FIXED by STE-644 (v2.91.0). A milestone create decided `act=create`
+ * D-4 — NARROWED by STE-644 (v2.91.0); residuals in STE-644.md stay open. A milestone create decided `act=create`
  * from a container listing captured BEFORE A minted the same title is no
  * longer permitted: the hook requires a fresh, complete, canonical re-list of
  * the project after the decision, and an open same-title container in it

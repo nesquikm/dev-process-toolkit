@@ -915,14 +915,16 @@ function messageIdOf(p: ParsedLine): string {
  *
  * Creates are ordered by a running (line, position) ordinal over tool_use
  * blocks, as createsBefore walks them, so the one-line-per-message and the
- * one-line-per-tool_use layouts order them alike. The bounded wait in run()
- * guarantees the gated call's own line is in the read (the 2026-09-28
- * measurement: lines land up to ~150 ms after the tool starts, their
- * `timestamp` seconds earlier), so a no-result create ordered before it is
- * visible and counts. A no-result create that shares the gated call's
- * assistant message is a same-turn sibling: `parallel` marks it, and the gates
- * refuse the call as a parallel duplicate rather than point at the retry
- * search.
+ * one-line-per-tool_use layouts order them alike. When the gated call's own
+ * line is in the read — a later call of a batch, found by the wait in run() —
+ * a no-result create ordered before it counts: if it shares the gated call's
+ * assistant message it is a same-turn sibling, `parallel` marks it, and the
+ * gates refuse the call as a parallel duplicate rather than point at the
+ * retry search. When the line is NOT in the read — a lone or first call,
+ * whose line Claude Code writes only after its hook returns (STE-641
+ * § Re-cut), a payload with no tool_use_id, or a subagent's call — the call is
+ * placed after every recorded line and a create with no result yet is not
+ * counted as lost, exactly as at v2.90.0.
  */
 function priorCreates(
   parsed: Array<ParsedLine | null>,
@@ -983,6 +985,15 @@ function priorCreates(
   return out;
 }
 
+/**
+ * The same milestone container: project, and the title under the container
+ * normalizer (normalizeMilestoneTitle — case-insensitive, as the decision door
+ * and the STE-644 re-list compare container titles; review R2-AC642.1).
+ */
+function sameContainer(a: CreateShape, b: CreateShape): boolean {
+  return normalizeMilestoneTitle(a.title) === normalizeMilestoneTitle(b.title) && sameName(a.project, b.project);
+}
+
 /** The same ticket: title (normalized), project and container — labels aside. */
 function sameTicket(a: CreateShape, b: CreateShape): boolean {
   return (
@@ -1015,7 +1026,6 @@ function gateCreate(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
-  stale: StaleRead | null = null,
 ): ExitCode {
   const shape = callShape(call.adapter, call.input);
   if (shape.project === "" && shape.team === "") {
@@ -1852,6 +1862,8 @@ function relistsAfter(parsed: Array<ParsedLine | null>, from: number, adapter: W
 
 /** STE-644 (v) — the most a qualifying re-list's last result may precede the gated call. */
 const LISTING_FRESH_MS = 120_000;
+/** STE-644 (v), review B1R2-5 — how far a re-list's result may sit in the future (clock skew) and still count. */
+const LISTING_FUTURE_SKEW_MS = 5_000;
 
 /** A transcript line's `timestamp` in epoch ms, or null when absent or unreadable. */
 function lineTime(p: ParsedLine | null | undefined): number | null {
@@ -1861,16 +1873,15 @@ function lineTime(p: ParsedLine | null | undefined): number | null {
 
 /**
  * STE-644 (v) — whether a re-list's last result is within LISTING_FRESH_MS of
- * the gated call: its own tool_use line when the read holds it, else the
- * grading time (`now`) — a lone call's line is written only after its hook
- * returns, and grading time is later than the call, so it is the stricter
- * reference. A missing timestamp on a line that IS present is not fresh.
+ * the grading time (`now`). Grading time, never the gated line's own
+ * `timestamp`: that stamp marks when its MESSAGE started streaming, which a
+ * later call of a batch can trail by seconds, so it would widen the window
+ * (review B1R2-2). A result stamped more than LISTING_FUTURE_SKEW_MS in the
+ * future, or with no timestamp, is not fresh (review B1R2-5).
  */
-function freshBefore(parsed: Array<ParsedLine | null>, relist: Relist, gatedId: string | undefined, now: number = Date.now()): boolean {
-  const gated = gatedId === undefined ? undefined : parsed.find((p) => p?.blocks.some((b) => b.type === "tool_use" && b.id === gatedId));
-  const at = gated === undefined ? now : lineTime(gated);
+function freshBefore(parsed: Array<ParsedLine | null>, relist: Relist, now: number = Date.now()): boolean {
   const last = lineTime(parsed[relist.lastLine]);
-  return at !== null && last !== null && at - last <= LISTING_FRESH_MS;
+  return last !== null && now - last <= LISTING_FRESH_MS && now - last >= -LISTING_FUTURE_SKEW_MS;
 }
 
 /** STE-644 — the re-list a container create's refusal asks for. */
@@ -1924,7 +1935,6 @@ function gateMilestoneCreate(
   targets: DeclaredTarget[],
   where: string,
   note: string,
-  stale: StaleRead | null = null,
 ): ExitCode {
   const want = MILESTONE_CREATES.shape(call);
   const name = call.adapter === "jira" ? "Epic" : "project milestone";
@@ -1933,7 +1943,7 @@ function gateMilestoneCreate(
   // One parse of the transcript serves every walk below.
   const parsed = parseLines(transcript);
   const prior = priorCreates(parsed, call.adapter, call.toolUseId, MILESTONE_CREATES).filter((c) =>
-    sameTicket(c.shape, want),
+    sameContainer(c.shape, want),
   );
   const settled = prior.find((c) => c.state === "settled");
   if (settled) {
@@ -1985,7 +1995,7 @@ function gateMilestoneCreate(
   if (permitting) {
     // STE-644 — once the permit is otherwise met, the create needs a later,
     // complete, canonical-scope listing of the project's containers.
-    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, permitting.forbidden).filter((r) => freshBefore(parsed, r, call.toolUseId));
+    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, permitting.forbidden).filter((r) => freshBefore(parsed, r));
     const dup = fresh.map((r) => openSameTitle(call.adapter, r, want.title)).find((k) => k !== null);
     if (dup !== undefined) {
       return refuse(
@@ -2041,7 +2051,6 @@ function gateContainer(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
-  stale: StaleRead | null = null,
 ): ExitCode {
   const kind = containerKind(call.tool);
   const shape = callShape(call.adapter, call.input);
@@ -2061,7 +2070,7 @@ function gateContainer(
   const decideRemedy = `milestone containers are decided by ${frontDoor("--title <title>")} (or \`--join-key <key>\` to take an existing one) ${PLAIN_RULE}`;
 
   if (isMilestoneCreate(call.tool, call.input)) {
-    return gateMilestoneCreate(call, sessionId, transcript, announcements, targets, where, note, stale);
+    return gateMilestoneCreate(call, sessionId, transcript, announcements, targets, where, note);
   }
   if (call.tool === "save_milestone") {
     return refuse(
@@ -2116,7 +2125,6 @@ function gateJoinedLabels(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
-  stale: StaleRead | null = null,
   transcript: string[] = [],
 ): ExitCode | null {
   if (call.adapter !== "jira" || call.tool !== "editJiraIssue") return null;
@@ -2139,12 +2147,13 @@ function gateJoinedLabels(
   );
   const join = joins[joins.length - 1];
   if (!join) return null;
-  // Review TWR-4 — ownership first, as the live grader grades it: an Epic this
-  // session created is its own, so the ownership rule of §4 governs its labels
-  // and a join decision's consent is not asked of it.
-  if (createdKeys(parseLines(transcript), call.adapter).has(key)) return null;
+  // Review TWR-4 (round 2): an Epic this session created needs no join
+  // consent — it is its own — but its labels write is still a read-merge: the
+  // listed labels and the milestone label below are checked for every joined
+  // Epic, created here or not (AC-STE-608.10 (d)).
+  const createdHere = createdKeys(parseLines(transcript), call.adapter).has(key);
   const consent = consentLabel(join);
-  const unconsented = join.forbidden && !answeredAfter(parseLines(transcript), join, consent);
+  const unconsented = !createdHere && join.forbidden && !answeredAfter(parseLines(transcript), join, consent);
   if (unconsented) {
     return refuse(
       `editJiraIssue on ${key}, an Epic joined by ${join.path}: that decision printed default=forbidden, and ${unansweredConsent(consent)}.${note}`,
@@ -2354,9 +2363,9 @@ export function run(stdin: string): ExitCode {
   const announcements = scan.announcements;
 
   const note = unreadableInputsNote(payload, transcript, scan);
-  if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note, stale);
-  if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note, stale);
-  const joined = gateJoinedLabels(call, sessionId, announcements, declared, note, stale, lines);
+  if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note);
+  if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note);
+  const joined = gateJoinedLabels(call, sessionId, announcements, declared, note, lines);
   if (joined !== null) return joined;
   return gateTicket(call, sessionId, lines, announcements, declared, note, stale);
 }
