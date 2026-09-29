@@ -205,6 +205,9 @@ function worstCase(): number {
 
 const sha256 = (b: string | Uint8Array) => createHash("sha256").update(b).digest("hex");
 
+/** Review F1 — the grader's re-list scoping, read off the module under test. */
+const F1 = () => grader() as unknown as { HOOK_SOURCE: string; PRE_RELIST_HOOK_SOURCES: ReadonlySet<string>; hookDemandsRelist: (b: LiveBundle) => boolean };
+
 function grade(b: LiveBundle, extra: { hooksJsonPath?: string; inventoryPath?: string; behaviourDigestNow?: string } = {}): LiveVerdict {
   return grader().gradeBundle(b, { behaviourDigestNow: b.run.behaviourDigest.digest, ...extra });
 }
@@ -5149,9 +5152,9 @@ describe("AC-STE-643.8 — the live grader grades a write that relied on an unan
   }
 
   /** A Jira labels-only write in S13 on S3's Epic, relying on a join decision of it announced in S13. */
-  const labelsJoin = (via: "title" | "key", answer: string | null) => {
+  const labelsJoin = (via: "title" | "key", answer: string | null, inSession = "S13") => {
     const b = buildPassingBundle("jira");
-    const s = session(b, "S13");
+    const s = session(b, inSession);
     const epic = createdKeys(session(b, "S3"))[0]!;
     const labels = [`Join \`${epic}\``, `Skip \`${epic}\``];
     const forbidden = via === "title";
@@ -5221,6 +5224,10 @@ describe("AC-STE-643.8 — the live grader grades a write that relied on an unan
     ask.sidechain = true;
     expect(w.sidechain, "CONTROL — the write itself is in the main chain").toBe(false);
     expect(ungatedAt(grade(bundle), w.ref)).toBe(true);
+  });
+  test("review TWR-4 — ownership first, as the hook: in S3, the session that CREATED the Epic, a labels write after an unanswered forbidden title join is not ungated-write", () => {
+    const { b, w } = labelsJoin("title", null, "S3");
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
   });
   test("jira: CONTROL — a default=allowed key join gates the same labels-only write with no answer", () => {
     const { b, w } = labelsJoin("key", null);
@@ -5310,6 +5317,19 @@ describe("STE-644 — the live grader grades a milestone create without a qualif
       s.calls.splice(s.calls.indexOf(relist), 1);
       expect(ungatedAt(grade(b), create.ref)).toBe(true);
     });
+    test(`${t}: review F1 — a bundle recording the PRESENT (unlisted) hook's hash is held to the re-list; a listed pre-STE-644 hash is not`, () => {
+      const current = createHash("sha256").update(readFileSync(join(pluginRoot, F1().HOOK_SOURCE))).digest("hex");
+      const held = buildPassingBundle(t);
+      held.run.behaviourDigest.files[F1().HOOK_SOURCE] = current;
+      const m1 = mint(held);
+      m1.s.calls.splice(m1.s.calls.indexOf(m1.relist), 1);
+      expect(ungatedAt(grade(held), m1.create.ref), "the present hook is held to the rule").toBe(true);
+      const exempt = buildPassingBundle(t);
+      exempt.run.behaviourDigest.files[F1().HOOK_SOURCE] = [...F1().PRE_RELIST_HOOK_SOURCES][0]!;
+      const m2 = mint(exempt);
+      m2.s.calls.splice(m2.s.calls.indexOf(m2.relist), 1);
+      expect(ungatedAt(grade(exempt), m2.create.ref), "a listed pre-STE-644 hook is exempt").toBe(false);
+    });
     test(`${t}: AC-STE-644.1 — a re-list recorded BEFORE the decision does not gate the create (ungated-write)`, () => {
       const b = buildPassingBundle(t);
       const { s, create, relist, decide } = mint(b);
@@ -5366,3 +5386,29 @@ describe("STE-644 — the live grader grades a milestone create without a qualif
     expect(ungatedAt(grade(b), create.ref)).toBe(true);
   });
 });
+
+// ===========================================================================
+// Review F1 (M_101065 re-cut) — PRE_RELIST_HOOK_SOURCES is frozen at the 18
+// pre-STE-644 hook sources and never holds the present hook's hash, so no edit
+// can quietly exempt runs recorded under a hook that demands the re-list.
+// ===========================================================================
+
+describe("review F1 — the frozen pre-STE-644 hook-source set", () => {
+  test("holds exactly 18 SHA-256 values, none of them the present hook's", () => {
+    expect(F1().PRE_RELIST_HOOK_SOURCES.size).toBe(18);
+    for (const h of F1().PRE_RELIST_HOOK_SOURCES) expect(h).toMatch(/^[0-9a-f]{64}$/);
+    const current = createHash("sha256").update(readFileSync(join(pluginRoot, F1().HOOK_SOURCE))).digest("hex");
+    expect(F1().PRE_RELIST_HOOK_SOURCES.has(current)).toBe(false);
+  });
+  test("hookDemandsRelist: no recorded hook source, or an unlisted one, is held; a listed one is not", () => {
+    const b = buildPassingBundle("jira");
+    const { HOOK_SOURCE, PRE_RELIST_HOOK_SOURCES, hookDemandsRelist } = F1();
+    delete b.run.behaviourDigest.files[HOOK_SOURCE];
+    expect(hookDemandsRelist(b)).toBe(true);
+    b.run.behaviourDigest.files[HOOK_SOURCE] = "0".repeat(64);
+    expect(hookDemandsRelist(b)).toBe(true);
+    b.run.behaviourDigest.files[HOOK_SOURCE] = [...PRE_RELIST_HOOK_SOURCES][5]!;
+    expect(hookDemandsRelist(b)).toBe(false);
+  });
+});
+

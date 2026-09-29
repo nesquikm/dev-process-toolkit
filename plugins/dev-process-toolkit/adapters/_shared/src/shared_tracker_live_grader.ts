@@ -2301,7 +2301,7 @@ function forbiddenDecisionConsented(s: BundleSession, decision: BundleReceipt, f
 //   git show <commit>:plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-tracker-write-gate.ts | shasum -a 256
 // — the SHA-256 of the file's bytes, as a bundle's behaviour digest records it.
 // Frozen at the pre-STE-644 sources: never add a hook that demands the re-list.
-const PRE_RELIST_HOOK_SOURCES: ReadonlySet<string> = new Set([
+export const PRE_RELIST_HOOK_SOURCES: ReadonlySet<string> = new Set([
   "ff4702900225bad2d87032f3df7b6f30e798ce7a3c1a64f2429dfa6369047258", // d7ae0187
   "f63cdb01cfba9f48a6aa3fc2f62d3b80bdbfaaa907d663205e4aeb68e94c1000", // abfe236d
   "4caf51055a375f7e9c8a0a9eaa9549937ac339417c09527401a2b8975857fc6b", // fea52c57
@@ -2321,14 +2321,14 @@ const PRE_RELIST_HOOK_SOURCES: ReadonlySet<string> = new Set([
   "3002d20cff4ba04fed21f1c24e2ffbf5a85ac3c344d08e5d1964b5e16ef836c0", // 45a5ba24
   "b76b0d8db8a9c27261becaaf6d637737f947a7c9597a54f18b2c5a3e3a29c475", // e404fdab
 ]);
-const HOOK_SOURCE = "templates/hooks/_lib/hooks/pre-tracker-write-gate.ts";
+export const HOOK_SOURCE = "templates/hooks/_lib/hooks/pre-tracker-write-gate.ts";
 
 /**
  * STE-644 — whether the run is held to the re-list: true unless the hook
  * source its behaviour digest records is one of PRE_RELIST_HOOK_SOURCES. A
  * bundle that records no hook source is held to it.
  */
-const hookDemandsRelist = (b: LiveBundle): boolean => !PRE_RELIST_HOOK_SOURCES.has(b.run.behaviourDigest.files[HOOK_SOURCE] ?? "");
+export const hookDemandsRelist = (b: LiveBundle): boolean => !PRE_RELIST_HOOK_SOURCES.has(b.run.behaviourDigest.files[HOOK_SOURCE] ?? "");
 
 /**
  * STE-644 — the grade's twin of the hook's `relistsAfter` + `freshBefore` +

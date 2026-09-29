@@ -2908,6 +2908,15 @@ describe("M_947c79 review 2 — after a create that may have made the ticket, on
     expect(r.stderr).not.toContain(FRESH_DECIDE);
   }, 30_000);
 
+  test("review AC642.1 — the settled check compares NORMALIZED titles: a double-space or NBSP variant of the created ticket's title is the same ticket (exit 2 naming GF-150); a case variant is another ticket under the one normalizer the create decision uses (exit 0)", async () => {
+    const spaced = await reRun(ok(GF_150), "BE  lagged", jiraCreate({ title: "BE  lagged" }));
+    expectRefusal(spaced, "GF-150", /no create receipt, fresh or not, authorises a second create/);
+    const nbsp = await reRun(ok(GF_150), "BE\u00a0lagged", jiraCreate({ title: "BE\u00a0lagged" }));
+    expectRefusal(nbsp, "GF-150");
+    const cased = await reRun(ok(GF_150), "be lagged", jiraCreate({ title: "be lagged" }));
+    expectPermit(cased);
+  }, 60_000);
+
   test("AC-STE-642.3 — the same ticket with labels [] after GF-150 → exit 2 naming GF-150, not the mismatch's fast re-decide", async () => {
     const r = await reRun(ok(GF_150), "BE lagged", jiraCreate({ title: "BE lagged", labels: [] }));
     expectRefusal(r, "GF-150");
@@ -3582,6 +3591,18 @@ describe("AC-STE-608.10 hardening — one create decision authorises ONE contain
     const again = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
     s.bash(again.command, again.out);
     const r = await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, "GF-150", /Epic/);
+  }, 30_000);
+
+  test("review AC642.1 — an Epic whose title differs from the created Epic's only by spacing is the same Epic → exit 2 naming GF-150", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { id: "10150", key: "GF-150", self: "https://glacy.atlassian.net/rest/api/3/issue/10150" }, false);
+    const again = realResolve(w.be, ["jira", "GF", "--title", "BE  Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(again.command, again.out);
+    const r = await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE  Payouts"), { cwd: w.be, transcript: s.save(w.scratch) });
     expectRefusal(r, "GF-150", /Epic/);
   }, 30_000);
 
@@ -4605,28 +4626,63 @@ describe("AC-STE-641.1 — a gated line that arrives within the wait: the verdic
     s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
     const cut = s.lines.length;
     s.mcp(JIRA("createJiraIssue"), jiraCreate(), CREATED_GF_150);
-    expectRefusal(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch), toolUseId: GATED_641 }));
+    // Review S3: pin the settled refusal (naming the key), not merely exit 2.
+    const SETTLED = /returned GF-150|GF-150.*no create receipt, fresh or not, authorises a second create/s;
+    expectRefusal(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch), toolUseId: GATED_641 }), "GF-150", SETTLED);
     const { r } = await runLagging(JIRA("createJiraIssue"), jiraCreate(), {
       cwd: w.be, scratch: w.scratch, prefix: s.lines.slice(0, cut), rest: s.lines.slice(cut), appendAfterMs: 300,
     });
-    expectRefusal(r);
+    expectRefusal(r, "GF-150", SETTLED);
   }, 30_000);
 });
 
-describe("AC-STE-641.2 / .3 — a gated line that never arrives", () => {
-  test("a ticket create, a container create and a joined-labels edit into a declared container → exit 2 after the wait, naming the transcript, the id and the retry", async () => {
+// Review B1 (2026-09-29): Claude Code 2.1.283 writes a message's tool_use lines
+// when the message list next changes — after the FIRST call's PreToolUse hook
+// has returned — so a lone (or first-in-message) call's own line NEVER lands
+// during its wait. A first-in-batch call's transcript is byte-identical to a
+// lone call's here: no line of its message is on disk yet. Such a read is
+// graded with the call placed last, exactly as HEAD graded it, and never
+// refused for the lag.
+describe("AC-STE-641.2 / .3 — a gated line that never lands (a lone or first call)", () => {
+  test("review B1 control — a LATER call of a batch whose line and its earlier sibling's land mid-wait: the identical same-turn create is still refused as a parallel duplicate", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    withAttachTarget(s, w.be, { scratch: w.scratch });
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const sibling = JSON.stringify({
+      type: "assistant",
+      sessionId: SESSION,
+      timestamp: new Date().toISOString(),
+      message: { id: `msg_gated_${GATED_641}`, role: "assistant", content: [{ type: "tool_use", id: "toolu_641_sibling", name: JIRA("createJiraIssue"), input: jiraCreate() }] },
+    });
+    const { r } = await runLagging(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, scratch: w.scratch, prefix: s.lines, rest: [sibling], appendAfterMs: 300 });
+    expectRefusal(r, /parallel/i, "toolu_641_sibling");
+  }, 30_000);
+
+  test("review B1 (c) — with no gated line, a re-list 121 s before grading time is stale → the re-list refusal; 100 s → permitted", async () => {
+    const w = makeWorld();
+    const build = (ageMs: number): string => {
+      const s = new Session();
+      const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+      s.bash(d.command, d.out);
+      s.relist([], { ageMs });
+      return s.save(w.scratch);
+    };
+    expectRefusal(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: build(121_000), toolUseId: null }), "project = GF AND issuetype = Epic");
+    expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: build(100_000), toolUseId: null }));
+  }, 60_000);
+
+  test("a ticket create, a Jira Epic create and a joined-labels edit → HEAD's permit after the wait, never a stale refusal", async () => {
     const w = makeWorld();
     const ticket = new Session();
     withAttachTarget(ticket, w.be, { scratch: w.scratch });
     ticket.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
-    // Control: the same create on the complete transcript is permitted.
-    expectPermit(await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: ticket.save(w.scratch), toolUseId: GATED_641 }));
 
     const epic = new Session();
     const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
     epic.bash(d.command, d.out);
-    epic.relist([]); // STE-644
-    expectPermit(await runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript: epic.save(w.scratch), toolUseId: GATED_641 }));
+    epic.relist([]); // STE-644 — fresh against grading time when the gated line is absent
 
     const w2 = makeWorld();
     const joined = new Session();
@@ -4638,36 +4694,66 @@ describe("AC-STE-641.2 / .3 — a gated line that never arrives", () => {
     );
     joined.bash(j.command, j.out);
     const merge = { cloudId: CLOUD, issueIdOrKey: "GF-85", fields: { labels: ["team-x", "milestone-M_GF_85"] } };
-    expectPermit(await runSh(JIRA("editJiraIssue"), merge, { cwd: w2.be, transcript: joined.save(w2.scratch), toolUseId: GATED_641 }));
 
     const cases = [
       { label: "ticket create", tool: JIRA("createJiraIssue"), input: jiraCreate(), cwd: w.be, scratch: w.scratch, lines: ticket.lines, sh: false },
-      { label: "container create", tool: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts"), cwd: w.be, scratch: w.scratch, lines: epic.lines, sh: true },
+      { label: "Jira Epic create", tool: JIRA("createJiraIssue"), input: EPIC_CREATE("BE Payouts"), cwd: w.be, scratch: w.scratch, lines: epic.lines, sh: true },
       { label: "joined-labels edit", tool: JIRA("editJiraIssue"), input: merge, cwd: w2.be, scratch: w2.scratch, lines: joined.lines, sh: true },
     ];
     const runs = await mapBounded(cases, HOOK_SPAWN_LIMIT, (c) =>
       runLagging(c.tool, c.input, { cwd: c.cwd, scratch: c.scratch, prefix: c.lines, rest: [], appendAfterMs: null, sh: c.sh }),
     );
-    runs.forEach(({ r, ms, transcript }, i) => {
+    runs.forEach(({ r }, i) => {
       const label = cases[i]!.label;
       try {
-        expectRefusal(r, transcript, GATED_641, "retry the same call");
+        expectPermit(r);
       } catch (e) {
         throw new Error(`${label}: ${(e as Error).message}`);
       }
-      expect(ms, `${label} waited the budget before refusing`).toBeGreaterThanOrEqual(1900);
+      expect(r.stderr, `${label} — no stale refusal`).not.toContain("retry the same call");
     });
   }, 60_000);
 
-  test("a ticket write refused while the gated line is absent names the lag, never \"this session did not create it\" (control: a tracked key keeps its permit)", async () => {
+  test("a Linear save_milestone whose gated line never lands → exit 0 after a fresh re-list; without one, the re-list refusal (not a stale one)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("641-linear-lone");
+    const decided = (relist: boolean): string[] => {
+      const s = new Session();
+      const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(3) });
+      s.bash(d.command, d.out);
+      if (relist) s.relist(cappedRows(3), { tracker: "linear" });
+      return s.lines;
+    };
+    const save = { project: "DPT", name: "Payouts" };
+    const [withRelist, without] = await Promise.all([
+      runLagging(LINEAR("save_milestone"), save, { cwd: root, scratch, prefix: decided(true), rest: [], appendAfterMs: null, sh: true }),
+      runLagging(LINEAR("save_milestone"), save, { cwd: root, scratch, prefix: decided(false), rest: [], appendAfterMs: null, sh: true }),
+    ]);
+    expectPermit(withRelist.r);
+    expectRefusal(without.r, "`list_milestones` for project DPT");
+    expect(without.r.stderr).not.toContain("retry the same call");
+  }, 60_000);
+
+  test("an Epic create whose gated line never lands and whose decision has no re-list → the re-list refusal, not a stale one", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    const { r } = await runLagging(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, scratch: w.scratch, prefix: s.lines, rest: [], appendAfterMs: null, sh: true });
+    expectRefusal(r, "project = GF AND issuetype = Epic");
+    expect(r.stderr).not.toContain("retry the same call");
+  }, 30_000);
+
+  test("a ticket write graded without its own line is HEAD's verdict: an unowned key is refused naming the lag as a fact, never \"this session did not create it\" (control: a tracked key is permitted)", async () => {
     const w = makeWorld();
     const s = new Session();
     s.text("Working.");
     const { r } = await runLagging(JIRA("transitionJiraIssue"), transition("GF-150"), {
       cwd: w.be, scratch: w.scratch, prefix: s.lines, rest: [], appendAfterMs: null,
     });
-    expectRefusal(r, GATED_641, /lag/i, "GF-150");
+    expectRefusal(r, GATED_641, "graded as the last call of its turn", "GF-150");
     expect(r.stderr).not.toContain("this session did not create it");
+    expect(r.stderr).not.toContain("retry the same call");
     expect(r.stderr).toContain("the ticket is not owned by the declared target");
 
     const tracked = await runLagging(JIRA("transitionJiraIssue"), transition("GF-111"), {
@@ -4704,7 +4790,7 @@ describe("AC-STE-641.4 / .5 — calls that never wait", () => {
     console.log(`AC-STE-641.4 no-wait paths: ${measured.join(", ")} (fastest of 3; budget 1000 ms)`);
   }, 60_000);
 
-  test("no tool_use_id, or an `agent_id` payload, on a transcript lacking the gated line → the HEAD verdict with no wait (control: the same create with an id waits and refuses)", async () => {
+  test("no tool_use_id, or an `agent_id` payload, on a transcript lacking the gated line → the HEAD verdict with no wait (control: the same create with an id waits, then permits)", async () => {
     const w = makeWorld();
     const s = new Session();
     withAttachTarget(s, w.be, { scratch: w.scratch });
@@ -4722,11 +4808,38 @@ describe("AC-STE-641.4 / .5 — calls that never wait", () => {
     const refused = await fastest(() => runHook(JIRA("transitionJiraIssue"), transition("GF-150"), { cwd: w.be, transcript, toolUseId: null }));
     expectRefusal(refused.r, "GF-150");
     expect(refused.ms, "no tool_use_id refusal").toBeLessThan(1000);
-    // Control: the same create WITH an id and no agent_id waits and refuses as stale.
+    // Control: the same create WITH an id and no agent_id waits the budget, then
+    // is graded as the last call of its turn — HEAD's permit (review B1).
     const t0 = performance.now();
-    const stale = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: GATED_641, stale: true });
-    expectRefusal(stale, GATED_641, "retry the same call");
+    const waited = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, toolUseId: GATED_641, stale: true });
+    expectPermit(waited);
     expect(performance.now() - t0).toBeGreaterThanOrEqual(1900);
+  }, 60_000);
+
+  test("container creates with no tool_use_id or an `agent_id` → no wait; a fresh re-list permits (fresh against grading time), none refuses with the re-list remedy (review TWR-1)", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    const d = realResolve(w.be, ["jira", "GF", "--title", "BE Payouts"], w.scratch, EMPTY_JIRA_PAGE);
+    s.bash(d.command, d.out);
+    const bare = s.save(w.scratch);
+    s.relist([]);
+    const relisted = s.save(w.scratch);
+    const cases: Array<[string, string, { toolUseId?: string | null; agentId?: string; stale?: boolean }, boolean]> = [
+      ["no tool_use_id, re-listed", relisted, { toolUseId: null }, true],
+      ["agent_id, re-listed", relisted, { toolUseId: GATED_641, stale: true, agentId: "agent_641" }, true],
+      ["no tool_use_id, no re-list", bare, { toolUseId: null }, false],
+      ["agent_id, no re-list", bare, { toolUseId: GATED_641, stale: true, agentId: "agent_641" }, false],
+    ];
+    for (const [label, transcript, o, permits] of cases) {
+      const { ms, r } = await fastest(() => runSh(JIRA("createJiraIssue"), EPIC_CREATE("BE Payouts"), { cwd: w.be, transcript, ...o }));
+      try {
+        if (permits) expectPermit(r);
+        else expectRefusal(r, "project = GF AND issuetype = Epic");
+      } catch (e) {
+        throw new Error(`${label}: ${(e as Error).message}`);
+      }
+      expect(ms, label).toBeLessThan(1000);
+    }
   }, 60_000);
 
   test("an unreadable (missing) transcript → HEAD's unreadable wording, no wait", async () => {
@@ -4867,13 +4980,19 @@ function askConsent(s: Session, question: string, labels: string[], outcome: Ask
     },
   ];
   const id = s.toolUse("AskUserQuestion", { questions });
+  // Review AC643.4: an errored or denied result still CARRIES the exact consent
+  // label as its recorded answer, so only the error flag stands between it and a
+  // permit — a hook that stopped checking is_error would let these legs go green.
+  const carried = { toolUseResult: { questions, answers: { [question]: labels[0]! } } };
+  const said = `"${question}"="${labels[0]!}"`;
   if (outcome === "error") {
-    s.toolResult(id, "<tool_use_error>InputValidationError: AskUserQuestion failed</tool_use_error>", true);
+    s.toolResult(id, `<tool_use_error>InputValidationError: AskUserQuestion failed</tool_use_error> ${said}`, true, carried);
   } else if (outcome === "denied") {
     s.toolResult(
       id,
-      "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.",
+      `The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed. ${said}`,
       true,
+      carried,
     );
   } else {
     s.toolResult(
@@ -4935,6 +5054,18 @@ describe("STE-643 — a forbidden default needs an answered consent", () => {
       s.bash(d.command, d.out);
       const r = await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) });
       expectRefusal(r, NAMES_JOIN_GF_85);
+    }, 60_000);
+
+    test("review TWR-4 — ownership first: a labels edit on an Epic THIS session created, after a forbidden title join of it, needs no consent → exit 0 (control: not created here → refused)", async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const created = new Session();
+      created.mcp(JIRA("createJiraIssue"), EPIC_CREATE("Payouts"), { key: "GF-85", id: "10085" });
+      created.bash(d.command, d.out);
+      expectPermit(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: created.save(w.scratch) }));
+      const notCreated = new Session();
+      notCreated.bash(d.command, d.out);
+      expectRefusal(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: notCreated.save(w.scratch) }), NAMES_JOIN_GF_85);
     }, 60_000);
 
     test("(permit twin) answered exactly \"Join `GF-85`\" after the decision → exit 0", async () => {
