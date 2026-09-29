@@ -912,7 +912,7 @@ function normalisedRefusal(stderr: string): string {
 
 describe("What ships as a known defect", () => {
   for (const tracker of ["jira", "linear"] as const) {
-    test(`D-4 FIXED by STE-644 (${tracker}) — a milestone create decided from a listing captured before the sibling minted is refused: without a re-list (exit 2, one container, no write); with a re-list after A's mint (exit 2 naming A's key, one container, no write); control: a re-listed title nobody minted is permitted`, async () => {
+    test(`D-4 narrowed by STE-644 (${tracker}) — a milestone create decided from a listing captured before the sibling minted is refused: without a re-list (exit 2, one container, no write); with a re-list after A's mint (exit 2 naming A's key, one container, no write); control: a re-listed title nobody minted is permitted`, async () => {
       const m = await measureKnownDefectD4(tracker, PLUGIN_ROOT);
       // Was (v2.90.0, KNOWN DEFECT): exit 0, two containers, one write added.
       // AC-STE-644.1 — no qualifying re-list after the decision refuses.

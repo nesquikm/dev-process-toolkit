@@ -5400,6 +5400,29 @@ describe("review F1 — the frozen pre-STE-644 hook-source set", () => {
     const current = createHash("sha256").update(readFileSync(join(pluginRoot, F1().HOOK_SOURCE))).digest("hex");
     expect(F1().PRE_RELIST_HOOK_SOURCES.has(current)).toBe(false);
   });
+  test("review R2-F1-LITERAL — the set is exactly this sorted literal, and excludes the hook source of the round-1 re-cut (43fd0265…)", () => {
+    expect([...F1().PRE_RELIST_HOOK_SOURCES].sort()).toEqual([
+      "05b8d4178d99f3abf4b55f05f6a473637be041c4e6b02c442cfc42e798b1df82",
+      "0810dc547cd2a88e68bc1128224e493c73f7eaa87dbf156fd9b6395561186858",
+      "15f5604b4f3ae2ca6e76e1318dedd57451605ab2a04600fb20fac125df6eb1d3",
+      "2b13d187b0b7159a72b4fb0f6a644e4912e1c0c7377d5df4b0710f5eaeb129d6",
+      "3002d20cff4ba04fed21f1c24e2ffbf5a85ac3c344d08e5d1964b5e16ef836c0",
+      "4caf51055a375f7e9c8a0a9eaa9549937ac339417c09527401a2b8975857fc6b",
+      "60a29002e226872671c8227bc1955128491d0b2906b022eff8573dad609f273a",
+      "638244fff68817e844f9b8b6b2d0747651d1660174b8ac2dedbbd2cb1206cd3f",
+      "735a4f598291a8dd516ba9b6cf185b3b11415e600fc5afc722df015bf11dc56b",
+      "80094c0e8d16489be1f0c2804602a60dfcc958d3cadc5525caad848de3d5fd47",
+      "a8093ce74e86ece5f5c9dd10ddf76b13d5408b8d5e401d5e22a606de7da22da7",
+      "b76b0d8db8a9c27261becaaf6d637737f947a7c9597a54f18b2c5a3e3a29c475",
+      "b7c814864606b3a25f659a93bd30c2526d44fdafbd2a1199a116750c17b6fcb7",
+      "c50945b9b6fab9df69f8908e925dd9b239f584aa9c03d41a02d1ae334a201482",
+      "dc411cd9df2243b2f6e9a12fb5807c9ebf8312d785b52b881af0a9c8e4c984f5",
+      "f2c066df5d58915e82b15f8468cd88e5b2d3fa777a4d052412b4df997b17c248",
+      "f63cdb01cfba9f48a6aa3fc2f62d3b80bdbfaaa907d663205e4aeb68e94c1000",
+      "ff4702900225bad2d87032f3df7b6f30e798ce7a3c1a64f2429dfa6369047258",
+    ]);
+    expect([...F1().PRE_RELIST_HOOK_SOURCES].some((h) => h.startsWith("43fd0265"))).toBe(false);
+  });
   test("hookDemandsRelist: no recorded hook source, or an unlisted one, is held; a listed one is not", () => {
     const b = buildPassingBundle("jira");
     const { HOOK_SOURCE, PRE_RELIST_HOOK_SOURCES, hookDemandsRelist } = F1();
