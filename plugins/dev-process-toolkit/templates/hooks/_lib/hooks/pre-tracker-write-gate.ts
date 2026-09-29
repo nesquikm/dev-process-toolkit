@@ -274,18 +274,14 @@ function refuse(what: string, remedy: string): 2 {
   return 2;
 }
 
-/** STE-641 — the gated call's own tool_use line never reached the transcript within the wait. */
+/**
+ * STE-641 — the gated call's own tool_use line was not in the read when the
+ * wait ran out. Not a refusal: the read is graded with the call placed after
+ * every recorded line, as when the payload carries no tool_use_id.
+ */
 interface StaleRead {
   path: string;
   id: string;
-}
-
-/** STE-641 — refuse a create-class write graded on a transcript that lacks its own line. */
-function refuseStale(where: string, stale: StaleRead, note: string): 2 {
-  return refuse(
-    `${where}: the session transcript (${stale.path}) still lacks this call's own tool_use line (${stale.id}) after ${GATED_LINE_WAIT_MS} ms, so the lines written in its turn cannot be graded — the transcript lags the call.${note}`,
-    `retry the same call unchanged; do not re-run a deciding command for it.`,
-  );
 }
 
 /** STE-641 — refuse a create that duplicates a still-pending create in its own assistant turn. */
@@ -791,14 +787,15 @@ function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAd
  * The create tool_uses ordered BEFORE the gated call, in transcript order
  * (line, then position within an assistant message).
  *
- * Claude Code does NOT reliably write a tool_use to the transcript before its
- * PreToolUse hook reads it: measured 2026-09-28 (STE-641, AC-STE-641.7), a
- * parallel call's line lands up to ~150 ms after the tool itself starts, and
- * the line's own `timestamp` (stamped when its message starts streaming)
- * precedes that arrival by seconds. run() therefore re-reads for up to
- * GATED_LINE_WAIT_MS until the gated call's own tool_use is in the read, and
- * refuses a create graded without it as stale; once that line is in, every
- * earlier line is too (the file is append-only). Receipts are allocated in
+ * Claude Code does NOT write a tool_use to the transcript before its
+ * PreToolUse hook reads it: it writes a message's tool_use lines when the
+ * message list next changes — normally the first tool's result, AFTER the
+ * first call's hook has returned (measured 2026-09-28, STE-641 § Measurement:
+ * the first call's line landed after its own result). run() re-reads for up
+ * to GATED_LINE_WAIT_MS, which can find a LATER call of a batch; a lone or
+ * first call never appears, and its read is graded with the call placed after
+ * every recorded line — never refused for the lag. Once the gated line is in,
+ * every earlier line is too (the file is append-only). Receipts are allocated in
  * this order whether or not a create has run yet: two creates in one turn
  * cannot both take one receipt, however their hooks interleave. The gated
  * call's own tool_use never spends (it is where the walk stops); when it is
@@ -1051,8 +1048,6 @@ function gateCreate(
   }
   const tag = target.binding.repoTag ?? "";
   const where = `${call.tool} in ${target.root}`;
-  if (stale !== null) return refuseStale(where, stale, note);
-
   // STE-642 — a create of this ticket that returned its key settled it: no
   // create receipt, fresh or not, authorises a second create of it.
   // One parse of the transcript serves every walk below.
@@ -1639,11 +1634,12 @@ function gateTicket(
   if (permitted) return 0;
   const named = (isLink ? bound : unowned).map((k) => k.key);
   const targetRoots = [...new Set(inScope.flatMap((k) => k.targets.map((t) => t.root)))].join(", ");
-  // STE-641 — a lagging read cannot see a create, so name the lag first.
-  const lag = stale === null ? "" : `retry the same call once first — the transcript read lags this call (its tool_use ${stale.id} is not in it yet); `;
+  // STE-641 — name the lag as a fact, not a retry: a lone call's own line is
+  // written only after its PreToolUse hook returns, so retrying cannot help.
+  const lag = stale === null ? "" : ` (The transcript read did not yet hold this call's own tool_use ${stale.id}; it was graded as the last call of its turn.)`;
   return refuse(
-    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${note}`,
-    `${lag}run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json> [--adopt]")} (or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry.`,
+    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${lag}${note}`,
+    `run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json> [--adopt]")} (or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry.`,
   );
 }
 
@@ -1865,12 +1861,14 @@ function lineTime(p: ParsedLine | null | undefined): number | null {
 
 /**
  * STE-644 (v) — whether a re-list's last result is within LISTING_FRESH_MS of
- * the gated call's own tool_use line. A missing timestamp (either line, or no
- * gated line at all) is not fresh.
+ * the gated call: its own tool_use line when the read holds it, else the
+ * grading time (`now`) — a lone call's line is written only after its hook
+ * returns, and grading time is later than the call, so it is the stricter
+ * reference. A missing timestamp on a line that IS present is not fresh.
  */
-function freshBefore(parsed: Array<ParsedLine | null>, relist: Relist, gatedId: string | undefined): boolean {
+function freshBefore(parsed: Array<ParsedLine | null>, relist: Relist, gatedId: string | undefined, now: number = Date.now()): boolean {
   const gated = gatedId === undefined ? undefined : parsed.find((p) => p?.blocks.some((b) => b.type === "tool_use" && b.id === gatedId));
-  const at = lineTime(gated);
+  const at = gated === undefined ? now : lineTime(gated);
   const last = lineTime(parsed[relist.lastLine]);
   return at !== null && last !== null && at - last <= LISTING_FRESH_MS;
 }
@@ -1928,7 +1926,6 @@ function gateMilestoneCreate(
   note: string,
   stale: StaleRead | null = null,
 ): ExitCode {
-  if (stale !== null) return refuseStale(where, stale, note);
   const want = MILESTONE_CREATES.shape(call);
   const name = call.adapter === "jira" ? "Epic" : "project milestone";
   // STE-642 — a container create that returned its key settled it: no create
@@ -2142,9 +2139,13 @@ function gateJoinedLabels(
   );
   const join = joins[joins.length - 1];
   if (!join) return null;
+  // Review TWR-4 — ownership first, as the live grader grades it: an Epic this
+  // session created is its own, so the ownership rule of §4 governs its labels
+  // and a join decision's consent is not asked of it.
+  if (createdKeys(parseLines(transcript), call.adapter).has(key)) return null;
   const consent = consentLabel(join);
   const unconsented = join.forbidden && !answeredAfter(parseLines(transcript), join, consent);
-  if (stale === null && unconsented) {
+  if (unconsented) {
     return refuse(
       `editJiraIssue on ${key}, an Epic joined by ${join.path}: that decision printed default=forbidden, and ${unansweredConsent(consent)}.${note}`,
       `ask the operator with AskUserQuestion naming ${key}, offering the printed \`options=\` labels verbatim; write the labels only after the answer is exactly "${consent}".`,
@@ -2159,7 +2160,6 @@ function gateJoinedLabels(
   const labels = stringList((fields as Record<string, unknown>).labels);
   const required = milestone === null ? join.labels : [...join.labels, milestone];
   const missing = required.filter((l) => !labels.includes(l));
-  if (stale !== null) return refuseStale(`editJiraIssue on ${key}, an Epic joined by ${join.path}`, stale, note);
   if (milestone !== null && missing.length === 0) return 0;
   return refuse(
     `editJiraIssue on ${key}, an Epic joined by ${join.path}: the labels [${labels.join(", ")}] ${milestone === null ? `cannot be checked — the receipt names no milestone id` : `drop ${missing.map((l) => `"${l}"`).join(", ")}`}; a labels write replaces the whole set, so it would clobber the labels the listing showed.${note}`,
@@ -2262,10 +2262,12 @@ function holdsToolUse(lines: string[], id: string): boolean {
 
 /**
  * STE-641 — re-read the transcript until it holds the gated call's own
- * tool_use line, for at most `waitMs`. Claude Code flushes that line shortly
- * after the hook starts reading, so a first read may lack the call and every
- * line written in its turn. An unreadable first read is returned as is.
- * `stale` is true when the budget ran out with the line still absent.
+ * tool_use line, for at most `waitMs`. Claude Code writes a message's tool_use
+ * lines only when the message list next changes, so a LATER call of a batch
+ * may find its line during the wait while a lone or first call never will.
+ * An unreadable first read is returned as is. `stale` is true when the budget
+ * ran out with the line still absent; the caller then grades the read with
+ * the call placed last rather than refusing.
  */
 export function awaitGatedLine(
   read: () => string[] | null,
