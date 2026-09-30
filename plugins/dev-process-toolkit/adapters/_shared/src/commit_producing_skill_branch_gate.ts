@@ -1,5 +1,6 @@
-// commit_producing_skill_branch_gate (STE-228 AC-STE-228.9) — /gate-check
-// probe `commit_producing_skill_branch_gate`. Severity: error.
+// commit_producing_skill_branch_gate (STE-228 AC-STE-228.9) — a branch-gate
+// check module. No numbered /gate-check entry registers it, so /gate-check
+// does not run it (STE-648). Severity when invoked: error.
 //
 // Globs each commit-producing skill's SKILL.md and refuses any
 // `git commit` reference (literal, fenced or inline) that is not
@@ -7,8 +8,9 @@
 // `requireCommittableBranch`. Catches future drift when a new skill is
 // added or an existing skill grows a new commit site.
 //
-// Sibling probe family: see `auto_approve_marker.ts` (M59 / STE-226)
-// for the prompt-bearing-spawn marker probe colocated here.
+// Sibling module colocated here: `auto_approve_marker.ts` (M59 / STE-226),
+// the prompt-bearing-spawn marker check — which, unlike this one, is a
+// registered /gate-check probe.
 //
 // Scope. The probe inspects SKILL.md files for the canonical
 // commit-producing skill list:
