@@ -20,6 +20,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runTaskTrackingWorkspaceBindingPresentProbe } from "../adapters/_shared/src/task_tracking_workspace_binding_present";
 import { jiraClaudeMdText, linearClaudeMdText, writeFr, writeFrRaw, writePlan } from "./_repoint_fixture";
+import { FIRST_GATED_DPT_VERSION } from "../adapters/_shared/src/dpt_version";
+import { pluginManifest } from "./_span_fixture";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const PROBE = join(PLUGIN_ROOT, "adapters", "_shared", "src", "task_tracking_workspace_binding_present.ts");
@@ -231,4 +233,259 @@ describe("AC-STE-612.8 — no probe id is added (no-regression pins)", () => {
   test("(control) gate-check SKILL.md gains no STE token (87, measured at HEAD a1f0722c)", () => {
     expect(skill().match(STE_TOKEN_RE)?.length ?? 0).toBe(87);
   });
+});
+
+// ============================================================ STE-647
+// Probe #25's remedies stop asserting a false cause (B-6). A key-prefix
+// violation says the ticket is read by key and gives each route with its
+// condition; the repoint and writer commands are named through
+// `${CLAUDE_PLUGIN_ROOT}`; a declared sub-section's paragraph remedy
+// re-renders WITHOUT `--shared`, so following it never raises the floor.
+// Verdicts (count and reasons) are unchanged. HEAD prints the fixed
+// migration text with repo-relative paths.
+
+const FLOOR = FIRST_GATED_DPT_VERSION;
+const HIGHER = (() => {
+  const [a, b] = FLOOR.split(".").map(Number) as [number, number];
+  return `${a}.${b + 1}.0`;
+})();
+const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
+const REPOINT_PLUGIN_FORM = "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/repoint_tracker_binding.ts";
+const WRITER_PLUGIN_FORM = "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/setup/tracker_binding_write.ts";
+
+function remedyOf(message: string): string {
+  const line = message.split("\n").find((l) => l.startsWith("Remedy: "));
+  expect(line, `no Remedy line in:\n${message}`).toBeDefined();
+  return line!;
+}
+
+/** Run `fn` with the running toolkit version set to `version` through a scratch manifest. */
+async function underRunning<T>(version: string, fn: () => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), "dpt-ste647-manifest-"));
+  pluginManifest(dir, version);
+  const prev = process.env.CLAUDE_PLUGIN_ROOT;
+  process.env.CLAUDE_PLUGIN_ROOT = dir;
+  try {
+    return await fn();
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDE_PLUGIN_ROOT;
+    else process.env.CLAUDE_PLUGIN_ROOT = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The Glade shape: a GK-bound tree carrying an active FY-48 FR and an active M_FY_47 plan. */
+function gladeLeftovers(): { root: string; cleanup: () => void } {
+  const t = tree(jiraClaudeMdText({ project: "GK" }));
+  writeFr(t.root, "FY-48", "M_FY_47", "active");
+  writePlan(t.root, "M_FY_47", "active");
+  return t;
+}
+
+/** A GK declaration at `floor` whose stop paragraph was rendered for GX (stale). */
+function staleDeclared(floor: string): string {
+  return jiraClaudeMdText({ project: "GX", repoTag: "glade-fe", minDptVersion: floor }).replace(
+    "project: GX",
+    "project: GK",
+  );
+}
+
+/** A GK binding with no declaration but a stop paragraph. */
+function undeclaredParagraph(): string {
+  const para = jiraClaudeMdText({ project: "GK", repoTag: "glade-fe", minDptVersion: FLOOR })
+    .split("\n")
+    .filter((l) => l.startsWith(">"))
+    .join("\n");
+  return jiraClaudeMdText({ project: "GK", paragraph: para });
+}
+
+describe("STE-647 — key-prefix remedies stop asserting a false cause", () => {
+  test("AC-STE-647.6 — each key-prefix remedy says the ticket stays in the foreign project, is read by key, and gives the untracked-leftover route with its condition", async () => {
+    const t = gladeLeftovers();
+    try {
+      const report = await runTaskTrackingWorkspaceBindingPresentProbe(t.root);
+      expect(report.violations.length).toBe(2);
+      for (const v of report.violations) {
+        const remedy = remedyOf(v.message);
+        expect(remedy).toContain("stays in");
+        expect(remedy).toContain("read by key");
+        expect(remedy).toContain("git status");
+        expect(remedy).toContain("??");
+        expect(remedy).toContain("move it out of this checkout");
+      }
+      const fr = report.violations.find((v) => v.note.startsWith("specs/frs/FY-48.md:"));
+      expect(fr, "the FY-48 FR is a violation").toBeDefined();
+      expect(remedyOf(fr!.message)).toContain("stays in FY");
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  test("AC-STE-647.7 — no probe #25 remedy contains `was changed without the repoint command`", async () => {
+    for (const make of [
+      gladeLeftovers,
+      () => tree(staleDeclared(FLOOR)),
+      () => tree(undeclaredParagraph()),
+    ]) {
+      const t = make();
+      try {
+        const report = await runTaskTrackingWorkspaceBindingPresentProbe(t.root);
+        expect(report.violations.length).toBeGreaterThan(0);
+        for (const v of report.violations) expect(v.message).not.toContain("was changed without the repoint command");
+      } finally {
+        t.cleanup();
+      }
+    }
+  });
+
+  test("AC-STE-647.8 — every key-prefix remedy names the repoint command through ${CLAUDE_PLUGIN_ROOT}; no remedy carries a repo-relative adapters path", async () => {
+    const t = gladeLeftovers();
+    try {
+      const report = await runTaskTrackingWorkspaceBindingPresentProbe(t.root);
+      expect(report.violations.length).toBe(2);
+      for (const v of report.violations) {
+        const remedy = remedyOf(v.message);
+        expect(remedy).toContain(REPOINT_PLUGIN_FORM);
+        expect(remedy).not.toContain("plugins/dev-process-toolkit/adapters/");
+        // pinned surface (m_2306b6-ste-617): no tracker-answer vocabulary
+        expect(remedy).not.toMatch(/isLast|hasNextPage|identifier/);
+      }
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  test("AC-STE-647.8 — the paragraph remedies (declared and undeclared) carry no repo-relative adapters path either", async () => {
+    for (const text of [staleDeclared(FLOOR), undeclaredParagraph()]) {
+      const t = tree(text);
+      try {
+        const report = await runTaskTrackingWorkspaceBindingPresentProbe(t.root);
+        expect(report.violations.length).toBe(1);
+        const remedy = remedyOf(report.violations[0]!.message);
+        expect(remedy).not.toContain("plugins/dev-process-toolkit/adapters/");
+        expect(remedy).toContain(WRITER_PLUGIN_FORM);
+      } finally {
+        t.cleanup();
+      }
+    }
+  });
+
+  test("(control) the undeclared-paragraph remedy still offers deleting the paragraph or declaring with --shared", async () => {
+    const t = tree(undeclaredParagraph());
+    try {
+      const report = await runTaskTrackingWorkspaceBindingPresentProbe(t.root);
+      const remedy = remedyOf(report.violations[0]!.message);
+      expect(remedy).toContain("delete the paragraph");
+      expect(remedy).toContain("--shared");
+    } finally {
+      t.cleanup();
+    }
+  });
+});
+
+describe("STE-647 — the declared paragraph remedy re-renders without --shared", () => {
+  /** The backticked writer command inside a remedy. */
+  function writerCommand(remedy: string): string {
+    const m = /`(bun run [^`]*tracker_binding_write\.ts[^`]*)`/.exec(remedy);
+    expect(m, `no backticked writer command in:\n${remedy}`).not.toBeNull();
+    return m![1]!;
+  }
+
+  test("AC-STE-647.9 — the remedy names the writer through ${CLAUDE_PLUGIN_ROOT} with the bound project and without --shared", async () => {
+    const t = tree(staleDeclared(FLOOR));
+    try {
+      const report = await underRunning(HIGHER, () => runTaskTrackingWorkspaceBindingPresentProbe(t.root));
+      expect(report.violations.length).toBe(1);
+      const cmd = writerCommand(remedyOf(report.violations[0]!.message));
+      expect(cmd).toContain(WRITER_PLUGIN_FORM);
+      expect(cmd).toMatch(/--project GK(\s|$)/);
+      expect(cmd).not.toContain("--shared");
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  test("AC-STE-647.9 — following the remedy under a higher running version leaves min_dpt_version unchanged and probe #25 green", async () => {
+    const t = tree(staleDeclared(FLOOR));
+    const manifest = mkdtempSync(join(tmpdir(), "dpt-ste647-follow-"));
+    try {
+      pluginManifest(manifest, HIGHER);
+      const report = await underRunning(HIGHER, () => runTaskTrackingWorkspaceBindingPresentProbe(t.root));
+      expect(report.violations.length).toBe(1);
+      const cmd = writerCommand(remedyOf(report.violations[0]!.message))
+        .replaceAll("${CLAUDE_PLUGIN_ROOT}", PLUGIN_ROOT)
+        .replaceAll("<projectRoot>", t.root)
+        // HEAD's remedy leaves these placeholders; fill them the way an operator would.
+        .replaceAll("<project>", "GK")
+        .replaceAll("<tag>", "glade-fe");
+      expect(cmd, "no placeholder may remain in the followed command").not.toMatch(/<[a-zA-Z]+>/);
+      const argv = cmd.split(/\s+/).filter((s) => s.length > 0);
+      const proc = spawnSync(argv[0]!, argv.slice(1), {
+        cwd: REPO_ROOT,
+        encoding: "utf-8",
+        env: { ...process.env, CLAUDE_PLUGIN_ROOT: manifest },
+      });
+      expect(proc.status, `${proc.stdout}\n${proc.stderr}`).toBe(0);
+      const after = readFileSync(join(t.root, "CLAUDE.md"), "utf-8");
+      expect(after.match(/^min_dpt_version:\s*(\S+)$/m)?.[1], "following the remedy must not move the floor").toBe(FLOOR);
+      const again = await underRunning(HIGHER, () => runTaskTrackingWorkspaceBindingPresentProbe(t.root));
+      expect(again.violations).toEqual([]);
+    } finally {
+      t.cleanup();
+      rmSync(manifest, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
+describe("AC-STE-647.10 — verdicts are unchanged; only the remedy text differs (control)", () => {
+  // Pinned from HEAD before STE-647 (measured on 8b4e3781). Intentional
+  // keep-behaviour control: green on both sides.
+  const cases: Array<[string, () => { root: string; cleanup: () => void }, string[]]> = [
+    [
+      "Glade leftovers FY-48 + M_FY_47 under GK",
+      gladeLeftovers,
+      [
+        'active FR tracker key "FY-48" is in project "FY", not the bound Jira project "GK"',
+        'active Epic-keyed plan "M_FY_47" does not start with "M_GK_", the bound Jira project "GK"',
+      ],
+    ],
+    [
+      "stale declared paragraph",
+      () => tree(staleDeclared(FLOOR)),
+      [
+        `### Jira declares repo_tag "glade-fe" but the shared-container stop paragraph is not the render for project "GK", tag "glade-fe" and floor ${FLOOR} (stale paragraph)`,
+      ],
+    ],
+    [
+      "undeclared paragraph",
+      () => tree(undeclaredParagraph()),
+      ["### Jira carries a shared-container stop paragraph but declares no repo_tag (stale paragraph)"],
+    ],
+    [
+      "stranded M_FY_40 + FY-101 + FY-102",
+      () => {
+        const t = tree(jiraClaudeMdText({ project: "GK" }));
+        writePlan(t.root, "M_FY_40", "active");
+        writeFr(t.root, "FY-101", "M_FY_40", "active");
+        writeFr(t.root, "FY-102", "M_FY_40", "active");
+        return t;
+      },
+      [
+        'active FR tracker key "FY-101" is in project "FY", not the bound Jira project "GK"',
+        'active FR tracker key "FY-102" is in project "FY", not the bound Jira project "GK"',
+        'active Epic-keyed plan "M_FY_40" does not start with "M_GK_", the bound Jira project "GK"',
+      ],
+    ],
+  ];
+  for (const [name, make, reasons] of cases) {
+    test(`(control) ${name}`, async () => {
+      const t = make();
+      try {
+        const report = await underRunning(HIGHER, () => runTaskTrackingWorkspaceBindingPresentProbe(t.root));
+        expect(report.violations.map((v) => v.reason)).toEqual(reasons);
+      } finally {
+        t.cleanup();
+      }
+    });
+  }
 });
