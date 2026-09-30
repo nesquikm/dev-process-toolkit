@@ -5965,7 +5965,7 @@ describe("AC-STE-649.8 .. .11 — the ownership refusal routes through `ticket_o
       expect(adopts.length, `${read}: the adopt route is still offered`).toBeGreaterThan(0);
       for (const at of adopts) {
         const clause = remedy.slice(Math.max(0, at - 250), at + 80);
-        expect({ read, unowned: /\bunowned\b/.test(clause), answered: /Adopt `?(?:GK-101|<KEY>)`?/.test(clause) }).toEqual({ read, unowned: true, answered: true });
+        expect({ read, unowned: /\bunowned\b/.test(clause), answered: /"Adopt (?:GK-101|<KEY>)"/.test(clause) }).toEqual({ read, unowned: true, answered: true });
       }
     }
   }, 30_000);
@@ -6383,6 +6383,21 @@ describe("STE-650 AC-STE-650.8 — hook: consent is read per question", () => {
       { label: "join, subject question skipped", tool: JIRA("editJiraIssue"), input: MERGE_GK_85, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, NAMES_JOIN_GK_85) },
     ]);
   }, 60_000);
+
+  for (const order of ["skip first", "join first"] as const) {
+    test(`AC-STE-650.8 (review FO-2, ${order}) — two questions both naming GK-85 and offering \"Join \`GK-85\`\", one answered Join and one Skip → exit 2 on both reads: a no is never overridden by a yes`, async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      const skip = { question: JOIN_GK_85_QUESTION, labels: [JOIN_GK_85, SKIP_GK_85], answer: SKIP_GK_85 };
+      const join = { question: "Confirm: join the existing Epic GK-85 for this milestone?", labels: [JOIN_GK_85, SKIP_GK_85], answer: JOIN_GK_85 };
+      askMany(s, order === "skip first" ? [skip, join] : [join, skip]);
+      await gradeBothReads([
+        { label: `contradictory answers (${order})`, tool: JIRA("editJiraIssue"), input: MERGE_GK_85, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, NAMES_JOIN_GK_85) },
+      ]);
+    }, 60_000);
+  }
 
   test("AC-STE-650.8 (container create) — the question naming \"Payouts\" answered exactly \"Create `Payouts`\", another answered \"No\" → exit 0 (HEAD: exit 2)", async () => {
     const root = linearRepo(BE_TAG);

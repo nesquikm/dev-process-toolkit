@@ -27,7 +27,7 @@
 // Spawns are SERIAL (one hook at a time): timing is part of AC.11's claim.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -146,13 +146,14 @@ interface Run {
 
 /**
  * Spawn `gate`'s module over `transcript`; when `append` is given, append those
- * lines to the transcript `afterMs` after the spawn (Claude Code's flush).
+ * lines to the transcript `afterMs` after the spawn (Claude Code's flush), or
+ * run its `act` instead (the transcript vanishing mid-wait).
  */
 async function runGate(
   gate: Gate,
   repo: string,
   transcript: string,
-  append: { lines: string[]; afterMs: number } | null = null,
+  append: { lines?: string[]; act?: () => void; afterMs: number } | null = null,
 ): Promise<Run> {
   const stdin = JSON.stringify({
     session_id: SID,
@@ -173,7 +174,10 @@ async function runGate(
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
   if (append !== null) {
-    timer = setTimeout(() => appendFileSync(transcript, append.lines.map((l) => `${l}\n`).join("")), append.afterMs);
+    timer = setTimeout(
+      () => (append.act ? append.act() : appendFileSync(transcript, (append.lines ?? []).map((l) => `${l}\n`).join(""))),
+      append.afterMs,
+    );
   }
   const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   const exitCode = await proc.exited;
@@ -295,6 +299,20 @@ for (const gate of GATES) {
       expect(r.stderr, show(r)).toMatch(/already recorded/);
       expect(r.stderr, show(r)).not.toMatch(NOT_CAUGHT_UP);
     }, 30_000);
+
+    // Review FO-1 — the wait must never re-run the fail-open leg. A transcript
+    // that turns unreadable mid-wait leaves the miss already graded standing;
+    // v2.91.0 refused this commit/PR, so a pass here is a regression.
+    for (const how of ["rename", "chmod"] as const) {
+      test(`AC-STE-650.10 (review FO-1, ${how}) — the transcript turns unreadable 600 ms into the wait → exit 2 naming the lag, never a pass`, async () => {
+        const w = await laggingWorld(gate, "plain");
+        const act = how === "rename" ? () => renameSync(w.transcript, `${w.transcript}.gone`) : () => chmodSync(w.transcript, 0o000);
+        const r = await runGate(gate, w.repo, w.transcript, { act, afterMs: 600 });
+        if (how === "chmod") chmodSync(w.transcript, 0o600);
+        if (r.exitCode !== 2) throw new Error(`expected exit 2, got:\n${show(r)}`);
+        expect(r.stderr, show(r)).toMatch(NOT_CAUGHT_UP);
+      }, 30_000);
+    }
 
     test("AC-STE-650.9 CONTROL — the complete transcript (result already on disk) → exit 0", async () => {
       const w = await laggingWorld(gate, "incident");

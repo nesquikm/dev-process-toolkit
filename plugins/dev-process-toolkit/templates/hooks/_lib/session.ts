@@ -840,7 +840,7 @@ export function findSkillToolUse(
 }
 
 /**
- * STE-650 — how long a commit / PR gate waits for a pending receipt run's
+ * STE-650 — how long the gate-check and spec-review gates wait for a pending receipt run's
  * tool_result to reach the transcript. The tracker gate's
  * `GATED_LINE_WAIT_MS` is defined as this value, so the bound is one number.
  */
@@ -861,11 +861,14 @@ const RECEIPT_RESULT_POLL_MS = 25;
  * and a refusal that misdescribes what happened sends the remedy the wrong way.
  *
  * STE-650 — a receipt miss graded while a receipt run's tool_result is not on
- * disk yet is transcript LAG. The gate re-reads for up to
+ * disk yet is transcript LAG. This path serves the gate-check and spec-review
+ * gates; the tdd commit gate reads `requireTddEvidence` and does not wait yet.
+ * The gate re-reads for up to
  * RECEIPT_RESULT_WAIT_MS; if the result lands it grades again, and if it never
  * does (and the miss is one a pending result could explain, LAG_EXPLAINABLE)
  * the refusal says the transcript has not caught up and to retry unchanged,
- * never outside-window. A receipt with its result on disk never waits.
+ * never outside-window. A receipt with its result on disk never waits, and a
+ * re-read that finds no transcript never turns the graded miss into a pass.
  */
 export function requireSkillToolUse(
   skill: string,
@@ -897,8 +900,12 @@ export function requireSkillToolUse(
       scan.incomplete.some((run) => pendingRunOf(target, run))
     ) {
       Bun.sleepSync(Math.max(1, Math.min(RECEIPT_RESULT_POLL_MS, deadline - Date.now())));
-      scan = scanSkillCalls(skill, payload, target);
-      if (!scan.found) break;
+      // The fail-open leg is asked ONCE, before any other verdict: a re-read
+      // that finds no transcript (or no Skill call) leaves the miss already
+      // graded standing, never turns it into a pass (review FO-1).
+      const next = scanSkillCalls(skill, payload, target);
+      if (!next.found || next.windows === null) break;
+      scan = next;
       miss = grade(scan);
     }
     if (miss === null) {

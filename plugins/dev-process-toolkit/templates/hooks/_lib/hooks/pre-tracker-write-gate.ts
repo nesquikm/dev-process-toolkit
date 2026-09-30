@@ -1690,19 +1690,27 @@ function answerTo(p: ParsedLine, block: ContentBlock, question: string): string 
  * STE-650 AC-8 — the ONE per-question consent matcher both consent checks
  * use: an answered AskUserQuestion consents to `label` only when a question
  * whose own text names the subject (`names`) and offers `label` as an option
- * was answered exactly `label`. Another question's answer neither grants nor
- * withholds it.
+ * was answered exactly `label`, and every such question was. Another
+ * question's answer neither grants nor withholds it.
  * Twin: `consentedPerQuestion` in adapters/_shared/src/shared_tracker_live_grader.ts
  */
 function consentedPerQuestion(questions: unknown, p: ParsedLine, block: ContentBlock, label: string, names: (question: string) => boolean): boolean {
   if (!Array.isArray(questions)) return false;
-  return questions.some((q) => {
+  // The questions this ask put about the subject: each names it and offers
+  // the label. Consent needs at least one, and every one answered exactly the
+  // label — a "no" to one of them is never overridden by a "yes" to another
+  // (review FO-2). A question about something else neither grants nor
+  // withholds it.
+  const relevant = questions.filter((q) => {
     const question = (q as { question?: unknown } | null)?.question;
     if (typeof question !== "string" || !names(question)) return false;
     const options = (q as { options?: unknown } | null)?.options;
-    if (!Array.isArray(options) || !options.some((o) => (o as { label?: unknown } | null)?.label === label)) return false;
-    return answerTo(p, block, question) === label;
+    return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
   });
+  return (
+    relevant.length > 0 &&
+    relevant.every((q) => answerTo(p, block, (q as { question: string }).question) === label)
+  );
 }
 
 function operatorText(p: ParsedLine): string {
@@ -1837,7 +1845,7 @@ function gateTicket(
     // STE-649 AC.8 — `decide` writes no receipt, so its shape is spelled
     // literally: acceptedShape() would print `confirm decide`.
     // STE-649 AC.10 — `--adopt` is conditional, never an unconditional `[--adopt]`.
-    `first run ${DECIDE_OWNERSHIP_SHAPE} to read the ticket's ownership verdict, then run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} (only when decide's verdict is unowned and the operator answered "Adopt \`<KEY>\`" append \`--adopt\`; or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry. ` +
+    `first run ${DECIDE_OWNERSHIP_SHAPE} to read the ticket's ownership verdict, then run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} (only when decide's verdict is unowned and the operator answered "Adopt <KEY>" append \`--adopt\`; or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry. ` +
       // STE-649 AC.9 — the verdicts no receipt can clear, and their routes.
       `A foreign-repo verdict (the ticket carries another repository's tag) or a container verdict (the ticket is an Epic) is refused by both confirm and consent, and on Linear confirm also refuses another project's ticket in the same team: make that write from the owning repository, or relabel the ticket to this repository first.`,
   );
@@ -2488,7 +2496,7 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
 
 /**
  * STE-641 — how long the gate waits for the gated call's own tool_use line to
- * reach the transcript. The ONE transcript-lag bound: the commit and PR gates'
+ * reach the transcript. The ONE transcript-lag bound: the gate-check and spec-review gates'
  * receipt wait (`RECEIPT_RESULT_WAIT_MS`, STE-650) is the same value.
  */
 export const GATED_LINE_WAIT_MS = RECEIPT_RESULT_WAIT_MS;

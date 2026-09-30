@@ -5812,9 +5812,9 @@ describe("STE-650 AC-STE-650.5 — grader: the hook's ticket-create rules (settl
     });
   }
 
-  /** S2 A's Jira FR create attached (by provenance) through a join decision of S3's Epic announced before the attach. */
-  const attachedThroughJoin = (via: "title" | "key", answered: boolean) => {
-    const b = buildPassingBundle("jira");
+  /** S2 A's FR create attached (by provenance) through a join decision of S3's container announced before the attach. */
+  const attachedThroughJoin = (via: "title" | "key", answered: boolean, t: Tracker = "jira") => {
+    const b = buildPassingBundle(t);
     const s = session(b, "S2", 0);
     const epic = createdKeys(session(b, "S3"))[0]!;
     const spanTitle = title("S3 span milestone");
@@ -5826,11 +5826,11 @@ describe("STE-650 AC-STE-650.5 — grader: the hook's ticket-create rules (settl
       s,
       s.calls.indexOf(attach),
       "milestone-decision",
-      moduleCommand("resolve_milestone_identity.ts", null, via === "title" ? `<A> jira DST <A>/.dpt/tmp/listing.json --title "${spanTitle}" --sibling <B>` : `<A> jira DST <A>/.dpt/tmp/listing.json --join-key ${epic} --sibling <B>`),
+      moduleCommand("resolve_milestone_identity.ts", null, via === "title" ? `<A> ${t} DST <A>/.dpt/tmp/listing.json --title "${spanTitle}" --sibling <B>` : `<A> ${t} DST <A>/.dpt/tmp/listing.json --join-key ${epic} --sibling <B>`),
       {
         subject: via === "title" ? spanTitle : epic,
         decision: "join",
-        evidence: { act: "join", via, key: epic, milestoneId: joinMilestoneId(epic), ...(via === "title" ? { title: spanTitle } : { joinKey: epic }), name: spanTitle, labels: [], shared: true, default: forbidden ? "forbidden" : "allowed", ...(forbidden ? { options: labels } : {}) },
+        evidence: { act: "join", via, key: epic, ...(t === "jira" ? { milestoneId: joinMilestoneId(epic) } : {}), ...(via === "title" ? { title: spanTitle } : { joinKey: epic }), name: spanTitle, labels: [], shared: true, default: forbidden ? "forbidden" : "allowed", ...(forbidden ? { options: labels } : {}) },
       },
       `join_${via}`,
     );
@@ -5851,6 +5851,19 @@ describe("STE-650 AC-STE-650.5 — grader: the hook's ticket-create rules (settl
   });
   test("jira: AC-STE-650.5 CONTROL — an attach target resting on an allowed key join is not ungated-write", () => {
     const { b, create } = attachedThroughJoin("key", false);
+    expect(ungatedAt(grade(b), create.ref)).toBe(false);
+  });
+  // Review F5 — the Linear twin: the rule reads the decision, not the tracker.
+  test("linear: AC-STE-650.5 — an FR create whose attach target rests on an unanswered forbidden title join is ungated-write", () => {
+    const { b, create } = attachedThroughJoin("title", false, "linear");
+    expect(ungatedAt(grade(b), create.ref)).toBe(true);
+  });
+  test("linear: AC-STE-650.5 CONTROL — the same after an answered `Join <KEY>` is not ungated-write", () => {
+    const { b, create } = attachedThroughJoin("title", true, "linear");
+    expect(ungatedAt(grade(b), create.ref)).toBe(false);
+  });
+  test("linear: AC-STE-650.5 CONTROL — an attach target resting on an allowed key join is not ungated-write", () => {
+    const { b, create } = attachedThroughJoin("key", false, "linear");
     expect(ungatedAt(grade(b), create.ref)).toBe(false);
   });
 });
@@ -5947,6 +5960,21 @@ describe("STE-650 AC-STE-650.7 — hookDemandsRelist re-derives the digest befor
       expect(ungatedAt(grade(b), create.ref), seal ? "sealed" : "forged").toBe(want);
     }
   });
+  // Review F4 — the residual v2.92.0 discloses under Known defects, pinned so
+  // a future fix (hook bytes in the bundle, or a signed digest) must flip this
+  // leg on purpose rather than by accident.
+  test("AC-STE-650.7 KNOWN RESIDUAL — a forger who rewrites the hook-source entry AND recomputes the digest over the rewritten map is trusted as pre-relist, and its create with no re-list grades clean", () => {
+    const b = buildPassingBundle("jira");
+    expect(F1().hookDemandsRelist(b), "CONTROL — the honest bundle is held to the re-list").toBe(true);
+    b.run.behaviourDigest.files[F1().HOOK_SOURCE] = listed();
+    sealDigest(b);
+    expect(digestOfFiles(b.run.behaviourDigest.files)).toBe(b.run.behaviourDigest.digest);
+    expect(F1().hookDemandsRelist(b)).toBe(false);
+    const s = session(b, "S3");
+    const create = createCallOf(s);
+    s.calls.splice(s.calls.indexOf(create) - 1, 1);
+    expect(ungatedAt(grade(b), create.ref)).toBe(false);
+  });
   test("CONTROL (STE-618 regrade) — every committed live bundle's recorded digest is re-derivable from the files it lists", () => {
     const dir = join(import.meta.dir, "fixtures", "shared-tracker-live");
     const bundles = readdirSync(dir).map((d) => join(dir, d, "bundle.json")).filter((p) => existsSync(p));
@@ -5980,6 +6008,19 @@ describe("STE-650 AC-STE-650.8 — grader: consent is read per question", () => 
     });
     expect(ungatedAt(grade(b), w.ref)).toBe(true);
   });
+
+  for (const order of ["skip first", "join first"] as const) {
+    test(`AC-STE-650.8 (review FO-2, ${order}) — two questions both naming the Epic and offering \`Join <KEY>\`, one answered Join and one Skip → ungated-write: a no is never overridden by a yes`, () => {
+      const { b, w } = labelsJoinFixture("title", null, "S13", {
+        ask: (epic, spanTitle, labels) => {
+          const skip = { question: joinQ(epic, spanTitle), labels, answer: labels[1]! };
+          const join = { question: `Confirm: ${joinQ(epic, spanTitle)}`, labels, answer: labels[0]! };
+          return consentAskMany(order === "skip first" ? [skip, join] : [join, skip]);
+        },
+      });
+      expect(ungatedAt(grade(b), w.ref)).toBe(true);
+    });
+  }
 
   /** S13's import consent ask replaced by a two-question ask. */
   const importMany = (t: Tracker, subjectAnswer: "import" | "skip", other: { question: string; labels: (u: string) => string[]; answer: (u: string) => string }) => {
