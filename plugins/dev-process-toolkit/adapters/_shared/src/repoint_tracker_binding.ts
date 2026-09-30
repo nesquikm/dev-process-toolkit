@@ -56,7 +56,7 @@ import {
   resolveAttachTarget,
 } from "./attach_project_milestone";
 import { readActiveSpecsFromGit, type ActiveSpecsRead } from "./active_plan_ship_ready";
-import { nfr10Message } from "./dpt_version";
+import { nfr10Message, runningDptManifestPath } from "./dpt_version";
 import { parseFrontmatter } from "./frontmatter";
 import { parseMilestoneToken } from "./milestone_token";
 import { parsePlanHeading } from "./plan_heading";
@@ -64,9 +64,11 @@ import { readListingFile, type ReadListing } from "./resolve_milestone_identity"
 import { readTaskTrackingSection } from "./resolver_config";
 import {
   declarationContext,
+  floorLine,
   projectLinesOf,
   RESTORE_PROJECT_REMEDY,
   sharedDeclarationParts,
+  shellArg,
   TrackerBindingRestoreError,
   writeTrackerSubsection,
 } from "./setup/tracker_binding_write";
@@ -160,7 +162,7 @@ export class RepointRefusal extends Error {
   }
 }
 
-const COMMAND = "bun run adapters/_shared/src/repoint_tracker_binding.ts";
+const COMMAND = 'bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/repoint_tracker_binding.ts"';
 
 const USAGE =
   `${COMMAND} <projectRoot> <jira|linear> <newProject> --projects <file> --containers <file> [--issue-types <file>] [--statuses <file>] [--labels <file>] [--peer <path>]… [--team <team>] [--shared <tag>] [--issue-type <type>]`;
@@ -420,11 +422,6 @@ export type Route =
   | { kind: "declare" }
   | { kind: "rows"; oldProject: string; binding: Input<WorkspaceBinding> };
 
-/** `v` as one shell word, single-quoted only when needed, so a printed command pastes (Linear project names carry spaces). */
-function shellArg(v: string): string {
-  return /^[A-Za-z0-9_./:@=+-]+$/.test(v) ? v : `'${v.replace(/'/g, `'\\''`)}'`;
-}
-
 /**
  * STE-646: the declare-route command on the CURRENT project `currentProject`
  * with the declaration `flags` — what the rows route's flag refusal and rows
@@ -497,7 +494,7 @@ export function routeRepoint(args: RepointArgs): Route {
       `Refusing: the \`### ${args.mode === "jira" ? "Jira" : "Linear"}\` sub-section has no \`project:\` value, so there is no binding to re-point and nothing to resume.`,
       declared.length > 0
         ? RESTORE_PROJECT_REMEDY
-        : `bind a project first with adapters/_shared/src/setup/tracker_binding_write.ts ${args.projectRoot} ${args.mode} --project <p>, then re-run.`,
+        : `bind a project first with bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/setup/tracker_binding_write.ts" ${shellArg(args.projectRoot)} ${args.mode} --project <p>, then re-run.`,
       `${context}, key=project, current=absent${declared.length > 0 ? `, ${declarationContext(declared)}` : ""}`,
     );
   }
@@ -1253,6 +1250,10 @@ if (import.meta.main) {
       process.stdout.write(`${route.kind}\n`);
       for (const line of result.diff.split("\n").filter((l) => l.length > 0)) process.stdout.write(`${oneLine(line)}\n`);
       process.stdout.write(`${oneLine(result.changed ? `${route.kind}: CLAUDE.md written` : `${route.kind}: nothing written`)}\n`);
+      // The writer's own floor line (STE-647 AC.5): a --shared run through the
+      // repoint says what happened to the floor exactly as the writer does. The
+      // repoint takes no --floor; only the writer's --floor moves it.
+      if (result.floorChange !== undefined) process.stdout.write(floorLine(result.floorChange, runningDptManifestPath()));
       process.exit(0);
     }
     // A receipt this run could not write refuses before any row is decided (AC-STE-646.7).

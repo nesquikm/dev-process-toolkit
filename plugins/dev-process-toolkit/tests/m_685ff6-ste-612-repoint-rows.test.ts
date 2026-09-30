@@ -1295,7 +1295,7 @@ describe("STE-645 — an absent project refuses before any row; resume only from
 describe("STE-646 — the declare route declares, the rows route refuses the declaration flags", () => {
   const remedyLine = (stderr: string): string => stderr.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
   /** The declare-first command for this fixture: the repoint command, on the CURRENT project GB, with --shared. */
-  const DECLARE_FIRST_RE = /repoint_tracker_binding\.ts\s+\S+\s+jira\s+GB\s[^\n]*--shared/;
+  const DECLARE_FIRST_RE = /repoint_tracker_binding\.ts"?\s+\S+\s+jira\s+GB\s[^\n]*--shared/;
 
   test(
     "AC-STE-646.1 — `jira GF --shared glacy-be --issue-type Task` on a file bound to GF declares everything, prints `declare`, exit 0",
@@ -1321,6 +1321,27 @@ describe("STE-646 — the declare route declares, the rows route refuses the dec
       );
       const report = await runTaskTrackingWorkspaceBindingPresentProbe(g.a);
       expect(report.violations).toEqual([]);
+    }),
+    T,
+  );
+
+  test(
+    "M_163656 review F1 — the declare route with --shared prints the writer's one min_dpt_version line (declared, then kept on a re-run); without --shared it prints none",
+    withGlacy({}, (g) => {
+      writeFileSync(join(g.a, "CLAUDE.md"), jiraClaudeMdText({ project: "GF" }));
+      const floorLines = (out: string) => out.split("\n").filter((l) => l.startsWith("min_dpt_version"));
+      const first = runRepoint([...g.args(), "--shared", "glacy-be", "--issue-type", "Task"]);
+      expect(first.code, `${first.stdout}\n${first.stderr}`).toBe(0);
+      expect(floorLines(first.stdout), first.stdout).toHaveLength(1);
+      expect(floorLines(first.stdout)[0]).toContain(`(none) → ${runningDptVersion()}`);
+      expect(floorLines(first.stdout)[0]).toContain("running version from ");
+      const again = runRepoint([...g.args(), "--shared", "glacy-be", "--issue-type", "Task"]);
+      expect(again.code, `${again.stdout}\n${again.stderr}`).toBe(0);
+      expect(floorLines(again.stdout), again.stdout).toHaveLength(1);
+      expect(floorLines(again.stdout)[0]).toContain(`kept at ${runningDptVersion()}`);
+      const bare = runRepoint(g.args());
+      expect(bare.code, `${bare.stdout}\n${bare.stderr}`).toBe(0);
+      expect(floorLines(bare.stdout), bare.stdout).toEqual([]);
     }),
     T,
   );
@@ -1454,7 +1475,7 @@ describe("STE-646 — the declare route declares, the rows route refuses the dec
       const line = rowLine(r.stdout, 3);
       expect(verdict(r.stdout, 3), line).toBe("REFUSE");
       expect(line).toContain("jira_issue_type");
-      expect(line).toMatch(/repoint_tracker_binding\.ts\s+\S+\s+jira\s+GB\s[^\n]*--issue-type(?!s)/);
+      expect(line).toMatch(/repoint_tracker_binding\.ts"?\s+\S+\s+jira\s+GB\s[^\n]*--issue-type(?!s)/);
     }),
     T,
   );

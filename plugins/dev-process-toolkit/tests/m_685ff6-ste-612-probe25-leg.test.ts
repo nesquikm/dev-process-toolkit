@@ -419,8 +419,8 @@ describe("STE-647 — the declared paragraph remedy re-renders without --shared"
         .replaceAll("<project>", "GF")
         .replaceAll("<tag>", "glacy-fe");
       expect(cmd, "no placeholder may remain in the followed command").not.toMatch(/<[a-zA-Z]+>/);
-      const argv = cmd.split(/\s+/).filter((s) => s.length > 0);
-      const proc = spawnSync(argv[0]!, argv.slice(1), {
+      // Run it the way an operator pastes it: through a shell, quotes and all.
+      const proc = spawnSync("sh", ["-c", cmd], {
         cwd: REPO_ROOT,
         encoding: "utf-8",
         env: { ...process.env, CLAUDE_PLUGIN_ROOT: manifest },

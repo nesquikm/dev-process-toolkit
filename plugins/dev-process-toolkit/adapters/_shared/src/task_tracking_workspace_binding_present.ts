@@ -45,7 +45,7 @@ import { checkVersionFloor, nfr10Message, runningDptVersion } from "./dpt_versio
 import { parseFrontmatter } from "./frontmatter";
 import { oneLine } from "./tracker_receipts";
 import { milestoneIdFromEpicKey, PLAN_FILENAME_RE, parseMilestoneToken } from "./milestone_token";
-import { renderSharedTrackerSentinel, SHARED_TRACKER_MARKER } from "./setup/tracker_binding_write";
+import { renderSharedTrackerSentinel, SHARED_TRACKER_MARKER, shellArg } from "./setup/tracker_binding_write";
 import {
   locateSubsection,
   readWorkspaceBinding,
@@ -206,7 +206,7 @@ export async function runTaskTrackingWorkspaceBindingPresentProbe(
   }
 
   const paragraphs = stopParagraphs(locateSubsection(lines, adapterKey) ?? []);
-  const rewrite = `re-run \`bun run ${WRITER} <projectRoot> ${adapterKey} --project <project> --shared <tag>\` to re-render it`;
+  const rewrite = `re-run \`bun run "${WRITER}" <projectRoot> ${adapterKey} --project <project> --shared <tag>\` to re-render it`;
   if (binding.shared) {
     // Leg (b) — exactly one paragraph, byte-equal to the render.
     const expected = renderSharedTrackerSentinel({
@@ -225,7 +225,7 @@ export async function runTaskTrackingWorkspaceBindingPresentProbe(
       const reason = `${subTitle} declares repo_tag "${binding.repoTag}" but the shared-container stop paragraph ${problem}`;
       // STE-647 AC.9 — a plain re-run re-renders a kept declaration's paragraph
       // at its existing floor; `--shared` is not needed and never moves it.
-      const rerender = `re-run \`bun run ${WRITER} <projectRoot> ${adapterKey} --project ${binding.project ?? "<project>"}\` to re-render it`;
+      const rerender = `re-run \`bun run "${WRITER}" <projectRoot> ${adapterKey} --project ${binding.project !== undefined && binding.project !== null ? shellArg(binding.project) : "<project>"}\` to re-render it`;
       violations.push(violation(reason, buildSharedMessage("paragraph", reason, `${rerender}.`, rel, resolved.mode)));
     }
     // Leg (c) — the running toolkit version at or above the floor.
@@ -357,7 +357,7 @@ function keyPrefixViolations(
       note: `${rel}:${line} — ${reason}`,
       message: nfr10Message(
         `task_tracking_workspace_binding_present: ${reason}`,
-        `the file's ticket stays in ${oneLine(home)} and is read by key — nothing here moves it. If \`git status\` shows \`??\` for the file, it is an untracked leftover: move it out of this checkout. If it is tracked and this checkout moved to ${project}, run \`bun run ${REPOINT} <projectRoot> jira ${project} --projects <projects.json> --containers <containers.json>\` from a Claude Code session, or archive the FR / plan.`,
+        `the file's ticket stays in ${oneLine(home)} and is read by key — nothing here moves it. If \`git status\` shows \`??\` for the file, it is an untracked leftover: move it out of this checkout. If it is tracked and this checkout moved to ${project}, run \`bun run "${REPOINT}" <projectRoot> jira ${shellArg(project)} --projects <projects.json> --containers <containers.json>\` from a Claude Code session, or archive the FR / plan.`,
         `file=${rel}, mode=${mode}, leg=key-prefix, project=${project}, probe=task_tracking_workspace_binding_present`,
       ),
     });

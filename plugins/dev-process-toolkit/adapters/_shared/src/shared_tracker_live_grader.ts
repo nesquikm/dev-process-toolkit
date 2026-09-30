@@ -2301,19 +2301,28 @@ function answerTo(text: string, question: string): string | null {
  * STE-650 AC-8 — the ONE per-question consent matcher: an answered
  * AskUserQuestion consents to `label` only when a question whose own text
  * names the subject (`names`) and offers `label` as an option was answered
- * exactly `label`. Another question's answer neither grants nor withholds it.
+ * exactly `label`, and every such question was. Another question's answer
+ * neither grants nor withholds it.
  * Twin: `consentedPerQuestion` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
  */
 function consentedPerQuestion(c: ToolCall, label: string, names: (question: string) => boolean): boolean {
   const questions = (c.input as { questions?: unknown }).questions;
   if (!Array.isArray(questions)) return false;
-  return questions.some((q) => {
+  // The questions this ask put about the subject: each names it and offers
+  // the label. Consent needs at least one, and every one answered exactly the
+  // label — a "no" to one of them is never overridden by a "yes" to another
+  // (review FO-2). A question about something else neither grants nor
+  // withholds it.
+  const relevant = questions.filter((q) => {
     const question = (q as { question?: unknown } | null)?.question;
     if (typeof question !== "string" || !names(question)) return false;
     const options = (q as { options?: unknown } | null)?.options;
-    if (!Array.isArray(options) || !options.some((o) => (o as { label?: unknown } | null)?.label === label)) return false;
-    return answerTo(c.result.text, question) === label;
+    return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
   });
+  return (
+    relevant.length > 0 &&
+    relevant.every((q) => answerTo(c.result.text, (q as { question: string }).question) === label)
+  );
 }
 
 /**

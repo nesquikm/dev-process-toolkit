@@ -127,8 +127,11 @@ export type FloorChange =
   | { kind: "set"; from: string; to: string; lowered: boolean }
   | { kind: "declared"; to: string };
 
-/** STE-647 AC.5 — the one `min_dpt_version` summary line a `--shared` run prints. */
-function floorLine(change: FloorChange, manifestPath: string): string {
+/**
+ * STE-647 AC.5 — the one `min_dpt_version` summary line a `--shared` run prints,
+ * from this writer's CLI and from the repoint's declare and resume routes alike.
+ */
+export function floorLine(change: FloorChange, manifestPath: string): string {
   const manifest = `running version from ${manifestPath}`;
   switch (change.kind) {
     case "set":
@@ -171,6 +174,11 @@ export function declarationContext(parts: string[]): string {
  * The remedy both "no `project:`" refusals name when a declaration survives:
  * the project it was declared for is only recoverable from history (STE-645).
  */
+/** `v` as one shell word, single-quoted only when needed, so a printed command pastes (Linear project names carry spaces). */
+export function shellArg(v: string): string {
+  return /^[A-Za-z0-9_./:@=+-]+$/.test(v) ? v : `'${v.replace(/'/g, `'\\''`)}'`;
+}
+
 export const RESTORE_PROJECT_REMEDY =
   "restore the `project:` line from git (git log -p -- CLAUDE.md, then git checkout <rev> -- CLAUDE.md or re-add the line by hand), then re-run.";
 
@@ -453,7 +461,7 @@ export function writeTrackerSubsection(
     if (current.length > 0 && current !== DEFERRED_PROJECT && current !== opts.project) {
       throw new TrackerBindingWriteError(
         `CLAUDE.md binds \`project: ${current}\`; writing \`project: ${opts.project}\` would re-point this repository, which this writer does not do.`,
-        `to keep the binding, re-run with --project ${current}; to move this repository to ${opts.project}, run /dev-process-toolkit:setup's repoint flag (bun run adapters/_shared/src/repoint_tracker_binding.ts <projectRoot> ${adapter} ${opts.project} …).`,
+        `to keep the binding, re-run with --project ${shellArg(current)}; to move this repository to ${opts.project}, run /dev-process-toolkit:setup's repoint flag (bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/repoint_tracker_binding.ts" <projectRoot> ${adapter} ${shellArg(opts.project)} …).`,
         `${context}, key=project, current="${current}", requested="${opts.project}"`,
       );
     }

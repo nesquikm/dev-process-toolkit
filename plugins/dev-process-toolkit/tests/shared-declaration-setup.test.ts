@@ -1270,6 +1270,24 @@ describe("the writer never re-points", () => {
     });
   }, 30_000);
 
+  test("M_163656 review F3 — a Linear project name with spaces comes back as ONE shell word, and the repoint is named through ${CLAUDE_PLUGIN_ROOT}", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "linear", team: "STE", project: "DPT — Dev Process Toolkit" });
+      const r = await expectRefused(a, b, ["linear", "--project", "Other Project", "--team", "STE"]);
+      const remedy = r.stderr.split("\n").find((l) => l.startsWith("Remedy: ")) ?? "";
+      expect(remedy).toContain(`bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/repoint_tracker_binding.ts"`);
+      expect(remedy).not.toMatch(/bun run adapters\//);
+      // Paste each printed value through a real shell: one word each, spaces kept.
+      const keep = /re-run with --project ('[^']*'|\S+);/.exec(remedy)?.[1];
+      const move = /<projectRoot> linear ('[^']*'|\S+) …/.exec(remedy)?.[1];
+      for (const [word, want] of [[keep, "DPT — Dev Process Toolkit"], [move, "Other Project"]] as const) {
+        expect(word, remedy).toBeDefined();
+        const echoed = Bun.spawnSync(["sh", "-c", `printf '%s\\n' ${word}`]).stdout.toString();
+        expect(echoed).toBe(`${want}\n`);
+      }
+    });
+  }, 30_000);
+
   test("AC-STE-645.6 — two `project:` lines refuse any --project that differs from either line (exit 1, byte-identical)", async () => {
     await withRoots(async ({ a, b }) => {
       const path = join(a, "CLAUDE.md");
