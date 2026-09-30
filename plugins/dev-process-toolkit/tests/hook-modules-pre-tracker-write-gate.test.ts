@@ -5548,7 +5548,12 @@ describe("STE-644 — a container create needs a fresh, complete re-list of its 
       expect(runs[2]!.stderr).toContain(SAME_ID);
       // Review round 1: every other case is refused for want of a qualifying
       // re-list — its remedy names the Linear listing — never coincidentally.
-      for (const i of [0, 1, 3, 4]) expect(runs[i]!.stderr, cases[i]![0]).toContain("`list_milestones` for project DPT");
+      for (const i of [0, 1, 3]) expect(runs[i]!.stderr, cases[i]![0]).toContain("`list_milestones` for project DPT");
+      // PIN MOVE (M_163656/STE-650 AC.13): a complete 50-row re-list is refused
+      // with the CONSENT remedy — another re-list returns the same full window,
+      // so naming it again looped.
+      expect(runs[4]!.stderr, cases[4]![0]).toContain("Create `Payouts`");
+      expect(runs[4]!.stderr, cases[4]![0]).not.toContain("`list_milestones` for project DPT");
     }, 120_000);
 
     test("permitted: 49 rows without the name; and 50 rows after an answered \"Create `Payouts`\" (the only way past a full window) → exit 0", async () => {
@@ -6246,4 +6251,335 @@ describe("AC-STE-649.23 — every refusal STE-649 adds or changes holds when the
       { label: "receipt JSON naming another session", tool: JIRA("createJiraIssue"), input: jiraCreate(), cwd: w.be, transcript: copied.save(w.scratch), check: names },
     ]);
   }, 120_000);
+});
+
+// ===========================================================================
+// STE-650 (M_163656) — the grader mirrors the hook; consent is read per
+// question; the recogniser and the remedies read what ran.
+//
+// Hook-side legs. Every refusal this FR adds or changes is graded on BOTH
+// reads (`gradeBothReads`: the gated line landed, and never lands —
+// AC-STE-650.15). Each leg is either RED at HEAD for the reason its AC states,
+// or a labelled keep-behaviour CONTROL that shows the opposite break.
+// ===========================================================================
+
+/**
+ * One AskUserQuestion carrying SEVERAL questions, answered per question, in
+ * the shape Claude Code records it: the tool_use holds every question and its
+ * options; the tool_result holds the harness sentence naming each
+ * `"<question>"="<answer>"` pair and `toolUseResult.answers` keyed by question.
+ */
+function askMany(s: Session, qs: Array<{ question: string; labels: string[]; answer: string }>): string {
+  const questions = qs.map((q, i) => ({
+    question: q.question,
+    header: `Q${i + 1}`,
+    multiSelect: false,
+    options: q.labels.map((label) => ({ label, description: label })),
+  }));
+  const id = s.toolUse("AskUserQuestion", { questions });
+  s.toolResult(
+    id,
+    `Your questions have been answered: ${qs.map((q) => `"${q.question}"="${q.answer}"`).join(", ")}. You can now continue with these answers in mind.`,
+    false,
+    { toolUseResult: { questions, answers: Object.fromEntries(qs.map((q) => [q.question, q.answer])) } },
+  );
+  return id;
+}
+
+/** A question that names neither GF-85 nor "Payouts" — it is not about the decision. */
+const UNRELATED_NOTE_QUESTION = "Also post a note to the team channel?";
+
+describe("STE-650 AC-STE-650.2 — hook: a key owned only through an FR binding or a reuse, binding or import receipt still needs the join consent", () => {
+  /** How BE comes to own GF-85 before the forbidden title join, one route per row. */
+  type Route = "fr-binding" | "reuse-receipt" | "binding-receipt" | "import-receipt" | "created";
+  const ROUTES: readonly Route[] = ["fr-binding", "reuse-receipt", "binding-receipt", "import-receipt"];
+
+  function own(w: World, s: Session, route: Route): void {
+    switch (route) {
+      case "fr-binding":
+        boundFr(w.be, "GF-85");
+        git(w.be, "add", "-A");
+        git(w.be, "commit", "-q", "-m", "bind GF-85");
+        return;
+      case "reuse-receipt":
+        s.announce(DECIDE, `decide "${w.be}" /tmp/page.json --title "Payouts" --parent GF-85 --attempt fast`, reuseReceipt(w.be, "GF-85", "Payouts"), '{"outcome":"reused","key":"GF-85"}');
+        return;
+      case "binding-receipt":
+        s.announce(
+          CONFIRM,
+          `confirm "${w.be}" GF-85 /tmp/ticket.json`,
+          receiptIn(w.be, { kind: "binding", adapter: "jira", container: "GF", subject: "GF-85", decision: "owned", evidence: { verdict: "owned", tracked: 1 } }),
+          '{"decision":"owned"}',
+        );
+        return;
+      case "import-receipt":
+        s.ask("GF-85", "Import", { answer: "Import GF-85" });
+        s.announce(CONSENT, `consent "${w.be}" GF-85 /tmp/page.json`, importReceipt(w.be, "GF-85"), '{"decision":"import"}');
+        return;
+      case "created":
+        s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("Payouts"), { key: "GF-85", id: "10085" });
+        return;
+    }
+  }
+
+  test("CONTROL — with no route, BE does not own GF-85: a transition is refused", async () => {
+    const w = makeWorld();
+    expectRefusal(await runHook(JIRA("transitionJiraIssue"), transition("GF-85"), { cwd: w.be, transcript: new Session().save(w.scratch) }), "GF-85");
+  });
+
+  for (const route of ROUTES) {
+    test(`CONTROL (${route}) — the route really owns GF-85: a transition on it → exit 0`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      own(w, s, route);
+      expectPermit(await runHook(JIRA("transitionJiraIssue"), transition("GF-85"), { cwd: w.be, transcript: s.save(w.scratch) }));
+    });
+
+    test(`AC-STE-650.2 (${route}) — keep-behaviour: a labels write after an unanswered forbidden title join → exit 2 naming Join GF-85 (both reads)`, async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      own(w, s, route);
+      s.bash(d.command, d.out);
+      await gradeBothReads([
+        { label: route, tool: JIRA("editJiraIssue"), input: MERGE_GF_85, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, NAMES_JOIN_GF_85) },
+      ]);
+    }, 60_000);
+  }
+
+  test("AC-STE-650.2 (created) — an Epic this session created needs no join consent: the read-merge labels write → exit 0", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    own(w, s, "created");
+    s.bash(d.command, d.out);
+    expectPermit(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+});
+
+describe("STE-650 AC-STE-650.8 — hook: consent is read per question", () => {
+  test("AC-STE-650.8 (join) — the question naming GF-85 answered exactly \"Join `GF-85`\", another question answered \"No\" → exit 0 (HEAD: every answer must equal the label → exit 2)", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askMany(s, [
+      { question: JOIN_GF_85_QUESTION, labels: [JOIN_GF_85, SKIP_GF_85], answer: JOIN_GF_85 },
+      { question: UNRELATED_NOTE_QUESTION, labels: ["Yes", "No"], answer: "No" },
+    ]);
+    expectPermit(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+
+  test("AC-STE-650.8 (join) CONTROL — the question naming GF-85 answered \"Skip `GF-85`\", an unrelated question offering and answered \"Join `GF-85`\" → exit 2 on both reads (guards a per-answer `.some`)", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askMany(s, [
+      { question: JOIN_GF_85_QUESTION, labels: [JOIN_GF_85, SKIP_GF_85], answer: SKIP_GF_85 },
+      { question: "Proceed with the milestone?", labels: [JOIN_GF_85, "Cancel"], answer: JOIN_GF_85 },
+    ]);
+    await gradeBothReads([
+      { label: "join, subject question skipped", tool: JIRA("editJiraIssue"), input: MERGE_GF_85, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, NAMES_JOIN_GF_85) },
+    ]);
+  }, 60_000);
+
+  test("AC-STE-650.8 (container create) — the question naming \"Payouts\" answered exactly \"Create `Payouts`\", another answered \"No\" → exit 0 (HEAD: exit 2)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-multi-create");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(50) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askMany(s, [
+      { question: CREATE_PAYOUTS_QUESTION, labels: [CREATE_PAYOUTS, SKIP_PAYOUTS], answer: CREATE_PAYOUTS },
+      { question: UNRELATED_NOTE_QUESTION, labels: ["Yes", "No"], answer: "No" },
+    ]);
+    s.relist(cappedRows(50), { tracker: "linear" });
+    expectPermit(await runSh(LINEAR("save_milestone"), { project: "DPT", name: "Payouts" }, { cwd: root, transcript: s.save(scratch) }));
+  }, 60_000);
+
+  test("AC-STE-650.8 / .15 (container create) — the question naming \"Payouts\" answered \"Skip `Payouts`\", an unrelated question offering and answered \"Create `Payouts`\" → exit 2 naming Create `Payouts`, on both reads (guards a per-answer `.some`)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-multi-create-no");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(50) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askMany(s, [
+      { question: CREATE_PAYOUTS_QUESTION, labels: [CREATE_PAYOUTS, SKIP_PAYOUTS], answer: SKIP_PAYOUTS },
+      { question: UNRELATED_NOTE_QUESTION, labels: [CREATE_PAYOUTS, "No"], answer: CREATE_PAYOUTS },
+    ]);
+    s.relist(cappedRows(50), { tracker: "linear" });
+    await gradeBothReads([{
+      label: "per-question container-create consent",
+      tool: LINEAR("save_milestone"),
+      input: { project: "DPT", name: "Payouts" },
+      cwd: root,
+      transcript: s.save(scratch),
+      check: (r) => expectRefusal(r, /Create `Payouts`/),
+    }]);
+  }, 60_000);
+
+  describe("the import / adopt consent (consentLines)", () => {
+    let w: World;
+    beforeAll(() => {
+      w = makeWorld();
+    });
+    const importAnnounced = (s: Session) =>
+      s.announce(CONSENT, `consent "${w.be}" GF-121 /tmp/page.json`, importReceipt(w.be, "GF-121"), '{"decision":"import"}');
+    const IMPORT_Q = "Import GF-121 into this repository?";
+
+    test("AC-STE-650.8 (import) — the question naming GF-121 answered \"Skip GF-121\", an unrelated question offering and answered \"Import GF-121\" → exit 2 on both reads (HEAD: any answer equal to the label consents → exit 0)", async () => {
+      const s = new Session();
+      askMany(s, [
+        { question: IMPORT_Q, labels: ["Import GF-121", "Skip GF-121"], answer: "Skip GF-121" },
+        { question: "Confirm before I continue?", labels: ["Import GF-121", "Cancel"], answer: "Import GF-121" },
+      ]);
+      importAnnounced(s);
+      await gradeBothReads([
+        { label: "import, subject question skipped", tool: JIRA("transitionJiraIssue"), input: transition("GF-121"), cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, "GF-121") },
+      ]);
+    });
+
+    test("AC-STE-650.8 (import) CONTROL — the question naming GF-121 answered exactly \"Import GF-121\", another answered \"No\" → exit 0 (guards a per-answer `.every`)", async () => {
+      const s = new Session();
+      askMany(s, [
+        { question: IMPORT_Q, labels: ["Import GF-121", "Skip GF-121"], answer: "Import GF-121" },
+        { question: "Also tidy its labels?", labels: ["Yes", "No"], answer: "No" },
+      ]);
+      importAnnounced(s);
+      expectPermit(await runHook(JIRA("transitionJiraIssue"), transition("GF-121"), { cwd: w.be, transcript: s.save(w.scratch) }));
+    });
+  });
+});
+
+describe("STE-650 AC-STE-650.12 — the 'not a plain invocation' recogniser reads what ran", () => {
+  let w: World;
+  beforeAll(() => {
+    w = makeWorld();
+  });
+  const MOD = () => join(ADAPTERS_SRC, DECIDE);
+  const ARGS_SQ = `decide '/tmp/proj' /tmp/page.json --title 'BE recogniser' --parent GF-85 --attempt fast`;
+  const ARGS = `decide "/tmp/proj" /tmp/page.json --title "BE recogniser" --parent GF-85 --attempt fast`;
+  const COUNTED = /\b1 Bash command\(s\) ran a deciding subcommand in a shape that is not a plain invocation/;
+  const ANY_NOTE = /not a plain invocation, so any receipt/;
+  const create = jiraCreate({ title: "BE recogniser" });
+  const sessionWith = (command: string): string => {
+    const s = new Session();
+    s.bash(command, '{"outcome":"create"}');
+    return s.save(w.scratch);
+  };
+
+  const COUNTS: Array<{ label: string; command: () => string; quoted: string }> = [
+    { label: "an absolute bun path", command: () => `/usr/local/bin/bun run "${MOD()}" ${ARGS}`, quoted: "/usr/local/bin/bun run" },
+    { label: "a `bash -c` body", command: () => `bash -c "bun run '${MOD()}' ${ARGS_SQ}"`, quoted: "bash -c" },
+    { label: "a backslash-continued invocation", command: () => `bun run \\\n  "${MOD()}" \\\n  ${ARGS}`, quoted: DECIDE },
+  ];
+  for (const c of COUNTS) {
+    test(`AC-STE-650.12 — ${c.label} is counted and quoted in the note, on both reads (HEAD: not counted, no note)`, async () => {
+      await gradeBothReads([
+        { label: c.label, tool: JIRA("createJiraIssue"), input: create, cwd: w.be, transcript: sessionWith(c.command()), check: (r) => expectRefusal(r, COUNTED, c.quoted) },
+      ]);
+    });
+  }
+
+  test("AC-STE-650.12 — `echo \"run it: bun run <module> decide …\"` only echoes the invocation: no note (HEAD: counted)", async () => {
+    const r = await runHook(JIRA("createJiraIssue"), create, { cwd: w.be, transcript: sessionWith(`echo "run it: bun run ${MOD()} ${ARGS_SQ}"`) });
+    expectRefusal(r, /no create receipt/);
+    expect(r.stderr).not.toMatch(ANY_NOTE);
+  });
+
+  test("AC-STE-650.12 CONTROL — `echo \"bun run <module> decide …\"` is not counted (keep-behaviour: guards a `bash -c` unwrap that also unwraps echo)", async () => {
+    const r = await runHook(JIRA("createJiraIssue"), create, { cwd: w.be, transcript: sessionWith(`echo "bun run ${MOD()} ${ARGS_SQ}"`) });
+    expectRefusal(r, /no create receipt/);
+    expect(r.stderr).not.toMatch(ANY_NOTE);
+  });
+
+  test("AC-STE-650.12 CONTROL — the plain invocation's accepted shape is unchanged: a plain `bun run <module> decide …` draws no note", async () => {
+    const r = await runHook(JIRA("createJiraIssue"), create, { cwd: w.be, transcript: sessionWith(`bun run "${MOD()}" ${ARGS}`) });
+    expectRefusal(r, /no create receipt/);
+    expect(r.stderr).not.toMatch(ANY_NOTE);
+  });
+});
+
+describe("STE-650 AC-STE-650.13 — a full 50-row Linear re-list gets the consent remedy, not the re-list remedy", () => {
+  const SAVE = { project: "DPT", name: "Payouts" };
+  /** A create decided over 49 rows (default=allowed), then a complete re-list that returns exactly 50. */
+  function allowedThenFullRelist(arrange: (s: Session) => void = () => {}): { root: string; transcript: string } {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-full-relist");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(49) });
+    if (!d.out.split("\n").includes("default=allowed")) throw new Error(`fixture: the 49-row decision did not print default=allowed:\n${d.out}`);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.relist(cappedRows(50), { tracker: "linear" });
+    arrange(s);
+    return { root, transcript: s.save(scratch) };
+  }
+  const consentRemedy = (r: Run) => {
+    expectRefusal(r, /Create `?Payouts`?/);
+    const remedy = lineOf(r, "Remedy: ");
+    expect(remedy).toMatch(/AskUserQuestion/);
+    expect(remedy).toMatch(/Create `Payouts`/);
+    expect(remedy, "a re-list remedy loops: the next re-list returns the same 50 rows").not.toMatch(/list_milestones/);
+  };
+
+  test("AC-STE-650.13 — no answer → exit 2 with the consent remedy, on both reads (HEAD: the re-list remedy)", async () => {
+    const { root, transcript } = allowedThenFullRelist();
+    await gradeBothReads([{ label: "49-row allowed decision, 50-row re-list", tool: LINEAR("save_milestone"), input: SAVE, cwd: root, transcript, check: consentRemedy }]);
+  }, 60_000);
+
+  test("AC-STE-650.13 — following that remedy ends the loop: answered \"Create `Payouts`\" after the decision → exit 0 (HEAD: exit 2, re-list remedy again)", async () => {
+    const { root, transcript } = allowedThenFullRelist((s) => askConsent(s, CREATE_PAYOUTS_QUESTION, [CREATE_PAYOUTS, SKIP_PAYOUTS], { answer: CREATE_PAYOUTS }));
+    expectPermit(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript }));
+  }, 60_000);
+
+  test("AC-STE-650.13 CONTROL — a 50-row forbidden decision and a 50-row re-list, no answer → the consent remedy (keep-behaviour)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-full-forbidden");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(50) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.relist(cappedRows(50), { tracker: "linear" });
+    consentRemedy(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript: s.save(scratch) }));
+  }, 60_000);
+
+  test("AC-STE-650.13 / .15 — a capped 50-row re-list holding an open \"Payouts\", no answer → exit 2 naming the duplicate, on both reads (the capped window still sees a duplicate)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-capped-dup");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(49) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    const rows = cappedRows(50);
+    rows[49] = { id: "00000000-0000-4000-8000-0000000000aa", name: "Payouts" };
+    s.relist(rows, { tracker: "linear" });
+    await gradeBothReads([{
+      label: "capped re-list holding the title",
+      tool: LINEAR("save_milestone"),
+      input: SAVE,
+      cwd: root,
+      transcript: s.save(scratch),
+      check: (r) => expectRefusal(r, /00000000-0000-4000-8000-0000000000aa/, /duplicate/),
+    }]);
+  }, 60_000);
+
+  test("AC-STE-650.13 CONTROL — a 49-row re-list after the 49-row decision still permits with no answer (keep-behaviour)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-49-relist");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(49) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.relist(cappedRows(49), { tracker: "linear" });
+    expectPermit(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript: s.save(scratch) }));
+  }, 60_000);
+});
+
+describe("STE-650 AC-STE-650.14 — the archived STE-644 freshness bullet names the grading time", () => {
+  test("AC-STE-650.14 — the Requirement's **Fresh:** bullet carries an amendment clause naming the grading time", () => {
+    const text = readFileSync(join(REPO_ROOT, "specs", "frs", "archive", "STE-644.md"), "utf-8");
+    const requirement = text.split("## Requirement")[1]?.split("## Acceptance Criteria")[0] ?? "";
+    const bullet = requirement.split("\n").find((l) => l.startsWith("- **Fresh:**")) ?? "";
+    expect(bullet, "CONTROL — the bullet exists").toContain("120 s");
+    expect(bullet).toMatch(/amended/i);
+    expect(bullet).toMatch(/grading time/i);
+  });
 });

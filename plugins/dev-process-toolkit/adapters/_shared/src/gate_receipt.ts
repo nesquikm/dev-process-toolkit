@@ -89,6 +89,16 @@ export function announcesGateReceipt(command: string): boolean {
 }
 
 /**
+ * STE-650 — whether `command` ran the front door for THIS gate (`subject`, the
+ * full skill name). Another gate's run cannot vouch for this one, so only its
+ * own run may make this gate wait on a pending result.
+ */
+export function announcesGateReceiptFor(command: string, subject: string): boolean {
+  if (!announcesGateReceipt(command)) return false;
+  return `${GATE_SKILL_NAMESPACE}:${bunInvocation(command)!.args[0]}` === subject;
+}
+
+/**
  * Every refusal this front door can raise, named. A caller branches on the
  * reason rather than grepping the prose.
  */
@@ -505,6 +515,8 @@ export interface IncompleteRun {
   outcome: "errored" | "unresolved";
   /** Transcript line: the result's for `errored`, the call's for `unresolved`. */
   line: number;
+  /** The run's command, when the session library recorded it (STE-650). */
+  command?: string;
 }
 
 /**
@@ -918,6 +930,10 @@ export interface GateEvidenceMiss {
   how: string;
   /** The checkout this miss is about, so a multi-root refusal can name them all. */
   root: string;
+  /** STE-650 — the machine reason behind `why`, so a caller can tell lag from a finding. */
+  reason?: string;
+  /** STE-650 — a rewritten receipt was detected alongside this miss. */
+  tampered?: boolean;
 }
 
 /** What each miss sentence is composed from: the verdict, plus the words for it. */
@@ -1225,6 +1241,8 @@ export function gateReceiptMiss(
       MISS_PROSE[evidence.reason as keyof typeof MISS_PROSE](words),
     how: `${remedyCommand(subject, root)}, then retry this action.`,
     root,
+    reason: evidence.reason,
+    tampered: evidence.tampered.length > 0,
   };
 }
 
@@ -1390,6 +1408,8 @@ export interface GateEvidenceTarget {
    * and re-open HS-1.
    */
   announcesReceipts(command: string): boolean;
+  /** STE-650 — whether a command ran the front door for THIS target's gate. */
+  announcesOwnRun(command: string): boolean;
 }
 
 /**
@@ -1430,6 +1450,7 @@ export function gateEvidenceTarget(
     receiptLeg: gateReceiptLeg(subject, sessionId, peerRoots),
     receiptNotes: gateReceiptNoteLeg(subject, sessionId, peerRoots),
     announcesReceipts: announcesGateReceipt,
+    announcesOwnRun: (command) => announcesGateReceiptFor(command, subject),
   };
 }
 
