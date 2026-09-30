@@ -22,6 +22,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { nfr10Message, runningDptVersion } from "../dpt_version";
 import { compareSemver } from "../migrations/coverage";
+import { LINEAR_TEAM_KEY } from "../tracker_answer";
 import { readWorkspaceBinding, type WorkspaceAdapterKey } from "../workspace_binding";
 
 export const SHARED_TRACKER_MARKER = "> **Shared tracker container — stop before any tracker write.**";
@@ -71,12 +72,27 @@ export interface TrackerSubsectionOptions {
    * move a bound, non-deferred `project:` to a different one.
    */
   repoint?: true;
+  /**
+   * STE-646 — runs after the written file reads back clean. A throw restores
+   * the original bytes and rethrows; a restore that itself fails throws
+   * `TrackerBindingRestoreError` carrying the failure it followed (the
+   * commit's, or the read-back's) as `cause`.
+   */
+  commit?: () => void;
+}
+
+/** STE-646 — `commit` threw and the original bytes could not be written back. */
+export class TrackerBindingRestoreError extends Error {
+  constructor(
+    cause: unknown,
+    readonly restoreError: unknown,
+  ) {
+    super(`CLAUDE.md could not be restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`, { cause });
+    this.name = "TrackerBindingRestoreError";
+  }
 }
 
 const DEFERRED_PROJECT = "<deferred>";
-// Defined locally: importing it from linear_team_key.ts would close the
-// import cycle recorded there.
-const LINEAR_TEAM_KEY = /^[A-Z][A-Z0-9]*$/;
 
 export interface TrackerSubsectionResult {
   changed: boolean;
@@ -442,8 +458,13 @@ export function writeTrackerSubsection(
   writeFileSync(claudeMdPath, after);
   try {
     readWorkspaceBinding(claudeMdPath, adapter);
+    opts.commit?.();
   } catch (e) {
-    writeFileSync(claudeMdPath, before);
+    try {
+      writeFileSync(claudeMdPath, before);
+    } catch (restoreError) {
+      throw new TrackerBindingRestoreError(e, restoreError);
+    }
     throw e;
   }
   return { changed: true, before, after, diff };

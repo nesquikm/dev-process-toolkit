@@ -161,3 +161,53 @@ describe("AC-STE-612.9 — skills/setup/SKILL.md line 37 names the command in pl
     expect(count(join(PLUGIN_ROOT, "skills"))).toBe(245);
   });
 });
+
+// ===========================================================================
+// M_163656 (STE-646) — § 0c and step 7b.6 name the declaration flags
+// ===========================================================================
+
+/** Step 7b.6: from the `6. **Workspace binding.**` item to the next `### ` heading. */
+function step7b6(): string {
+  const ls = read(SETUP_REFERENCE).split("\n");
+  const start = ls.findIndex((l) => /^6\.\s+\*\*Workspace binding\.\*\*/.test(l));
+  if (start < 0) return "";
+  let end = ls.length;
+  for (let i = start + 1; i < ls.length; i++) {
+    if (/^#{2,3} /.test(ls[i]!)) {
+      end = i;
+      break;
+    }
+  }
+  return ls.slice(start, end).join("\n");
+}
+
+/** Every ±`r`-char window around an `--issue-type` (never `--issue-types`) in `text`. */
+function issueTypeWindows(text: string, r = 400): string[] {
+  const out: string[] = [];
+  const re = /--issue-type(?!s)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) out.push(text.slice(Math.max(0, m.index - r), m.index + r));
+  return out;
+}
+
+describe("STE-646 — the shared answer reaches the repoint command as flags", () => {
+  test("(control) step 7b.6 is found and names the shared question", () => {
+    expect(step7b6()).toContain("**The shared question.**");
+  });
+
+  test("AC-STE-646.5 — § 0c: the shared answer is passed as `--shared <tag>` (plus `--issue-type` on Jira) to the repoint command", () => {
+    const hit = issueTypeWindows(section0c()).some(
+      (w) =>
+        /shared (question|answer)/i.test(w) &&
+        w.includes("--shared <tag>") &&
+        /\bJira\b/.test(w) &&
+        (w.includes(COMMAND) || /repoint command/i.test(w)),
+    );
+    expect(hit, "no § 0c sentence passes the shared answer as --shared <tag> plus --issue-type to the repoint command").toBe(true);
+  });
+
+  test("AC-STE-646.5 — step 7b.6: a shared Jira declaration passes `--issue-type`", () => {
+    const hit = issueTypeWindows(step7b6(), 300).some((w) => /shared/i.test(w) && /\bJira\b/.test(w));
+    expect(hit, "step 7b.6 never says a shared Jira declaration passes --issue-type").toBe(true);
+  });
+});
