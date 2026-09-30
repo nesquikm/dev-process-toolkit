@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -41,6 +42,7 @@ import {
   runModuleReachabilityProbe,
 } from "../adapters/_shared/src/module_reachability";
 import { runRootHygiene } from "../adapters/_shared/src/root_hygiene";
+import { linearTeamKey } from "../adapters/_shared/src/migrations/entries/linear_team_key";
 
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
@@ -357,8 +359,15 @@ describe("AC-STE-603.2 — the writer preserves every line it does not own", () 
       writeFileSync(path, preservationClaudeMd());
       expect((await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, FLOOR)).code).toBe(0);
       const before = readFileSync(path, "utf-8");
-      const r = await runWriter(a, ["jira", "--project", "GX"], b, FLOOR);
-      expect(r.code, r.stderr).toBe(0);
+      // (control, AC-STE-645.1) the front door never re-points: the same step exits 1, byte-identical.
+      const door = await runWriter(a, ["jira", "--project", "GX"], b, FLOOR);
+      expect(door.code, `the writer's front door must refuse a re-point\n${door.stdout}${door.stderr}`).toBe(1);
+      expect(readFileSync(path, "utf-8")).toBe(before);
+      // The repoint itself is the rows route's in-process call (`repoint: true`).
+      const mod = await loadWriter();
+      await withRunning(b, FLOOR, async () => {
+        mod.writeTrackerSubsection(path, "jira", { project: "GX", repoint: true });
+      });
       const oldPara = await render({ adapter: "jira", project: "GF", repoTag: TAG, minDptVersion: FLOOR });
       const newPara = await render({ adapter: "jira", project: "GX", repoTag: TAG, minDptVersion: FLOOR });
       const expected = before.replace("\nproject: GF\n", "\nproject: GX\n").replace(oldPara, newPara);
@@ -390,8 +399,14 @@ describe("AC-STE-603.2 — the writer preserves every line it does not own", () 
       writeFileSync(path, preservationClaudeMd());
       expect((await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, HIGHER)).code).toBe(0);
       const before = readFileSync(path, "utf-8");
-      const r = await runWriter(a, ["jira", "--project", "GX"], b, FLOOR);
-      expect(r.code, r.stderr).toBe(0);
+      // (control, AC-STE-645.1) the front door never re-points: the same step exits 1, byte-identical.
+      const door = await runWriter(a, ["jira", "--project", "GX"], b, FLOOR);
+      expect(door.code, `the writer's front door must refuse a re-point\n${door.stdout}${door.stderr}`).toBe(1);
+      expect(readFileSync(path, "utf-8")).toBe(before);
+      const mod = await loadWriter();
+      await withRunning(b, FLOOR, async () => {
+        mod.writeTrackerSubsection(path, "jira", { project: "GX", repoint: true });
+      });
       const oldPara = await render({ adapter: "jira", project: "GF", repoTag: TAG, minDptVersion: HIGHER });
       const newPara = await render({ adapter: "jira", project: "GX", repoTag: TAG, minDptVersion: HIGHER });
       const expected = before.replace("\nproject: GF\n", "\nproject: GX\n").replace(oldPara, newPara);
@@ -405,18 +420,31 @@ describe("AC-STE-603.2 — the writer preserves every line it does not own", () 
       const path = join(a, "CLAUDE.md");
       const original = preservationClaudeMd();
       writeFileSync(path, original);
-      const steps: string[][] = [
-        ["jira", "--project", "GF", "--shared", TAG],
-        ["jira", "--project", "GX"],
-        ["jira", "--project", "GX"],
-      ];
-      for (const args of steps) {
-        const r = await runWriter(a, args, b, FLOOR);
-        expect(r.code, `${args.join(" ")}\n${r.stderr}`).toBe(0);
+      const mod = await loadWriter();
+      const expectPreserved = (): void => {
         const now = readFileSync(path, "utf-8");
         expect(foreign(now)).toEqual(foreign(original));
         expect(outside(now)).toEqual(outside(original));
-      }
+      };
+      // declare (front door)
+      const declared = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, FLOOR);
+      expect(declared.code, declared.stderr).toBe(0);
+      expectPreserved();
+      // (control, AC-STE-645.1) the front door never re-points: exit 1, byte-identical.
+      const before = readFileSync(path, "utf-8");
+      const door = await runWriter(a, ["jira", "--project", "GX"], b, FLOOR);
+      expect(door.code, `the writer's front door must refuse a re-point\n${door.stdout}${door.stderr}`).toBe(1);
+      expect(readFileSync(path, "utf-8")).toBe(before);
+      // repoint (in-process, the rows route's call)
+      await withRunning(b, FLOOR, async () => {
+        mod.writeTrackerSubsection(path, "jira", { project: "GX", repoint: true });
+      });
+      expect(readWorkspaceBinding(path, "jira").project).toBe("GX");
+      expectPreserved();
+      // re-run on the now-bound project (front door)
+      const rerun = await runWriter(a, ["jira", "--project", "GX"], b, FLOOR);
+      expect(rerun.code, rerun.stderr).toBe(0);
+      expectPreserved();
     });
   }, 60_000);
 });
@@ -1088,6 +1116,296 @@ describe("M_2306b6 — the writer declares jira_issue_type, so a bootstrap can",
       expect(r.stderr).toContain("jira_issue_type");
       expectThreeLine(r.stderr);
       expect(readFileSync(path).equals(before)).toBe(true);
+    });
+  }, 30_000);
+});
+
+// ====================================================== M_163656 (STE-645)
+
+// The writer never re-points.
+//
+// WHY. A declaration run of this writer could silently move a repository to
+// another tracker project (or a key-shaped Linear team): `--project GF` over a
+// `project: GB` binding exited 0 and wrote GF with none of the repoint rows
+// run, no receipt, and probe #25 still green. Only the repoint rows route
+// (`repoint: true`, in-process) may change a bound project.
+describe("the writer never re-points", () => {
+  /** A declared, GB-bound `### Jira` sub-section (the preservation fixture, declared through the front door). */
+  async function declaredGb(a: string, b: string): Promise<string> {
+    const path = join(a, "CLAUDE.md");
+    writeFileSync(path, preservationClaudeMd("GB"));
+    const r = await runWriter(a, ["jira", "--project", "GB", "--shared", TAG], b, FLOOR);
+    expect(r.code, `(control) declaring GB: ${r.stderr}`).toBe(0);
+    expect(readWorkspaceBinding(path, "jira").project).toBe("GB");
+    return path;
+  }
+
+  /** The refusal shape every guard shares: exit 1, empty stdout, NFR-10 three lines, file byte-identical. */
+  async function expectRefused(a: string, b: string, args: string[]): Promise<RunResult> {
+    const path = join(a, "CLAUDE.md");
+    const before = readFileSync(path);
+    const r = await runWriter(a, args, b, FLOOR);
+    expect(r.code, `expected exit 1 for ${args.join(" ")}\nstdout:${r.stdout}\nstderr:${r.stderr}\nfile now:\n${readFileSync(path, "utf-8")}`).toBe(1);
+    expect(r.stdout).toBe("");
+    expectThreeLine(r.stderr);
+    expect(readFileSync(path).equals(before), "the refused file must stay byte-identical").toBe(true);
+    return r;
+  }
+
+  const remedyLine = (stderr: string): string => stderr.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+
+  test("AC-STE-645.1 — `--project GF` over `project: GB` exits 1, empty stdout, byte-identical, naming repoint_tracker_binding.ts and `--project GB`", async () => {
+    await withRoots(async ({ a, b }) => {
+      await declaredGb(a, b);
+      const r = await expectRefused(a, b, ["jira", "--project", "GF", "--shared", TAG]);
+      expect(r.stderr).toContain("repoint_tracker_binding.ts");
+      expect(r.stderr).toContain("--project GB");
+      // Without --shared, the same re-point refuses too.
+      const bare = await expectRefused(a, b, ["jira", "--project", "GF"]);
+      expect(bare.stderr).toContain("repoint_tracker_binding.ts");
+      expect(readWorkspaceBinding(join(a, "CLAUDE.md"), "jira").project).toBe("GB");
+    });
+  }, 60_000);
+
+  test("AC-STE-645.2 — the same command with `--project GB` exits 0 and still writes --shared and --issue-type", async () => {
+    await withRoots(async ({ a, b }) => {
+      const path = join(a, "CLAUDE.md");
+      writeFileSync(path, preservationClaudeMd("GB"));
+      const r = await runWriter(a, ["jira", "--project", "GB", "--shared", TAG, "--issue-type", "Task"], b, FLOOR);
+      expect(r.code, r.stderr).toBe(0);
+      const text = readFileSync(path, "utf-8");
+      expect(text).toMatch(/^jira_issue_type: Task$/m);
+      const got = readWorkspaceBinding(path, "jira");
+      expect(got.project).toBe("GB");
+      expect(got.shared).toBe(true);
+      expect(got.repoTag).toBe(TAG);
+      // A re-run on the declared, bound project is permitted too.
+      const again = await runWriter(a, ["jira", "--project", "GB", "--shared", TAG, "--issue-type", "Bug"], b, FLOOR);
+      expect(again.code, again.stderr).toBe(0);
+      expect(readFileSync(path, "utf-8")).toMatch(/^jira_issue_type: Bug$/m);
+    });
+  }, 60_000);
+
+  test("AC-STE-645.3 — `--project GF` on `project: <deferred>` exits 0 and writes `project: GF`", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "jira", project: "<deferred>" });
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, FLOOR);
+      expect(r.code, r.stderr).toBe(0);
+      expect(readFileSync(join(a, "CLAUDE.md"), "utf-8")).toMatch(/^project: GF$/m);
+      expect(readWorkspaceBinding(join(a, "CLAUDE.md"), "jira").project).toBe("GF");
+    });
+  }, 30_000);
+
+  test("AC-STE-645.3 — `--project GF` on a CLAUDE.md with no tracker sub-section exits 0 and writes `project: GF`", async () => {
+    await withRoots(async ({ a, b }) => {
+      const path = join(a, "CLAUDE.md");
+      writeFileSync(
+        path,
+        ["# Fixture Project", "", "## Task Tracking", "", "mode: jira", "mcp_server: atlassian", "", "## Verification", "", "run_cmd: none", ""].join("\n"),
+      );
+      const r = await runWriter(a, ["jira", "--project", "GF"], b, FLOOR);
+      expect(r.code, r.stderr).toBe(0);
+      expect(readFileSync(path, "utf-8")).toMatch(/^project: GF$/m);
+      expect(readWorkspaceBinding(path, "jira").project).toBe("GF");
+    });
+  }, 30_000);
+
+  // The D-3 shape at the writer door: the declaration survives, its `project:` line does not.
+  const d3Shapes: Array<[string, (declared: string) => string]> = [
+    ["repo_tag, min_dpt_version and the stop paragraph kept", (t) => t.replace(/^project: GB\n/m, "")],
+    [
+      "only min_dpt_version kept",
+      (t) =>
+        t
+          .replace(/^project: GB\n/m, "")
+          .replace(/^repo_tag: .*\n/m, "")
+          .split("\n")
+          .filter((l) => !l.startsWith(">"))
+          .join("\n"),
+    ],
+    [
+      "only the stop paragraph kept",
+      (t) => t.replace(/^project: GB\n/m, "").replace(/^repo_tag: .*\n/m, "").replace(/^min_dpt_version: .*\n/m, ""),
+    ],
+  ];
+  for (const [shape, strip] of d3Shapes) {
+    test(`AC-STE-645.4 — a sub-section carrying a declaration but no \`project:\` (${shape}) refuses --project GF, byte-identical, naming restoring \`project:\` from git`, async () => {
+      await withRoots(async ({ a, b }) => {
+        const path = await declaredGb(a, b);
+        const stripped = strip(readFileSync(path, "utf-8"));
+        expect(stripped, "(control) the fixture lost its project line").not.toMatch(/^project\s*:/m);
+        writeFileSync(path, stripped);
+        const r = await expectRefused(a, b, ["jira", "--project", "GF"]);
+        const remedy = remedyLine(r.stderr);
+        expect(remedy, r.stderr).toContain("project:");
+        expect(remedy, r.stderr).toMatch(/\bgit\b/);
+      });
+    }, 60_000);
+  }
+
+  test("AC-STE-645.5 — Linear: key-shaped `team: STE` refuses `--team NEW` (byte-identical) and permits `--team STE`", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "linear", team: "STE", project: "DPT" });
+      const path = join(a, "CLAUDE.md");
+      const r = await expectRefused(a, b, ["linear", "--project", "DPT", "--team", "NEW"]);
+      expect(r.stderr).toContain("--team");
+      expect(readFileSync(path, "utf-8")).toMatch(/^team: STE$/m);
+      const ok = await runWriter(a, ["linear", "--project", "DPT", "--team", "STE"], b, FLOOR);
+      expect(ok.code, ok.stderr).toBe(0);
+      expect(readWorkspaceBinding(path, "linear").team).toBe("STE");
+    });
+  }, 60_000);
+
+  test("AC-STE-645.5 — Linear: a display-name team is repaired by `--team STE` (exit 0, writes `team: STE`)", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "linear", team: "Stellar Lab", project: "DPT" });
+      const path = join(a, "CLAUDE.md");
+      const r = await runWriter(a, ["linear", "--project", "DPT", "--team", "STE"], b, FLOOR);
+      expect(r.code, r.stderr).toBe(0);
+      expect(readFileSync(path, "utf-8")).toMatch(/^team: STE$/m);
+      expect(readFileSync(path, "utf-8")).not.toContain("team: Stellar Lab");
+    });
+  }, 30_000);
+
+  test("AC-STE-645.6 — two `project:` lines refuse any --project that differs from either line (exit 1, byte-identical)", async () => {
+    await withRoots(async ({ a, b }) => {
+      const path = join(a, "CLAUDE.md");
+      writeFileSync(path, preservationClaudeMd("GB").replace("project: GB\n", "project: GB\nproject: GF\n"));
+      expect(readFileSync(path, "utf-8").match(/^project: /gm)?.length, "(control) two project lines").toBe(2);
+      for (const p of ["GF", "GB", "GX"]) {
+        const r = await expectRefused(a, b, ["jira", "--project", p]);
+        expect(r.stderr, `--project ${p} names the ambiguous project lines`).toContain("project:");
+      }
+    });
+  }, 60_000);
+
+  // Audit round: a placeholder line beside a bound one is still two lines. The
+  // first line is the one the writer rewrites; the last is the one the reader
+  // reads, so `<deferred>`/empty + GB with --project GF would re-point silently.
+  // Review round: the refusal names the duplicate lines as its cause, in either
+  // order — never "no `project:` value", which the reader (last line wins) contradicts.
+  for (const [label, pair] of [
+    ["a `<deferred>` line before a bound one", "project: <deferred>\nproject: GB\n"],
+    ["an empty line before a bound one", "project:\nproject: GB\n"],
+    ["a bound line before an empty one", "project: GB\nproject:\n"],
+  ] as const) {
+    test(`AC-STE-645.6 — ${label} still refuses a differing --project, naming the duplicate lines (exit 1, byte-identical)`, async () => {
+      await withRoots(async ({ a, b }) => {
+        // Declared, so the absent-project guard would also fire: the duplicate
+        // cause must win because it is the true one.
+        const path = await declaredGb(a, b);
+        writeFileSync(path, readFileSync(path, "utf-8").replace("project: GB\n", pair));
+        expect(readFileSync(path, "utf-8").match(/^project\s*:/gm)?.length, "(control) two project lines").toBe(2);
+        expect(readFileSync(path, "utf-8"), "(control) declared").toMatch(/^repo_tag: /m);
+        const r = await expectRefused(a, b, ["jira", "--project", "GF"]);
+        expect(r.stderr).toContain("2 `project:` lines");
+        expect(r.stderr).not.toContain("no `project:` value");
+      });
+    }, 60_000);
+  }
+
+  test("AC-STE-645.6 — in-process: two `project:` lines refuse even with `repoint: true` (the rows route cannot pick one either)", async () => {
+    const mod = await loadWriter();
+    await withRoots(async ({ a, b }) => {
+      const path = join(a, "CLAUDE.md");
+      writeFileSync(path, preservationClaudeMd("GB").replace("project: GB\n", "project: GB\nproject: GX\n"));
+      const before = readFileSync(path, "utf-8");
+      await withRunning(b, FLOOR, async () => {
+        let thrown: unknown = null;
+        try {
+          mod.writeTrackerSubsection(path, "jira", { project: "GF", repoint: true });
+        } catch (e) {
+          thrown = e;
+        }
+        expect(thrown).toBeInstanceOf(mod.TrackerBindingWriteError);
+        expect((thrown as Error).message).toContain("2 `project:` lines");
+        expect((thrown as Error).message).not.toContain("no `project:` value");
+      });
+      expect(readFileSync(path, "utf-8")).toBe(before);
+    });
+  }, 30_000);
+
+  test("AC-STE-645.7 — in-process: a project change without `repoint: true` throws TrackerBindingWriteError (file byte-identical); with it, the change is written", async () => {
+    const mod = await loadWriter();
+    await withRoots(async ({ a, b }) => {
+      const path = await declaredGb(a, b);
+      const before = readFileSync(path, "utf-8");
+      await withRunning(b, FLOOR, async () => {
+        let thrown: unknown = null;
+        try {
+          mod.writeTrackerSubsection(path, "jira", { project: "GF" });
+        } catch (e) {
+          thrown = e;
+        }
+        expect(thrown, "a project change without repoint:true must throw").toBeInstanceOf(mod.TrackerBindingWriteError);
+        expect(readFileSync(path, "utf-8")).toBe(before);
+
+        const r = mod.writeTrackerSubsection(path, "jira", { project: "GF", repoint: true });
+        expect(r.changed).toBe(true);
+      });
+      expect(readWorkspaceBinding(path, "jira").project).toBe("GF");
+      expect(readWorkspaceBinding(path, "jira").repoTag).toBe(TAG);
+    });
+  }, 60_000);
+
+  test("AC-STE-645.7 — in-process: an empty project throws TrackerBindingWriteError and leaves the file byte-identical", async () => {
+    const mod = await loadWriter();
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "jira", project: "<deferred>" });
+      const path = join(a, "CLAUDE.md");
+      const before = readFileSync(path, "utf-8");
+      await withRunning(b, FLOOR, async () => {
+        let thrown: unknown = null;
+        try {
+          mod.writeTrackerSubsection(path, "jira", { project: "" });
+        } catch (e) {
+          thrown = e;
+        }
+        expect(thrown, "an empty project must throw the writer's own refusal").toBeInstanceOf(mod.TrackerBindingWriteError);
+      });
+      expect(readFileSync(path, "utf-8")).toBe(before);
+    });
+  }, 30_000);
+
+  /** A Linear-mode root with one Linear-bound FR (so linear-team-key can derive `STE`). */
+  function linearRootWithFr(root: string): void {
+    const dir = join(root, "specs", "frs");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "a.md"),
+      "---\ntitle: x\nmilestone: M_abc123\nstatus: active\narchived_at: null\ntracker:\n  linear: STE-618\ncreated_at: 2026-09-21T00:00:00Z\n---\n\n# x\n",
+    );
+  }
+
+  test("AC-STE-645.10 — linear-team-key apply on a display-name team with no `project:` line returns a Refusing summary and leaves CLAUDE.md unchanged", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "linear", team: "Stellar Lab" });
+      linearRootWithFr(a);
+      const path = join(a, "CLAUDE.md");
+      const before = readFileSync(path, "utf-8");
+      expect(before, "(control) no project line").not.toMatch(/^project\s*:/m);
+      let summary = "";
+      let changed: string[] = ["<not run>"];
+      await withRunning(b, FLOOR, async () => {
+        const res = linearTeamKey.apply!(a);
+        summary = res.summary;
+        changed = res.changed;
+      });
+      expect(summary).toMatch(/^Refusing: /);
+      expect(changed).toEqual([]);
+      expect(readFileSync(path, "utf-8")).toBe(before);
+    });
+  }, 30_000);
+
+  test("AC-STE-645.10 (control) — linear-team-key apply still rewrites a display-name team to its key when `project:` is bound", async () => {
+    await withRoots(async ({ a, b }) => {
+      claudeMd(a, { mode: "linear", team: "Stellar Lab", project: "DPT" });
+      linearRootWithFr(a);
+      await withRunning(b, FLOOR, async () => {
+        const res = linearTeamKey.apply!(a);
+        expect(res.changed).toEqual(["CLAUDE.md"]);
+      });
+      expect(readFileSync(join(a, "CLAUDE.md"), "utf-8")).toMatch(/^team: STE$/m);
     });
   }, 30_000);
 });

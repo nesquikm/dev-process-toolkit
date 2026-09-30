@@ -657,15 +657,18 @@ describe("AC-STE-612.3 — row 6: no active numeric plan collides", () => {
 // ===========================================================================
 
 /**
- * The faithful pre-change-semantics sibling: HEAD's § 0c flip. The prose route
- * calls the sub-section writer with the new project and checks nothing, so it
- * flips whatever the repository's state. Run on a COPY of the fixture root.
+ * The faithful pre-change-semantics sibling: the § 0c flip as it was before
+ * STE-612 — the prose route called the sub-section writer with the new project
+ * and checked nothing, so it flipped whatever the repository's state. Since
+ * STE-645 the writer refuses a project change unless the caller is the rows
+ * route, so this model of the pre-change route passes `repoint: true` (the
+ * waiver) to keep modelling an unguarded flip. Run on a COPY of the fixture root.
  */
 function headSemanticsFlip(root: string, adapter: WorkspaceAdapterKey, newProject: string): { flipped: boolean } {
   const copy = mkdtempSync(join(tmpdir(), "dpt-ste612-head-"));
   try {
     cpSync(root, copy, { recursive: true });
-    writeTrackerSubsection(join(copy, "CLAUDE.md"), adapter, { project: newProject });
+    writeTrackerSubsection(join(copy, "CLAUDE.md"), adapter, { project: newProject, repoint: true });
     return { flipped: readWorkspaceBinding(join(copy, "CLAUDE.md"), adapter).project === newProject };
   } finally {
     rmSync(copy, { recursive: true, force: true });
@@ -979,4 +982,267 @@ describe("M_2306b6 — a peer-naming refusal leaves this operator a legal path",
     expect(peerRefusalDefects(own, "/tmp/peer")).toEqual([]);
     expect(peerRefusalDefects(`${own} (--peer /tmp/peer)`, "/tmp/peer").length).toBe(2);
   });
+});
+
+// ===========================================================================
+// M_163656 (STE-645) — the repoint resumes only from `project: <deferred>`
+// ===========================================================================
+//
+// D-3: an ABSENT `project:` (the line gone, or the whole sub-section gone) used
+// to route to `resume` like the first-run `<deferred>` placeholder, and the
+// resume wrote the new project with none of rows 1..7 run. An absent project
+// now refuses before any row, naming the way back: restore the line from git
+// when the sub-section still carries a declaration, else bind it with the
+// writer's `--project`. A Linear resume leaving `team: <deferred>` refuses too.
+
+describe("STE-645 — an absent project refuses before any row; resume only from <deferred>", () => {
+  const remedyLine = (stderr: string): string => stderr.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+
+  /** The pre-row refusal shape: exit 1, no row line, no `resume`/`declare`, nothing written. */
+  function expectPreRowRefusal(root: string, before: string, r: { code: number | null; stdout: string; stderr: string }): void {
+    expect(r.code, `expected exit 1\nstdout:${r.stdout}\nstderr:${r.stderr}`).toBe(1);
+    expect(rowLines(r.stdout)).toEqual([]);
+    expect(r.stdout.split("\n")).not.toContain("resume");
+    expect(r.stdout.split("\n")).not.toContain("declare");
+    expectNothingWritten(root, before);
+  }
+
+  test(
+    "AC-STE-645.11 + AC-STE-645.12 (jira) — a declared sub-section without its `project:` line refuses before any row, naming restoring `project:` from git",
+    withGlacy({}, (g) => {
+      const md = join(g.a, "CLAUDE.md");
+      writeFileSync(md, readClaudeMd(g.a).replace(/^project: GB\n/m, ""));
+      const before = readClaudeMd(g.a);
+      expect(before, "(control) the declaration survives").toMatch(/^repo_tag: glacy-be$/m);
+      const r = runRepoint(g.args());
+      expectPreRowRefusal(g.a, before, r);
+      const remedy = remedyLine(r.stderr);
+      expect(remedy, r.stderr).toContain("project:");
+      expect(remedy, r.stderr).toMatch(/\bgit\b/);
+    }),
+    T,
+  );
+
+  test(
+    "AC-STE-645.11 + AC-STE-645.12 (jira) — a prose-only `### Jira` block (no project:, no tag) refuses before any row, naming the writer's `--project`",
+    withGlacy({}, (g) => {
+      const md = join(g.a, "CLAUDE.md");
+      writeFileSync(
+        md,
+        [
+          "# Fixture Project",
+          "",
+          "## Task Tracking",
+          "",
+          "mode: jira",
+          "mcp_server: atlassian",
+          "",
+          "### Jira",
+          "",
+          "Tickets for this repository live in the team's Jira project; ask the lead which one.",
+          "",
+          "## Verification",
+          "",
+          "run_cmd: none",
+          "",
+        ].join("\n"),
+      );
+      const before = readClaudeMd(g.a);
+      const r = runRepoint(g.args());
+      expectPreRowRefusal(g.a, before, r);
+      const remedy = remedyLine(r.stderr);
+      expect(remedy, r.stderr).toContain("tracker_binding_write.ts");
+      expect(remedy, r.stderr).toContain("--project");
+      expect(remedy, r.stderr).not.toMatch(/\bgit\b/);
+    }),
+    T,
+  );
+
+  test(
+    "AC-STE-645.11 + AC-STE-645.12 (jira) — no `### Jira` sub-section at all refuses before any row, naming the writer's `--project`",
+    withGlacy({}, (g) => {
+      const md = join(g.a, "CLAUDE.md");
+      writeFileSync(
+        md,
+        ["# Fixture Project", "", "## Task Tracking", "", "mode: jira", "mcp_server: atlassian", "", "## Verification", "", "run_cmd: none", ""].join("\n"),
+      );
+      const before = readClaudeMd(g.a);
+      const r = runRepoint(g.args());
+      expectPreRowRefusal(g.a, before, r);
+      const remedy = remedyLine(r.stderr);
+      expect(remedy, r.stderr).toContain("tracker_binding_write.ts");
+      expect(remedy, r.stderr).toContain("--project");
+    }),
+    T,
+  );
+
+  /** A Linear-mode root with the given CLAUDE.md text, committed; returns the root, the argv builder and a cleanup. */
+  function linearRoot(text: string): { root: string; argv: (extra?: string[]) => string[]; cleanup: () => void } {
+    const f = makeSpanFixture("M_ste645_lin");
+    const lst = mkdtempSync(join(tmpdir(), "dpt-ste645-lin-"));
+    writeFileSync(join(f.a, "CLAUDE.md"), text);
+    writeMcpJson(f.a, { linear: LINEAR_URL });
+    writeTrackerConfig(f.a, "linear", ["Todo", "In Progress", "Done"]);
+    commitAll(f.a, "linear fixture");
+    const w = (n: string, c: unknown) => {
+      const p = join(lst, n);
+      writeFileSync(p, JSON.stringify(c));
+      return p;
+    };
+    const base = [
+      f.a, "linear", "New Proj",
+      "--projects", w("p.json", { projects: [{ id: "p-1", name: "New Proj" }], hasNextPage: false }),
+      "--containers", w("c.json", { milestones: [] }),
+      "--statuses", w("s.json", linearStatuses(["Todo", "In Progress", "Done"])),
+    ];
+    return {
+      root: f.a,
+      argv: (extra = []) => [...base, ...extra],
+      cleanup: () => {
+        f.cleanup();
+        rmSync(lst, { recursive: true, force: true });
+      },
+    };
+  }
+
+  test(
+    "AC-STE-645.11 + AC-STE-645.12 (linear) — a `### Linear` sub-section with no `project:` line refuses before any row, naming the writer's `--project`",
+    async () => {
+      const l = linearRoot(linearClaudeMdText({ team: "STE", project: "Old Proj" }).replace(/^project: .*\n/m, ""));
+      try {
+        const before = readClaudeMd(l.root);
+        expect(before, "(control) no project line").not.toMatch(/^project\s*:/m);
+        const r = runRepoint(l.argv(["--team", "STE"]));
+        expectPreRowRefusal(l.root, before, r);
+        const remedy = remedyLine(r.stderr);
+        expect(remedy, r.stderr).toContain("tracker_binding_write.ts");
+        expect(remedy, r.stderr).toContain("--project");
+      } finally {
+        l.cleanup();
+      }
+    },
+    T,
+  );
+
+  for (const [label, pair] of [
+    ["empty then bound", "project:\nproject: Old Proj\n"],
+    ["`<deferred>` then bound", "project: <deferred>\nproject: Old Proj\n"],
+    ["bound then empty", "project: Old Proj\nproject:\n"],
+  ] as const) test(
+    `AC-STE-645.6 (repoint) — two \`project:\` lines (${label}) refuse before any row, naming the duplicate lines, as the writer does`,
+    async () => {
+      const l = linearRoot(
+        linearClaudeMdText({ team: "STE", project: "Old Proj" }).replace(/^project: .*\n/m, pair),
+      );
+      try {
+        const before = readClaudeMd(l.root);
+        expect(before.match(/^project\s*:/gm)?.length, "(control) two project lines").toBe(2);
+        const r = runRepoint(l.argv(["--team", "STE"]));
+        expectPreRowRefusal(l.root, before, r);
+        expect(r.stderr).toContain("2 `project:` lines");
+        expect(remedyLine(r.stderr), r.stderr).toContain("exactly one");
+      } finally {
+        l.cleanup();
+      }
+    },
+    T,
+  );
+
+  test(
+    "AC-STE-645.11 + AC-STE-645.12 (linear) — a declared `### Linear` sub-section without its `project:` line refuses before any row, naming restoring `project:` from git",
+    async () => {
+      const l = linearRoot(
+        linearClaudeMdText({ team: "STE", project: "Old Proj" }).replace(/^project: .*\n/m, "repo_tag: dpt\nmin_dpt_version: 2.87.0\n"),
+      );
+      try {
+        const before = readClaudeMd(l.root);
+        expect(before, "(control) declared, no project line").toMatch(/^repo_tag: dpt$/m);
+        expect(before).not.toMatch(/^project\s*:/m);
+        const r = runRepoint(l.argv(["--team", "STE"]));
+        expectPreRowRefusal(l.root, before, r);
+        const remedy = remedyLine(r.stderr);
+        expect(remedy, r.stderr).toContain("project:");
+        expect(remedy, r.stderr).toContain("git");
+      } finally {
+        l.cleanup();
+      }
+    },
+    T,
+  );
+
+  test(
+    "AC-STE-645.11 + AC-STE-645.12 (linear) — no `### Linear` sub-section at all refuses before any row, naming the writer's `--project`",
+    async () => {
+      const l = linearRoot(
+        ["# Fixture Project", "", "## Task Tracking", "", "mode: linear", "mcp_server: linear", "", "## Verification", "", "run_cmd: none", ""].join("\n"),
+      );
+      try {
+        const before = readClaudeMd(l.root);
+        expect(before, "(control) no Linear sub-section").not.toContain("### Linear");
+        const r = runRepoint(l.argv(["--team", "STE"]));
+        expectPreRowRefusal(l.root, before, r);
+        const remedy = remedyLine(r.stderr);
+        expect(remedy, r.stderr).toContain("tracker_binding_write.ts");
+        expect(remedy, r.stderr).toContain("--project");
+        expect(remedy, r.stderr).not.toMatch(/\bgit\b/);
+      } finally {
+        l.cleanup();
+      }
+    },
+    T,
+  );
+
+  test(
+    "AC-STE-645.13 (linear) — `project: <deferred>` with a bound team still routes to `resume` and exits 0",
+    async () => {
+      const l = linearRoot(linearClaudeMdText({ team: "STE", project: "<deferred>" }));
+      try {
+        const r = runRepoint(l.argv());
+        expect(rowLines(r.stdout)).toEqual([]);
+        expect(r.stdout.split("\n")).toContain("resume");
+        expect(r.code, r.stderr).toBe(0);
+        expect(readWorkspaceBinding(join(l.root, "CLAUDE.md"), "linear").project).toBe("New Proj");
+      } finally {
+        l.cleanup();
+      }
+    },
+    T,
+  );
+
+  test(
+    "AC-STE-645.14 — a Linear resume with `team: <deferred>` and no --team exits 1, byte-identical",
+    async () => {
+      const l = linearRoot(linearClaudeMdText({ team: "<deferred>", project: "<deferred>" }));
+      try {
+        const before = readClaudeMd(l.root);
+        const r = runRepoint(l.argv());
+        expect(r.code, `expected exit 1\nstdout:${r.stdout}\nstderr:${r.stderr}\nfile now:\n${readClaudeMd(l.root)}`).toBe(1);
+        expect(rowLines(r.stdout)).toEqual([]);
+        expect(r.stdout.split("\n")).not.toContain("resume");
+        expect(`${r.stdout}${r.stderr}`).toContain("--team");
+        expectNothingWritten(l.root, before);
+      } finally {
+        l.cleanup();
+      }
+    },
+    T,
+  );
+
+  test(
+    "AC-STE-645.14 (control) — the same resume with `--team STE` exits 0 and writes both team and project",
+    async () => {
+      const l = linearRoot(linearClaudeMdText({ team: "<deferred>", project: "<deferred>" }));
+      try {
+        const r = runRepoint(l.argv(["--team", "STE"]));
+        expect(r.stdout.split("\n")).toContain("resume");
+        expect(r.code, r.stderr).toBe(0);
+        const got = readWorkspaceBinding(join(l.root, "CLAUDE.md"), "linear");
+        expect(got.team).toBe("STE");
+        expect(got.project).toBe("New Proj");
+      } finally {
+        l.cleanup();
+      }
+    },
+    T,
+  );
 });

@@ -103,7 +103,9 @@ describe("AC-STE-612.5 — the write changes one line, through one writer", () =
       const copyDir = mkdtempSync(join(tmpdir(), "dpt-ste612-copy-"));
       g.extraDirs.push(copyDir);
       copyFileSync(join(g.a, "CLAUDE.md"), join(copyDir, "CLAUDE.md"));
-      const viaWriter = writeTrackerSubsection(join(copyDir, "CLAUDE.md"), "jira", { project: "GF" }).after;
+      // AC-STE-645.8: the rows route is the one caller that re-points, so the
+      // pre-write copy is written the way it writes: `repoint: true`.
+      const viaWriter = writeTrackerSubsection(join(copyDir, "CLAUDE.md"), "jira", { project: "GF", repoint: true }).after;
 
       const r = runRepoint(g.args());
       expect(r.code).toBe(0);

@@ -1765,6 +1765,11 @@ async function repoint(ctx: Ctx): Promise<void> {
 
   ctx.step("B first bound to its own container");
   rmSync(join(b.root, "specs", "plan", `${b.milestone.token}.md`)); // B holds no plan in the shared container yet
+  // The writer never re-points a bound project (STE-645): B's binding is first
+  // reset to the first-run placeholder by hand, then bound to its own
+  // container through the writer's front door, still a subprocess (AC-STE-616.3).
+  const bMd = join(b.root, "CLAUDE.md");
+  writeFileSync(bMd, readFileSync(bMd, "utf-8").replace(/^project: .*$/m, "project: <deferred>"));
   const w0 = await writerDoor(ctx, b.root, oldProject, b.tag);
   ctx.check(w0.exitCode === 0, `re-binding B to its own container failed: ${w0.stderr}`);
   repointSetup(ctx, a.root);
@@ -1877,12 +1882,16 @@ async function repoint(ctx: Ctx): Promise<void> {
 }
 
 /**
- * D-3, measured (never skipped): B's CLAUDE.md with its `project:` line
- * removed routes to `resume`, which rewrites the binding and exits 0 with none
- * of the seven checks run (`repoint_tracker_binding.ts:343`, `:875-880`).
+ * D-3 — FIXED by STE-645, measured (never skipped): B's CLAUDE.md with its
+ * `project:` line removed used to route to `resume`, which rewrote the binding
+ * and exited 0 with none of the seven checks run. `routeRepoint` now resumes
+ * only on `project: <deferred>` and refuses an absent project before any row;
+ * B's sub-section still declares its repo_tag, so the refusal names restoring
+ * `project:` from git. The stderr is returned so the row can tell that refusal
+ * from any other pre-row refusal (a session preflight, an argument refusal).
  */
-export async function measureKnownDefectD3(tracker: Tracker, pluginRoot: string): Promise<{ exitCode: number; stdout: string; rowLines: number; claudeMdChanged: boolean }> {
-  let out = { exitCode: -1, stdout: "", rowLines: -1, claudeMdChanged: false };
+export async function measureKnownDefectD3(tracker: Tracker, pluginRoot: string): Promise<{ exitCode: number; stdout: string; stderr: string; rowLines: number; claudeMdChanged: boolean }> {
+  let out = { exitCode: -1, stdout: "", stderr: "", rowLines: -1, claudeMdChanged: false };
   await withSharedTrackerFixture({ tracker, shape: "coexist", pluginRoot }, async (fx) => {
     const ctx = new Ctx(fx, pluginRoot, harnessBlocks);
     const md = join(fx.b.root, "CLAUDE.md");
@@ -1893,6 +1902,7 @@ export async function measureKnownDefectD3(tracker: Tracker, pluginRoot: string)
     out = {
       exitCode: r.exitCode,
       stdout: r.stdout,
+      stderr: r.stderr,
       rowLines: r.stdout.split("\n").filter((l) => /^\d+ (PASS|REFUSE|NOT-APPLICABLE)/.test(l)).length,
       claudeMdChanged: readFileSync(md, "utf-8") !== before,
     };

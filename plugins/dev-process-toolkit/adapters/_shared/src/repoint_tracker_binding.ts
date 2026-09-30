@@ -26,10 +26,15 @@
 // of this session's latest `repoint` receipt and prints `verify PASS|FAIL`.
 // It writes nothing.
 //
-// Not every run is a repoint. A sub-section whose `project:` is absent or the
+// Not every run is a repoint. A sub-section whose `project:` is the
 // `<deferred>` placeholder is a RESUME; one already bound to `<newProject>` is
 // a DECLARE (STE-603). Neither runs the rows: the command prints `resume` or
-// `declare` and hands straight to the sub-section writer.
+// `declare` and hands straight to the sub-section writer, which refuses to
+// move a bound project on its own — only the rows route waives that check
+// (`repoint: true`, STE-645). A sub-section with no `project:` value at all is
+// neither: it refuses before any row, naming a restore from git when a
+// shared-container declaration survives, and the writer's `--project` when
+// none does. A Linear resume onto `team: <deferred>` needs `--team`.
 
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -46,7 +51,13 @@ import { parseMilestoneToken } from "./milestone_token";
 import { parsePlanHeading } from "./plan_heading";
 import { readListingFile, type ReadListing } from "./resolve_milestone_identity";
 import { readTaskTrackingSection } from "./resolver_config";
-import { writeTrackerSubsection } from "./setup/tracker_binding_write";
+import {
+  declarationContext,
+  projectLinesOf,
+  RESTORE_PROJECT_REMEDY,
+  sharedDeclarationParts,
+  writeTrackerSubsection,
+} from "./setup/tracker_binding_write";
 import { parseWorktreePorcelain, runGit } from "./target_repo";
 import {
   epicTokenOutside,
@@ -331,10 +342,14 @@ function readPeer(path: string): Input<string> {
   return { ok: true, value: path };
 }
 
-/** The trimmed value of `key:` in `text`'s tracker sub-section, through `locateSubsection`. */
+/** The lines of `text`'s tracker sub-section, through `locateSubsection` ([] when there is none). */
+function subsectionLinesIn(text: string, adapter: WorkspaceAdapterKey): string[] {
+  return locateSubsection(text.replace(/\r\n?/g, "\n").split("\n"), adapter) ?? [];
+}
+
+/** The trimmed value of `key:` in `text`'s tracker sub-section. */
 function subsectionValueIn(text: string, adapter: WorkspaceAdapterKey, key: string): string | undefined {
-  const sub = locateSubsection(text.replace(/\r\n?/g, "\n").split("\n"), adapter) ?? [];
-  for (const line of sub) {
+  for (const line of subsectionLinesIn(text, adapter)) {
     const m = /^([a-z_][a-z0-9_]*)\s*:\s*(.*)$/.exec(line);
     if (m && m[1] === key && m[2]!.trim().length > 0) return m[2]!.trim();
   }
@@ -425,9 +440,50 @@ export function routeRepoint(args: RepointArgs): Route {
   } catch (e) {
     binding = failed(firstLine(e));
   }
+  // One read of CLAUDE.md for every guard below, so none can see other bytes.
+  const text = readFileSync(claudeMd, "utf-8");
+  const subLines = subsectionLinesIn(text, args.mode);
   // A refused declaration still names its project: read the line the reader read.
-  const project = binding.ok ? binding.value.project : subsectionValue(claudeMd, args.mode, "project");
-  if (project === undefined || project === DEFERRED) return { kind: "resume" };
+  const project = binding.ok ? binding.value.project : subsectionValueIn(text, args.mode, "project");
+  // STE-645: two `project:` lines bind nothing one reader agrees on (the
+  // writer rewrites the first, the reader keeps the last) — refuse before any
+  // row, with the writer's own cause and remedy.
+  const projectLines = projectLinesOf(subLines);
+  if (projectLines.length > 1) {
+    const title = args.mode === "jira" ? "Jira" : "Linear";
+    throw new RepointRefusal(
+      `Refusing: the \`### ${title}\` sub-section carries ${projectLines.length} \`project:\` lines (${projectLines.join(", ")}), so there is no one binding to re-point.`,
+      `keep exactly one \`project:\` line in the \`### ${title}\` sub-section by hand, then re-run.`,
+      `${context}, key=project, current="${projectLines.join("|")}"`,
+    );
+  }
+  // STE-645: only `<deferred>` resumes. An absent `project:` names no project
+  // to resume from, so it refuses before any row is decided or printed.
+  if (project === undefined) {
+    const declared = sharedDeclarationParts(subLines);
+    throw new RepointRefusal(
+      `Refusing: the \`### ${args.mode === "jira" ? "Jira" : "Linear"}\` sub-section has no \`project:\` value, so there is no binding to re-point and nothing to resume.`,
+      declared.length > 0
+        ? RESTORE_PROJECT_REMEDY
+        : `bind a project first with adapters/_shared/src/setup/tracker_binding_write.ts ${args.projectRoot} ${args.mode} --project <p>, then re-run.`,
+      `${context}, key=project, current=absent${declared.length > 0 ? `, ${declarationContext(declared)}` : ""}`,
+    );
+  }
+  if (project === DEFERRED) {
+    // STE-645: a Linear resume onto a still-deferred team would bind a project
+    // no team owns — refuse before writing unless --team names one.
+    if (args.mode === "linear" && args.team === undefined) {
+      const team = binding.ok ? binding.value.team : subsectionValueIn(text, args.mode, "team");
+      if (team === DEFERRED) {
+        throw new RepointRefusal(
+          "Refusing: the `### Linear` sub-section has `team: <deferred>`, so resuming would bind a project with no team.",
+          "re-run with --team <team> to bind the team alongside the project.",
+          `${context}, key=team, current=${DEFERRED}`,
+        );
+      }
+    }
+    return { kind: "resume" };
+  }
   if (project === args.newProject) return { kind: "declare" };
   return { kind: "rows", oldProject: project, binding };
 }
@@ -812,7 +868,7 @@ function bindingFields(args: RepointArgs): { project: string; team?: string } {
  */
 export function writeRepoint(args: RepointArgs, oldProject: string, rows: RowResult[]): string {
   const claudeMd = join(args.projectRoot, "CLAUDE.md");
-  writeTrackerSubsection(claudeMd, args.mode, bindingFields(args));
+  writeTrackerSubsection(claudeMd, args.mode, { ...bindingFields(args), repoint: true });
   const statusSnapshot = rows.find((r) => r.row === 4)?.statusSnapshot ?? [];
   try {
     return writeReceipt(args.projectRoot, {

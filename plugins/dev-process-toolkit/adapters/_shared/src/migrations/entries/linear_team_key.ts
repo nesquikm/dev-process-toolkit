@@ -21,7 +21,11 @@
 // they all agree, the `team:` line is rewritten through the sub-section's one
 // writer (`writeTrackerSubsection`). When there is no bound FR, or the prefixes
 // disagree, apply REFUSES and names the hand-set remedy — it never guesses a
-// key. Reachability: measured on the maintainer's machine only, where the one
+// key. It also REFUSES when the sub-section has no `project:` value: the
+// writer never writes an empty `project:` and never binds one it was not
+// given (STE-645), so there is nothing to carry the new key.
+//
+// Reachability: measured on the maintainer's machine only, where the one
 // Linear-mode repository already binds the key.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -95,6 +99,9 @@ function planTeamKey(projectRoot: string): TeamKeyPlan | null {
   if (team === undefined || team === "" || KEY_SHAPED.test(team)) return null;
   const rel = relative(projectRoot, claudeMd);
   const base = { rel, claudeMd, project: binding.project ?? "", team };
+  if (binding.project === undefined || binding.project.trim() === "") {
+    return { ...base, key: null, why: "the sub-section has no `project:` line, and the writer never writes an empty `project:`" };
+  }
   const prefixes = new Set<string>();
   const ids = boundLinearIds(projectRoot);
   for (const id of ids) {

@@ -8,6 +8,15 @@
 //
 // The written file is read back through `readWorkspaceBinding`; a read-back
 // refusal restores the original bytes and refuses with the reader's text.
+//
+// It never re-points (STE-645). Without `repoint: true` — which only the
+// repoint rows route in `repoint_tracker_binding.ts` passes — it refuses,
+// file unchanged: a bound, non-deferred `project:` different from the one
+// passed; several `project:` lines when the value differs from any of them;
+// a sub-section with a shared-container declaration but no `project:` value;
+// and a key-shaped Linear `team:` different from `--team`. An empty
+// `project` refuses on every route. `project: <deferred>`, a display-name
+// team and a missing sub-section are still written.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -56,7 +65,18 @@ export interface TrackerSubsectionOptions {
    */
   issueType?: string;
   shared?: { repoTag: string } | "unshare";
+  /**
+   * STE-645 — waives the bound-project check. Only the repoint rows route
+   * (`repoint_tracker_binding.ts`) passes it; every other caller refuses to
+   * move a bound, non-deferred `project:` to a different one.
+   */
+  repoint?: true;
 }
+
+const DEFERRED_PROJECT = "<deferred>";
+// Defined locally: importing it from linear_team_key.ts would close the
+// import cycle recorded there.
+const LINEAR_TEAM_KEY = /^[A-Z][A-Z0-9]*$/;
 
 export interface TrackerSubsectionResult {
   changed: boolean;
@@ -72,6 +92,41 @@ function keyLineRe(key: string): RegExp {
 function findKey(lines: string[], key: string): number {
   const re = keyLineRe(key);
   return lines.findIndex((l) => re.test(l));
+}
+
+/**
+ * The shared-container declaration a tracker sub-section body carries: any of
+ * `repo_tag`, `min_dpt_version` or the stop paragraph. The writer's and the
+ * repoint's "no `project:`" refusals both read this one definition (STE-645).
+ */
+export function sharedDeclarationParts(body: string[]): string[] {
+  return [
+    findKey(body, "repo_tag") >= 0 ? "repo_tag" : null,
+    findKey(body, "min_dpt_version") >= 0 ? "min_dpt_version" : null,
+    body.includes(SHARED_TRACKER_MARKER) ? "the stop paragraph" : null,
+  ].filter((k): k is string => k !== null);
+}
+
+/** The `declaration=` context token for `sharedDeclarationParts`' result. */
+export function declarationContext(parts: string[]): string {
+  return `declaration=${parts.join("+").replace(/ /g, "_")}`;
+}
+
+/**
+ * The remedy both "no `project:`" refusals name when a declaration survives:
+ * the project it was declared for is only recoverable from history (STE-645).
+ */
+export const RESTORE_PROJECT_REMEDY =
+  "restore the `project:` line from git (git log -p -- CLAUDE.md, then git checkout <rev> -- CLAUDE.md or re-add the line by hand), then re-run.";
+
+/**
+ * The trimmed value of every `project:` line in a sub-section body, in order,
+ * `<deferred>` and empty values included. Two or more lines refuse on the
+ * writer and on the repoint alike (STE-645), so both count them here.
+ */
+export function projectLinesOf(body: string[]): string[] {
+  const re = keyLineRe("project");
+  return body.filter((l) => re.test(l)).map((l) => l.replace(/^project\s*:\s*/, "").trim());
 }
 
 /** The trimmed value of `key:`, or "" when the key is absent. */
@@ -190,6 +245,13 @@ export function writeTrackerSubsection(
       `${context}, encoding=${before.startsWith("\uFEFF") ? "bom" : "crlf"}`,
     );
   }
+  if (opts.project.trim().length === 0) {
+    throw new TrackerBindingWriteError(
+      `--project was given an empty value; the writer never writes an empty \`project:\`.`,
+      `pass the tracker project (e.g. --project STE), then re-run.`,
+      `${context}, key=project, value=""`,
+    );
+  }
   if (opts.team !== undefined && opts.team.trim().length === 0) {
     throw new TrackerBindingWriteError(
       `--team was given an empty value; the writer never writes an empty \`team:\`.`,
@@ -269,6 +331,51 @@ export function writeTrackerSubsection(
     if (/^#{2,3}\s/.test(lines[i]!)) {
       subEnd = i;
       break;
+    }
+  }
+
+  // Checked first and on every route, `repoint: true` included: keyValue
+  // reads the FIRST `project:` line; readWorkspaceBinding reads the
+  // LAST. With several lines, a value differing from ANY of them refuses —
+  // a `<deferred>` or empty line counts too, or `<deferred>` + `GB` would
+  // let the write rewrite the first line while the reader keeps `GB`.
+  const bound = projectLinesOf(lines.slice(subStart + 1, subEnd));
+  if (bound.length > 1 && bound.some((v) => v !== opts.project)) {
+    throw new TrackerBindingWriteError(
+      `the \`${subTitle}\` sub-section carries ${bound.length} \`project:\` lines (${bound.join(", ")}); writing \`project: ${opts.project}\` would pick one of them, which this writer does not do.`,
+      `keep exactly one \`project:\` line in the \`${subTitle}\` sub-section by hand, then re-run.`,
+      `${context}, key=project, current="${bound.join("|")}", requested="${opts.project}"`,
+    );
+  }
+  if (opts.repoint !== true) {
+    const body = lines.slice(subStart + 1, subEnd);
+    const current = keyValue(body, "project");
+    if (current.length === 0) {
+      const kept = sharedDeclarationParts(body);
+      if (kept.length > 0) {
+        throw new TrackerBindingWriteError(
+          `the \`${subTitle}\` sub-section carries a shared-container declaration (${kept.join(", ")}) but no \`project:\` value, so the project it was declared for is unknown.`,
+          RESTORE_PROJECT_REMEDY,
+          `${context}, key=project, current="", ${declarationContext(kept)}, requested="${opts.project}"`,
+        );
+      }
+    }
+    if (current.length > 0 && current !== DEFERRED_PROJECT && current !== opts.project) {
+      throw new TrackerBindingWriteError(
+        `CLAUDE.md binds \`project: ${current}\`; writing \`project: ${opts.project}\` would re-point this repository, which this writer does not do.`,
+        `to keep the binding, re-run with --project ${current}; to move this repository to ${opts.project}, run /dev-process-toolkit:setup's repoint flag (bun run adapters/_shared/src/repoint_tracker_binding.ts <projectRoot> ${adapter} ${opts.project} …).`,
+        `${context}, key=project, current="${current}", requested="${opts.project}"`,
+      );
+    }
+    if (adapter === "linear" && opts.team !== undefined) {
+      const team = keyValue(body, "team");
+      if (LINEAR_TEAM_KEY.test(team) && team !== opts.team) {
+        throw new TrackerBindingWriteError(
+          `CLAUDE.md binds Linear \`team: ${team}\`; writing \`team: ${opts.team}\` would re-point this repository, which this writer does not do.`,
+          `to keep the binding, re-run with --team ${team}; to move this repository to team ${opts.team}, run /dev-process-toolkit:setup's repoint flag.`,
+          `${context}, key=team, current="${team}", requested="${opts.team}"`,
+        );
+      }
     }
   }
 
