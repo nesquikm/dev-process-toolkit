@@ -18,8 +18,9 @@
 //   AC.14  no vacuous scenario: declared invocation kinds recorded, refused
 //          AND permitted writes where the hook is declared, the summary line.
 //   AC.16  no new probe, capability key or smoke leg; skip sites unchanged.
-//   D-2 / D-3   the two named known defects, asserted at their measured
-//          behaviour, titled as the defect.
+//   D-2         a named known defect, asserted at its measured behaviour,
+//          titled as the defect.
+//   D-3         FIXED by STE-645: the row asserts the refusal, titled FIXED.
 //
 // The registry (`adapters/_shared/src/shared_tracker_scenarios.ts`) is loaded
 // with a dynamic import so its absence reds the registry clauses by name
@@ -962,11 +963,31 @@ describe("What ships as a known defect", () => {
       // A fix flips this to 1 and must update the FR's known-defect record.
       expect(m.exitCode, m.output).toBe(0);
     }, SCENARIO_TIMEOUT);
-    test(`KNOWN DEFECT D-3 (${tracker}) — B's CLAUDE.md without its project: line routes the repoint to resume, which rewrites the binding and exits 0 with no row run`, async () => {
+    test(`FIXED D-3 (${tracker}) — B's CLAUDE.md without its project: line refuses before any row and leaves the file unchanged (AC-STE-645.11, AC-STE-645.15)`, async () => {
       const m = await measureKnownDefectD3(tracker, PLUGIN_ROOT);
-      expect({ exitCode: m.exitCode, stdout: m.stdout.trim(), rowLines: m.rowLines, claudeMdChanged: m.claudeMdChanged }).toEqual({ exitCode: 0, stdout: "resume", rowLines: 0, claudeMdChanged: true });
+      // Before STE-645 this measured { exitCode: 0, stdout: "resume", rowLines: 0, claudeMdChanged: true }.
+      expect({ exitCode: m.exitCode, stdout: m.stdout.trim(), rowLines: m.rowLines, claudeMdChanged: m.claudeMdChanged }, m.stderr).toEqual({ exitCode: 1, stdout: "", rowLines: 0, claudeMdChanged: false });
+      // Discriminating: an unrelated pre-row refusal would also exit 1 with no row.
+      expect(m.stderr).toContain("project:");
+      expect(m.stderr).toMatch(/\bgit\b/);
     }, SCENARIO_TIMEOUT);
   }
+});
+
+describe("AC-STE-645.15 — D-3 ships fixed, not known", () => {
+  test("no test title carries the D-3 known-defect label, and the FIXED D-3 row runs once per tracker", () => {
+    const src = readFileSync(THIS_SUITE, "utf-8");
+    const titles = [...src.matchAll(/\btest\(\s*[`"']([^`"']*)/g)].map((m) => m[1]!);
+    const known = ["KNOWN", "DEFECT", "D-3"].join(" ");
+    expect(titles.filter((t) => t.includes(known))).toEqual([]);
+    const fixed = titles.filter((t) => t.startsWith("FIXED D-3 (${tracker})"));
+    expect(fixed.length, "one FIXED D-3 row, inside the per-tracker loop").toBe(1);
+    // The row sits in the describe's loop over both trackers.
+    const at = src.indexOf(["test(", "`FIXED D-3 (${tracker})"].join(""));
+    const loop = src.lastIndexOf('for (const tracker of ["jira", "linear"] as const)', at);
+    const enclosing = src.lastIndexOf("\ndescribe(", at);
+    expect(loop, "the FIXED D-3 row runs on jira and linear").toBeGreaterThan(enclosing);
+  });
 });
 
 void LINEAR_PROJECT;
