@@ -1430,6 +1430,8 @@ async function receiptIntegrity(ctx: Ctx): Promise<void> {
   // receipt of an earlier step can stand in as the reason.
   const NO_RECEIPT = "no create receipt announced by create_idempotency_probe.ts decide in this session authorises it.";
   const noReceiptOnly = new RegExp(`in ${b.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: ${NO_RECEIPT.replace(/[.]/g, "\\.")}$`, "m");
+  /** STE-649 — the no-receipt refusal carrying the note that names another session and its id. */
+  const anotherSession = (sid: string) => new RegExp(`${NO_RECEIPT.replace(/[.]/g, "\\.")}.*another session.*${sid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
   const fresh = async (label: string): Promise<Session> => {
     const x = ctx.session(label);
     const att = await ctx.attach(b, x, plan);
@@ -1473,7 +1475,8 @@ async function receiptIntegrity(ctx: Ctx): Promise<void> {
     const s2 = await fresh("b-other-dir");
     const d = await decideAs("Other session work", other.id);
     announce(s2, d.args, d.r.stdout.split("\n")[0]!, announcementOf(d.r.stdout));
-    ctx.expectRefused(await ctx.write(b, s2, tool, d.input, { cwd: b.root }), "a create whose receipt another session wrote", noReceiptOnly);
+    // STE-649 (AC-STE-649.20): the refusal names the real cause and the session.
+    ctx.expectRefused(await ctx.write(b, s2, tool, d.input, { cwd: b.root }), "a create whose receipt another session wrote", anotherSession(other.id));
     const own = await decideAs("Other session twin", s2.id);
     announce(s2, own.args, own.r.stdout.split("\n")[0]!, announcementOf(own.r.stdout));
     ctx.expectPermitted(await ctx.write(b, s2, tool, own.input, { cwd: b.root }), "permit twin: the same shape with this session's own receipt in its own directory");
@@ -1484,7 +1487,7 @@ async function receiptIntegrity(ctx: Ctx): Promise<void> {
     const d = await decideAs("Copied receipt work", other.id);
     const copy = copyReceipt(announcementOf(d.r.stdout), b.root, s3.id);
     announce(s3, d.args, d.r.stdout.split("\n")[0]!, copy);
-    ctx.expectRefused(await ctx.write(b, s3, tool, d.input, { cwd: b.root }), "a create whose receipt JSON names another session", noReceiptOnly);
+    ctx.expectRefused(await ctx.write(b, s3, tool, d.input, { cwd: b.root }), "a create whose receipt JSON names another session", anotherSession(other.id));
     const own = await decideAs("Copied receipt twin", s3.id);
     announce(s3, own.args, own.r.stdout.split("\n")[0]!, announcementOf(own.r.stdout));
     ctx.expectPermitted(await ctx.write(b, s3, tool, own.input, { cwd: b.root }), "permit twin: the same shape with this session's own receipt");
@@ -1520,11 +1523,10 @@ async function receiptIntegrity(ctx: Ctx): Promise<void> {
     } finally {
       chmodSync(dir, 0o755);
     }
-    // No reason needle: the hook names an unreadable receipt as one that
-    // "failed to parse" — the malformed-receipt wording — so no substring of
-    // its refusal tells this case from the malformed one (reported, STE-616
-    // hardening pass).
-    ctx.expectRefused(w, "a create whose receipt directory cannot be read");
+    // STE-649 (AC-STE-649.18): an unreadable receipt is named as unreadable,
+    // with its errno — no longer in the malformed-receipt ("failed to parse")
+    // wording, which was KNOWN DEFECT D-6 of STE-616.
+    ctx.expectRefused(w, "a create whose receipt directory cannot be read", /could not be read[^\n]*EACCES/);
     const again = await decideAs("Readable dir twin", s.id);
     announce(s, again.args, again.r.stdout.split("\n")[0]!, announcementOf(again.r.stdout));
     ctx.expectPermitted(await ctx.write(b, s, tool, again.input, { cwd: b.root }), "permit twin: the receipt directory readable");
@@ -1587,11 +1589,20 @@ async function hookOnly(ctx: Ctx, server: string, session: Session, tool: string
   return r;
 }
 
-/** A plausible input for any gated write tool, in the fixture's container. */
+/**
+ * A plausible input for any of the 27 gated write tools (STE-649 added
+ * addTeamworkGraphContext to STE-607's 26), in the fixture's container.
+ */
 export function genericWriteInput(tracker: Tracker, tool: string, key: string): Record<string, unknown> {
   if (tracker === "jira") {
     if (tool === "createJiraIssue") return { cloudId: "fixture-cloud", projectKey: JIRA_PROJECT, issueTypeName: "Task", summary: "Sweep work" };
     if (tool === "createIssueLink") return { cloudId: "fixture-cloud", inwardIssue: key, outwardIssue: key, type: "Relates" };
+    // STE-649 — the teamwork-graph link names its sides in objectIdentifier /
+    // targetObjectIdentifier; without them the cross-grade would refuse it for
+    // the wrong reason (no resolvable key) instead of for ownership.
+    if (tool === "addTeamworkGraphContext") {
+      return { cloudId: "fixture-cloud", relationshipType: "jira-work-item-links-jira-work-item", objectIdentifier: key, targetObjectIdentifier: key };
+    }
     return { cloudId: "fixture-cloud", issueIdOrKey: key, fields: { summary: "x" }, transition: { id: "21" }, commentBody: "x", timeSpent: "1h" };
   }
   if (tool === "save_issue") return { team: LINEAR_TEAM, project: LINEAR_PROJECT, title: "Sweep work" };
@@ -1971,18 +1982,32 @@ export async function measureKnownDefectD4(
 
 /**
  * D-5, measured: a write whose receipts sit in B's main checkout while the
- * write is decided in B's worktree (and the reverse) is refused, but worded as
- * a label set carrying more than one repo tag — the labels carry one; two
- * declared roots share it. The receipt location is never named.
+ * write is decided in B's worktree (and the reverse). Until STE-649 it was
+ * refused, but worded as a label set carrying more than one repo tag — the
+ * labels carry one; two declared roots share it — and the receipt location was
+ * never named. STE-649 adds the two controls its fix is graded against:
+ *   differentRepos — a CLONE of B (another repository, same repo_tag) holds the
+ *                    receipt, the write runs from B: "different repositories";
+ *   twoTags        — labels carrying A's and B's tags: HEAD's wording, kept.
+ * `writesAdded` is the double's write count across every leg (all refused).
  */
-export async function measureKnownDefectD5(
-  tracker: Tracker,
-  pluginRoot: string,
-): Promise<{ mainReceiptWorktreeWrite: ProcRun | null; worktreeReceiptMainWrite: ProcRun | null; roots: { main: string; worktree: string } }> {
-  let out: { mainReceiptWorktreeWrite: ProcRun | null; worktreeReceiptMainWrite: ProcRun | null; roots: { main: string; worktree: string } } = {
+export interface D5Measure {
+  mainReceiptWorktreeWrite: ProcRun | null;
+  worktreeReceiptMainWrite: ProcRun | null;
+  differentRepos: ProcRun | null;
+  twoTags: ProcRun | null;
+  roots: { main: string; worktree: string; clone: string; a: string };
+  writesAdded: number;
+}
+
+export async function measureKnownDefectD5(tracker: Tracker, pluginRoot: string): Promise<D5Measure> {
+  let out: D5Measure = {
     mainReceiptWorktreeWrite: null,
     worktreeReceiptMainWrite: null,
-    roots: { main: "", worktree: "" },
+    differentRepos: null,
+    twoTags: null,
+    roots: { main: "", worktree: "", clone: "", a: "" },
+    writesAdded: -1,
   };
   await withSharedTrackerFixture({ tracker, shape: "coexist", pluginRoot }, async (fx) => {
     const ctx = new Ctx(fx, pluginRoot, harnessBlocks);
@@ -1991,6 +2016,7 @@ export async function measureKnownDefectD5(
     const wt = fx.addWorktree("b");
     const wtRepo: FixtureRepo = { ...b, root: wt };
     const plan = (root: string) => join(root, "specs", "plan", `${b.milestone.token}.md`);
+    const w0 = ctx.writes;
     const s1 = ctx.session("d5-in-wt");
     await ctx.attach(b, s1, plan(b.root));
     const d1 = await ctx.decide(b.root, s1, "Relocated work", b.milestone);
@@ -1999,7 +2025,32 @@ export async function measureKnownDefectD5(
     await ctx.attach(wtRepo, s2, plan(wt));
     const d2 = await ctx.decide(wt, s2, "Relocated reverse work", b.milestone);
     const w2 = await ctx.write(b, s2, tool, d2.input!, { cwd: b.root });
-    out = { mainReceiptWorktreeWrite: w1.run, worktreeReceiptMainWrite: w2.run, roots: { main: b.root, worktree: wt } };
+
+    // Control (AC-STE-649.15): another repository — a clone, its own
+    // git-common-dir — declaring B's tag holds the receipt; the write runs from B.
+    const cloneParent = realpathSync(mkdtempSync(join(tmpdir(), "dpt-ste616-d5-clone-")));
+    fx.track(cloneParent);
+    git(cloneParent, "clone", "-q", b.root, "clone");
+    const clone = realpathSync(join(cloneParent, "clone"));
+    const s3 = ctx.session("d5-clone");
+    const d3 = await ctx.decide(clone, s3, "Cloned repository work", b.milestone);
+    const w3 = await ctx.write(b, s3, tool, d3.input!, { cwd: b.root });
+
+    // Control (AC-STE-649.16): labels carrying two different declared tags.
+    const s4 = ctx.session("d5-two-tags");
+    await ctx.attach(b, s4, plan(b.root));
+    const d4 = await ctx.decide(b.root, s4, "Two tags work", b.milestone);
+    const twoTags = tracker === "jira" ? { ...d4.input!, additional_fields: { labels: [fx.a.tag, b.tag] } } : { ...d4.input!, labels: [fx.a.tag, b.tag] };
+    const w4 = await ctx.write(b, s4, tool, twoTags, { cwd: fx.a.root });
+
+    out = {
+      mainReceiptWorktreeWrite: w1.run,
+      worktreeReceiptMainWrite: w2.run,
+      differentRepos: w3.run,
+      twoTags: w4.run,
+      roots: { main: b.root, worktree: wt, clone, a: fx.a.root },
+      writesAdded: ctx.writes - w0,
+    };
   });
   return out;
 }
@@ -2015,8 +2066,8 @@ export async function measureKnownDefectD5(
 export async function measureKnownDefectsReceipts(
   tracker: Tracker,
   pluginRoot: string,
-): Promise<{ malformed: ProcRun | null; unreadable: ProcRun | null; otherSession: ProcRun | null; noReceipt: ProcRun | null; writesAdded: number }> {
-  const out = { malformed: null as ProcRun | null, unreadable: null as ProcRun | null, otherSession: null as ProcRun | null, noReceipt: null as ProcRun | null, writesAdded: -1 };
+): Promise<{ malformed: ProcRun | null; unreadable: ProcRun | null; otherSession: ProcRun | null; noReceipt: ProcRun | null; otherSessionId: string; writesAdded: number }> {
+  const out = { malformed: null as ProcRun | null, unreadable: null as ProcRun | null, otherSession: null as ProcRun | null, noReceipt: null as ProcRun | null, otherSessionId: "", writesAdded: -1 };
   await withSharedTrackerFixture({ tracker, shape: "coexist", pluginRoot }, async (fx) => {
     const ctx = new Ctx(fx, pluginRoot, harnessBlocks);
     const b = fx.b;
@@ -2064,6 +2115,7 @@ export async function measureKnownDefectsReceipts(
     }
 
     const other = ctx.session("d7-writer");
+    out.otherSessionId = other.id;
     const sO = await fresh("d7-other");
     const dO = await decideAs(title, other.id);
     announce(sO, dO, dO.path);
