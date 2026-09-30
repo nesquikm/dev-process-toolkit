@@ -1061,6 +1061,7 @@ const notObserved = (reason: string): PredicateResult => ({ outcome: "not-observ
  */
 export const TRACKER_WRITE_TOOL_NAMES: readonly string[] = [
   "createJiraIssue", "editJiraIssue", "transitionJiraIssue", "addCommentToJiraIssue", "addWorklogToJiraIssue", "createIssueLink",
+  "addTeamworkGraphContext",
   "save_issue", "save_milestone", "save_comment", "delete_comment", "create_attachment", "create_attachment_from_upload",
   "delete_attachment", "share_issue", "unshare_issue", "save_project", "create_issue_label", "save_issue_label",
   "retire_issue_label", "restore_issue_label", "save_project_label", "retire_project_label", "restore_project_label",
@@ -2200,11 +2201,43 @@ function attachBinds(tracker: SharedTrackerId, shape: CreateShape, r: BundleRece
 
 /** A ticket key as the hook resolves one (`GF-123`, `STE-9`). */
 const TICKET_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
-/** A ticket call's subject keys, as the hook reads them: both sides of a link, else the issue fields. */
-function subjectKeys(c: ToolCall): string[] {
+/*
+ * STE-649 — the link-side helpers below are deliberate twins of the hook's, kept
+ * here rather than imported (the grader never imports hook code; the drift guard
+ * in tests/m_2306b6-ste-617-live-grader.test.ts holds them equal).
+ */
+/** The Teamwork Graph relationship types whose target is a Jira item. Twin: `TEAMWORK_ITEM_TARGETS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const TEAMWORK_ITEM_TARGETS = new Set(["jira-work-item-links-jira-work-item", "jira-work-item-blocks-jira-work-item"]);
+/** A call that links two tickets. Twin: `isLinkTool` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const isLinkTool = (c: ToolCall): boolean => ["createIssueLink", "addTeamworkGraphContext"].includes(bareTool(c.name));
+/** The input fields a ticket call names its subject in. Twin: `subjectValues` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+function subjectValues(c: ToolCall): unknown[] {
   const i = c.input;
-  const vals = bareTool(c.name) === "createIssueLink" ? [i.inwardIssue, i.outwardIssue] : [i.issueIdOrKey, i.id, i.issueId, i.issue];
-  return [...new Set(vals.map((v) => asKey(v).trim()).filter((k) => TICKET_KEY.test(k)).map((k) => k.toUpperCase()))];
+  const t = bareTool(c.name);
+  if (t === "createIssueLink") return [i.inwardIssue, i.outwardIssue];
+  if (t === "addTeamworkGraphContext") {
+    const itemTarget = typeof i.relationshipType === "string" && TEAMWORK_ITEM_TARGETS.has(i.relationshipType);
+    return itemTarget ? [i.objectIdentifier, i.targetObjectIdentifier] : [i.objectIdentifier];
+  }
+  return [i.issueIdOrKey, i.id, i.issueId, i.issue];
+}
+/** A Jira `/browse/<KEY>` URL. Twin: `BROWSE_URL` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const BROWSE_URL = /^https?:\/\/[^/?#\s]+\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)\/?(?:[?#]\S*)?$/;
+/** A link side's raw spelling. Twin: `sideText` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const sideText = (v: unknown): string => (typeof v === "number" ? String(v) : asKey(v)).trim();
+/** A link's Jira-item side resolves only from a key or a `/browse/<KEY>` URL. Twin: `resolveItemSide` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+function resolveItemSide(v: unknown): string | null {
+  const s = sideText(v);
+  if (TICKET_KEY.test(s)) return s.toUpperCase();
+  const m = BROWSE_URL.exec(s);
+  return m ? m[1]!.toUpperCase() : null;
+}
+/** A link's Jira-item sides that resolve to no ticket key, as spelled. Twin: `unresolvedItemSides` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const unresolvedSides = (c: ToolCall): string[] => (isLinkTool(c) ? subjectValues(c).filter((v) => resolveItemSide(v) === null).map(sideText) : []);
+/** A ticket call's subject keys, as the hook reads them: the resolved sides of a link, else the issue fields. */
+function subjectKeys(c: ToolCall): string[] {
+  if (isLinkTool(c)) return [...new Set(subjectValues(c).map(resolveItemSide).filter((k): k is string => k !== null))];
+  return [...new Set(subjectValues(c).map((v) => asKey(v).trim()).filter((k) => TICKET_KEY.test(k)).map((k) => k.toUpperCase()))];
 }
 
 /** How the hook classes a successful tracker write: a ticket create, a milestone-container create, another container write, or a ticket write. */
@@ -2554,7 +2587,9 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
       } else {
         const subjects = subjectKeys(c);
         const keys = subjects.filter(inRunContainers);
-        if (subjects.length === 0) why = "ticket write names no ticket key the hook could resolve";
+        const unresolved = unresolvedSides(c);
+        if (unresolved.length > 0) why = `link names the Jira-item side ${unresolved.map((v) => `"${v}"`).join(", ")} that resolves to no ticket key (only a key or a /browse/<KEY> URL does), whatever its other side`;
+        else if (subjects.length === 0) why = "ticket write names no ticket key the hook could resolve";
         else if (keys.length === 0) {
           // THE THIRD CASE, which used to fall through to `why = null` and grade
           // as gated: every key this write names is outside the run's own
@@ -2590,7 +2625,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
             }
             return latest !== null && forbiddenDecisionConsented(s, latest.join, latest.a.index, i);
           };
-          const ok = bareTool(c.name) === "createIssueLink" ? keys.some(owned) : keys.every(owned);
+          const ok = isLinkTool(c) ? keys.some(owned) : keys.every(owned);
           if (!ok) why = `write on ${keys.join(", ")} follows no receipt, creation or FR binding in this session that makes the key its repository's`;
         }
       }

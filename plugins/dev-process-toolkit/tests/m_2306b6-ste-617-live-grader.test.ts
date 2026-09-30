@@ -3750,6 +3750,61 @@ describe("HARDENING 8 — the grader's tracker-write tool set is the hook's", ()
   });
 });
 
+// STE-649 (AC-STE-649.7) — the grader mirrors the hook: addTeamworkGraphContext
+// is a write, and a link's Jira-item sides resolve per side — a key or a
+// /browse/<KEY> URL — so a numeric id, an ARI or another URL beside an owned
+// side is ungraded no longer. Atlas project/goal and remote-link targets are
+// no ticket subjects. Rows repoint S13's SUCCESSFUL edit of its own DST-101.
+describe("AC-STE-649.7 — the grader's write set and link rule are the hook's", () => {
+  test("AC-STE-649.7 — TRACKER_WRITE_TOOL_NAMES carries addTeamworkGraphContext, as the hook's TRACKER_WRITE_TOOLS does, with no drift", () => {
+    const names = grader().TRACKER_WRITE_TOOL_NAMES ?? [];
+    expect(names).toContain("addTeamworkGraphContext");
+    expect(TRACKER_WRITE_TOOLS).toContain("addTeamworkGraphContext");
+    expect(toolSetDrift(names, TRACKER_WRITE_TOOLS)).toEqual([]);
+  });
+
+  const TW = (object: string, target: string, relationshipType: string) => ({ cloudId: "c", relationshipType, objectIdentifier: object, targetObjectIdentifier: target });
+  /** S13's successful edit of DST-101 (owned in its session), rewritten as `tool` with `input`. */
+  const asWrite = (tool: string, input: Record<string, unknown>) => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S13");
+    const call = s.calls.find((c) => /editJiraIssue$/.test(c.name) && !c.result.isError)!;
+    expect(call, "the fixture has a successful ticket edit to repoint").toBeDefined();
+    call.name = call.name.replace(/editJiraIssue$/, tool);
+    call.input = input;
+    return { b, s };
+  };
+  const flagged = (tool: string, input: Record<string, unknown>): string[] => {
+    const { b, s } = asWrite(tool, input);
+    return findingsOf(grade(b), "ungated-write").filter((f) => f.session === s.sessionId).map((f) => f.detail ?? "");
+  };
+
+  test("CONTROL — S13's edit of DST-101 is owned: the same call on DST-101 is no finding", () => {
+    expect(flagged("editJiraIssue", { cloudId: "c", issueIdOrKey: "DST-101", fields: { summary: "x" } })).toEqual([]);
+  });
+
+  test("AC-STE-649.7 — a successful createIssueLink with a numeric, ARI or non-/browse/ URL side beside owned DST-101 is ungated-write (HEAD: one owned side sufficed)", () => {
+    for (const side of ["10101", "ari:cloud:jira:9f3c0000:issue/10101", "https://x.atlassian.net/rest/api/3/issue/10101"]) {
+      const f = flagged("createIssueLink", { cloudId: "c", inwardIssue: side, outwardIssue: "DST-101", type: "Relates" });
+      expect({ side, flagged: f.length > 0 }).toEqual({ side, flagged: true });
+    }
+    // PERMIT TWINS — both sides resolved (a key, a /browse/ URL), one owned.
+    expect(flagged("createIssueLink", { cloudId: "c", inwardIssue: "DST-9001", outwardIssue: "DST-101", type: "Relates" })).toEqual([]);
+    expect(flagged("createIssueLink", { cloudId: "c", inwardIssue: "https://x.atlassian.net/browse/DST-9001", outwardIssue: "DST-101", type: "Relates" })).toEqual([]);
+  });
+
+  test("AC-STE-649.7 — a successful addTeamworkGraphContext is graded like the hook: all resolved sides unowned, or an unresolvable Jira-item side, is ungated-write; an owned object with an Atlas or remote target is not", () => {
+    expect(flagged("addTeamworkGraphContext", TW("DST-9001", "DST-9002", "jira-work-item-blocks-jira-work-item")).length).toBeGreaterThan(0);
+    expect(flagged("addTeamworkGraphContext", TW("ari:cloud:jira:9f3c0000:issue/10101", "DST-101", "jira-work-item-links-jira-work-item")).length).toBeGreaterThan(0);
+    // An Atlas goal target shaped like the owned key is no ticket subject.
+    expect(flagged("addTeamworkGraphContext", TW("DST-9001", "DST-101", "jira-work-item-contributes-to-atlassian-goal")).length).toBeGreaterThan(0);
+    // PERMIT TWINS
+    expect(flagged("addTeamworkGraphContext", TW("DST-9001", "DST-101", "jira-work-item-links-jira-work-item"))).toEqual([]);
+    expect(flagged("addTeamworkGraphContext", TW("DST-101", "ATLAS-20426", "jira-work-item-tracks-atlassian-project"))).toEqual([]);
+    expect(flagged("addTeamworkGraphContext", TW("DST-101", "https://example.invalid/runbook", "jira-work-item-links-jira-work-item-remote-link"))).toEqual([]);
+  });
+});
+
 describe("HARDENING 9 — S11 grades B's relocated checkout: a worktree inside B, hook refusals, one naming the unreadable CLAUDE.md, nothing created", () => {
   for (const t of TRACKERS) {
     test(`${t}: PERMIT TWIN — the relocated worktree with both refusals and no created item passes S11`, () => {
