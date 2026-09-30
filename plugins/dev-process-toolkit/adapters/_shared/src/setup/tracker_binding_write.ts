@@ -17,10 +17,18 @@
 // and a key-shaped Linear `team:` different from `--team`. An empty
 // `project` refuses on every route. `project: <deferred>`, a display-name
 // team and a missing sub-section are still written.
+//
+// The floor (STE-647, amending STE-603's AC-STE-603.2): a first `--shared`
+// declaration writes the running version as `min_dpt_version`; a `--shared`
+// re-run keeps an existing floor, whatever the running version. Only
+// `--floor <X.Y.Z>` (with `--shared`; strict, at least FIRST_GATED_DPT_VERSION,
+// at most the running version) moves it, and may lower it. Every `--shared`
+// run prints one `min_dpt_version` line stating the change and the manifest
+// the running version was read from.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { nfr10Message, runningDptVersion } from "../dpt_version";
+import { FIRST_GATED_DPT_VERSION, nfr10Message, runningDptManifestPath, runningDptVersion } from "../dpt_version";
 import { compareSemver } from "../migrations/coverage";
 import { LINEAR_TEAM_KEY } from "../tracker_answer";
 import { readWorkspaceBinding, type WorkspaceAdapterKey } from "../workspace_binding";
@@ -67,6 +75,11 @@ export interface TrackerSubsectionOptions {
   issueType?: string;
   shared?: { repoTag: string } | "unshare";
   /**
+   * STE-647 — with `shared`, sets `min_dpt_version` to this value. The only
+   * way a declared floor moves; it may lower one.
+   */
+  floor?: string;
+  /**
    * STE-645 — waives the bound-project check. Only the repoint rows route
    * (`repoint_tracker_binding.ts`) passes it; every other caller refuses to
    * move a bound, non-deferred `project:` to a different one.
@@ -99,6 +112,32 @@ export interface TrackerSubsectionResult {
   before: string;
   after: string;
   diff: string;
+  /** STE-647 — what a `--shared` run did to `min_dpt_version`; absent on every other run. */
+  floorChange?: FloorChange;
+}
+
+/**
+ * STE-647 — the floor outcome of a `--shared` run:
+ *   - `kept`: an existing floor stayed (a re-run never moves it);
+ *   - `set`: an explicit `--floor` replaced it (`from` is `""` when none existed);
+ *   - `declared`: the first declaration took the running version.
+ */
+export type FloorChange =
+  | { kind: "kept"; floor: string; running: string }
+  | { kind: "set"; from: string; to: string; lowered: boolean }
+  | { kind: "declared"; to: string };
+
+/** STE-647 AC.5 — the one `min_dpt_version` summary line a `--shared` run prints. */
+function floorLine(change: FloorChange, manifestPath: string): string {
+  const manifest = `running version from ${manifestPath}`;
+  switch (change.kind) {
+    case "set":
+      return `min_dpt_version: ${change.from.length > 0 ? change.from : "(none)"} → ${change.to}${change.lowered ? " (a lowering, set by explicit --floor)" : " (set by explicit --floor)"}; ${manifest}.\n`;
+    case "kept":
+      return `min_dpt_version kept at ${change.floor} (running ${change.running}); a --shared re-run never moves the floor; ${manifest}.\n`;
+    case "declared":
+      return `min_dpt_version: (none) → ${change.to} (the running version); ${manifest}.\n`;
+  }
 }
 
 function keyLineRe(key: string): RegExp {
@@ -231,6 +270,34 @@ function unifiedDiff(path: string, before: string, after: string): string {
   return `${out.join("\n")}\n`;
 }
 
+/** STE-647 — an explicit `--floor` is strict X.Y.Z, at least FIRST_GATED_DPT_VERSION, at most the running version. */
+function validateFloor(floor: string, running: string, context: string): void {
+  const ctx = `${context}, flag=--floor, value="${floor}", running=${running}`;
+  // Stricter than STRICT_SEMVER_RE, which admits leading zeros (`02.87.0`):
+  // a floor is written verbatim, so it must be the canonical release spelling.
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(floor)) {
+    throw new TrackerBindingWriteError(
+      `--floor "${floor}" is not strict X.Y.Z.`,
+      `pass --floor as a bare release version, e.g. --floor ${FIRST_GATED_DPT_VERSION}.`,
+      ctx,
+    );
+  }
+  if ((compareSemver(floor, FIRST_GATED_DPT_VERSION) ?? -1) < 0) {
+    throw new TrackerBindingWriteError(
+      `--floor ${floor} is below ${FIRST_GATED_DPT_VERSION}, the first toolkit release that enforces a shared floor.`,
+      `pass --floor ${FIRST_GATED_DPT_VERSION} or later.`,
+      ctx,
+    );
+  }
+  if ((compareSemver(floor, running) ?? 1) > 0) {
+    throw new TrackerBindingWriteError(
+      `--floor ${floor} is above the running toolkit version ${running}.`,
+      `pass --floor ${running} or lower, or upgrade the plugin first.`,
+      ctx,
+    );
+  }
+}
+
 /**
  * Write the tracker sub-section: project/team always, plus a shared-container
  * declaration (`shared: { repoTag }`), its removal (`"unshare"`), or neither.
@@ -259,6 +326,13 @@ export function writeTrackerSubsection(
       `CLAUDE.md at ${claudeMdPath} carries a byte-order mark or CRLF line endings, which this writer does not edit.`,
       `convert CLAUDE.md to UTF-8 without a BOM and LF line endings, then re-run.`,
       `${context}, encoding=${before.startsWith("\uFEFF") ? "bom" : "crlf"}`,
+    );
+  }
+  if (opts.floor !== undefined && (opts.shared === undefined || opts.shared === "unshare")) {
+    throw new TrackerBindingWriteError(
+      `--floor was given without a \`--shared <tag>\` declaration; the floor belongs to a shared declaration.`,
+      `pass --floor together with --shared <tag>, then re-run.`,
+      `${context}, flag=--floor, value="${opts.floor}"`,
     );
   }
   if (opts.project.trim().length === 0) {
@@ -407,6 +481,7 @@ export function writeTrackerSubsection(
   if (opts.issueType !== undefined) setKey(sub, "jira_issue_type", opts.issueType, ["team", "project"]);
 
   let paragraph: string | null = null;
+  let floorChange: FloorChange | undefined;
   if (shared === "unshare") {
     removeKey(sub, "repo_tag");
     removeKey(sub, "min_dpt_version");
@@ -421,17 +496,27 @@ export function writeTrackerSubsection(
     }
     const running = runningDptVersion();
     const existing = keyValue(sub, "min_dpt_version");
-    const cmp = existing.length > 0 ? compareSemver(existing, running) : -1;
-    if (cmp === null) {
+    if (existing.length > 0 && compareSemver(existing, running) === null && opts.floor === undefined) {
       // Never guess: a floor that cannot be compared cannot be proven lower,
-      // so replacing it could lower it.
+      // so replacing it could lower it. Only an explicit `--floor` replaces it.
       throw new TrackerBindingWriteError(
         `min_dpt_version "${existing}" is not strict X.Y.Z, so the writer cannot tell whether replacing it would lower the floor.`,
-        `correct min_dpt_version by hand to a strict X.Y.Z version, then re-run.`,
+        `re-run the declaration with --floor <X.Y.Z> to replace it with a strict version.`,
         `${context}, key=min_dpt_version, value="${existing}"`,
       );
     }
-    const floor = cmp > 0 ? existing : running;
+    // STE-647 (operator ruling R1): a `--shared` re-run keeps an existing
+    // floor; only an explicit `--floor` moves it.
+    if (opts.floor !== undefined) {
+      validateFloor(opts.floor, running, context);
+      const lowered = existing.length > 0 && (compareSemver(opts.floor, existing) ?? 0) < 0;
+      floorChange = { kind: "set", from: existing, to: opts.floor, lowered };
+    } else if (existing.length > 0) {
+      floorChange = { kind: "kept", floor: existing, running };
+    } else {
+      floorChange = { kind: "declared", to: running };
+    }
+    const floor = floorChange.kind === "kept" ? floorChange.floor : floorChange.to;
     setKey(sub, "repo_tag", tag, ["team", "project", "default_labels"]);
     setKey(sub, "min_dpt_version", floor, ["repo_tag"]);
     paragraph = renderSharedTrackerSentinel({
@@ -453,7 +538,8 @@ export function writeTrackerSubsection(
 
   const after = [...lines.slice(0, subStart + 1), ...newSub, ...lines.slice(subEnd)].join("\n");
   const diff = unifiedDiff(claudeMdPath, before, after);
-  if (after === before) return { changed: false, before, after, diff };
+  const floorNote = floorChange !== undefined ? { floorChange } : {};
+  if (after === before) return { changed: false, before, after, diff, ...floorNote };
 
   writeFileSync(claudeMdPath, after);
   try {
@@ -467,14 +553,14 @@ export function writeTrackerSubsection(
     }
     throw e;
   }
-  return { changed: true, before, after, diff };
+  return { changed: true, before, after, diff, ...floorNote };
 }
 
-function usage(): never {
+function usage(reason?: string): never {
   process.stderr.write(
     `${nfr10Message(
-      "TrackerBindingWriteError: invalid arguments.",
-      "usage: tracker_binding_write.ts <projectRoot> <jira|linear> --project <p> [--team <t>] [--issue-type <t>] [--shared <tag> | --unshare]",
+      `TrackerBindingWriteError: invalid arguments${reason !== undefined ? ` — ${reason}` : ""}.`,
+      "usage: tracker_binding_write.ts <projectRoot> <jira|linear> --project <p> [--team <t>] [--issue-type <t>] [--shared <tag> [--floor <X.Y.Z>] | --unshare]",
       `argv=${process.argv.slice(2).join(" ")}`,
     )}\n`,
   );
@@ -493,15 +579,24 @@ if (import.meta.main) {
     else if (flag === "--shared") {
       if (opts.shared === "unshare") usage();
       opts.shared = { repoTag: rest[++i] ?? "" };
+    } else if (flag === "--floor") {
+      if (opts.floor !== undefined) usage("--floor given twice");
+      const value = rest[++i];
+      if (value === undefined || value.startsWith("--")) usage("--floor needs a value");
+      opts.floor = value;
     } else if (flag === "--unshare") {
       if (opts.shared !== undefined) usage();
       opts.shared = "unshare";
     } else usage();
   }
   if (opts.project.length === 0) usage();
+  if (opts.floor !== undefined && (opts.shared === undefined || opts.shared === "unshare")) usage("--floor needs --shared <tag>");
   try {
     const result = writeTrackerSubsection(join(root, "CLAUDE.md"), adapter, opts);
     process.stdout.write(result.diff);
+    // STE-647 AC.5 — every `--shared` run prints exactly one floor line naming
+    // the manifest the running version came from.
+    if (result.floorChange !== undefined) process.stdout.write(floorLine(result.floorChange, runningDptManifestPath()));
     if (opts.shared === "unshare") {
       process.stdout.write(
         result.changed

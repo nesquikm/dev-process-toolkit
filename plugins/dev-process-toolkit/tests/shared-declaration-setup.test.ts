@@ -25,6 +25,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -334,7 +335,10 @@ describe("AC-STE-603.2 — the writer preserves every line it does not own", () 
     });
   }, 30_000);
 
-  test("re-run from a higher running version raises the floor and re-renders the paragraph, nothing else", async () => {
+  // AC-STE-603.2 as amended by STE-647 (operator ruling R1): a `--shared`
+  // re-run from a higher running version no longer raises the floor. HEAD
+  // before STE-647 rewrote the floor to HIGHER here.
+  test("AC-STE-647.1 — re-run from a higher running version keeps the floor (byte-identical) and prints a `kept at` line naming the running version", async () => {
     await withRoots(async ({ a, b }) => {
       const path = join(a, "CLAUDE.md");
       writeFileSync(path, preservationClaudeMd());
@@ -343,13 +347,12 @@ describe("AC-STE-603.2 — the writer preserves every line it does not own", () 
       const before = readFileSync(path, "utf-8");
       const r = await runWriter(a, args, b, HIGHER);
       expect(r.code, r.stderr).toBe(0);
-      const oldPara = await render({ adapter: "jira", project: "GF", repoTag: TAG, minDptVersion: FLOOR });
-      const newPara = await render({ adapter: "jira", project: "GF", repoTag: TAG, minDptVersion: HIGHER });
-      expect(oldPara).not.toBe(newPara);
-      const expected = before
-        .replace(`min_dpt_version: ${FLOOR}`, `min_dpt_version: ${HIGHER}`)
-        .replace(oldPara, newPara);
-      expect(readFileSync(path, "utf-8")).toBe(expected);
+      expect(readFileSync(path, "utf-8"), "a --shared re-run must keep the existing floor").toBe(before);
+      expect(readWorkspaceBinding(path, "jira").minDptVersion).toBe(FLOOR);
+      const kept = r.stdout.split("\n").filter((l) => l.startsWith("min_dpt_version"));
+      expect(kept.length, `stdout:\n${r.stdout}`).toBe(1);
+      expect(kept[0]!).toContain(`kept at ${FLOOR}`);
+      expect(kept[0]!, "the kept line names the running version").toContain(HIGHER);
     });
   }, 30_000);
 
@@ -1406,6 +1409,237 @@ describe("the writer never re-points", () => {
         expect(res.changed).toEqual(["CLAUDE.md"]);
       });
       expect(readFileSync(join(a, "CLAUDE.md"), "utf-8")).toMatch(/^team: STE$/m);
+    });
+  }, 30_000);
+});
+
+// ============================================================ STE-647
+// A shared floor moves only when asked. Amends STE-603's floor contract
+// (AC-STE-603.2) per operator ruling R1: a `--shared` re-run keeps the
+// existing floor; only a validated `--floor <X.Y.Z>` moves it. Every
+// `--shared` run prints one `min_dpt_version` summary line naming the
+// manifest the running version was read from.
+
+/** The lines of `stdout` that begin `min_dpt_version` (the diff's `+`/`-` lines never do). */
+function floorLines(stdout: string): string[] {
+  return stdout.split("\n").filter((l) => l.startsWith("min_dpt_version"));
+}
+
+/** The manifest path the writer reads for `version`, as given and resolved (tmpdir may be a symlink). */
+function manifestPaths(scratch: string, version: string): string[] {
+  const given = join(scratch, `manifest-${version}`, ".claude-plugin", "plugin.json");
+  const out = [given];
+  try {
+    out.push(realpathSync(given));
+  } catch {
+    // not yet created
+  }
+  return out;
+}
+
+function expectNamesManifest(line: string, scratch: string, version: string): void {
+  const paths = manifestPaths(scratch, version);
+  expect(
+    paths.some((p) => line.includes(p)),
+    `the summary line must name the manifest the running version came from (${paths[0]}):\n${line}`,
+  ).toBe(true);
+}
+
+/** Declare at `floor` with the preservation fixture; returns the declared bytes. */
+async function declareAt(a: string, b: string, floor: string): Promise<string> {
+  const path = join(a, "CLAUDE.md");
+  writeFileSync(path, preservationClaudeMd());
+  const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, floor);
+  expect(r.code, r.stderr).toBe(0);
+  return readFileSync(path, "utf-8");
+}
+
+describe("STE-647 — a shared floor moves only when asked", () => {
+  test("AC-STE-647.2 — `--shared TAG --floor HIGHER` under HIGHER sets the floor and re-renders the paragraph; nothing else changes", async () => {
+    await withRoots(async ({ a, b }) => {
+      const path = join(a, "CLAUDE.md");
+      const before = await declareAt(a, b, FLOOR);
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG, "--floor", HIGHER], b, HIGHER);
+      expect(r.code, r.stderr).toBe(0);
+      const oldPara = await render({ adapter: "jira", project: "GF", repoTag: TAG, minDptVersion: FLOOR });
+      const newPara = await render({ adapter: "jira", project: "GF", repoTag: TAG, minDptVersion: HIGHER });
+      const expected = before
+        .replace(`min_dpt_version: ${FLOOR}`, `min_dpt_version: ${HIGHER}`)
+        .replace(oldPara, newPara);
+      expect(readFileSync(path, "utf-8")).toBe(expected);
+      const lines = floorLines(r.stdout);
+      expect(lines.length, `stdout:\n${r.stdout}`).toBe(1);
+      expect(lines[0]!).toContain(`min_dpt_version: ${FLOOR} → ${HIGHER}`);
+    });
+  }, 30_000);
+
+  test("AC-STE-647.2 — an explicit lower `--floor` sets the floor to it (a lowering), re-rendering the paragraph only", async () => {
+    await withRoots(async ({ a, b }) => {
+      const path = join(a, "CLAUDE.md");
+      const before = await declareAt(a, b, HIGHER);
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG, "--floor", FLOOR], b, HIGHER);
+      expect(r.code, r.stderr).toBe(0);
+      const oldPara = await render({ adapter: "jira", project: "GF", repoTag: TAG, minDptVersion: HIGHER });
+      const newPara = await render({ adapter: "jira", project: "GF", repoTag: TAG, minDptVersion: FLOOR });
+      const expected = before
+        .replace(`min_dpt_version: ${HIGHER}`, `min_dpt_version: ${FLOOR}`)
+        .replace(oldPara, newPara);
+      expect(readFileSync(path, "utf-8")).toBe(expected);
+      const lines = floorLines(r.stdout);
+      expect(lines.length, `stdout:\n${r.stdout}`).toBe(1);
+      expect(lines[0]!).toContain(`min_dpt_version: ${HIGHER} → ${FLOOR}`);
+      expect(lines[0]!).toContain("a lowering");
+    });
+  }, 30_000);
+
+  describe("AC-STE-647.3 — an invalid --floor exits 1 with the file byte-identical", () => {
+    async function expectFloorRefusal(args: string[], mention?: string): Promise<void> {
+      await withRoots(async ({ a, b }) => {
+        const path = join(a, "CLAUDE.md");
+        await declareAt(a, b, FLOOR);
+        const before = readFileSync(path);
+        const r = await runWriter(a, args, b, HIGHER);
+        expect(r.code, `expected exit 1, got ${r.code}\nstdout:${r.stdout}\nstderr:${r.stderr}`).toBe(1);
+        expect(r.stdout).toBe("");
+        const lines = expectThreeLine(r.stderr);
+        expect(lines[1]!, "the refusal's remedy names --floor (HEAD: --floor is an unknown flag)").toContain("--floor");
+        if (mention !== undefined) expect(r.stderr).toContain(mention);
+        expect(readFileSync(path).equals(before), "the refused file must stay byte-identical").toBe(true);
+      });
+    }
+
+    test("--floor above the running version refuses, naming the running version", async () => {
+      await expectFloorRefusal(["jira", "--project", "GF", "--shared", TAG, "--floor", above(HIGHER)], `is above the running toolkit version ${HIGHER}`);
+    }, 30_000);
+
+    test("--floor below FIRST_GATED_DPT_VERSION refuses, naming it", async () => {
+      await expectFloorRefusal(["jira", "--project", "GF", "--shared", TAG, "--floor", "2.86.0"], `is below ${FIRST_GATED_DPT_VERSION}`);
+    }, 30_000);
+
+    test("--floor that is not strict X.Y.Z refuses", async () => {
+      await expectFloorRefusal(["jira", "--project", "GF", "--shared", TAG, "--floor", "v2.90"], "not strict X.Y.Z");
+    }, 30_000);
+
+    test("--floor without --shared refuses", async () => {
+      await expectFloorRefusal(["jira", "--project", "GF", "--floor", HIGHER], "--shared");
+    }, 30_000);
+
+    test("--floor swallowing the next flag is refused as a missing value, not as a stray argument (review)", async () => {
+      await expectFloorRefusal(["jira", "--project", "GF", "--floor", "--shared", TAG], "--floor needs a value");
+    }, 30_000);
+
+    test("--floor with --unshare refuses (review)", async () => {
+      await expectFloorRefusal(["jira", "--project", "GF", "--unshare", "--floor", HIGHER]);
+    }, 30_000);
+
+    test("--floor with a leading zero is not strict X.Y.Z (review)", async () => {
+      await expectFloorRefusal(["jira", "--project", "GF", "--shared", TAG, "--floor", "02.87.0"], "not strict X.Y.Z");
+    }, 30_000);
+
+    test("in-process: `floor` without a `shared` declaration throws instead of being ignored (review)", async () => {
+      const mod = await loadWriter();
+      await withRoots(async ({ a, b }) => {
+        const path = join(a, "CLAUDE.md");
+        await declareAt(a, b, FLOOR);
+        const before = readFileSync(path);
+        let thrown: unknown = null;
+        try {
+          mod.writeTrackerSubsection(path, "jira", { project: "GF", floor: FLOOR });
+        } catch (e) {
+          thrown = e;
+        }
+        expect(thrown).toBeInstanceOf(mod.TrackerBindingWriteError);
+        expect((thrown as Error).message).toContain("--floor");
+        expect(readFileSync(path).equals(before)).toBe(true);
+      });
+    }, 30_000);
+  });
+
+  test("AC-STE-647.4 — an existing non-strict floor without --floor still refuses, and the remedy names `--floor <X.Y.Z>` instead of a hand edit", async () => {
+    await withRoots(async ({ a, b }) => {
+      const path = join(a, "CLAUDE.md");
+      const declared = await declareAt(a, b, FLOOR);
+      const bad = declared.replace(`min_dpt_version: ${FLOOR}`, "min_dpt_version: v9.9");
+      writeFileSync(path, bad);
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, HIGHER);
+      expect(r.code).toBe(1);
+      expect(r.stdout).toBe("");
+      const lines = expectThreeLine(r.stderr);
+      expect(lines[1]!).toContain("--floor <X.Y.Z>");
+      expect(lines[1]!).not.toMatch(/by hand/i);
+      expect(readFileSync(path, "utf-8")).toBe(bad);
+    });
+  }, 30_000);
+
+  test("AC-STE-647.4 — the same non-strict floor is replaced by `--shared TAG --floor FLOOR`", async () => {
+    await withRoots(async ({ a, b }) => {
+      const path = join(a, "CLAUDE.md");
+      const declared = await declareAt(a, b, FLOOR);
+      writeFileSync(path, declared.replace(`min_dpt_version: ${FLOOR}`, "min_dpt_version: v9.9"));
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG, "--floor", FLOOR], b, HIGHER);
+      expect(r.code, r.stderr).toBe(0);
+      expect(readFileSync(path, "utf-8"), "the replaced file equals a clean declaration at FLOOR").toBe(declared);
+      expect(readWorkspaceBinding(path, "jira").minDptVersion).toBe(FLOOR);
+    });
+  }, 30_000);
+
+  test("AC-STE-647.5 — a first declaration prints exactly one `min_dpt_version` line naming the new floor and the manifest", async () => {
+    await withRoots(async ({ a, b }) => {
+      writeFileSync(join(a, "CLAUDE.md"), preservationClaudeMd());
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, HIGHER);
+      expect(r.code, r.stderr).toBe(0);
+      const lines = floorLines(r.stdout);
+      expect(lines.length, `stdout:\n${r.stdout}`).toBe(1);
+      expect(lines[0]!).toContain(HIGHER);
+      expectNamesManifest(lines[0]!, b, HIGHER);
+    });
+  }, 30_000);
+
+  test("AC-STE-647.5 — a kept re-run prints exactly one line stating `kept` and the manifest", async () => {
+    await withRoots(async ({ a, b }) => {
+      await declareAt(a, b, FLOOR);
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, HIGHER);
+      expect(r.code, r.stderr).toBe(0);
+      const lines = floorLines(r.stdout);
+      expect(lines.length, `stdout:\n${r.stdout}`).toBe(1);
+      expect(lines[0]!).toContain(`kept at ${FLOOR} (running ${HIGHER})`);
+      expectNamesManifest(lines[0]!, b, HIGHER);
+    });
+  }, 30_000);
+
+  test("AC-STE-647.5 — a same-version re-run (a byte-identical no-op) still prints exactly one line with the manifest", async () => {
+    await withRoots(async ({ a, b }) => {
+      await declareAt(a, b, FLOOR);
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG], b, FLOOR);
+      expect(r.code, r.stderr).toBe(0);
+      const lines = floorLines(r.stdout);
+      expect(lines.length, `stdout:\n${r.stdout}`).toBe(1);
+      expect(lines[0]!).toContain(FLOOR);
+      expectNamesManifest(lines[0]!, b, FLOOR);
+    });
+  }, 30_000);
+
+  test("AC-STE-647.5 — a --floor raise prints exactly one line stating old and new floor and the manifest", async () => {
+    await withRoots(async ({ a, b }) => {
+      await declareAt(a, b, FLOOR);
+      const r = await runWriter(a, ["jira", "--project", "GF", "--shared", TAG, "--floor", HIGHER], b, HIGHER);
+      expect(r.code, r.stderr).toBe(0);
+      const lines = floorLines(r.stdout);
+      expect(lines.length, `stdout:\n${r.stdout}`).toBe(1);
+      expect(lines[0]!).toContain(FLOOR);
+      expect(lines[0]!).toContain(HIGHER);
+      expectNamesManifest(lines[0]!, b, HIGHER);
+    });
+  }, 30_000);
+
+  test("AC-STE-647.5 (control) — a run without --shared on a declared file prints no `min_dpt_version` line and keeps the floor", async () => {
+    await withRoots(async ({ a, b }) => {
+      const path = join(a, "CLAUDE.md");
+      const before = await declareAt(a, b, FLOOR);
+      const r = await runWriter(a, ["jira", "--project", "GF"], b, HIGHER);
+      expect(r.code, r.stderr).toBe(0);
+      expect(floorLines(r.stdout)).toEqual([]);
+      expect(readFileSync(path, "utf-8")).toBe(before);
     });
   }, 30_000);
 });
