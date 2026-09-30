@@ -203,6 +203,30 @@ export interface EvidenceMiss {
   how: string;
   /** The checkout this miss is about, so a multi-root refusal can name them all. */
   root?: string;
+  /** STE-650 — the receipt leg's machine reason, when it gave one. */
+  reason?: string;
+  /** STE-650 — the leg also detected a rewritten receipt; never renamed as lag. */
+  tampered?: boolean;
+}
+
+/**
+ * STE-650 — reasons a pending receipt run can explain: the grade lacked the one
+ * result that could change it. Any other reason (a tampered announcement, a
+ * foreign root, a wrong subject, an errored run, an unreadable store) is a
+ * finding that holds whatever the pending run returns, and keeps its refusal.
+ */
+const LAG_EXPLAINABLE = new Set(["outside-window", "between-windows", "no-receipt", "nothing-announced", "run-unresolved"]);
+
+/**
+ * STE-650 — whether `run` is a still-unresolved run of THIS gate's receipt
+ * front door. Another gate's pending run cannot vouch here, so it never makes
+ * this gate wait or call its miss lag. The target answers which runs are its
+ * own; a target that cannot say keeps the pre-STE-650 reading (every run).
+ */
+function pendingRunOf(target: EvidenceTarget | undefined, run: IncompleteRun): boolean {
+  if (run.outcome !== "unresolved") return false;
+  if (target?.announcesOwnRun === undefined || run.command === undefined) return true;
+  return target.announcesOwnRun(run.command);
 }
 
 /**
@@ -296,6 +320,8 @@ export interface IncompleteRun {
   outcome: "errored" | "unresolved";
   /** Transcript line: the result's for `errored`, the call's for `unresolved`. */
   line: number;
+  /** STE-650 — the run's command, so a wait can tell this gate's run from another's. */
+  command?: string;
 }
 
 /**
@@ -363,6 +389,12 @@ export interface EvidenceTarget {
    */
   announcesReceipts(command: string): boolean;
   /**
+   * STE-650 — whether a command ran the front door for THIS target's gate, so a
+   * pending run of another gate never makes this one wait. Absent ⇒ every
+   * pending run counts, the pre-STE-650 reading.
+   */
+  announcesOwnRun?(command: string): boolean;
+  /**
    * STE-614 NF-2 — where a red-before proof has to say it ran (see `ProofScope`).
    * Absent ⇒ the second door keeps its pre-STE-614 session-wide reading, which
    * is what every caller with no repository in hand wants.
@@ -425,6 +457,10 @@ function firstReceiptMiss(
       .join(", ")}.`,
     how: first.how,
     root: first.root,
+    // A lag rename needs EVERY root's miss to be one lag can explain, so the
+    // reason carried is the first that cannot, when any root has one.
+    reason: misses.find((m) => m.reason !== undefined && !LAG_EXPLAINABLE.has(m.reason))?.reason ?? first.reason,
+    tampered: misses.some((m) => m.tampered === true),
   };
 }
 
@@ -669,7 +705,7 @@ function scanSkillCalls(
    * A MAP, not a set, because a run with no result has no result line to name
    * and the CALL's line is the only thing there is to report it by.
    */
-  const minting = new Map<string, number>();
+  const minting = new Map<string, { line: number; command: string }>();
   /** Minting calls something in the transcript answered, however it answered. */
   const resolved = new Set<string>();
   const announcements: ReceiptAnnouncement[] = [];
@@ -704,7 +740,7 @@ function scanSkillCalls(
       if (block.type === "tool_use" && block.name === "Bash" && typeof block.id === "string") {
         const command = block.input === null || typeof block.input !== "object" ? undefined : block.input.command;
         if (target !== undefined && typeof command === "string" && target.announcesReceipts(command)) {
-          minting.set(block.id, index);
+          minting.set(block.id, { line: index, command });
         }
       } else if (
         block.type === "tool_result" &&
@@ -747,8 +783,8 @@ function scanSkillCalls(
   // is being written, so a mint whose result has not been flushed yet is an
   // ordinary state — and it is still not a session in which no command was read
   // as a run of the front door.
-  for (const [id, line] of minting) {
-    if (!resolved.has(id)) incomplete.push({ outcome: "unresolved", line });
+  for (const [id, { line, command }] of minting) {
+    if (!resolved.has(id)) incomplete.push({ outcome: "unresolved", line, command });
   }
   incomplete.sort((a, b) => a.line - b.line);
 
@@ -804,6 +840,14 @@ export function findSkillToolUse(
 }
 
 /**
+ * STE-650 — how long a commit / PR gate waits for a pending receipt run's
+ * tool_result to reach the transcript. The tracker gate's
+ * `GATED_LINE_WAIT_MS` is defined as this value, so the bound is one number.
+ */
+export const RECEIPT_RESULT_WAIT_MS = 2000;
+const RECEIPT_RESULT_POLL_MS = 25;
+
+/**
  * Same check as `findSkillToolUse`, but emits the byte-stable NFR-10
  * `Refusing:` block to stderr on miss. Use this in Refusing hooks
  * (gate-check, spec-review, tdd-orchestrator) where a miss must produce
@@ -815,6 +859,13 @@ export function findSkillToolUse(
  * The STE-614 miss is a DIFFERENT fact and says so, because "not found in
  * current session" is false when the operator watched themself deny the call,
  * and a refusal that misdescribes what happened sends the remedy the wrong way.
+ *
+ * STE-650 — a receipt miss graded while a receipt run's tool_result is not on
+ * disk yet is transcript LAG. The gate re-reads for up to
+ * RECEIPT_RESULT_WAIT_MS; if the result lands it grades again, and if it never
+ * does (and the miss is one a pending result could explain, LAG_EXPLAINABLE)
+ * the refusal says the transcript has not caught up and to retry unchanged,
+ * never outside-window. A receipt with its result on disk never waits.
  */
 export function requireSkillToolUse(
   skill: string,
@@ -822,18 +873,34 @@ export function requireSkillToolUse(
   payload: HookPayload,
   target?: EvidenceTarget,
 ): { found: boolean } {
-  const scan = scanSkillCalls(skill, payload, target);
+  let scan = scanSkillCalls(skill, payload, target);
   if (scan.found) {
     // STE-614 AC.5 — the repository-scoped leg, demanded IN ADDITION to the
     // transcript leg and never instead of it. The transcript says the gate ran
     // in this session; only the receipt says it ran against THIS checkout.
-    const miss = firstReceiptMiss(
-      scan.windows,
-      target,
-      scan.announcements,
-      scan.misreads,
-      scan.incomplete,
-    );
+    const grade = (s: SkillCallScan): EvidenceMiss | null =>
+      firstReceiptMiss(s.windows, target, s.announcements, s.misreads, s.incomplete);
+    let miss = grade(scan);
+    // STE-650 AC.9 — a receipt run whose tool_use is on disk but whose
+    // tool_result has not been flushed yet is transcript LAG, not a missing
+    // receipt. Only in that state (a miss a pending result could change AND
+    // this gate's own unresolved run) re-read the transcript and grade again
+    // once the result lands, bounded by wall-clock time, scans included. The
+    // permit path and a genuinely old receipt with its result on disk never wait.
+    const lagCanExplain = (m: EvidenceMiss): boolean =>
+      m.tampered !== true && (m.reason === undefined || LAG_EXPLAINABLE.has(m.reason));
+    const deadline = Date.now() + RECEIPT_RESULT_WAIT_MS;
+    while (
+      miss !== null &&
+      lagCanExplain(miss) &&
+      Date.now() < deadline &&
+      scan.incomplete.some((run) => pendingRunOf(target, run))
+    ) {
+      Bun.sleepSync(Math.max(1, Math.min(RECEIPT_RESULT_POLL_MS, deadline - Date.now())));
+      scan = scanSkillCalls(skill, payload, target);
+      if (!scan.found) break;
+      miss = grade(scan);
+    }
     if (miss === null) {
       // PERMITTED, and still not necessarily silent. See `receiptNotes`: a
       // detected forgery alongside a genuine vouch is permitted correctly and
@@ -849,6 +916,26 @@ export function requireSkillToolUse(
         emitNFR10("Reminder", note.why, note.how, skill, hook, "stdout");
       }
       return { found: true };
+    }
+    // STE-650 AC.10 — the bounded wait ran out with a receipt run STILL
+    // unresolved. That is transcript lag, not a verdict about the receipt: the
+    // grade above was computed without the one result that could change it, so
+    // any order claim it makes (e.g. `outside-window`) is unmeasured. Name the
+    // lag and send the operator to retry unchanged.
+    if (scan.incomplete.some((run) => pendingRunOf(target, run)) && lagCanExplain(miss)) {
+      emitNFR10(
+        "Refusing",
+        `this action writes to ${miss.root ?? "a toolkit-managed checkout"}, and the ` +
+          `transcript has not caught up: a run of the ${skill} receipt front door in ` +
+          `this session still has no result on disk after waiting ${RECEIPT_RESULT_WAIT_MS} ms, ` +
+          `so the receipt it announced cannot be read back yet — this is transcript ` +
+          `lag, not evidence that the gate did not run.`,
+        `retry this action unchanged in a moment; only if it refuses the same way ` +
+          `again, run /${skill} and let it finish first.`,
+        skill,
+        hook,
+      );
+      return { found: false };
     }
     emitNFR10("Refusing", miss.why, miss.how, skill, hook);
     return { found: false };

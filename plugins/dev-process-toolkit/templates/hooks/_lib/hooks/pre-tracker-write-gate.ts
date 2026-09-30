@@ -21,7 +21,7 @@
 
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { emitNFR10, parseHookPayload, readTranscriptLines, type HookPayload } from "../session.ts";
+import { emitNFR10, parseHookPayload, readTranscriptLines, RECEIPT_RESULT_WAIT_MS, type HookPayload } from "../session.ts";
 import {
   readWorkspaceBinding,
   type WorkspaceAdapterKey,
@@ -37,6 +37,7 @@ import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_own
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
 import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
+import { exemptsJoinConsent } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
@@ -418,13 +419,19 @@ export function invokedDecidingModule(command: string): string | null {
  * but is NOT accepted by `invokedDecidingModule` — chained, redirected,
  * `cd`-prefixed, or quoted beyond the grammar. Its receipt is ignored, so the
  * refusal names it instead of leaving the model to repeat the same shape.
+ * STE-650 AC.12 — the recogniser reads what RAN: `bun` spelled by an absolute
+ * path, a `bash -c` body and a backslash-continued line count; a segment that
+ * only echoes the invocation does not. The receipt's own accepted shape
+ * (`invokedDecidingModule`) is unchanged.
  */
+/** `bun` as a command word, bare or spelled by a path ending in `/bun` (STE-650 AC.12). */
+const BUN_WORD = `(?:^|\\s)(?:[^\\s"'=]*/)?bun\\b`;
 const DECIDING_MODULE_PATTERNS = Object.entries(RECEIPT_WRITING_SUBCOMMANDS).map(([m, sub]) => {
   const mod = m.replace(/\./g, "\\.");
   return {
     // `bun … <module>` then an optional closing quote, whitespace, and the
     // receipt subcommand (any argument for a module with no subcommand).
-    direct: new RegExp(`(?:^|\\s)bun\\b.*${mod}["']?\\s+${sub === null ? "\\S" : `${sub}\\b`}`),
+    direct: new RegExp(`${BUN_WORD}.*${mod}["']?\\s+${sub === null ? "\\S" : `${sub}\\b`}`),
     assigned: new RegExp(`(?:^|\\s)([A-Za-z_][A-Za-z0-9_]*)=\\S*${mod}`),
   };
 });
@@ -433,13 +440,19 @@ function rejectedDecidingCommand(command: string): boolean {
   if (invokedDecidingModule(command) !== null) return false;
   // Only a segment that RUNS a deciding module under `bun` counts; one that
   // merely names it (`grep`, `rg`, `echo`) runs nothing and is not reported.
-  const segments = command.split(/;|&&|\|\||\||\n/);
+  // STE-650 AC.12 — a backslash-newline continuation is one line, a
+  // `bash -c "…"` / `sh -c '…'` body is what runs, and a segment that only
+  // hands the invocation to `echo`/`printf` as an argument runs nothing.
+  const unwrapped = command
+    .replace(/\\\r?\n/g, " ")
+    .replace(/(?:^|(?<=[\s;&|(]))(?:\S*\/)?(?:ba|z|da)?sh\s+-c\s+(["'])([\s\S]*?)\1/g, (_m, _q, body: string) => ` ${body}`);
+  const segments = unwrapped.split(/;|&&|\|\||\||\n/).filter((seg) => !/^\s*(?:echo|printf)\b/.test(seg));
   return DECIDING_MODULE_PATTERNS.some(({ direct, assigned }) => {
     if (segments.some((seg) => direct.test(seg))) return true;
     return segments.some((seg, i) => {
       const name = assigned.exec(seg)?.[1];
       if (name === undefined) return false;
-      const viaVar = new RegExp(`(?:^|\\s)bun\\b.*(?:\\$${name}\\b|"\\$${name}"|\\$\\{${name}\\})`);
+      const viaVar = new RegExp(`${BUN_WORD}.*(?:\\$${name}\\b|"\\$${name}"|\\$\\{${name}\\})`);
       return segments.slice(i + 1).some((later) => viaVar.test(later));
     });
   });
@@ -1654,15 +1667,42 @@ function createdMilestoneIdOf(text: string): string | null {
   return null;
 }
 
-/** The answer an `AskUserQuestion` tool_result selected, read from the harness's structured record. */
-function selectedAnswers(p: ParsedLine, block: ContentBlock): string[] {
+/**
+ * STE-650 AC-8 — the answer the harness recorded to ONE question of an
+ * `AskUserQuestion` tool_result: `toolUseResult.answers` keyed by question
+ * text, else the harness's own sentence `"<question>"="<answer>"`. Null when
+ * the result records no answer to that question.
+ */
+function answerTo(p: ParsedLine, block: ContentBlock, question: string): string | null {
   const tur = p.raw.toolUseResult as { answers?: unknown } | undefined;
   if (tur && tur.answers && typeof tur.answers === "object") {
-    return Object.values(tur.answers as Record<string, unknown>).filter((v): v is string => typeof v === "string");
+    const v = (tur.answers as Record<string, unknown>)[question];
+    return typeof v === "string" ? v : null;
   }
-  // Fallback: the harness's own sentence, `"<question>"="<answer>".`
   const text = resultText(block.content);
-  return [...text.matchAll(/"="([^"]*)"(?=[.,]\s|[.,]?$)/g)].map((m) => m[1]);
+  const at = text.indexOf(`"${question}"="`);
+  if (at < 0) return null;
+  const m = /^([^"]*)"(?=[.,]\s|[.,]?$)/.exec(text.slice(at + question.length + 4));
+  return m ? m[1]! : null;
+}
+
+/**
+ * STE-650 AC-8 — the ONE per-question consent matcher both consent checks
+ * use: an answered AskUserQuestion consents to `label` only when a question
+ * whose own text names the subject (`names`) and offers `label` as an option
+ * was answered exactly `label`. Another question's answer neither grants nor
+ * withholds it.
+ * Twin: `consentedPerQuestion` in adapters/_shared/src/shared_tracker_live_grader.ts
+ */
+function consentedPerQuestion(questions: unknown, p: ParsedLine, block: ContentBlock, label: string, names: (question: string) => boolean): boolean {
+  if (!Array.isArray(questions)) return false;
+  return questions.some((q) => {
+    const question = (q as { question?: unknown } | null)?.question;
+    if (typeof question !== "string" || !names(question)) return false;
+    const options = (q as { options?: unknown } | null)?.options;
+    if (!Array.isArray(options) || !options.some((o) => (o as { label?: unknown } | null)?.label === label)) return false;
+    return answerTo(p, block, question) === label;
+  });
 }
 
 function operatorText(p: ParsedLine): string {
@@ -1674,19 +1714,19 @@ function operatorText(p: ParsedLine): string {
   return (content as ContentBlock[]).map((b) => (b?.type === "text" && typeof b.text === "string" ? b.text : "")).join("\n");
 }
 
-/** Line indices of an ANSWERED consent to `<verb> <key>` (§4). */
+/** Line indices of an ANSWERED consent to `<verb> <key>` (§4), read per question (`consentedPerQuestion`, STE-650 AC-8). */
 function consentLines(parsed: Array<ParsedLine | null>, key: string, verb: "Import" | "Adopt"): number[] {
   const label = `${verb} ${key}`;
-  const asks = new Set<string>();
+  const asks = new Map<string, unknown>();
   const out: number[] = [];
   parsed.forEach((p, idx) => {
     if (!p) return;
     for (const b of p.blocks) {
       if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string") {
-        if (namesKey(JSON.stringify(b.input ?? {}), key)) asks.add(b.id);
+        asks.set(b.id, (b.input as { questions?: unknown } | undefined)?.questions);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (b.is_error === true || !asks.has(b.tool_use_id)) continue;
-        if (selectedAnswers(p, b).some((a) => a === label)) out.push(idx);
+        if (consentedPerQuestion(asks.get(b.tool_use_id), p, b, label, (q) => namesKey(q, key))) out.push(idx);
       }
     }
     const text = operatorText(p);
@@ -1918,31 +1958,24 @@ const unansweredConsent = (label: string): string => `no AskUserQuestion after i
 
 /**
  * STE-643 — true when an AskUserQuestion after the decision's announcement
- * names its key or title in a question's own text, offers `label` as an
- * option, and the harness recorded exactly `label` as the answer.
+ * holds a question whose own text names its key or title, offers `label` as
+ * an option, and was answered exactly `label` (per question — STE-650 AC-8).
  */
 function answeredAfter(parsed: Array<ParsedLine | null>, d: ConsentSubject, label: string): boolean {
-  const asks = new Set<string>();
+  // The QUESTION text must name the decision: the label itself always
+  // carries the key or title, so reading the options too would let a
+  // correctly-labelled option ride an unrelated question.
+  const names = (q: string): boolean => (d.key !== "" && namesKey(q, d.key)) || (d.title !== null && d.title !== "" && q.includes(d.title));
+  const asks = new Map<string, unknown>();
   for (let idx = d.line + 1; idx < parsed.length; idx++) {
     const p = parsed[idx];
     if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string") {
-        const questions = (b.input as { questions?: unknown } | undefined)?.questions;
-        // The QUESTION text must name the decision: the label itself always
-        // carries the key or title, so reading the options too would let a
-        // correctly-labelled option ride an unrelated question.
-        const text = Array.isArray(questions) ? questions.map((q) => String((q as { question?: unknown } | null)?.question ?? "")).join("\n") : "";
-        const names = (d.key !== "" && namesKey(text, d.key)) || (d.title !== null && d.title !== "" && text.includes(d.title));
-        const offers = Array.isArray(questions) && questions.some((q) => {
-          const options = (q as { options?: unknown } | null)?.options;
-          return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
-        });
-        if (names && offers) asks.add(b.id);
+        asks.set(b.id, (b.input as { questions?: unknown } | undefined)?.questions);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (b.is_error === true || !asks.has(b.tool_use_id)) continue;
-        const answers = selectedAnswers(p, b);
-        if (answers.length > 0 && answers.every((a) => a === label)) return true;
+        if (consentedPerQuestion(asks.get(b.tool_use_id), p, b, label, names)) return true;
       }
     }
   }
@@ -2072,9 +2105,13 @@ function decides(d: MilestoneDecision, c: CreateShape): boolean {
  * to their consent label after them (STE-643). Once a decision permits it,
  * STE-644 further requires a re-list: a `relistsAfter` listing of the
  * project's containers recorded after that decision, whose last result is
- * within LISTING_FRESH_MS of this call (`freshBefore`). A fresh re-list that
+ * within LISTING_FRESH_MS of the grading time (`freshBefore`). A fresh re-list that
  * holds an open container of the same title (`openSameTitle`) refuses with a
- * join remedy; no fresh re-list refuses with `relistRemedy`. The live grader's
+ * join remedy; no fresh re-list refuses with `relistRemedy`. On Linear an
+ * allowed decision whose only re-list is a full 50-row window (never proof of
+ * the last page) refuses with the consent remedy instead — answer
+ * `Create \`<title>\`` — since another re-list returns the same window
+ * (STE-650 AC.13); a consented decision accepts that window. The live grader's
  * twin of the re-list rule is `relistedAfter` in shared_tracker_live_grader.ts.
  */
 function gateMilestoneCreate(
@@ -2145,8 +2182,14 @@ function gateMilestoneCreate(
   if (permitting) {
     // STE-644 — once the permit is otherwise met, the create needs a later,
     // complete, canonical-scope listing of the project's containers.
-    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, permitting.forbidden).filter((r) => freshBefore(parsed, r));
-    const dup = fresh.map((r) => openSameTitle(call.adapter, r, want.title)).find((k) => k !== null);
+    // STE-650 AC-13 — a full Linear milestone window never proves the last
+    // page, so an allowed decision followed by a 50-row re-list needs the
+    // operator's consent answer, exactly like a forbidden one.
+    const label = consentLabel(permitting);
+    const consented = permitting.forbidden || (call.adapter === "linear" && answeredAfter(parsed, permitting, label));
+    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, consented).filter((r) => freshBefore(parsed, r));
+    const capped = consented || call.adapter !== "linear" ? [] : relistsAfter(parsed, permitting.line, call.adapter, want.project, true).filter((r) => freshBefore(parsed, r));
+    const dup = [...fresh, ...capped].map((r) => openSameTitle(call.adapter, r, want.title)).find((k) => k !== null);
     if (dup !== undefined) {
       return refuse(
         `${where}: the re-list of project ${want.project}'s containers after its create decision (${permitting.path}) holds the open ${name} \`${dup}\` titled "${want.title}", so creating it again would duplicate it.${note}`,
@@ -2154,6 +2197,12 @@ function gateMilestoneCreate(
       );
     }
     if (fresh.length > 0) return 0;
+    if (capped.length > 0) {
+      return refuse(
+        `${where}: the re-list of project ${want.project}'s containers after its create decision (${permitting.path}) returned a full window of ${capped[capped.length - 1]!.items.length} rows, which never proves the ${name} "${want.title}" is absent, and ${unansweredConsent(label)}.${note}`,
+        `ask the operator with AskUserQuestion, naming "${want.title}" and offering "${label}"; only that recorded answer after the decision permits this create — another re-list returns the same full window.`,
+      );
+    }
     return refuse(
       `${where}: its create decision (${permitting.path}) has no later, complete listing of project ${want.project}'s containers recorded in this session, so the ${name} "${want.title}" may exist already.${note}`,
       relistRemedy(call.adapter, want.project),
@@ -2300,10 +2349,14 @@ function gateJoinedLabels(
   // Review TWR-4 (round 2): an Epic this session created needs no join
   // consent — it is its own — but its labels write is still a read-merge: the
   // listed labels and the milestone label below are checked for every joined
-  // Epic, created here or not (AC-STE-608.10 (d)).
-  const createdHere = createdKeys(parseLines(transcript), call.adapter).has(key);
+  // Epic, created here or not (AC-STE-608.10 (d)). STE-650 AC.1 — the hook
+  // derives the key's ownership route and the shared predicate decides; the
+  // hook tells only "created" from every other route (an FR binding, a reuse,
+  // binding or import receipt), and none of those is exempt.
+  const parsed = parseLines(transcript);
+  const route = createdKeys(parsed, call.adapter).has(key) ? "created" : "not-created";
   const consent = consentLabel(join);
-  const unconsented = !createdHere && join.forbidden && !answeredAfter(parseLines(transcript), join, consent);
+  const unconsented = !exemptsJoinConsent(route) && join.forbidden && !answeredAfter(parsed, join, consent);
   if (unconsented) {
     return refuse(
       `editJiraIssue on ${key}, an Epic joined by ${join.path}: that decision printed default=forbidden, and ${unansweredConsent(consent)}.${note}`,
@@ -2433,8 +2486,12 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
   return notes.join("");
 }
 
-/** STE-641 — how long the gate waits for the gated call's own tool_use line to reach the transcript. */
-export const GATED_LINE_WAIT_MS = 2000;
+/**
+ * STE-641 — how long the gate waits for the gated call's own tool_use line to
+ * reach the transcript. The ONE transcript-lag bound: the commit and PR gates'
+ * receipt wait (`RECEIPT_RESULT_WAIT_MS`, STE-650) is the same value.
+ */
+export const GATED_LINE_WAIT_MS = RECEIPT_RESULT_WAIT_MS;
 const GATED_LINE_POLL_MS = 25;
 
 /** Whether a read holds a tool_use block whose `id` is `id` (a mere mention in text does not count). */
