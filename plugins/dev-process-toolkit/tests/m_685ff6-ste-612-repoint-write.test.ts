@@ -14,13 +14,16 @@
 // Controls are labelled `(control)`.
 
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runTaskTrackingWorkspaceBindingPresentProbe } from "../adapters/_shared/src/task_tracking_workspace_binding_present";
 import { renderSharedTrackerSentinel, writeTrackerSubsection } from "../adapters/_shared/src/setup/tracker_binding_write";
 import { runningDptVersion } from "../adapters/_shared/src/dpt_version";
 import { announceReceipt, parseReceiptAnnouncement } from "../adapters/_shared/src/tracker_receipts";
+import { receiptsDir } from "../adapters/_shared/src/dpt_paths";
 import {
   FRONT_DOOR,
   GB_CONFIG_STATUSES,
@@ -33,13 +36,16 @@ import {
   runRepoint,
   SESSION_ID,
   linearStatuses,
+  PLUGIN_ROOT,
+  rowLines,
+  verdict,
   writeMcpJson,
   writePlan,
   writeTrackerConfig,
   type Glacy,
   type GlacyOpts,
 } from "./_repoint_fixture";
-import { commitAll, git, makeSpanFixture } from "./_span_fixture";
+import { commitAll, git, GIT_ENV, makeSpanFixture } from "./_span_fixture";
 
 const T = 60_000;
 
@@ -241,6 +247,112 @@ describe("AC-STE-612.6 — `--verify` checks the config against the receipt's sn
   );
 });
 
+
+// M_163656 (STE-646) — `--verify` tells an untouched config from a rewritten one.
+// The snapshot is a copy of the config it is compared with, so on the no-7f
+// route HEAD's PASS was vacuous (B-4).
+
+/** The config file's bytes, sha256 hex. */
+function configSha(root: string): string {
+  return createHash("sha256").update(readFileSync(join(root, "specs", "tracker-config.yaml"))).digest("hex");
+}
+
+/** Write a `repoint` receipt by hand into this session's receipt dir, under `name` (sorted order = age). */
+function handReceipt(root: string, name: string, evidence: Record<string, unknown>): string {
+  const dir = receiptsDir(root, SESSION_ID);
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, name);
+  writeFileSync(
+    path,
+    `${JSON.stringify({
+      v: 1,
+      kind: "repoint",
+      sessionId: SESSION_ID,
+      root,
+      adapter: "jira",
+      container: "GF",
+      subject: join(root, "CLAUDE.md"),
+      decision: "repoint",
+      evidence,
+      createdAt: "2026-09-30T00:00:00.000Z",
+    })}\n`,
+  );
+  return path;
+}
+
+const LEGACY_PASS = "verify PASS specs/tracker-config.yaml carries every status in the repoint snapshot";
+
+describe("AC-STE-612.6 / STE-646 — `--verify` separates UNCHANGED from a rewritten config", () => {
+  test(
+    "AC-STE-646.11 — config byte-identical to the one the repoint recorded → a line beginning `verify UNCHANGED`, exit 0",
+    withGlacy({}, (g) => {
+      expect(runRepoint(g.args()).code).toBe(0);
+      const v = runRepoint([g.a, "--verify"]);
+      expect(v.code, `${v.stdout}\n${v.stderr}`).toBe(0);
+      expect(v.stdout.split("\n").some((l) => l.startsWith("verify UNCHANGED")), v.stdout).toBe(true);
+      expect(v.stdout).not.toMatch(/^verify PASS/m);
+    }),
+    T,
+  );
+
+  test(
+    "AC-STE-646.12 — config rewritten keeping every snapshot status (roles reordered) → `verify PASS`, exit 0",
+    withGlacy({}, (g) => {
+      expect(runRepoint(g.args()).code).toBe(0);
+      const path = join(g.a, "specs", "tracker-config.yaml");
+      const old = readFileSync(path, "utf-8");
+      const reordered = old.replace(/roles:\n([\s\S]*)$/, (_m, body: string) => {
+        const lines = body.split("\n").filter((l) => l.length > 0);
+        return `roles:\n${lines.reverse().join("\n")}\n`;
+      });
+      expect(reordered, "(control) the bytes changed").not.toBe(old);
+      writeFileSync(path, reordered);
+      const v = runRepoint([g.a, "--verify"]);
+      expect(v.code, `${v.stdout}\n${v.stderr}`).toBe(0);
+      expect(v.stdout).toMatch(/^verify PASS/m);
+      expect(v.stdout).not.toContain("UNCHANGED");
+    }),
+    T,
+  );
+
+  test(
+    "AC-STE-646.13 — config rewritten dropping a status → `verify FAIL` naming it, exit 1",
+    withGlacy({}, (g) => {
+      expect(runRepoint(g.args()).code).toBe(0);
+      writeTrackerConfig(g.a, "jira", GF_STATUSES);
+      const v = runRepoint([g.a, "--verify"]);
+      expect(v.code).toBe(1);
+      const line = v.stdout.split("\n").find((l) => l.startsWith("verify FAIL")) ?? "";
+      expect(line, v.stdout).toContain("In Review");
+    }),
+    T,
+  );
+
+  test(
+    "AC-STE-646.14 — a legacy receipt (no trackerConfigSha256) keeps today's PASS wording",
+    withGlacy({}, (g) => {
+      handReceipt(g.a, "2026-09-30T00-00-00-000Z-legacy.json", { oldProject: "GB", newProject: "GF", statusSnapshot: GB_CONFIG_STATUSES });
+      const v = runRepoint([g.a, "--verify"]);
+      expect(v.code, `${v.stdout}\n${v.stderr}`).toBe(0);
+      expect(v.stdout.split("\n")).toContain(LEGACY_PASS);
+    }),
+    T,
+  );
+
+  test(
+    "AC-STE-646.14 — snapshot and sha come from the SAME latest receipt: a later legacy receipt after a sha-carrying one reads as legacy",
+    withGlacy({}, (g) => {
+      expect(runRepoint(g.args()).code).toBe(0);
+      handReceipt(g.a, "9999-zz-later-legacy.json", { oldProject: "GB", newProject: "GF", statusSnapshot: GB_CONFIG_STATUSES });
+      const v = runRepoint([g.a, "--verify"]);
+      expect(v.code, `${v.stdout}\n${v.stderr}`).toBe(0);
+      expect(v.stdout.split("\n")).toContain(LEGACY_PASS);
+      expect(v.stdout).not.toContain("UNCHANGED");
+    }),
+    T,
+  );
+});
+
 // ===========================================================================
 // AC-STE-612.7 — row 8, the report
 // ===========================================================================
@@ -342,4 +454,87 @@ describe("AC-STE-612.7 — row 8 names stale branches and worktrees, and counts 
     },
     T,
   );
+});
+
+// ===========================================================================
+// M_163656 (STE-646) — one outcome or none: the session precondition, the
+// restore, the receipt's config digest
+// ===========================================================================
+
+/** Spawn the front door with CLAUDE_CODE_SESSION_ID removed, or set to `sessionId` when given. */
+function runRepointSession(args: string[], sessionId?: string): { code: number | null; stdout: string; stderr: string } {
+  const env: NodeJS.ProcessEnv = { ...GIT_ENV };
+  delete env.CLAUDE_CODE_SESSION_ID;
+  if (sessionId !== undefined) env.CLAUDE_CODE_SESSION_ID = sessionId;
+  const proc = spawnSync("bun", ["run", FRONT_DOOR, ...args], { cwd: PLUGIN_ROOT, env, encoding: "utf-8", timeout: 60_000 });
+  return { code: proc.status, stdout: proc.stdout ?? "", stderr: proc.stderr ?? "" };
+}
+
+describe("STE-646 — the rows route checks the session before any row and restores on a failed receipt", () => {
+  for (const [label, sid] of [
+    ["unset", undefined],
+    ["empty", ""],
+    ["path-unsafe `../x`", "../x"],
+  ] as const) {
+    test(
+      `AC-STE-646.7 — CLAUDE_CODE_SESSION_ID ${label} → exit 1 before any row, naming it; CLAUDE.md, git status and .dpt/ unchanged`,
+      withGlacy({}, (g) => {
+        const before = readClaudeMd(g.a);
+        expect(git(g.a, "status", "--porcelain"), "(control) a clean tree").toBe("");
+        expect(existsSync(join(g.a, ".dpt")), "(control) no .dpt yet").toBe(false);
+        const r = runRepointSession(g.args(), sid);
+        expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(1);
+        expect(rowLines(r.stdout)).toEqual([]);
+        expect(r.stderr).toContain("CLAUDE_CODE_SESSION_ID");
+        // Review: an NFR-10 refusal like every other pre-row refusal, with a Remedy.
+        expect(r.stderr).toMatch(/^Refusing: /m);
+        expect(r.stderr).toMatch(/^Remedy: .*CLAUDE_CODE_SESSION_ID/m);
+        expect(readClaudeMd(g.a)).toBe(before);
+        expect(git(g.a, "status", "--porcelain")).toBe("");
+        expect(existsSync(join(g.a, ".dpt"))).toBe(false);
+      }),
+      T,
+    );
+  }
+
+  test(
+    "AC-STE-646.8 — `.dpt` is a regular file: rows pass, the receipt write fails, CLAUDE.md is restored byte for byte, exit 1, the refusal says restored",
+    withGlacy({}, (g) => {
+      writeFileSync(join(g.a, ".dpt"), "not a directory\n");
+      const before = readClaudeMd(g.a);
+      const r = runRepoint(g.args());
+      // (control) the run reached the write: every row passed.
+      for (let n = 1; n <= 7; n++) expect(verdict(r.stdout, n), r.stdout).toBe("PASS");
+      expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(1);
+      expect(readClaudeMd(g.a)).toBe(before);
+      expect(r.stderr).toContain("CLAUDE.md was restored byte for byte");
+      expect(r.stdout).not.toContain("dpt-receipt:");
+    }),
+    T,
+  );
+
+  test(
+    "AC-STE-646.9 + AC-STE-646.14 — a successful repoint leaves exactly one `repoint` receipt carrying the config's sha256, and the flipped binding",
+    withGlacy({}, (g) => {
+      const sha = configSha(g.a);
+      const r = runRepoint(g.args());
+      expect(r.code, `${r.stdout}\n${r.stderr}`).toBe(0);
+      expect(readClaudeMd(g.a)).toContain("project: GF\n");
+      const files = receiptFiles(g.a);
+      expect(files.length).toBe(1);
+      const receipt = JSON.parse(readFileSync(files[0]!, "utf-8"));
+      expect(receipt.kind).toBe("repoint");
+      expect(receipt.evidence.trackerConfigSha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(receipt.evidence.trackerConfigSha256).toBe(sha);
+      expect(receipt.evidence.statusSnapshot).toEqual(GB_CONFIG_STATUSES);
+    }),
+    T,
+  );
+
+  test("AC-STE-646.10 — repoint_tracker_binding.ts contains none of writeFileSync, appendFileSync, renameSync, copyFileSync, openSync, Bun.write", () => {
+    const src = readFileSync(FRONT_DOOR, "utf-8");
+    for (const name of ["writeFileSync", "appendFileSync", "renameSync", "copyFileSync", "openSync", "Bun.write"]) {
+      expect(src.includes(name), name).toBe(false);
+    }
+  });
 });

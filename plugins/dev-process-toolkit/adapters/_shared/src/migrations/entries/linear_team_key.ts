@@ -33,7 +33,7 @@ import { join, relative } from "node:path";
 import { parseFrontmatter } from "../../frontmatter";
 import { readTaskTrackingSection } from "../../resolver_config";
 import type * as BindingWrite from "../../setup/tracker_binding_write";
-import { linearTeamKeyOf } from "../../tracker_answer";
+import { LINEAR_TEAM_KEY, linearTeamKeyOf } from "../../tracker_answer";
 import type * as WorkspaceBinding from "../../workspace_binding";
 import type { ApplyResult, DetectResult, MigrationEntry } from "../index";
 
@@ -45,8 +45,6 @@ const readWorkspaceBinding: typeof WorkspaceBinding.readWorkspaceBinding = (...a
   (require("../../workspace_binding") as typeof WorkspaceBinding).readWorkspaceBinding(...a);
 const writeTrackerSubsection: typeof BindingWrite.writeTrackerSubsection = (...a) =>
   (require("../../setup/tracker_binding_write") as typeof BindingWrite).writeTrackerSubsection(...a);
-
-const KEY_SHAPED = /^[A-Z][A-Z0-9]*$/;
 
 interface TeamKeyPlan {
   rel: string;
@@ -96,7 +94,7 @@ function planTeamKey(projectRoot: string): TeamKeyPlan | null {
     return null; // a malformed binding is probe #25's to report, not this entry's
   }
   const team = binding.team;
-  if (team === undefined || team === "" || KEY_SHAPED.test(team)) return null;
+  if (team === undefined || team === "" || LINEAR_TEAM_KEY.test(team)) return null;
   const rel = relative(projectRoot, claudeMd);
   const base = { rel, claudeMd, project: binding.project ?? "", team };
   if (binding.project === undefined || binding.project.trim() === "") {
