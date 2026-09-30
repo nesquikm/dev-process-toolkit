@@ -1113,7 +1113,13 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   const kickoff = (rel: string) => sh(REPO, "git", ["show", `${KICKOFF}:${rel}`]);
   const SHIP = `${PLUGIN_REL}/skills/ship-milestone/SKILL.md`;
   const GATE_CHECK = `${PLUGIN_REL}/skills/gate-check/SKILL.md`;
-  const PERMITTED_LINE = 128;
+  // The gate-check SKILL's permitted lines: a CLOSED, ENUMERATED set, never a
+  // criterion. Line 128 is probe #49's entry (this milestone). Line 120 is
+  // probe #41's entry, whose last sentence called the unregistered
+  // `commit_producing_skill_branch_gate` module a colocated probe — admitted
+  // by name under operator ruling R2 (STE-648, AC-STE-648.8), corrected
+  // without registering the probe. A third permitted line needs a fresh ruling.
+  const PERMITTED_LINES: readonly number[] = [120, 128];
 
   /** The guard: same line count, and every differing line is a permitted one. */
   function driftBeyond(before: string, after: string, permitted: readonly number[]): string[] {
@@ -1175,12 +1181,34 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     expect(byteDrift(then, `${then}\n`), "a trailing byte is a difference too").not.toEqual([]);
   });
 
-  test("skills/gate-check/SKILL.md differs from the kickoff only on line 128, probe #49's entry, rewritten in place", () => {
+  test("AC-STE-648.8: skills/gate-check/SKILL.md differs from the kickoff only on lines 120 and 128, probe #41's and probe #49's entries, rewritten in place", () => {
     const now = readFileSync(join(REPO, GATE_CHECK), "utf-8");
     const then = kickoff(GATE_CHECK);
-    expect(driftBeyond(then, now, [PERMITTED_LINE])).toEqual([]);
-    expect(now.split("\n")[PERMITTED_LINE - 1]).toMatch(/^49\. \*\*`tracker_local_reconciliation_drift`\*\*/);
-    expect(then.split("\n")[PERMITTED_LINE - 1]).toMatch(/^49\. \*\*`tracker_local_reconciliation_drift`\*\*/);
+    expect(PERMITTED_LINES).toEqual([120, 128]);
+    expect(driftBeyond(then, now, PERMITTED_LINES)).toEqual([]);
+    expect(now.split("\n")[128 - 1]).toMatch(/^49\. \*\*`tracker_local_reconciliation_drift`\*\*/);
+    expect(then.split("\n")[128 - 1]).toMatch(/^49\. \*\*`tracker_local_reconciliation_drift`\*\*/);
+    expect(now.split("\n")[120 - 1]).toMatch(/^41\. \*\*`spec_research_result_shape`\*\*/);
+    expect(then.split("\n")[120 - 1]).toMatch(/^41\. \*\*`spec_research_result_shape`\*\*/);
+  });
+
+  test("AC-STE-648.8: line 120 carries the corrected sentence, path-free, and keeps its trailer", () => {
+    const line = readFileSync(join(REPO, GATE_CHECK), "utf-8").split("\n")[120 - 1]!;
+    expect(line).toContain(
+      "Sibling module: `commit_producing_skill_branch_gate` (M61) — no numbered entry registers it, so /gate-check does not run it.",
+    );
+    expect(line, "the false colocated-probe claim is gone").not.toContain("colocated with the `commit_producing_skill_branch_gate` probe");
+    expect(line, "no module path lands on line 120 (it would raise orderedUnreachable)").not.toContain("commit_producing_skill_branch_gate.ts");
+    expect(line.endsWith("(STE-230 AC-STE-230.12)"), "the trailer is kept").toBe(true);
+  });
+
+  test("AC-STE-648.8 NEGATIVE CONTROL — a changed line 121 (next to the permitted 120) fails the guard", () => {
+    const now = readFileSync(join(REPO, GATE_CHECK), "utf-8");
+    const then = kickoff(GATE_CHECK);
+    const lines = now.split("\n");
+    const neighbour = [...lines];
+    neighbour[120] = `${neighbour[120]} (edited)`;
+    expect(driftBeyond(then, neighbour.join("\n"), PERMITTED_LINES)).toEqual(["line 121"]);
   });
 
   test("negative controls: a second changed line, or an added line, fails the guard", () => {
@@ -1189,9 +1217,9 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     const lines = now.split("\n");
     const second = [...lines];
     second[199] = `${second[199]} (edited)`;
-    expect(driftBeyond(then, second.join("\n"), [PERMITTED_LINE])).toEqual(["line 200"]);
+    expect(driftBeyond(then, second.join("\n"), PERMITTED_LINES)).toEqual(["line 200"]);
     const added = [...lines.slice(0, 50), "an added line", ...lines.slice(50)];
-    expect(driftBeyond(then, added.join("\n"), [PERMITTED_LINE])).toHaveLength(1);
+    expect(driftBeyond(then, added.join("\n"), PERMITTED_LINES)).toHaveLength(1);
   });
 });
 
