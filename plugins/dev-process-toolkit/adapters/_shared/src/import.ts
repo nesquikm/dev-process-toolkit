@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { acPrefix } from "./ac_prefix";
 import { stripLinearACFences } from "../../linear/src/format_description";
 import type { FRSpec, Provider } from "./provider";
-import { classifyTicket, normalizeContainerItems, normalizeContainerPage } from "./container_ownership";
+import { assertListingProject, classifyTicket, isOfferable, normalizeContainerItems, normalizeContainerPage } from "./container_ownership";
 import { readLocalFRBindings } from "./reconcile_tracker_local";
 import { readTrackerItem } from "./tracker_answer";
 import { readWorkspaceBinding } from "./workspace_binding";
@@ -78,19 +78,30 @@ function ownershipLabels(trackerKey: string, trackerId: string, ctx: ImportOwner
     if (!read.ok) throw new Error(`importFromTracker: the fetched ticket ${trackerId} cannot be read: ${read.reason} — refusing`);
     items.push(read.item);
   }
-  const ticket = [
+  const tickets = [
     ...ctx.pages.flatMap((p) => normalizeContainerPage(p, trackerKey, binding.shared)),
     ...normalizeContainerItems(items, trackerKey, binding.shared),
-  ].find((t) => t.key === trackerId);
+  ];
+  // STE-653 — in a shared binding, any ticket read from another project (or
+  // Linear team) refuses the whole read before any write or sync.
+  try {
+    assertListingProject(tickets, trackerKey, binding);
+  } catch (e) {
+    throw new Error(`importFromTracker: ${trackerId} — ${(e as Error).message}`);
+  }
+  const ticket = tickets.find((t) => t.key === trackerId);
   if (ticket === undefined) {
     if (binding.shared) {
       throw new Error(`importFromTracker: ${trackerId} is not on the pages read; its labels cannot be merged — refusing`);
     }
     return undefined;
   }
+  // STE-653 — the listing's own offerable rule: a sibling, a container or a
+  // closed ticket is never imported; refuse before any write or sync.
   const cls = classifyTicket(ticket, binding);
-  if (cls === "sibling" || cls === "container") {
-    throw new Error(`importFromTracker: ${trackerId} is a ${cls} ticket; refusing to import it`);
+  if (!isOfferable(ticket, cls)) {
+    const what = cls === "sibling" || cls === "container" ? cls : "closed";
+    throw new Error(`importFromTracker: ${trackerId} is a ${what} ticket; refusing to import it`);
   }
   if (cls === "unowned" && binding.repoTag !== undefined) {
     return [...ticket.labels, binding.repoTag];

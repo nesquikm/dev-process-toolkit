@@ -16,6 +16,11 @@
 // `milestoneMismatches`; a claimed one is graded against active AND archived
 // plans. Without the option the output is exactly the unshared one.
 //
+// STE-653: a ticket classed `closed` is never a tracker orphan (finished work
+// is not drift), and neither is a ticket in `archiveBoundIds` — the tracker
+// ids archived FRs bind (its work shipped here). Local-orphan grading is
+// unchanged.
+//
 // Mode-none: vacuous (all three lists empty) — `LocalProvider` has no tracker
 // to reconcile against, so the helper short-circuits before touching the FS.
 
@@ -74,11 +79,17 @@ export interface ReconcileOptions {
    * is graded against active AND archived plans.
    */
   shared?: boolean;
+  /**
+   * STE-653 — tracker ids bound by archived FRs. Such a ticket is never a
+   * tracker orphan (its work shipped here); local-orphan grading is unchanged.
+   */
+  archiveBoundIds?: Iterable<string>;
 }
 
 // Classes never offered as tracker orphans: containers in every mode,
-// siblings (which only exist in a shared repository).
-const NEVER_ORPHAN_CLASSES: ReadonlySet<string> = new Set(["container", "sibling"]);
+// siblings (which only exist in a shared repository), and closed tickets
+// (STE-653 — finished work is not drift).
+const NEVER_ORPHAN_CLASSES: ReadonlySet<string> = new Set(["container", "sibling", "closed"]);
 
 export interface ReconcileTrackerLocalResult {
   trackerOrphans: ReconcileItem[];
@@ -141,11 +152,12 @@ export async function reconcileTrackerLocal(
     }
   }
   const trackerSet = new Set(trackerFRs);
+  const archiveBound = new Set(options.archiveBoundIds ?? []);
 
   // tracker-orphan: tracker carries an active FR ID nothing local binds to.
   const trackerOrphans: ReconcileItem[] = [];
   for (const trackerId of trackerFRs) {
-    if (boundTrackerIds.has(trackerId)) continue;
+    if (boundTrackerIds.has(trackerId) || archiveBound.has(trackerId)) continue;
     const ticket = classOf.get(trackerId);
     if (ticket === undefined) {
       trackerOrphans.push({

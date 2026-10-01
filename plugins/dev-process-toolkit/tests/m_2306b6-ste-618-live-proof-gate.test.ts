@@ -1147,12 +1147,24 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   // sibling check refuses the chain. It was false before this milestone; this
   // milestone found it. Correcting a paging field adds no probe and no refusal
   // to the ceremony. A third permitted line anywhere needs a fresh ruling.
+  //
+  // RULING (STE-653, M_a85e46, operator 2026-10-01): line 260 is the second
+  // entry — the post-ship checklist's item 3 names closing the milestone Epic
+  // `<P>-<N>` and the sharing condition (AC-STE-653.23), rewritten in place.
+  // The freeze is exactly {91, 260}; a third line still needs a fresh ruling.
   const SHIP_PERMITTED_LINE = 91;
+  const SHIP_EPIC_CLOSE_LINE = 260;
+  const SHIP_PERMITTED = [SHIP_PERMITTED_LINE, SHIP_EPIC_CLOSE_LINE];
 
-  test("skills/ship-milestone/SKILL.md differs from the kickoff only on line 91, the sibling listing's paging instruction, rewritten in place", () => {
+  test("skills/ship-milestone/SKILL.md differs from the kickoff only on lines 91 and 260, each rewritten in place", () => {
     const now = readFileSync(join(REPO, SHIP), "utf-8");
     const then = kickoff(SHIP);
-    expect(driftBeyond(then, now, [SHIP_PERMITTED_LINE])).toEqual([]);
+    expect(driftBeyond(then, now, SHIP_PERMITTED)).toEqual([]);
+    const epic = now.split("\n")[SHIP_EPIC_CLOSE_LINE - 1]!;
+    expect(then.split("\n")[SHIP_EPIC_CLOSE_LINE - 1], "line 260 was the checklist's item 3 at the kickoff").toMatch(/^  3\. Update any external references/);
+    expect(epic).toMatch(/^  3\. Update any external references/);
+    expect(epic, "line 260 names closing the milestone Epic by its key").toContain("close the milestone Epic <P>-<N>");
+    expect(epic, "and the sharing condition").toMatch(/spans_repos.*shared/);
     const line = now.split("\n")[SHIP_PERMITTED_LINE - 1]!;
     expect(line).toMatch(/^4\. \*\*Sibling not provably idle\*\*/);
     expect(then.split("\n")[SHIP_PERMITTED_LINE - 1]).toMatch(/^4\. \*\*Sibling not provably idle\*\*/);
@@ -1160,15 +1172,15 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     expect(line, "and no longer tells a Linear child to follow `endCursor` at top level").not.toMatch(/previous page's `endCursor`/);
   });
 
-  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91), or an added line, fails the guard", () => {
+  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91 and 260), or an added line, fails the guard", () => {
     const now = readFileSync(join(REPO, SHIP), "utf-8");
     const then = kickoff(SHIP);
     const lines = now.split("\n");
     const third = [...lines];
     third[39] = `${third[39]} (edited)`;
-    expect(driftBeyond(then, third.join("\n"), [SHIP_PERMITTED_LINE])).toEqual(["line 40"]);
+    expect(driftBeyond(then, third.join("\n"), SHIP_PERMITTED)).toEqual(["line 40"]);
     const added = [...lines.slice(0, 50), "an added line", ...lines.slice(50)];
-    expect(driftBeyond(then, added.join("\n"), [SHIP_PERMITTED_LINE])).toHaveLength(1);
+    expect(driftBeyond(then, added.join("\n"), SHIP_PERMITTED)).toHaveLength(1);
   });
 
   test("NEGATIVE CONTROL — a ship-milestone sibling with one changed line fails the byte-identity guard", () => {

@@ -117,7 +117,7 @@ export function readTrackedBindings(projectRoot: string): TrackedBindings {
 }
 
 /** Why the ticket's project (or Linear team) differs from the binding, or null when it matches. */
-function projectMismatch(
+export function projectMismatch(
   adapter: WorkspaceAdapterKey,
   project: string | null,
   key: string,

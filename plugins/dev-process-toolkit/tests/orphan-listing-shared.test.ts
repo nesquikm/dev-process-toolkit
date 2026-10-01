@@ -14,10 +14,13 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Glob } from "bun";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { CANONICAL_CAPABILITY_KEYS } from "../adapters/_shared/src/closing_summary_capability_keys";
+// Namespace import: STE-653's TOOLKIT_LABELS is read off the module, so its
+// absence is a failing assertion rather than a link error for the whole suite.
+import * as ownershipModule from "../adapters/_shared/src/container_ownership";
 import { importFromTracker } from "../adapters/_shared/src/import";
 import {
   ORDERED_UNREACHABLE_PIN,
@@ -29,6 +32,7 @@ import { TrackerProvider } from "../adapters/_shared/src/tracker_provider";
 import { RECEIPT_ANNOUNCEMENT_PREFIX,
   parseReceiptAnnouncement, readSessionReceipts } from "../adapters/_shared/src/tracker_receipts";
 import {
+  archivedBoundFr,
   BE_TAG,
   BE_TICKETS,
   boundFr,
@@ -43,9 +47,11 @@ import {
   HAND_TAGGED_BE,
   jiraIssue,
   jiraPage,
+  jiraRow,
   keysOf,
   keysOfClass,
   linearPage,
+  linearRow,
   offered,
   OLD_CLIENT,
   OWNERSHIP_MODULE,
@@ -872,6 +878,601 @@ describe("STE-605 — the ownership context is Jira/Linear-only", () => {
       ).rejects.toThrow(/has no container pages/);
       expect(driver.writes).toEqual([]);
       expect(existsSync(join(fe, "specs", "frs", "GF-124.md"))).toBe(false);
+    });
+  });
+});
+
+// ===========================================================================
+// STE-653 (M_a85e46) — the container listing grades only this project's open
+// tickets. Filter by AC with `bun test -t "AC-STE-653.N"`.
+//
+// HEAD comparisons run the PRE-CHANGE front doors, extracted with
+// `git show cb6145c1:...` (v2.92.0 on main, so a rebase of this branch cannot orphan it), plus their imports, over the same pages. The listing, consent and drift modules are byte-identical there and at the pre-STE-653 branch tip; two of their imports (reconcile_tracker_local.ts, STE-652, and milestone_token.ts, STE-651) differ, so the baseline is MAIN — on these pages (no `shared` reconcile option, no Epic listing) the two read alike.
+// ===========================================================================
+
+const STE653_BASE_SHA = "cb6145c1";
+const OWNERSHIP_REL = "plugins/dev-process-toolkit/adapters/_shared/src/container_ownership.ts";
+const DRIFT_REL = "plugins/dev-process-toolkit/adapters/_shared/src/tracker_local_reconciliation_drift.ts";
+const TICKET_OWNERSHIP_MODULE = join(PLUGIN_ROOT, "adapters", "_shared", "src", "ticket_ownership.ts");
+const NTR = "needs-technical-review";
+
+let baseDir = "";
+let baseOwnership = "";
+let baseDrift = "";
+function baseModules(): { ownership: string; drift: string } {
+  if (baseDir === "") {
+    baseDir = mkdtempSync(join(tmpdir(), "dpt-ste653-base-"));
+    const seen = new Set<string>();
+    baseOwnership = extractAt(STE653_BASE_SHA, OWNERSHIP_REL, baseDir, seen);
+    baseDrift = extractAt(STE653_BASE_SHA, DRIFT_REL, baseDir, seen);
+  }
+  return { ownership: baseOwnership, drift: baseDrift };
+}
+afterAll(() => {
+  if (baseDir !== "") rmSync(baseDir, { recursive: true, force: true });
+});
+
+const baseList = (root: string, pages: string[]): Run =>
+  spawnModule(baseModules().ownership, ["list", root, ...pages], env());
+const baseConsent = (root: string, key: string, pages: string[]): Run =>
+  spawnModule(baseModules().ownership, ["consent", root, key, ...pages], env());
+const baseProbe = (root: string, pages: string[]): Run => spawnModule(baseModules().drift, [root, ...pages], env());
+
+const jiraRowsPage = (rows: Record<string, unknown>[]) => ({ issues: rows, isLast: true });
+const linearRowsPage = (rows: Record<string, unknown>[]) => ({ issues: rows, hasNextPage: false });
+
+const receiptPaths = (run: Run) =>
+  run.stdout
+    .split("\n")
+    .filter((l) => l.startsWith(RECEIPT_ANNOUNCEMENT_PREFIX))
+    .map((l) => parseReceiptAnnouncement(l)!.path);
+
+/** The FE binding as `readWorkspaceBinding` returns it for `declareJira(root, FE_TAG)`. */
+const FE_BINDING = { shared: true, repoTag: FE_TAG, defaultLabels: [FE_TAG], project: "GF", minDptVersion: "2.87.0" };
+const BE_BINDING = { shared: true, repoTag: BE_TAG, defaultLabels: [BE_TAG], project: "GF", minDptVersion: "2.87.0" };
+const asTicket = (t: Ticket) => ownershipModule.normalizeContainerItems([jiraIssue(t)], "jira", true)[0]!;
+
+const T_NTR_ONLY: Ticket = { key: "GF-161", title: "Untagged no-tech FR", labels: [NTR], creator: "Pat Manager", backLink: true };
+const T_NTR_MILESTONE: Ticket = { key: "GF-162", title: "Untagged no-tech FR under an Epic", labels: ["milestone-M_GF_92", NTR], creator: "Pat Manager" };
+const T_BE_NTR: Ticket = { key: "GF-163", title: "BE no-tech FR", labels: [BE_TAG, NTR], creator: "Be Dev", backLink: true };
+const T_FE_NTR: Ticket = { key: "GF-164", title: "FE no-tech FR", labels: [FE_TAG, NTR], creator: "Fe Dev", backLink: true };
+
+// ---------------------------------------------------------------------------
+// C-F5 — the toolkit's own label is not a sibling's tag.
+// ---------------------------------------------------------------------------
+
+describe("STE-653 — toolkit-owned labels are not sibling tags", () => {
+  test("AC-STE-653.1 (a) — classifyTicket: an untagged ticket whose only label is needs-technical-review is unowned for FE and for BE", () => {
+    for (const binding of [FE_BINDING, BE_BINDING]) {
+      expect(ownershipModule.classifyTicket(asTicket(T_NTR_ONLY), binding as never)).toBe("unowned");
+    }
+  });
+
+  test("AC-STE-653.1 (b) — [milestone-M_GF_92, needs-technical-review] is unowned", () => {
+    expect(ownershipModule.classifyTicket(asTicket(T_NTR_MILESTONE), FE_BINDING as never)).toBe("unowned");
+  });
+
+  test("AC-STE-653.1 — listOrphans (front door) offers it in FE and in BE with the Import/Skip options line", async () => {
+    await withRoots((fe, be) => {
+      declareJira(fe, FE_TAG);
+      declareJira(be, BE_TAG);
+      const page = writePage(jiraPage([...TWO_REPO, T_NTR_ONLY, T_NTR_MILESTONE]));
+      for (const root of [fe, be]) {
+        const out = okList(list(root, [page])).stdout;
+        const cls = classes(out);
+        expect(cls.get("GF-161"), out).toBe("unowned");
+        expect(cls.get("GF-162"), out).toBe("unowned");
+        const lines = out.split("\n");
+        expect(lines).toContain("options: Import GF-161 | Skip GF-161");
+        expect(lines).toContain("options: Import GF-162 | Skip GF-162");
+      }
+    });
+  });
+
+  test("AC-STE-653.2 (c) — ticket_ownership decide gives verdict unowned with options [Adopt GF-161, Skip GF-161]", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const ticketPath = writePage(jiraIssue(T_NTR_ONLY));
+      const run = spawnModule(TICKET_OWNERSHIP_MODULE, ["decide", fe, ticketPath], env());
+      expect(run.code, run.stderr).toBe(0);
+      const decision = JSON.parse(run.stdout.trim().split("\n")[0]!) as { verdict: string; options?: string[] };
+      expect(decision.verdict).toBe("unowned");
+      expect(decision.options).toEqual(["Adopt GF-161", "Skip GF-161"]);
+    });
+  });
+
+  test("AC-STE-653.2 CONTROL — decide on [glacy-be, needs-technical-review] in FE is still foreign-repo", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const run = spawnModule(TICKET_OWNERSHIP_MODULE, ["decide", fe, writePage(jiraIssue(T_BE_NTR))], env());
+      expect(run.code, run.stderr).toBe(0);
+      expect((JSON.parse(run.stdout.trim().split("\n")[0]!) as { verdict: string }).verdict).toBe("foreign-repo");
+    });
+  });
+
+  test("AC-STE-653.3 (f) — [glacy-be, needs-technical-review] in FE is sibling, and foreignLabels is exactly [glacy-be]", () => {
+    const t = asTicket(T_BE_NTR);
+    expect(ownershipModule.classifyTicket(t, FE_BINDING as never)).toBe("sibling");
+    expect(ownershipModule.foreignLabels(t, FE_BINDING as never)).toEqual([BE_TAG]);
+  });
+
+  test("AC-STE-653.3 (e) CONTROL — [glacy-be] in FE is sibling (red under an over-exempting foreignLabels)", () => {
+    const t = asTicket(BE_TICKETS[0]!);
+    expect(ownershipModule.classifyTicket(t, FE_BINDING as never)).toBe("sibling");
+    expect(ownershipModule.foreignLabels(t, FE_BINDING as never)).toEqual([BE_TAG]);
+  });
+
+  test("AC-STE-653.3 — the front door lists [glacy-be, needs-technical-review] as sibling in FE and never offers it", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const out = okList(list(fe, [writePage(jiraPage([...TWO_REPO, T_BE_NTR]))])).stdout;
+      expect(classes(out).get("GF-163")).toBe("sibling");
+      expect(offered(out)).not.toContain("GF-163");
+    });
+  });
+
+  test("AC-STE-653.4 (g) — [glacy-fe, needs-technical-review] in FE is ours", async () => {
+    expect(ownershipModule.classifyTicket(asTicket(T_FE_NTR), FE_BINDING as never)).toBe("ours");
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const out = okList(list(fe, [writePage(jiraPage([...TWO_REPO, T_FE_NTR]))])).stdout;
+      expect(classes(out).get("GF-164")).toBe("ours");
+      expect(offered(out)).toContain("GF-164");
+    });
+  });
+
+  test("AC-STE-653.5 (d) — numeric-milestone-shared names three sides when two siblings share only needs-technical-review", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const tickets: Ticket[] = [
+        { key: "GF-171", title: "BE M8", labels: [BE_TAG, NTR, "milestone-M8"], creator: "Be Dev", backLink: true },
+        { key: "GF-172", title: "X M8", labels: ["glacy-x", NTR, "milestone-M8"], creator: "X Dev", backLink: true },
+        { key: "GF-173", title: "FE M8", labels: [FE_TAG, "milestone-M8"], creator: "Fe Dev", backLink: true },
+      ];
+      const run = probe(fe, [writePage(jiraPage(tickets))]);
+      expect(run.stdout, run.stderr).toMatch(/excluded/);
+      const rows = run.stdout.split("\n").filter((l) => l.includes("numeric-milestone-shared"));
+      expect(rows.length, run.stdout).toBe(1);
+      const sides = /\(([^()]*)\)/.exec(rows[0]!)?.[1] ?? "";
+      expect(sides.split("; ").length, rows[0]).toBe(3);
+      expect(rows[0]).not.toContain(NTR);
+      for (const k of ["GF-171", "GF-172", "GF-173"]) expect(rows[0]).toContain(k);
+    });
+  });
+
+  test("AC-STE-653.5 CONTROL — one sibling's two tickets that share needs-technical-review stay one side (no row)", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const tickets: Ticket[] = [
+        { key: "GF-174", title: "BE M8 a", labels: [BE_TAG, NTR, "milestone-M8"], creator: "Be Dev", backLink: true },
+        { key: "GF-175", title: "BE M8 b", labels: [BE_TAG, "milestone-M8"], creator: "Be Dev", backLink: true },
+      ];
+      const run = probe(fe, [writePage(jiraPage(tickets))]);
+      expect(run.stdout, run.stderr).toMatch(/excluded/);
+      expect(run.stdout.split("\n").filter((l) => l.includes("numeric-milestone-shared"))).toEqual([]);
+    });
+  });
+
+  test("AC-STE-653.6 (h) — the --no-tech labels literal in spec-write/SKILL.md is a member of the exported TOOLKIT_LABELS", () => {
+    const skill = readFileSync(join(PLUGIN_ROOT, "skills", "spec-write", "SKILL.md"), "utf-8");
+    const hits = [...skill.matchAll(/labels: \[\.\.\.\(defaultLabels \?\? \[\]\), "([^"]+)"\]/g)].map((m) => m[1]!);
+    expect(hits.length, "the --no-tech labels-array literal is no longer found in spec-write/SKILL.md").toBeGreaterThan(0);
+    const labels = (ownershipModule as Record<string, unknown>).TOOLKIT_LABELS as ReadonlySet<string> | undefined;
+    expect(labels instanceof Set, "container_ownership.ts exports no TOOLKIT_LABELS set").toBe(true);
+    for (const l of hits) expect(labels!.has(l), `${l} is written by spec-write --no-tech but not in TOOLKIT_LABELS`).toBe(true);
+    // CONTROL: the set is not a catch-all — this repository's tag and a milestone label are not toolkit labels.
+    expect(labels!.has(FE_TAG)).toBe(false);
+    expect(labels!.has("milestone-M8")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-STE-653.7 — matrix rows (h) and (u) still find their anchors and still go red.
+// ---------------------------------------------------------------------------
+
+const MATRIX_FILE = join(PLUGIN_ROOT, "tests", "m_2306b6-ste-616-guard-mutation-matrix.test.ts");
+
+/** One quoted field (`find`/`replace`/`file`) of the matrix row `letter`, read from the suite's source. */
+function matrixField(letter: string, field: "find" | "replace" | "file"): string {
+  const line = readFileSync(MATRIX_FILE, "utf-8")
+    .split("\n")
+    .find((l) => l.includes(`{ row: "${letter}",`));
+  if (line === undefined) throw new Error(`matrix row (${letter}) not found`);
+  const m = new RegExp(`\\b${field}: (?:'([^']*)'|"((?:[^"\\\\]|\\\\.)*)"|\`([^\`]*)\`)`).exec(line);
+  if (!m) throw new Error(`matrix row (${letter}) has no ${field}`);
+  if (m[1] !== undefined) return m[1];
+  if (m[2] !== undefined) return JSON.parse(`"${m[2]}"`) as string;
+  return m[3]!.replace("${S}", "adapters/_shared/src");
+}
+
+describe("AC-STE-653.7 — matrix rows (h) and (u) keep their anchors and still go red", () => {
+  const SOURCE = () => readFileSync(OWNERSHIP_MODULE, "utf-8");
+
+  for (const letter of ["h", "u"]) {
+    test(`AC-STE-653.7 — row (${letter})'s find string occurs exactly once in container_ownership.ts`, () => {
+      expect(matrixField(letter, "file")).toBe("adapters/_shared/src/container_ownership.ts");
+      const find = matrixField(letter, "find");
+      expect(SOURCE().split(find).length - 1, `row (${letter}) anchor ${JSON.stringify(find)}`).toBe(1);
+    });
+  }
+
+  const legs: { letter: string; key: string; expected: string }[] = [
+    { letter: "h", key: "GF-121", expected: "unowned" }, // the untagged ticket reads as tagged
+    { letter: "u", key: "GF-111", expected: "sibling" }, // the sibling's ticket reads as unowned
+  ];
+  for (const leg of legs) {
+    test(`AC-STE-653.7 — row (${leg.letter})'s mutation turns ${leg.key}'s class away from ${leg.expected} (unmutated: ${leg.expected})`, async () => {
+      const copy = mkdtempSync(join(tmpdir(), `dpt-ste653-row-${leg.letter}-`));
+      try {
+        cpSync(join(PLUGIN_ROOT, "adapters"), join(copy, "adapters"), { recursive: true });
+        const target = join(copy, "adapters", "_shared", "src", "container_ownership.ts");
+        const body = readFileSync(target, "utf-8");
+        const find = matrixField(leg.letter, "find");
+        expect(body.split(find).length - 1).toBe(1);
+        writeFileSync(target, body.replace(find, matrixField(leg.letter, "replace")));
+        await withRoots((fe) => {
+          declareJira(fe, FE_TAG);
+          const page = writePage(jiraPage(TWO_REPO));
+          expect(classes(okList(list(fe, [page])).stdout).get(leg.key)).toBe(leg.expected);
+          const mutated = spawnModule(target, ["list", fe, page], env());
+          expect(mutated.code, mutated.stderr).toBe(0);
+          expect(classes(mutated.stdout).get(leg.key)).not.toBe(leg.expected);
+        });
+      } finally {
+        rmSync(copy, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// C-ORPH — closed tickets and archived bindings are never offered.
+// ---------------------------------------------------------------------------
+
+const T_CLOSED: Ticket = { key: "GF-301", title: "Shipped and closed", labels: [], creator: "Pat Manager" };
+const T_CLOSED_OURS: Ticket = { key: "GF-302", title: "Our shipped one", labels: [FE_TAG], creator: "Fe Dev", backLink: true };
+const T_ARCHIVED: Ticket = { key: "GF-303", title: "Archived here", labels: [FE_TAG], creator: "Fe Dev", backLink: true };
+
+const linearClosedRows = (): Record<string, unknown>[] => [
+  linearRow({ key: "STE-911", title: "Completed", labels: [], creator: "Pat Manager" }, { statusType: "completed", completedAt: "2026-09-20T00:00:00Z", canceledAt: null }),
+  linearRow({ key: "STE-912", title: "Canceled", labels: [], creator: "Pat Manager" }, { statusType: "canceled", completedAt: null, canceledAt: "2026-09-20T00:00:00Z" }),
+  linearRow({ key: "STE-913", title: "Started, completedAt set", labels: [FE_TAG], creator: "Fe Dev" }, { statusType: "started", completedAt: "2026-09-20T00:00:00Z", canceledAt: null }),
+  linearRow({ key: "STE-914", title: "Started, canceledAt set", labels: [], creator: "Pat Manager" }, { statusType: "started", completedAt: null, canceledAt: "2026-09-20T00:00:00Z" }),
+];
+const linearOpenRows = (): Record<string, unknown>[] => [
+  linearRow({ key: "STE-915", title: "Started", labels: [], creator: "Pat Manager" }, { statusType: "started", completedAt: null, canceledAt: null }),
+  linearRow({ key: "STE-916", title: "Backlog", labels: [FE_TAG], creator: "Fe Dev" }, { statusType: "backlog", completedAt: null, canceledAt: null }),
+  linearRow({ key: "STE-917", title: "No status fields", labels: [], creator: "Pat Manager" }),
+];
+
+describe("STE-653 — closed tickets are not offered", () => {
+  test("AC-STE-653.8 (a) — a Jira ticket in status category done is not offered, has no options line, and the summary counts closed=2", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const rows = [
+        ...TWO_REPO.map((t) => jiraIssue(t)),
+        jiraRow(T_CLOSED, { statusCategory: "done" }),
+        jiraRow(T_CLOSED_OURS, { statusCategory: "done" }),
+      ];
+      const out = okList(list(fe, [writePage(jiraRowsPage(rows))])).stdout;
+      for (const k of ["GF-301", "GF-302"]) {
+        expect(offered(out), out).not.toContain(k);
+        expect(out).not.toContain(`Skip ${k}`);
+      }
+      const s = summary(out)!;
+      expect(s.line).toMatch(/\bclosed=2\b/);
+      expect(s.counts.read).toBe(TWO_REPO.length + 2);
+      expect(s.complete).toBe(true);
+      // CONTROL: the open tickets on the same page are still offered.
+      expect(offered(out)).toEqual(expect.arrayContaining(["GF-102", "GF-121"]));
+    });
+  });
+
+  test("AC-STE-653.8 (b) — Linear: statusType completed or canceled, or a non-null completedAt or canceledAt, is not offered; summary closed=4", async () => {
+    await withRoots((fe) => {
+      declareLinear(fe, FE_TAG);
+      const out = okList(list(fe, [writePage(linearRowsPage([...linearClosedRows(), ...linearOpenRows()]))])).stdout;
+      for (const k of ["STE-911", "STE-912", "STE-913", "STE-914"]) {
+        expect(offered(out), out).not.toContain(k);
+        expect(out).not.toContain(`Skip ${k}`);
+      }
+      expect(summary(out)!.line).toMatch(/\bclosed=4\b/);
+      expect(summary(out)!.complete).toBe(true);
+    });
+  });
+
+  test("AC-STE-653.8 (b′) hardening (review r0) — statusType completed or canceled ALONE (both timestamps null) is closed; red under an emptied closed-status set", async () => {
+    await withRoots((fe) => {
+      declareLinear(fe, FE_TAG);
+      const rows = [
+        linearRow({ key: "STE-918", title: "Completed, no timestamp", labels: [], creator: "Pat Manager" }, { statusType: "completed", completedAt: null, canceledAt: null }),
+        linearRow({ key: "STE-919", title: "Canceled, no timestamp", labels: [], creator: "Pat Manager" }, { statusType: "canceled", completedAt: null, canceledAt: null }),
+        ...linearOpenRows(),
+      ];
+      const out = okList(list(fe, [writePage(linearRowsPage(rows))])).stdout;
+      for (const k of ["STE-918", "STE-919"]) {
+        expect(offered(out), out).not.toContain(k);
+        expect(out).not.toContain(`Skip ${k}`);
+      }
+      expect(summary(out)!.line).toMatch(/\bclosed=2\b/);
+      expect(offered(out)).toEqual(["STE-915", "STE-916", "STE-917"]);
+    });
+  });
+
+  test("AC-STE-653.12 CONTROL — open statuses and absent status fields are still offered (red under a mark-everything-closed mutation)", async () => {
+    await withRoots((fe, be) => {
+      declareLinear(fe, FE_TAG);
+      const lin = okList(list(fe, [writePage(linearRowsPage(linearOpenRows()))])).stdout;
+      expect(offered(lin)).toEqual(["STE-915", "STE-916", "STE-917"]);
+      declareJira(be, FE_TAG);
+      const rows = [
+        jiraRow({ key: "GF-311", title: "In progress", labels: [], creator: "Pat Manager" }, { statusCategory: "indeterminate" }),
+        jiraRow({ key: "GF-312", title: "To do", labels: [FE_TAG], creator: "Fe Dev" }, { statusCategory: "new" }),
+        jiraRow({ key: "GF-313", title: "No status", labels: [], creator: "Pat Manager" }),
+      ];
+      const jir = okList(list(be, [writePage(jiraRowsPage(rows))])).stdout;
+      expect(offered(jir)).toEqual(["GF-311", "GF-312", "GF-313"]);
+    });
+  });
+
+  test("AC-STE-653.12 — open-status pages list byte-identically to HEAD (Jira and Linear)", async () => {
+    await withRoots((fe, be) => {
+      declareJira(fe, FE_TAG);
+      const jRows = TWO_REPO.map((t, i) => jiraRow(t, { statusCategory: i % 2 === 0 ? "new" : "indeterminate" }));
+      const jPage = writePage(jiraRowsPage(jRows));
+      const now = okList(list(fe, [jPage]));
+      const base = okList(baseList(fe, [jPage]));
+      expect(now.stdout).toBe(base.stdout);
+      declareLinear(be, FE_TAG);
+      const lPage = writePage(linearRowsPage(linearOpenRows()));
+      expect(okList(list(be, [lPage])).stdout).toBe(okList(baseList(be, [lPage])).stdout);
+    });
+  });
+
+  test("AC-STE-653.9 (c) — a ticket bound only by specs/frs/archive/<KEY>.md counts bound=1 and is not listed", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      archivedBoundFr(fe, "GF-303");
+      const out = okList(list(fe, [writePage(jiraPage([...TWO_REPO, T_ARCHIVED]))])).stdout;
+      expect(summary(out)!.counts.bound).toBe(1);
+      expect(tableRows(out).map((r) => r.key)).not.toContain("GF-303");
+      expect(offered(out)).not.toContain("GF-303");
+    });
+  });
+
+  test("AC-STE-653.9 CONTROL — the same ticket with no archived FR is listed and offered (bound=0)", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const out = okList(list(fe, [writePage(jiraPage([...TWO_REPO, T_ARCHIVED]))])).stdout;
+      expect(summary(out)!.counts.bound).toBe(0);
+      expect(offered(out)).toContain("GF-303");
+    });
+  });
+
+  for (const [label, makeRoot, key, page] of [
+    ["Jira done", (r: string) => declareJira(r, FE_TAG), "GF-301", () => jiraRowsPage([...TWO_REPO.map((t) => jiraIssue(t)), jiraRow(T_CLOSED, { statusCategory: "done" })])],
+    ["Linear completed", (r: string) => declareLinear(r, FE_TAG), "STE-911", () => linearRowsPage([...linearClosedRows(), ...linearOpenRows()])],
+  ] as const) {
+    test(`AC-STE-653.10 (d) — consent on the closed key (${label}) exits 1 and writes nothing`, async () => {
+      await withRoots((fe) => {
+        makeRoot(fe);
+        const p = writePage(page());
+        const before = snapshotTree(fe);
+        const run = consent(fe, key, [p]);
+        expect(run.code, `${run.stdout}${run.stderr}`).toBe(1);
+        expect(run.stderr).toContain(key);
+        expect(receiptPaths(run)).toEqual([]);
+        expect(readSessionReceipts(fe, SESSION).receipts).toEqual([]);
+        expect(snapshotTree(fe)).toEqual(before);
+      });
+    });
+  }
+
+  test("AC-STE-653.10 CONTROL — consent on an OPEN unowned key on the same page still writes one import receipt", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const p = writePage(jiraRowsPage([...TWO_REPO.map((t) => jiraIssue(t)), jiraRow(T_CLOSED, { statusCategory: "done" })]));
+      const run = consent(fe, "GF-121", [p]);
+      expect(run.code, run.stderr).toBe(0);
+      expect(receiptPaths(run).length).toBe(1);
+    });
+  });
+
+  test("AC-STE-653.13 — the Linear closed-status vocabulary carries its provenance: the measuring bundles and the values not yet measured live", () => {
+    const bundles = ["linear-2026-09-25-shr15b24814", "linear-2026-09-25-shr8f740e57", "linear-2026-09-26-shrced1db1d"];
+    // Guard: the bundles named are real fixtures, so the comment cites evidence that exists.
+    for (const b of bundles) expect(existsSync(join(PLUGIN_ROOT, "tests", "fixtures", "shared-tracker-live", b)), b).toBe(true);
+    const srcDir = join(PLUGIN_ROOT, "adapters", "_shared", "src");
+    const homes = [...new Glob("*.ts").scanSync(srcDir)]
+      .filter((f) => !f.endsWith(".test.ts"))
+      .map((f) => readFileSync(join(srcDir, f), "utf-8"))
+      .filter((s) => s.includes('"completed"') && s.includes('"canceled"') && /completedAt/.test(s) && /canceledAt/.test(s));
+    expect(homes.length, "no source file carries the Linear closed vocabulary (completed, canceled, completedAt, canceledAt)").toBeGreaterThan(0);
+    for (const body of homes) {
+      for (const b of bundles) expect(body).toContain(b);
+      expect(body).toMatch(/unmeasured|not (?:yet )?measured/i);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C-P49 — a shared binding refuses pages from another project or Linear team.
+// ---------------------------------------------------------------------------
+
+const T_GB: Ticket = { key: "GB-12", title: "Another project's bug", labels: [], creator: "Gb Person" };
+const gbPage = () => jiraRowsPage([...TWO_REPO.map((t) => jiraIssue(t)), jiraRow(T_GB, { project: "GB" })]);
+const notKeyed = (s: string, token: string) => new RegExp(`(^|[^A-Za-z0-9])${token}(?![-A-Za-z0-9])`).test(s);
+
+describe("STE-653 — foreign-project pages refuse in a shared binding", () => {
+  function expectListingRefused(run: Run, names: string[]): void {
+    expect(run.code, `expected exit 1\n${run.stdout}${run.stderr}`).toBe(1);
+    for (const n of names) expect(notKeyed(run.stderr, n) || run.stderr.includes(`${n}`), `stderr names ${n}\n${run.stderr}`).toBe(true);
+    expect(tableRows(run.stdout)).toEqual([]);
+    expect(offered(run.stdout)).toEqual([]);
+    expect(run.stdout).not.toMatch(/^summary:/m);
+  }
+
+  test("AC-STE-653.14 (a) — Jira: a GB-project ticket on a GF shared repo's page refuses the list, naming GB-12, GB and GF", async () => {
+    await withRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const before = snapshotTree(fe);
+      const run = list(fe, [writePage(gbPage())]);
+      expectListingRefused(run, ["GB-12"]);
+      expect(notKeyed(run.stderr, "GB"), run.stderr).toBe(true);
+      expect(notKeyed(run.stderr, "GF"), run.stderr).toBe(true);
+      expect(snapshotTree(fe)).toEqual(before);
+    });
+  });
+
+  test("AC-STE-653.14 (d) — Linear: a row in project Other against binding DPT refuses, naming the ticket, Other and DPT", async () => {
+    await withRoots((fe) => {
+      declareLinear(fe, FE_TAG);
+      const rows = [...linearOpenRows(), linearRow({ key: "STE-920", title: "Other project", labels: [], creator: "Pat Manager" }, { project: "Other" })];
+      const run = list(fe, [writePage(linearRowsPage(rows))]);
+      expectListingRefused(run, ["STE-920"]);
+      expect(notKeyed(run.stderr, "Other"), run.stderr).toBe(true);
+      expect(notKeyed(run.stderr, "DPT"), run.stderr).toBe(true);
+    });
+  });
+
+  test("AC-STE-653.14 (e) — Linear: a row in project DPT whose key is another team's (ABC-12 vs STE) refuses, naming ABC-12, ABC and STE", async () => {
+    await withRoots((fe) => {
+      declareLinear(fe, FE_TAG);
+      const rows = [...linearOpenRows(), linearRow({ key: "ABC-12", title: "Other team", labels: [], creator: "Pat Manager" })];
+      const run = list(fe, [writePage(linearRowsPage(rows))]);
+      expectListingRefused(run, ["ABC-12"]);
+      expect(notKeyed(run.stderr, "ABC"), run.stderr).toBe(true);
+      expect(notKeyed(run.stderr, "STE"), run.stderr).toBe(true);
+    });
+  });
+
+  for (const key of ["GB-12", "GF-121"]) {
+    test(`AC-STE-653.15 (b) — consent on ${key} over a page carrying GB-12 exits 1 and writes zero receipts`, async () => {
+      await withRoots((fe) => {
+        declareJira(fe, FE_TAG);
+        const p = writePage(gbPage());
+        const before = snapshotTree(fe);
+        const run = consent(fe, key, [p]);
+        expect(run.code, `${run.stdout}${run.stderr}`).toBe(1);
+        expect(run.stderr).toContain("GB-12");
+        expect(receiptPaths(run)).toEqual([]);
+        expect(readSessionReceipts(fe, SESSION).receipts).toEqual([]);
+        expect(snapshotTree(fe)).toEqual(before);
+      });
+    });
+  }
+
+  for (const key of ["GB-12", "GF-124"]) {
+    test(`AC-STE-653.17 (f) — importFromTracker(${key}) with a page carrying GB-12 refuses before any file write or sync`, async () => {
+      await withRoots(async (fe) => {
+        declareJira(fe, FE_TAG);
+        const store = memStore([...TWO_REPO, UNOWNED_WITH_LABEL, T_GB]);
+        const driver = new RecordingJiraDriver(store);
+        const rows = [...store.values()].map((t) => (t.key === "GB-12" ? jiraRow(t, { project: "GB" }) : jiraIssue(t)));
+        const before = snapshotTree(fe);
+        await expect(
+          importFromTracker("jira", key, providerFor(driver), join(fe, "specs"), async () => "M_GF_85", {
+            projectRoot: fe,
+            pages: [jiraRowsPage(rows)],
+          } as never),
+        ).rejects.toThrow(/GB-12/);
+        expect(driver.writes).toEqual([]);
+        expect(existsSync(join(fe, "specs", "frs", `${key}.md`))).toBe(false);
+        expect(snapshotTree(fe)).toEqual(before);
+      });
+    });
+  }
+
+  test("AC-STE-653.24 — importFromTracker of a CLOSED ticket on the pages refuses before any write; the same ticket open imports", async () => {
+    await withRoots(async (fe) => {
+      declareJira(fe, FE_TAG);
+      const key = UNOWNED_WITH_LABEL.key;
+      const run = async (status: string) => {
+        const store = memStore([...TWO_REPO, UNOWNED_WITH_LABEL]);
+        const driver = new RecordingJiraDriver(store);
+        const rows = [...store.values()].map((t) => (t.key === key ? jiraRow(t, { statusCategory: status }) : jiraIssue(t)));
+        const out = importFromTracker("jira", key, providerFor(driver), join(fe, "specs"), async () => "M_GF_85", {
+          projectRoot: fe,
+          pages: [jiraRowsPage(rows)],
+        } as never);
+        return { out, driver };
+      };
+      const before = snapshotTree(fe);
+      const closed = await run("done");
+      await expect(closed.out).rejects.toThrow(/closed/);
+      expect(closed.driver.writes).toEqual([]);
+      expect(snapshotTree(fe)).toEqual(before);
+      // Opposite break: an open ticket with the same labels still imports.
+      const open = await run("indeterminate");
+      await open.out;
+      expect(existsSync(join(fe, "specs", "frs", `${key}.md`))).toBe(true);
+    });
+  });
+
+  test("AC-STE-653.18 (g) — all-GF Jira pages: list, probe and consent are byte-identical to HEAD", async () => {
+    await withRoots((fe, be) => {
+      declareJira(fe, FE_TAG);
+      declareJira(be, FE_TAG);
+      const p = writePage(jiraPage(TWO_REPO));
+      const nowList = okList(list(fe, [p]));
+      expect(nowList.stdout).toBe(okList(baseList(fe, [p])).stdout);
+      const nowProbe = probe(fe, [p]);
+      const baseRun = baseProbe(fe, [p]);
+      expect({ code: nowProbe.code, out: nowProbe.stdout }).toEqual({ code: baseRun.code, out: baseRun.stdout });
+      const c1 = consent(fe, "GF-121", [p]);
+      const c2 = baseConsent(be, "GF-121", [p]);
+      expect({ code: c1.code, receipts: receiptPaths(c1).length }).toEqual({ code: c2.code, receipts: receiptPaths(c2).length });
+      expect(c1.code).toBe(0);
+    });
+  });
+
+  test("AC-STE-653.18 (g) — all-STE/DPT Linear pages list byte-identically to HEAD", async () => {
+    await withRoots((fe) => {
+      declareLinear(fe, FE_TAG);
+      const p = writePage(linearRowsPage(linearOpenRows()));
+      expect(okList(list(fe, [p])).stdout).toBe(okList(baseList(fe, [p])).stdout);
+    });
+  });
+
+  test("AC-STE-653.19 (h) — unshared Jira: a page carrying GB-12 is graded exactly as at HEAD by list, probe, consent and import", async () => {
+    await withRoots(async (fe, be) => {
+      declareJira(fe, null);
+      declareJira(be, null);
+      const p = writePage(gbPage());
+      const nowList = okList(list(fe, [p]));
+      expect(nowList.stdout).toBe(okList(baseList(fe, [p])).stdout);
+      expect(offered(nowList.stdout)).toContain("GB-12");
+      const nowProbe = probe(fe, [p]);
+      const baseRun = baseProbe(fe, [p]);
+      expect({ code: nowProbe.code, out: nowProbe.stdout }).toEqual({ code: baseRun.code, out: baseRun.stdout });
+      const before = snapshotTree(fe);
+      const c = consent(fe, "GB-12", [p]);
+      expect(c.code, c.stderr).toBe(0);
+      expect(receiptPaths(c)).toEqual([]);
+      expect(snapshotTree(fe)).toEqual(before);
+      const store = memStore([...TWO_REPO, T_GB]);
+      const driver = new RecordingJiraDriver(store);
+      const rows = [...store.values()].map((t) => (t.key === "GB-12" ? jiraRow(t, { project: "GB" }) : jiraIssue(t)));
+      await importFromTracker("jira", "GB-12", providerFor(driver), join(be, "specs"), async () => "M_GF_85", {
+        projectRoot: be,
+        pages: [jiraRowsPage(rows)],
+      } as never);
+      expect(existsSync(join(be, "specs", "frs", "GB-12.md"))).toBe(true);
+    });
+  });
+
+  test("AC-STE-653.19 (h) — unshared Linear: a row in another project and another team lists exactly as at HEAD", async () => {
+    await withRoots((fe) => {
+      declareLinear(fe, null);
+      const rows = [
+        ...linearOpenRows(),
+        linearRow({ key: "STE-920", title: "Other project", labels: [], creator: "Pat Manager" }, { project: "Other" }),
+        linearRow({ key: "ABC-12", title: "Other team", labels: [], creator: "Pat Manager" }),
+      ];
+      const p = writePage(linearRowsPage(rows));
+      const now = okList(list(fe, [p]));
+      expect(now.stdout).toBe(okList(baseList(fe, [p])).stdout);
+      expect(offered(now.stdout)).toEqual(expect.arrayContaining(["ABC-12", "STE-920"]));
     });
   });
 });

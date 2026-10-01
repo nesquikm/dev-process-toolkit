@@ -106,6 +106,56 @@ export function boundFr(root: string, key: string, trackerKey: "jira" | "linear"
   );
 }
 
+/** STE-653 — a local FR ARCHIVED under `<root>/specs/frs/archive/<key>.md`, bound to `key`. */
+export function archivedBoundFr(root: string, key: string, trackerKey: "jira" | "linear" = "jira"): void {
+  mkdirSync(join(root, "specs", "frs", "archive"), { recursive: true });
+  writeFileSync(
+    join(root, "specs", "frs", "archive", `${key}.md`),
+    [
+      "---",
+      `title: ${key}`,
+      "milestone: M_GF_85",
+      "status: archived",
+      "archived_at: 2026-09-20T00:00:00Z",
+      "tracker:",
+      `  ${trackerKey}: ${key}`,
+      "created_at: 2026-09-18T00:00:00Z",
+      "---",
+      "",
+      `# ${key}`,
+      "",
+    ].join("\n"),
+  );
+}
+
+/**
+ * STE-653 — a milestone plan, archived (`specs/plan/archive/<token>.md`) or
+ * active (`specs/plan/<token>.md`), optionally declaring `spans_repos`.
+ */
+export function milestonePlan(
+  root: string,
+  token: string,
+  where: "archive" | "active",
+  spans: Record<string, string> = {},
+): void {
+  const dir = where === "archive" ? join(root, "specs", "plan", "archive") : join(root, "specs", "plan");
+  mkdirSync(dir, { recursive: true });
+  const lines = [
+    "---",
+    `milestone: ${token}`,
+    `status: ${where === "archive" ? "archived" : "active"}`,
+    `archived_at: ${where === "archive" ? "2026-09-20T00:00:00Z" : "null"}`,
+    `shipped_in: ${where === "archive" ? "v1.45.0" : "null"}`,
+  ];
+  const entries = Object.entries(spans);
+  if (entries.length > 0) {
+    lines.push("spans_repos:");
+    for (const [name, path] of entries) lines.push(`  ${name}: ${path}`);
+  }
+  lines.push("---", "", `# ${token}`, "");
+  writeFileSync(join(dir, `${token}.md`), lines.join("\n"));
+}
+
 // ------------------------------------------------------------------ tickets
 
 export interface Ticket {
@@ -139,6 +189,29 @@ export function jiraIssue(t: Ticket): Record<string, unknown> {
       description: description(t),
     },
   };
+}
+
+/**
+ * STE-653 — a Jira row carrying `fields.status` with the given status-category
+ * key (`new | indeterminate | done`), and optionally another project.
+ */
+export function jiraRow(
+  t: Ticket,
+  opts: { statusCategory?: string; project?: string } = {},
+): Record<string, unknown> {
+  const row = jiraIssue(t);
+  const fields = row.fields as Record<string, unknown>;
+  if (opts.statusCategory !== undefined) {
+    const name = opts.statusCategory === "done" ? "Done" : opts.statusCategory === "new" ? "To Do" : "In Progress";
+    fields.status = { name, statusCategory: { key: opts.statusCategory } };
+  }
+  if (opts.project !== undefined) fields.project = { key: opts.project };
+  return row;
+}
+
+/** STE-653 — a Linear row with extra/overridden top-level fields (statusType, completedAt, project, ...). */
+export function linearRow(t: Ticket, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return { ...linearIssue(t), ...extra };
 }
 
 /**
@@ -296,7 +369,8 @@ export function summary(stdout: string): Summary | null {
   const line = stdout.split("\n").find((l) => l.trim().startsWith("summary:"));
   if (line === undefined) return null;
   const counts: Record<string, number> = {};
-  for (const m of line.matchAll(/\b(read|ours|sibling|unowned|containers|bound)=(\d+)/g)) {
+  // STE-653 — `closed=<n>` joins the counts when the listing reports closed tickets.
+  for (const m of line.matchAll(/\b(read|ours|sibling|unowned|containers|bound|closed)=(\d+)/g)) {
     counts[m[1]!] = Number(m[2]);
   }
   const c = /\bcomplete=(true|false|yes|no)\b/.exec(line);
