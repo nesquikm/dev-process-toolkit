@@ -6,10 +6,19 @@
 //   - `container` — a Jira Epic, or a Jira hierarchy level above the FR level;
 //   - `ours`      — carries this repository's `repoTag`;
 //   - `sibling`   — lacks it and carries a label that is neither a
-//                   `milestone-` label nor one of this repository's default labels;
+//                   `milestone-` label, a toolkit-written label (`TOOLKIT_LABELS`),
+//                   nor one of this repository's default labels;
 //   - `unowned`   — neither (hand-filed, or a client too old to tag).
 // The back-link line `Source: specs/frs/<key>.md` is NOT ownership evidence —
 // every toolkit version writes it — so it is only reported as a column.
+//
+// STE-653: a ticket the tracker reports closed (Jira
+// `status.statusCategory.key` = `done`; Linear `statusType` `completed` /
+// `canceled`, or a `completedAt` / `canceledAt` stamp) is listed and counted
+// (`closed=<n> (not offered)`) but never offered, and `consent` refuses it. A
+// ticket an archived FR binds is `bound`, never an orphan. In a shared
+// binding, a page ticket from another project (or Linear team) refuses the
+// whole read, naming it (`assertListingProject`).
 //
 // Pages are read through `tracker_answer.ts`, the one reader of tracker
 // answers: plain and wrapped Jira searches, and Linear's top-level
@@ -21,6 +30,12 @@ import { join, resolve } from "node:path";
 import { readLocalFRBindings } from "./reconcile_tracker_local";
 import { readTaskTrackingSection } from "./resolver_config";
 import { readTrackerListing, readTrackerPage, trackerItemKey } from "./tracker_answer";
+// The import cycle with ticket_ownership.ts (it imports `normalizeContainerItems`,
+// `classifyTicket`, `adapterOf` and `readJsonFile` from here; this module imports
+// `projectMismatch` from it) is inert: every name crossing it is a function
+// called at run time, never at module evaluation — neither module's top level
+// reads an imported binding.
+import { projectMismatch } from "./ticket_ownership";
 import { announceReceipt, printable, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding, type WorkspaceAdapterKey, type WorkspaceBinding } from "./workspace_binding";
 
@@ -32,6 +47,8 @@ export interface ContainerTicket {
   project: string | null;
   creator: string | null;
   hasBackLink: boolean;
+  /** STE-653 — true when the tracker says the ticket is closed; null when it carries no status signal (read as open). */
+  closed: boolean | null;
 }
 
 export type TicketClass = "ours" | "sibling" | "unowned" | "container" | "candidate";
@@ -61,6 +78,32 @@ function labelsOf(v: unknown): string[] {
   return v
     .map((l) => (typeof l === "string" ? l : str((l as { name?: unknown } | null)?.name)))
     .filter((l): l is string => typeof l === "string");
+}
+
+/** STE-653 — a Jira ticket is closed when `fields.status.statusCategory.key` is `done`; no status is no signal. */
+function jiraClosed(fields: Record<string, unknown>): boolean | null {
+  const status = fields["status"];
+  if (!status || typeof status !== "object") return null;
+  const key = str(((status as Record<string, unknown>)["statusCategory"] as { key?: unknown } | undefined)?.key);
+  return key === undefined ? null : key === "done";
+}
+
+// STE-653 — the Linear closed vocabulary. Provenance: the `list_issues` answers in
+// the live bundles tests/fixtures/shared-tracker-live/linear-2026-09-25-shr15b24814,
+// linear-2026-09-25-shr8f740e57 and linear-2026-09-26-shrced1db1d carry top-level
+// `statusType` ("backlog" only), `completedAt: null` and `canceledAt: null`. The
+// closed values — statusType "completed" / "canceled" and a string completedAt /
+// canceledAt — are unmeasured live (not yet measured): no bundle read back a
+// completed or canceled issue.
+const LINEAR_CLOSED_STATUS_TYPES: ReadonlySet<string> = new Set(["completed", "canceled"]);
+
+/** STE-653 — a Linear issue is closed by its statusType, or by a completedAt / canceledAt timestamp; none of the fields is no signal. */
+function linearClosed(row: Record<string, unknown>): boolean | null {
+  const type = str(row["statusType"]);
+  const stamped = typeof row["completedAt"] === "string" || typeof row["canceledAt"] === "string";
+  if (stamped || (type !== undefined && LINEAR_CLOSED_STATUS_TYPES.has(type))) return true;
+  if (type === undefined && row["completedAt"] === undefined && row["canceledAt"] === undefined) return null;
+  return false;
 }
 
 function nameOf(v: unknown): string | null {
@@ -117,6 +160,7 @@ export function normalizeContainerItems(
         project: str((fields["project"] as { key?: unknown } | undefined)?.key) ?? null,
         creator: nameOf(fields["creator"]),
         hasBackLink: BACK_LINK_RE.test(description),
+        closed: jiraClosed(fields),
       };
     }
     // A Linear row's key is its top-level `id` (`STE-618`); an id that is not
@@ -136,6 +180,7 @@ export function normalizeContainerItems(
       project: nameOf(row["project"]),
       creator: nameOf(row["createdBy"]),
       hasBackLink: BACK_LINK_RE.test(description),
+      closed: linearClosed(row),
     };
   });
 }
@@ -171,10 +216,17 @@ export function classifyTicket(ticket: ContainerTicket, binding: WorkspaceBindin
   return foreignLabels(ticket, binding).length > 0 ? "sibling" : "unowned";
 }
 
-/** The labels that are neither `milestone-` labels nor this repository's default labels. */
+/**
+ * Labels the toolkit itself writes on any repository's tickets, so none of
+ * them is evidence of a sibling repository. Writer: `skills/spec-write/SKILL.md`
+ * (the `--no-tech` path labels the ticket `needs-technical-review`).
+ */
+export const TOOLKIT_LABELS: ReadonlySet<string> = new Set(["needs-technical-review"]);
+
+/** The labels that are neither `milestone-` labels, toolkit-written labels, nor this repository's default labels. */
 export function foreignLabels(ticket: ContainerTicket, binding: WorkspaceBinding): string[] {
   const own = new Set(binding.defaultLabels ?? []);
-  return ticket.labels.filter((l) => !l.startsWith("milestone-") && !own.has(l));
+  return ticket.labels.filter((l) => !l.startsWith("milestone-") && !TOOLKIT_LABELS.has(l) && !own.has(l));
 }
 
 /** The tracker adapter of `projectRoot`'s CLAUDE.md; throws unless it is jira or linear. */
@@ -196,20 +248,45 @@ export interface OrphanTicket extends ContainerTicket {
 
 export interface OrphanListing {
   orphans: OrphanTicket[];
-  counts: { read: number; ours: number; sibling: number; unowned: number; containers: number; bound: number; candidate: number };
+  counts: { read: number; ours: number; sibling: number; unowned: number; containers: number; bound: number; candidate: number; closed: number };
   complete: boolean;
   summary: string;
 }
 
 const OFFERABLE: ReadonlySet<TicketClass> = new Set<TicketClass>(["ours", "unowned", "candidate"]);
 
+/**
+ * The ONE offerable rule the listing, consent and import share: an offerable
+ * class (`ours`, `unowned`, `candidate`) on a ticket that is not closed
+ * (STE-653). `null` (no status signal) reads as open.
+ */
+export function isOfferable(ticket: { readonly closed: boolean | null }, cls: TicketClass): boolean {
+  return OFFERABLE.has(cls) && ticket.closed !== true;
+}
+
+/**
+ * STE-653 — in a shared binding, every page ticket must be in the bound
+ * project (and, on Linear, carry the bound team key): one that is not refuses
+ * the whole read, naming the ticket, its container and the bound one. The
+ * comparison is ticket_ownership's `projectMismatch`. Unshared bindings are
+ * not checked.
+ */
+export function assertListingProject(tickets: readonly ContainerTicket[], adapter: WorkspaceAdapterKey, binding: WorkspaceBinding): void {
+  if (!binding.shared) return;
+  for (const t of tickets) {
+    const mismatch = projectMismatch(adapter, t.project, t.key, binding);
+    if (mismatch !== null) throw new Error(`container listing: ${t.key} — ${mismatch}; refusing the listing`);
+  }
+}
+
 /** The tickets no local FR binds, each classified, plus the summary line. `pages` are parsed page JSON. */
 export function listOrphans(projectRoot: string, pages: unknown[]): OrphanListing {
   const adapter = adapterOf(projectRoot);
   const binding = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
   const { tickets, last } = readContainerListing(pages, adapter, binding.shared);
-  const bound = new Set(readLocalFRBindings(join(projectRoot, "specs")).flatMap((b) => b.trackerIds));
-  const counts = { read: 0, ours: 0, sibling: 0, unowned: 0, containers: 0, bound: 0, candidate: 0 };
+  assertListingProject(tickets, adapter, binding);
+  const bound = new Set(readLocalFRBindings(join(projectRoot, "specs"), { includeArchive: true }).flatMap((b) => b.trackerIds));
+  const counts = { read: 0, ours: 0, sibling: 0, unowned: 0, containers: 0, bound: 0, candidate: 0, closed: 0 };
   const orphans: OrphanTicket[] = [];
   for (const t of tickets) {
     counts.read += 1;
@@ -220,12 +297,14 @@ export function listOrphans(projectRoot: string, pages: unknown[]): OrphanListin
     const cls = classifyTicket(t, binding);
     if (cls === "container") counts.containers += 1;
     else counts[cls] += 1;
-    orphans.push({ ...t, cls, owner: t.creator ?? "unknown", offerable: OFFERABLE.has(cls) });
+    // STE-653 — a closed ticket is listed and counted, never offered.
+    if (t.closed === true) counts.closed += 1;
+    orphans.push({ ...t, cls, owner: t.creator ?? "unknown", offerable: isOfferable(t, cls) });
   }
   // Complete when the chain's final page proves nothing follows — never "every
   // page is last", which no correct multi-page listing can be.
   const complete = last;
-  const summary = `summary: read=${counts.read} ours=${counts.ours} sibling=${counts.sibling} (excluded) unowned=${counts.unowned} containers=${counts.containers} (excluded) bound=${counts.bound} complete=${complete}`;
+  const summary = `summary: read=${counts.read} ours=${counts.ours} sibling=${counts.sibling} (excluded) unowned=${counts.unowned} containers=${counts.containers} (excluded) bound=${counts.bound} complete=${complete}${counts.closed > 0 ? ` closed=${counts.closed} (not offered)` : ""}`;
   return { orphans, counts, complete, summary };
 }
 
@@ -254,7 +333,7 @@ function runList(projectRoot: string, pagePaths: string[]): number {
   const listing = listOrphans(projectRoot, pages);
   const rows: string[] = ["| Key | Class | Owner | Toolkit-written | Title |", "|---|---|---|---|---|"];
   for (const t of listing.orphans) {
-    rows.push(`| ${cell(t.key)} | ${t.cls} | ${cell(t.owner)} | ${t.hasBackLink ? "yes" : "no"} | ${cell(t.title)} |`);
+    rows.push(`| ${cell(t.key)} | ${t.cls}${t.closed === true ? " (closed)" : ""} | ${cell(t.owner)} | ${t.hasBackLink ? "yes" : "no"} | ${cell(t.title)} |`);
   }
   console.log(rows.join("\n"));
   console.log(listing.summary);
@@ -266,21 +345,33 @@ function runList(projectRoot: string, pagePaths: string[]): number {
 
 /**
  * STE-605 — consent to import one listed key. Re-classifies the same pages; a
- * shared repository records an `import` receipt for `ours`/`unowned` only, an
- * undeclared one writes nothing. Any other key is refused with nothing written.
+ * shared repository records an `import` receipt for an offerable key only
+ * (`isOfferable`: `ours`, `unowned` or `candidate`, and not closed — STE-653),
+ * an undeclared one writes nothing. A key off the pages, a non-offerable key
+ * and a foreign-project page (shared, STE-653) are refused with nothing written.
  */
 function runConsent(projectRoot: string, key: string, pagePaths: string[]): number {
   const pages = readPages(pagePaths);
   const adapter = adapterOf(projectRoot);
   const binding = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
-  const ticket = pages.flatMap((p) => normalizeContainerPage(p, adapter, binding.shared)).find((t) => t.key === key);
+  const tickets = pages.flatMap((p) => normalizeContainerPage(p, adapter, binding.shared));
+  // STE-653 — a foreign-project page refuses the consent before any receipt,
+  // in the command's own `consent:` refusal shape.
+  try {
+    assertListingProject(tickets, adapter, binding);
+  } catch (e) {
+    console.error(printable(`consent: ${key} — ${(e as Error).message}`));
+    return 1;
+  }
+  const ticket = tickets.find((t) => t.key === key);
   if (ticket === undefined) {
     console.error(printable(`consent: ${key} is not on the pages read; refusing`));
     return 1;
   }
   const cls = classifyTicket(ticket, binding);
-  if (!OFFERABLE.has(cls)) {
-    console.error(printable(`consent: ${key} is a ${cls} ticket; refusing`));
+  if (!isOfferable(ticket, cls)) {
+    const what = OFFERABLE.has(cls) ? "closed" : cls;
+    console.error(printable(`consent: ${key} is a ${what} ticket; refusing`));
     return 1;
   }
   if (!binding.shared) return 0;
