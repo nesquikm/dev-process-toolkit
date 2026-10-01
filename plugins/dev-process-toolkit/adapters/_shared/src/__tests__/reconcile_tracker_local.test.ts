@@ -301,3 +301,184 @@ describe("STE-376 union grammar — epic-keyed milestones reconcile", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// M_a85e46 / STE-652 (C-RECON) — `{ shared: true }`: a tracker milestone no
+// local FR or plan claims is a sibling repository's. It is listed in
+// `skippedMilestones`, never reported as a mismatch. A CLAIMED milestone is
+// graded against active ∪ archived plans. The local-plan direction and the
+// unshared output are untouched.
+//
+// Fixture (listMilestones):
+//   M_GF_98 — active local plan                         → graded, matches
+//   M_GF_92 — no FR, no plan anywhere                   → SKIPPED (sibling's)
+//   M_GF_50 — archived FR names it + plan/archive/      → claimed, archived plan ⇒ not reported
+//   M_GF_51 — active FR names it, no plan anywhere      → REPORTED (control)
+//   M_GF_52 — ARCHIVED FR names it, no plan anywhere    → REPORTED (archived FR is a claim)
+//   M_GF_60 — only plan/archive/M_GF_60.md, no FR       → claimed by its plan ⇒ not reported
+// Local side: plan/M_GF_77.md with no tracker milestone → REPORTED (control)
+// ---------------------------------------------------------------------------
+
+function writeSharedFixture(specsDir: string): void {
+  writePlan(specsDir, "M_GF_98");
+  writeFR(specsDir, "GF-98.md", { key: "jira", id: "GF-98" }, { milestone: "M_GF_98" });
+  writeFR(specsDir, "GF-50.md", { key: "jira", id: "GF-50" }, { archive: true, milestone: "M_GF_50" });
+  writePlan(specsDir, "M_GF_50", { archive: true });
+  writeFR(specsDir, "GF-51.md", { key: "jira", id: "GF-51" }, { milestone: "M_GF_51" });
+  writeFR(specsDir, "GF-52.md", { key: "jira", id: "GF-52" }, { archive: true, milestone: "M_GF_52" });
+  writePlan(specsDir, "M_GF_60", { archive: true });
+  writePlan(specsDir, "M_GF_77");
+}
+
+const SHARED_TRACKER_MILESTONES = [
+  { name: "M_GF_98" },
+  { name: "M_GF_92" },
+  { name: "M_GF_50" },
+  { name: "M_GF_51" },
+  { name: "M_GF_52" },
+  { name: "M_GF_60" },
+];
+const SHARED_ACTIVE_FRS = ["GF-98", "GF-51"];
+
+function trackerSide(r: { milestoneMismatches: { id: string; side: string }[] }): string[] {
+  return r.milestoneMismatches.filter((m) => m.side === "tracker").map((m) => m.id).sort();
+}
+
+type SharedResult = Awaited<ReturnType<typeof reconcileTrackerLocal>> & { skippedMilestones?: string[] };
+
+async function reconcileShared(specsDir: string): Promise<SharedResult> {
+  const provider = new StubTrackerProvider(SHARED_ACTIVE_FRS, SHARED_TRACKER_MILESTONES);
+  // `shared` is the option STE-652 adds to ReconcileOptions.
+  return (await reconcileTrackerLocal(provider, specsDir, { shared: true })) as SharedResult;
+}
+
+describe("AC-STE-652.6 — shared: an unclaimed tracker milestone is skipped, not a mismatch", () => {
+  test("AC-STE-652.6: M_GF_92 (no FR, no plan, active or archived) is in skippedMilestones and not reported", async () => {
+    const specsDir = makeSpecsDir();
+    try {
+      writeSharedFixture(specsDir);
+      const r = await reconcileShared(specsDir);
+      expect(r.milestoneMismatches.map((m) => m.id)).not.toContain("M_GF_92");
+      // EXACT: claimed tokens are graded, never skipped — an always-skip
+      // mutation (which would also drop M_GF_51/M_GF_52) goes red here.
+      expect(r.skippedMilestones).toEqual(["M_GF_92"]);
+    } finally {
+      rmSync(join(specsDir, ".."), { recursive: true, force: true });
+    }
+  });
+
+  test("AC-STE-652.6: with EVERY tracker token unclaimed, all are skipped and none reported", async () => {
+    const specsDir = makeSpecsDir();
+    try {
+      writePlan(specsDir, "M_GF_98");
+      const provider = new StubTrackerProvider([], [{ name: "M_GF_98" }, { name: "M_GF_90" }, { name: "M_GF_91" }]);
+      const r = (await reconcileTrackerLocal(provider, specsDir, { shared: true })) as SharedResult;
+      expect(trackerSide(r)).toEqual([]);
+      expect([...(r.skippedMilestones ?? [])].sort()).toEqual(["M_GF_90", "M_GF_91"]);
+    } finally {
+      rmSync(join(specsDir, ".."), { recursive: true, force: true });
+    }
+  });
+});
+
+describe("AC-STE-652.7 — shared: a claimed milestone is graded against active ∪ archived plans", () => {
+  test("AC-STE-652.7: claimed with no plan anywhere is REPORTED (M_GF_51 active FR, M_GF_52 archived FR); archived plan is NOT (M_GF_50, M_GF_60)", async () => {
+    const specsDir = makeSpecsDir();
+    try {
+      writeSharedFixture(specsDir);
+      const r = await reconcileShared(specsDir);
+      expect(trackerSide(r)).toEqual(["M_GF_51", "M_GF_52"]);
+      // The reported row keeps its pinned wording (m117-ste-430).
+      const row = r.milestoneMismatches.find((m) => m.id === "M_GF_51")!;
+      expect(row).toEqual({
+        kind: "milestone-mismatch",
+        id: "M_GF_51",
+        details: `Tracker milestone M_GF_51 has no local plan file at ${specsDir}/plan/M_GF_51.md.`,
+        side: "tracker",
+      });
+      expect(r.skippedMilestones ?? []).not.toContain("M_GF_50");
+      expect(r.skippedMilestones ?? []).not.toContain("M_GF_51");
+      expect(r.skippedMilestones ?? []).not.toContain("M_GF_52");
+      expect(r.skippedMilestones ?? []).not.toContain("M_GF_60");
+    } finally {
+      rmSync(join(specsDir, ".."), { recursive: true, force: true });
+    }
+  });
+});
+
+describe("AC-STE-652.8 — shared: the local-plan direction is unchanged", () => {
+  test("AC-STE-652.8: local plan M_GF_77 with no tracker milestone is still reported (side local)", async () => {
+    const specsDir = makeSpecsDir();
+    try {
+      writeSharedFixture(specsDir);
+      // Opposite-break leg (STE-652 audit): an ARCHIVED plan with no tracker
+      // milestone is shipped history, never a local mismatch — a reader that
+      // widened the local-plan direction to plan/archive/ would report it.
+      writePlan(specsDir, "M_GF_70", { archive: true });
+      const r = await reconcileShared(specsDir);
+      const local = r.milestoneMismatches.filter((m) => m.side === "local");
+      expect(local).toEqual([
+        {
+          kind: "milestone-mismatch",
+          id: "M_GF_77",
+          details: `Local plan ${specsDir}/plan/M_GF_77.md has no matching tracker milestone.`,
+          side: "local",
+        },
+      ]);
+      // Control: the shared option touched only milestone grading.
+      expect(r.trackerOrphans).toEqual([]);
+      expect(r.localOrphans).toEqual([]);
+    } finally {
+      rmSync(join(specsDir, ".."), { recursive: true, force: true });
+    }
+  });
+});
+
+describe("AC-STE-652.9 — without the option the output is identical to HEAD", () => {
+  test("AC-STE-652.9: the same fixture, option absent → HEAD's exact rows, no skippedMilestones field", async () => {
+    const specsDir = makeSpecsDir();
+    try {
+      writeSharedFixture(specsDir);
+      const provider = new StubTrackerProvider(SHARED_ACTIVE_FRS, SHARED_TRACKER_MILESTONES);
+      const r = await reconcileTrackerLocal(provider, specsDir);
+      const tracker = (name: string) => ({
+        kind: "milestone-mismatch",
+        id: name,
+        details: `Tracker milestone ${name} has no local plan file at ${specsDir}/plan/${name}.md.`,
+        side: "tracker",
+      });
+      expect(r).toStrictEqual({
+        trackerOrphans: [],
+        localOrphans: [],
+        milestoneMismatches: [
+          tracker("M_GF_92"),
+          tracker("M_GF_50"),
+          tracker("M_GF_51"),
+          tracker("M_GF_52"),
+          tracker("M_GF_60"),
+          {
+            kind: "milestone-mismatch",
+            id: "M_GF_77",
+            details: `Local plan ${specsDir}/plan/M_GF_77.md has no matching tracker milestone.`,
+            side: "local",
+          },
+        ],
+      });
+    } finally {
+      rmSync(join(specsDir, ".."), { recursive: true, force: true });
+    }
+  });
+
+  test("AC-STE-652.9: `{ shared: false }` is the unshared path too", async () => {
+    const specsDir = makeSpecsDir();
+    try {
+      writeSharedFixture(specsDir);
+      const provider = new StubTrackerProvider(SHARED_ACTIVE_FRS, SHARED_TRACKER_MILESTONES);
+      const absent = await reconcileTrackerLocal(provider, specsDir);
+      const off = await reconcileTrackerLocal(provider, specsDir, { shared: false });
+      expect(off).toStrictEqual(absent);
+    } finally {
+      rmSync(join(specsDir, ".."), { recursive: true, force: true });
+    }
+  });
+});

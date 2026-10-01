@@ -58,8 +58,12 @@
 // Filter by AC with `bun test -t "AC-STE-578.N"`.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { importFromTracker } from "../adapters/_shared/src/import";
+import type { Provider } from "../adapters/_shared/src/provider";
 
 import {
   ORDERED_UNREACHABLE_PIN,
@@ -129,6 +133,37 @@ function section05(body: string = skill()): string {
 function editLanded(): boolean {
   const s = section05();
   return !s.includes("existsSync") && !s.includes("STE-135");
+}
+
+/** A tracker stub recording every call `importFromTracker` can make. */
+function premiseProvider(): Provider & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    mode: "tracker",
+    calls,
+    async getMetadata(id: string) {
+      calls.push(`getMetadata(${id})`);
+      return { id, title: "T", milestone: "", status: "active", tracker: {}, inFlightBranch: null, assignee: null };
+    },
+    async sync() {
+      calls.push("sync");
+      return { kind: "ok", updated: [], conflicts: [], message: "ok" };
+    },
+    getUrl: () => null,
+    async claimLock() {
+      calls.push("claimLock");
+      return { kind: "claimed", branch: null, message: "" };
+    },
+    async releaseLock() {
+      calls.push("releaseLock");
+      return "already-released";
+    },
+    async getTicketStatus() {
+      calls.push("getTicketStatus");
+      return { status: "in_progress" };
+    },
+    filenameFor: (spec) => `${Object.values(spec.frontmatter["tracker"] as Record<string, string>)[0]}.md`,
+  } as Provider & { calls: string[] };
 }
 
 function steTokenCount(body: string): number {
@@ -235,21 +270,53 @@ describe("AC-STE-578.1 — § 0.5 stops citing a guard it does not have", () => 
     expect(editLanded(), "the § 0.5 rewrite has not landed").toBe(true);
   });
 
-  test("THE PREMISE — the cited guard really is absent from the import path", () => {
-    const importPath = sharedSrc("import.ts");
-    const controlPath = sharedSrc("reconcile_tracker_local.ts");
-
-    // CONTROL FIRST: the search fires on a file that does use `existsSync`.
-    // Without this, "0 hits" is indistinguishable from a broken read.
-    expect(
-      (read(controlPath).match(/existsSync/g) ?? []).length,
-      "control file no longer uses `existsSync` — this premise needs re-measuring",
-    ).toBeGreaterThan(0);
-
-    expect(
-      (read(importPath).match(/existsSync/g) ?? []).length,
-      "`import.ts` now uses `existsSync` — the claim § 0.5 made may have become true",
-    ).toBe(0);
+  // RE-PINNED by M_a85e46 / STE-652 (AC-STE-652.5). This premise used to
+  // assert `import.ts` carries ZERO `existsSync` — "the import has no
+  // existence check". STE-652 made that false on purpose: the importer now
+  // refuses a key a local FR (active or archived) already binds. A literal
+  // count would have stayed green only because the new guard happens not to
+  // spell `existsSync` — a perfect pin on a subject that stopped being true.
+  // The premise now grades the guard's ACTUAL SCOPE, behaviourally:
+  //   - a key some local FR binds (active, or archived) refuses, with zero
+  //     tracker calls, zero prompts and zero writes;
+  //   - a key NO local FR binds still imports unconditionally and syncs —
+  //     which is why § 0.5 still forbids an unconsented orphan import.
+  test("AC-STE-652.5: THE PREMISE — the import refuses only a key a local FR (active or archived) already binds", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ste-578-premise-"));
+    const specsDir = join(root, "specs");
+    mkdirSync(join(specsDir, "frs", "archive"), { recursive: true });
+    const fr = (key: string, status: string): string =>
+      `---\ntitle: Local\nmilestone: M_GF_7\nstatus: ${status}\narchived_at: null\ntracker:\n  jira: ${key}\ncreated_at: 2026-08-01T00:00:00Z\n---\n\nbody\n`;
+    writeFileSync(join(specsDir, "frs", "local-active.md"), fr("GF-1", "active"));
+    writeFileSync(join(specsDir, "frs", "archive", "local-archived.md"), fr("GF-2", "archived"));
+    try {
+      for (const [key, file] of [["GF-1", "local-active.md"], ["GF-2", "archive/local-archived.md"]] as const) {
+        const p = premiseProvider();
+        let prompts = 0;
+        let refusal: unknown = null;
+        try {
+          await importFromTracker("jira", key, p, specsDir, async () => {
+            prompts += 1;
+            return "M_GF_7";
+          });
+        } catch (err) {
+          refusal = err;
+        }
+        expect(refusal, `importing bound key ${key} did not refuse`).toBeInstanceOf(Error);
+        expect((refusal as Error).message).toContain(file);
+        expect(p.calls, `a tracker call preceded the ${key} refusal`).toEqual([]);
+        expect(prompts).toBe(0);
+        expect(existsSync(join(specsDir, "frs", `${key}.md`))).toBe(false);
+      }
+      // CONTROL — the guard's scope ends there: an unbound key still imports
+      // and still pushes an OUTWARD sync. A refuse-everything guard reds here.
+      const p = premiseProvider();
+      await importFromTracker("jira", "GF-3", p, specsDir, async () => "M_GF_7");
+      expect(p.calls).toEqual(["getMetadata(jira:GF-3)", "sync"]);
+      expect(existsSync(join(specsDir, "frs", "GF-3.md"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

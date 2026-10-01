@@ -185,42 +185,42 @@ describe("AC-STE-364.1 — backfill sweep over active + archived FRs", () => {
 
   test("label-binding adapter: missing milestone-<M-token> label is attached via addLabel", async () => {
     const { specsDir } = makeRepo();
-    writeFr(specsDir, "GB-11", {
+    writeFr(specsDir, "DST-11", {
       dir: "archive",
       milestone: "M31",
-      trackerBlock: "tracker:\n  jira: GB-11",
+      trackerBlock: "tracker:\n  jira: DST-11",
     });
     const stub = makeStub({
       milestoneBinding: "label",
-      tickets: { "GB-11": { labels: ["backend"] } },
+      tickets: { "DST-11": { labels: ["backend"] } },
     });
     const res = await backfillMilestoneLabels(makeProvider(stub), "DST", specsDir, {
       mode: "jira",
       apply: true,
     });
-    expect(ids(res.backfilled)).toEqual(["GB-11"]);
+    expect(ids(res.backfilled)).toEqual(["DST-11"]);
     expect(res.backfilled[0]?.milestone).toBe(CANONICAL_M31);
-    expect(stub.calls).toContain(`addLabel(GB-11,${LABEL_M31})`);
-    expect(stub.tickets["GB-11"]?.labels).toContain(LABEL_M31);
+    expect(stub.calls).toContain(`addLabel(DST-11,${LABEL_M31})`);
+    expect(stub.tickets["DST-11"]?.labels).toContain(LABEL_M31);
     // Read-merge-write: the pre-existing label survives.
-    expect(stub.tickets["GB-11"]?.labels).toContain("backend");
+    expect(stub.tickets["DST-11"]?.labels).toContain("backend");
   });
 
   test("label-binding adapter: labels ∋ milestone-<M-token> counts as present — skipped, zero writes", async () => {
     const { specsDir } = makeRepo();
-    writeFr(specsDir, "GB-10", {
+    writeFr(specsDir, "DST-10", {
       milestone: "M31",
-      trackerBlock: "tracker:\n  jira: GB-10",
+      trackerBlock: "tracker:\n  jira: DST-10",
     });
     const stub = makeStub({
       milestoneBinding: "label",
-      tickets: { "GB-10": { labels: ["backend", LABEL_M31] } },
+      tickets: { "DST-10": { labels: ["backend", LABEL_M31] } },
     });
     const res = await backfillMilestoneLabels(makeProvider(stub), "DST", specsDir, {
       mode: "jira",
       apply: true,
     });
-    expect(ids(res.alreadyCorrect)).toEqual(["GB-10"]);
+    expect(ids(res.alreadyCorrect)).toEqual(["DST-10"]);
     expect(res.backfilled).toEqual([]);
     expect(writeCalls(stub.calls)).toEqual([]);
   });
@@ -426,5 +426,167 @@ describe("STE-375 epic binding — backfill classifies epic-bound tickets alread
     expect(res.backfilled).toEqual([]);
     expect(res.failed).toEqual([]);
     expect(writeCalls(stub.calls)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M_a85e46 / STE-652 (C-BACKFILL) — a Jira-bound FR keyed OUTSIDE the bound
+// project (a legacy GB-* key after a GB→GF repoint) is never fetched or
+// attached: it lands in a fourth bucket, `outOfProject`. The check keys on
+// the FR's OWN tracker key (`jira`), not on the provider's milestoneBinding —
+// which reads `object` whenever a provider leaves it unset — so every binding
+// value below must skip the FR identically. Linear keys carry the team, not
+// the project: Linear-bound FRs are never prefix-checked.
+// ---------------------------------------------------------------------------
+
+type ReportWithOutOfProject = Awaited<ReturnType<typeof backfillMilestoneLabels>> & {
+  outOfProject?: { ticketId: string; milestone: string }[];
+};
+
+const BINDINGS: (Stub["milestoneBinding"])[] = [undefined, "object", "label", "epic"];
+
+describe("AC-STE-652.11 — a Jira FR keyed outside the project: zero provider calls, reported in outOfProject", () => {
+  for (const milestoneBinding of BINDINGS) {
+    for (const apply of [true, false]) {
+      test(`AC-STE-652.11: jira GB-11 with project GF (milestoneBinding ${milestoneBinding ?? "UNSET"}, apply ${apply})`, async () => {
+        const { specsDir } = makeRepo();
+        writeFr(specsDir, "GB-11", { dir: "archive", milestone: "M31", trackerBlock: "tracker:\n  jira: GB-11" });
+        const stub = makeStub({ milestoneBinding });
+        const res = (await backfillMilestoneLabels(makeProvider(stub), "GF", specsDir, {
+          mode: "jira",
+          apply,
+        })) as ReportWithOutOfProject;
+        expect(stub.calls, "a provider call fired for an out-of-project key").toEqual([]);
+        expect(ids(res.outOfProject ?? [])).toEqual(["GB-11"]);
+        expect(res.backfilled).toEqual([]);
+        expect(res.alreadyCorrect).toEqual([]);
+        expect(res.failed).toEqual([]);
+        expect(stub.tickets["GB-11"]).toBeUndefined();
+      });
+    }
+  }
+
+  test("AC-STE-652.11 hardening (review r0): an empty project refuses loudly — it never files every Jira FR as out-of-project", async () => {
+    // Opposite break: with project "" the prefix is "-", every key misses it,
+    // and the sweep would silently become a no-op reporting all as outOfProject.
+    const { specsDir } = makeRepo();
+    writeFr(specsDir, "GF-12", { trackerBlock: "tracker:\n  jira: GF-12" });
+    const stub = makeStub({ milestoneBinding: "label" });
+    for (const project of ["", "   "]) {
+      let err: unknown = null;
+      try {
+        await backfillMilestoneLabels(makeProvider(stub), project, specsDir, { mode: "jira", apply: true });
+      } catch (e) {
+        err = e;
+      }
+      expect(err, `project ${JSON.stringify(project)} did not refuse`).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/Remedy:/);
+      expect((err as Error).message).toMatch(/project/i);
+    }
+    expect(stub.calls, "a provider call fired before the empty-project refusal").toEqual([]);
+  });
+
+  test("AC-STE-652.11: the prefix includes the dash — GFX-3 is outside project GF", async () => {
+    // Opposite break for a `startsWith(project)` check without the separator.
+    const { specsDir } = makeRepo();
+    writeFr(specsDir, "GFX-3", { trackerBlock: "tracker:\n  jira: GFX-3" });
+    const stub = makeStub({ milestoneBinding: "label" });
+    const res = (await backfillMilestoneLabels(makeProvider(stub), "GF", specsDir, {
+      mode: "jira",
+      apply: true,
+    })) as ReportWithOutOfProject;
+    expect(stub.calls).toEqual([]);
+    expect(ids(res.outOfProject ?? [])).toEqual(["GFX-3"]);
+  });
+
+  test("AC-STE-652.11: the comparison is case-insensitive — gf-12 is INSIDE project GF and processed", async () => {
+    // Opposite break for an always-out-of-project or case-sensitive check.
+    const { specsDir } = makeRepo();
+    writeFr(specsDir, "gf-12", { trackerBlock: "tracker:\n  jira: gf-12" });
+    const stub = makeStub({ milestoneBinding: "label" });
+    const res = (await backfillMilestoneLabels(makeProvider(stub), "GF", specsDir, {
+      mode: "jira",
+      apply: true,
+    })) as ReportWithOutOfProject;
+    expect(res.outOfProject).toEqual([]);
+    expect(ids(res.backfilled)).toEqual(["gf-12"]);
+    expect(stub.calls).toContain("getIssue(gf-12)");
+  });
+});
+
+describe("AC-STE-652.12 — a Jira FR keyed inside the project is backfilled exactly as at HEAD", () => {
+  test("AC-STE-652.12: mixed tree — DST-11 attaches as today, GB-11 is skipped with zero calls", async () => {
+    const { specsDir } = makeRepo();
+    writeFr(specsDir, "DST-11", { dir: "archive", milestone: "M31", trackerBlock: "tracker:\n  jira: DST-11" });
+    writeFr(specsDir, "GB-11", { dir: "archive", milestone: "M31", trackerBlock: "tracker:\n  jira: GB-11" });
+    const stub = makeStub({ milestoneBinding: "label", tickets: { "DST-11": { labels: ["backend"] } } });
+    const res = (await backfillMilestoneLabels(makeProvider(stub), "DST", specsDir, {
+      mode: "jira",
+      apply: true,
+    })) as ReportWithOutOfProject;
+    expect(ids(res.backfilled)).toEqual(["DST-11"]);
+    expect(res.backfilled[0]?.milestone).toBe(CANONICAL_M31);
+    expect(ids(res.outOfProject ?? [])).toEqual(["GB-11"]);
+    // Every call names the in-project ticket: the HEAD sequence for DST-11 only.
+    expect(stub.calls.length).toBeGreaterThan(0);
+    expect(stub.calls.filter((c) => c.includes("GB-11"))).toEqual([]);
+    expect(stub.calls).toContain("getIssue(DST-11)");
+    expect(stub.calls).toContain(`addLabel(DST-11,${LABEL_M31})`);
+    expect(stub.tickets["DST-11"]?.labels).toEqual(["backend", LABEL_M31]);
+  });
+
+  test("AC-STE-652.12: in-project only → outOfProject is empty and the three HEAD buckets are unchanged", async () => {
+    const { specsDir } = makeRepo();
+    writeFr(specsDir, "DST-10", { milestone: "M31", trackerBlock: "tracker:\n  jira: DST-10" });
+    const stub = makeStub({ milestoneBinding: "label", tickets: { "DST-10": { labels: [LABEL_M31] } } });
+    const res = (await backfillMilestoneLabels(makeProvider(stub), "DST", specsDir, {
+      mode: "jira",
+      apply: true,
+    })) as ReportWithOutOfProject;
+    expect(res).toEqual({
+      backfilled: [],
+      alreadyCorrect: [{ ticketId: "DST-10", milestone: CANONICAL_M31 }],
+      failed: [],
+      outOfProject: [],
+    });
+    expect(stub.calls).toEqual(["getIssue(DST-10)"]);
+  });
+});
+
+describe("AC-STE-652.13 — Linear-bound FRs: buckets identical to HEAD (no key-level check)", () => {
+  test("AC-STE-652.13: a Linear key that is NOT `<project>-` prefixed is still processed", async () => {
+    // Opposite break: a mutation applying the prefix check to Linear moves
+    // these into outOfProject. Linear keys carry the TEAM (STE), not the project (DPT).
+    const { specsDir } = makeRepo();
+    writeFr(specsDir, "STE-901");
+    writeFr(specsDir, "GB-5", { trackerBlock: "tracker:\n  linear: GB-5" });
+    writeFr(specsDir, "STE-902");
+    const stub = makeStub({ tickets: { "STE-902": { attached: CANONICAL_M31 } } });
+    const res = (await backfillMilestoneLabels(makeProvider(stub), "DPT", specsDir, {
+      mode: "linear",
+      apply: true,
+    })) as ReportWithOutOfProject;
+    expect(res).toEqual({
+      backfilled: [
+        { ticketId: "GB-5", milestone: CANONICAL_M31 },
+        { ticketId: "STE-901", milestone: CANONICAL_M31 },
+      ],
+      alreadyCorrect: [{ ticketId: "STE-902", milestone: CANONICAL_M31 }],
+      failed: [],
+      outOfProject: [],
+    });
+    expect(stub.tickets["GB-5"]?.attached).toBe(CANONICAL_M31);
+  });
+
+  test("AC-STE-652.13: Linear FRs are not prefix-checked even under a label-binding provider", async () => {
+    const { specsDir } = makeRepo();
+    writeFr(specsDir, "STE-903");
+    const stub = makeStub({ milestoneBinding: "label" });
+    const res = (await backfillMilestoneLabels(makeProvider(stub), "DPT", specsDir, {
+      mode: "linear",
+    })) as ReportWithOutOfProject;
+    expect(res.outOfProject).toEqual([]);
+    expect(ids(res.backfilled)).toEqual(["STE-903"]);
+    expect(stub.calls).toEqual(["getIssue(STE-903)"]);
   });
 });
