@@ -517,3 +517,140 @@ describe("M_685ff6 review — a 50-row Linear listing is flagged possibly capped
     expect(out.get("listing")).not.toContain("possibly capped");
   });
 });
+
+// ===========================================================================
+// STE-651 (M_a85e46) — an Epic listing row with no fields.project names the
+// missing field; the required field list is one constant, and the docs list it.
+// Assertions use LITERALS, so the reds come from the behaviour, not a missing export.
+// ===========================================================================
+
+const EPIC_FIELDS_LITERAL = ["summary", "issuetype", "status", "labels", "project"];
+
+/** A Jira Epic row carrying every listing field except `project`. */
+function projectlessEpic(key: string, summary: string): Record<string, unknown> {
+  const row = epic(key, summary);
+  delete (row.fields as Record<string, unknown>).project;
+  return row;
+}
+
+const lineOf = (stderr: string, label: "Refusing" | "Remedy"): string =>
+  stderr.split("\n").find((l) => l.startsWith(`${label}:`)) ?? "";
+
+/** The Remedy names every listing field, each as a whole word. */
+function expectRemedyNamesEveryField(stderr: string): void {
+  const remedy = lineOf(stderr, "Remedy");
+  for (const f of EPIC_FIELDS_LITERAL) expect(remedy, `the Remedy names no \`${f}\`: ${remedy}`).toMatch(new RegExp(`\\b${f}\\b`));
+}
+
+const ATTACH_DOOR = join(SRC, "attach_project_milestone.ts");
+
+function runAttach(args: string[], cwd: string): Run {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  delete env.CLAUDE_PROJECT_DIR;
+  env.CLAUDE_PLUGIN_ROOT = PLUGIN_ROOT;
+  env.CLAUDE_CODE_SESSION_ID = SESSION;
+  env.GIT_CONFIG_GLOBAL = "/dev/null";
+  const p = Bun.spawnSync(["bun", "run", ATTACH_DOOR, ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
+  return { exitCode: p.exitCode ?? -1, stdout: p.stdout.toString(), stderr: p.stderr.toString() };
+}
+
+describe("AC-STE-651.14 / .15 / .16 — an Epic listing row with no fields.project", () => {
+  test("AC-STE-651.14 a row with no fields.project refuses: the Refusing line names the missing project field (not 'keyed outside'), the Remedy names summary, issuetype, status, labels and project", () => {
+    const root = jiraRoot("unshared");
+    const r = runDoor([root, "jira", "GF", writeListing({ issues: [projectlessEpic("GF-9", "A")], isLast: true }), "--title", "Payouts"]);
+    expectRefusal(r, root, "GF-9");
+    const refusing = lineOf(r.stderr, "Refusing");
+    expect(refusing).toMatch(/fields\.project|project field/);
+    expect(refusing).not.toContain("keyed outside");
+    expectRemedyNamesEveryField(r.stderr);
+  });
+
+  test("AC-STE-651.15 (control) a row whose fields.project.key names another project still refuses as keyed outside, naming that project", () => {
+    const root = jiraRoot("unshared");
+    for (const key of ["NEX-9", "GF-9"]) {
+      const r = runDoor([root, "jira", "GF", writeListing({ issues: [epic(key, "A", { project: "NEX" })], isLast: true }), "--title", "Payouts"]);
+      expectRefusal(r, root, key);
+      const refusing = lineOf(r.stderr, "Refusing");
+      expect(refusing).toContain("keyed outside project GF");
+      expect(refusing).toContain("NEX");
+    }
+  });
+
+  test("AC-STE-651.16 attach_project_milestone.ts refuses the same absent-project listing with the same field-naming remedy", () => {
+    const root = jiraRoot("unshared");
+    mkdirSync(join(root, "specs", "plan"), { recursive: true });
+    const plan = join(root, "specs", "plan", "M_GF_9.md");
+    writeFileSync(plan, "---\nmilestone: M_GF_9\nstatus: active\narchived_at: null\n---\n\n## M_GF_9 — Payouts {#M_GF_9}\n\nBody.\n");
+    const listing = writeListing({ issues: [projectlessEpic("GF-9", "Payouts")], isLast: true });
+    const r = runAttach([root, "jira", "GF", plan, listing], root);
+    if (r.exitCode !== 1) throw new Error(`expected exit 1 (refusal), got:\n${show(r)}`);
+    expect(r.stdout).toBe("");
+    const refusing = lineOf(r.stderr, "Refusing");
+    expect(refusing).toContain("GF-9");
+    expect(refusing).toMatch(/fields\.project|project field/);
+    expect(refusing).not.toContain("keyed outside");
+    expectRemedyNamesEveryField(r.stderr);
+  });
+
+  test("AC-STE-651.14 (control) a listing carrying all five fields decides normally", () => {
+    const root = jiraRoot("unshared");
+    const row = epic("GF-9", "Other", { labels: [] });
+    expect(Object.keys(row.fields as Record<string, unknown>).sort()).toEqual([...EPIC_FIELDS_LITERAL].sort());
+    const out = ok(runDoor([root, "jira", "GF", writeListing({ issues: [row], isLast: true }), "--title", "Payouts"]));
+    expect(out.get("act")).toBe("create");
+  });
+
+  test("AC-STE-651.14 JIRA_EPIC_LISTING_FIELDS is exported and deep-equals the literal field list", async () => {
+    const mod = (await import("../adapters/_shared/src/resolve_milestone_identity")) as Record<string, unknown>;
+    expect(mod.JIRA_EPIC_LISTING_FIELDS).toEqual(EPIC_FIELDS_LITERAL);
+  });
+});
+
+describe("AC-STE-651.17 — the docs list every JIRA_EPIC_LISTING_FIELDS entry", () => {
+  /**
+   * True when one `fields` mention in `text` is followed, within 200
+   * characters, by every listing field as a whole word — a field LIST, not
+   * five words scattered over a long line.
+   */
+  function listsFields(text: string, wanted: readonly string[]): boolean {
+    const flat = text.replace(/\s+/g, " ");
+    for (const m of flat.matchAll(/\bfields\b/gi)) {
+      const window = flat.slice(m.index!, m.index! + 200);
+      if (wanted.every((f) => new RegExp(`\\b${f}\\b`).test(window))) return true;
+    }
+    return false;
+  }
+
+  async function constantFields(): Promise<readonly string[]> {
+    const mod = (await import("../adapters/_shared/src/resolve_milestone_identity")) as Record<string, unknown>;
+    const fields = mod.JIRA_EPIC_LISTING_FIELDS;
+    expect(Array.isArray(fields), "resolve_milestone_identity.ts exports no JIRA_EPIC_LISTING_FIELDS").toBe(true);
+    return fields as readonly string[];
+  }
+
+  test("AC-STE-651.17 the --declare line of skills/spec-write/SKILL.md lists every field of the Epic listing", async () => {
+    const wanted = await constantFields();
+    const line = readFileSync(join(PLUGIN_ROOT, "skills", "spec-write", "SKILL.md"), "utf-8")
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .find((l) => l.includes("--declare"));
+    expect(line, "SKILL.md has no --declare line").toBeDefined();
+    expect(listsFields(line!, wanted), `the --declare line lists no fields ${JSON.stringify(wanted)}`).toBe(true);
+  });
+
+  test("AC-STE-651.17 adapters/jira.md's Epic path lists every field of the Epic listing", async () => {
+    const wanted = await constantFields();
+    const doc = readFileSync(join(PLUGIN_ROOT, "adapters", "jira.md"), "utf-8").replace(/\r\n?/g, "\n");
+    const start = doc.indexOf("### Epic path");
+    expect(start, "jira.md has no Epic path section").toBeGreaterThan(-1);
+    const next = doc.indexOf("\n### ", start + 1);
+    const section = doc.slice(start, next < 0 ? undefined : next);
+    expect(listsFields(section, wanted), `jira.md's Epic path lists no fields ${JSON.stringify(wanted)}`).toBe(true);
+  });
+
+  test("(control) the field-list matcher rejects a list missing one field", () => {
+    expect(listsFields("with fields summary, issuetype, status, labels and project", EPIC_FIELDS_LITERAL)).toBe(true);
+    expect(listsFields("with fields summary, issuetype, labels and project", EPIC_FIELDS_LITERAL)).toBe(false);
+  });
+});

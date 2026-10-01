@@ -277,7 +277,7 @@ function heldRemedyAct(s: DeclaredSibling, milestone: string): string {
     case "unreadable":
       return `repair sibling ${s.name} so it can be read — every git worktree, branch and remote-tracking ref, and its CLAUDE.md tracker declaration`;
     case "one-sided":
-      return `declare this repository in sibling ${s.name}'s plan: run \`bun run \${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spans_repos.ts <planFile> ${milestone} --declare <siblingPath>\` so its ${SPANS_REPOS_KEY}: names this repository back (if that plan's ${SPANS_REPOS_KEY}: names another repository instead, correct it there first)`;
+      return `declare this repository in sibling ${s.name}'s plan (at ${s.root ?? s.declaredPath}): run \`bun run \${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spans_repos.ts <planFile> ${milestone} --declare <siblingPath>\` so its ${SPANS_REPOS_KEY}: names this repository back (if that plan's ${SPANS_REPOS_KEY}: names another repository instead, correct it there first)`;
     case "idle":
       return "";
   }

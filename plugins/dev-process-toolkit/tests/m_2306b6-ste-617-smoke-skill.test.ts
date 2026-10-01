@@ -1080,8 +1080,8 @@ function s14Violations(text: string): string[] {
   if (!/S14's permit twin/.test(s2[0]!.prompt)) v.push("S2's B create is not named as S14's permit twin (S14 spends no extra issue)");
   if (!/spans_repos\.ts\b.*--declare <A>/.test(join[0]!.prompt)) v.push("B's join step never makes B's plan name A back");
   // The hold needs A's plan to name B BEFORE step 8. `--declare` cannot do it
-  // at step 6 (B holds no plan until step 7, and it writes both sides at
-  // once), so the plan step hand-writes A's own side and nothing in B. Live
+  // at step 6 (B holds no plan until step 7; since STE-651 it writes only the
+  // invoking plan), so the plan step hand-writes A's own side and nothing in B. Live
   // legs 6-9 ran without this: step 8 found no sibling to hold, and the one
   // leg that held (7) got there by A writing B's plan.
   const plan = rowsOf(text, "S3", "A");

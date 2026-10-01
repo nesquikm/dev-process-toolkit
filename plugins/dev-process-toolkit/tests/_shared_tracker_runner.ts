@@ -1111,6 +1111,9 @@ async function spannedMilestone(ctx: Ctx, title: string): Promise<{ m: Milestone
   commitAll(b.root, `plan ${j.fields.milestoneId} from the join output`);
   const d = await ctx.door(`${ADAPTERS_SRC}/spans_repos.ts`, [aPlan, m.token, "--declare", b.root], { cwd: a.root });
   ctx.check(d.exitCode === 0, `declaring the span from A refused (exit ${d.exitCode}): ${d.stderr}`);
+  // STE-651: a declare writes only the invoking plan, so B's own session declares its side.
+  const dB = await ctx.door(`${ADAPTERS_SRC}/spans_repos.ts`, [bPlan, m.token, "--declare", a.root], { cwd: b.root });
+  ctx.check(dB.exitCode === 0, `declaring the span from B refused (exit ${dB.exitCode}): ${dB.stderr}`);
   commitAll(a.root, "declare span");
   commitAll(b.root, "declare span");
   return { m, aPlan, bPlan };
@@ -1281,6 +1284,9 @@ async function zeroWriteJoin(ctx: Ctx): Promise<void> {
   ctx.step("the span declared through STE-610's writer");
   const decl = await ctx.door(`${ADAPTERS_SRC}/spans_repos.ts`, [aPlan, m.token, "--declare", b.root], { cwd: a.root });
   ctx.check(decl.exitCode === 0, `declaring the span refused (exit ${decl.exitCode}): ${decl.stderr}`);
+  // STE-651: a declare writes only the invoking plan, so B's own session declares its side.
+  const declB = await ctx.door(`${ADAPTERS_SRC}/spans_repos.ts`, [bPlan, m.token, "--declare", a.root], { cwd: b.root });
+  ctx.check(declB.exitCode === 0, `declaring the span from B refused (exit ${declB.exitCode}): ${declB.stderr}`);
   writeFrFile(b.root, bKey, m.token, "archived", bKey, ctx.tracker);
   commitAll(a.root, "declare span");
   commitAll(b.root, "join, declare span, B's FR archived");

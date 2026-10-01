@@ -36,7 +36,8 @@ migration: none  # literal `none` (no consumer migration), or a migration-regist
   sibling repo. It is a nested map of repo name to path, relative to this repo's root, added to
   the frontmatter above only when the milestone genuinely spans repos. Write it with the
   `--declare` command rather than by hand — `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spans_repos.ts
-  <planFile> <milestone> --declare <siblingPath>` — which declares the span in both plans:
+  <planFile> <milestone> --declare <siblingPath>` — it writes this plan only, never the sibling's
+  checkout, and prints the command the sibling's own session runs for its side:
 
       spans_repos:
         <this-repo-tag>: .
