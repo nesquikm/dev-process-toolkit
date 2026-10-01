@@ -1,12 +1,13 @@
 {
-  "captured_at": "2026-09-18",
-  "source": "Live MCP tool listing of this Claude Code session (deferred-tool registry), server prefixes mcp__atlassian__ and mcp__linear__; captured by the /tdd orchestrator for STE-607 §1.",
+  "captured_at": "2026-09-30",
+  "source": "Live MCP tool listing of this Claude Code session (deferred-tool registry), recaptured for AC-STE-649.6 from BOTH server spellings: mcp__atlassian__ + mcp__claude_ai_Atlassian__ (union; only the claude_ai_Atlassian spelling lists addTeamworkGraphContext) and mcp__linear__ + mcp__claude_ai_Linear__ (identical lists).",
   "servers": {
     "atlassian": {
       "prefix": "mcp__atlassian__",
-      "count": 40,
+      "count": 41,
       "tools": [
         "addCommentToJiraIssue",
+        "addTeamworkGraphContext",
         "addWorklogToJiraIssue",
         "atlassianUserInfo",
         "createCompassComponent",
@@ -49,6 +50,9 @@
       ],
       "classification": {
         "addCommentToJiraIssue": {
+          "class": "gated-write"
+        },
+        "addTeamworkGraphContext": {
           "class": "gated-write"
         },
         "addWorklogToJiraIssue": {
@@ -229,7 +233,7 @@
     },
     "linear": {
       "prefix": "mcp__linear__",
-      "count": 66,
+      "count": 68,
       "tools": [
         "create_attachment",
         "create_attachment_from_upload",
@@ -254,10 +258,12 @@
         "get_status_updates",
         "get_team",
         "get_template",
+        "get_triage_responsibility",
         "get_user",
         "get_workspace",
         "list_agent_skills",
         "list_comments",
+        "list_custom_views",
         "list_cycles",
         "list_diffs",
         "list_documents",
@@ -369,6 +375,9 @@
         "get_template": {
           "class": "read"
         },
+        "get_triage_responsibility": {
+          "class": "read"
+        },
         "get_user": {
           "class": "read"
         },
@@ -379,6 +388,9 @@
           "class": "read"
         },
         "list_comments": {
+          "class": "read"
+        },
+        "list_custom_views": {
           "class": "read"
         },
         "list_cycles": {

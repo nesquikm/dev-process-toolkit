@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.92.0] — 2026-10-01 — "Checked Routes"
+
+### Changed
+
+- The repoint declares, flips and verifies with one outcome or none (STE-646). Its declare route now takes `--shared <tag>` and `--issue-type <type>` and says when it wrote nothing; the rows route refuses those flags and names the declare-first command, checks the session id before any row, and restores CLAUDE.md byte for byte when its receipt cannot be written. `--verify` tells an untouched config (`verify UNCHANGED`) from a rewritten one that kept every status (`verify PASS`).
+- A shared floor moves only when asked (STE-647). This amends STE-603's floor contract: a `--shared` re-run keeps `min_dpt_version` unless a validated `--floor <X.Y.Z>` is passed, and every shared run prints one line naming the floor change and the manifest the running version was read from. Probe #25's remedies stop asserting a false cause and name the repoint through `${CLAUDE_PLUGIN_ROOT}`, and following them never raises the floor.
+
+### Fixed
+
+- A bound tracker project changes only through the checked repoint rows (STE-645). Every door into the binding writer refuses a changed project, a changed key-shaped Linear team, and an overwrite of a declared block missing its project line; the repoint resumes only from a deferred project and refuses an absent one before any row. Closes D-3.
+- The docs name the in-place install and never an unregistered probe (STE-648). The hooks reference describes both install shapes, including a local-directory marketplace that loads the source tree in place, and what waits for a restart or `/reload-plugins`; `/gate-check` and the patterns doc stop calling the branch-gate module a probe. Closes D-12.
+- The tracker-write gate covers every link writer and names true causes (STE-649). `addTeamworkGraphContext` is gated under both server spellings, a link side that must be a Jira item resolves only from a key or a `/browse/` URL, and the ownership refusal routes by verdict. Two checkouts of one repository, an unreadable receipt directory and another session's receipt are each named as what they are. Closes D-5, D-6 and D-7.
+- The grader mirrors the hook, and the commit and PR gates name a lagging transcript (STE-650). One ownership predicate serves the hook and the live grader, the grader mirrors the hook's remaining create and consent rules, and consent is read per question on both sides: every question about the subject must be answered with the consent label, so a "no" to one is never overridden by a "yes" to another. The gate-check commit gate and the spec-review PR gate, when their own receipt result has not reached the transcript, wait briefly and, if it never lands, say to retry unchanged instead of blaming the window; another gate's pending run, a claimed window, a detected tamper and a transcript that turns unreadable mid-wait are never called lag or passed. The tdd commit gate does not wait yet. A full 50-row Linear re-list gets the consent remedy instead of a re-list loop.
+
+### Known defects
+
+- The live grader re-derives a bundle's behaviour digest from the bundle's own file map, so a bundle whose hook-source entry and digest were rewritten together still grades as its forged source; bundles carry no hook bytes to check against.
+- **D-4 is still narrowed, not closed.** A sibling's create that lands inside the 120 s re-list window, Jira's search-index lag, and the operator's permission prompt (shown after the hook permits, so its wait is outside any hook bound) can still let a duplicate container through. The narrowing holds only when every repository sharing the project runs v2.91.0 or later; to enforce it, raise each repository's floor with the binding writer's `--shared <tag> --floor <released version>` — since this release a `--shared` re-run alone keeps the existing floor.
+- Still open from v2.91.0: a subagent's tracker call (a payload carrying `agent_id`) is graded on its first transcript read with no wait, and two calls of one message whose lines are not yet on disk are graded without each other, so a same-turn duplicate is refused as a parallel duplicate only when its sibling's line has landed.
+- Still open, with no fix designed yet: the sibling ship gate reads "archived on some ref" as "archived on every ref" (D-2).
+- `/ship-milestone`'s description says it bumps "the four release files"; this repository's Release Files block lists five.
+
+Total test count at release: 17674 tests, 0 failures, 0 errors.
+
 ## [2.91.0] — 2026-09-29 — "Once, Asked, Fresh"
 
 ### Changed

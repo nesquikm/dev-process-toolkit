@@ -359,28 +359,27 @@ describe("spec_research_result_shape — constants", () => {
   });
 });
 
-// R2 (docs audit, 2026-09-23) — DEFERRED, and this row keeps it from being lost.
+// R2 (docs audit, 2026-09-23) — deferred at the time, FIXED in STE-648.
 //
-// `/gate-check`'s probe #41 entry calls `commit_producing_skill_branch_gate` a
+// `/gate-check`'s probe #41 entry called `commit_producing_skill_branch_gate` a
 // colocated sibling "added in M61". That module exists and NO numbered entry
 // registers it, so nothing runs it, and a reader checking whether the branch
-// gate is guarded finds a sentence saying yes. The sentence is still there.
+// gate is guarded found a sentence saying yes.
 //
-// WHY IT IS STILL THERE. Correcting it edits `skills/gate-check/SKILL.md`, which
+// WHY IT WAS DEFERRED. Correcting it edits `skills/gate-check/SKILL.md`, which
 // AC-STE-618.8 freezes byte-for-byte against the kickoff except ONE permitted
 // line — and the closed list of amendments across this milestone already holds
-// two, so mine would be the third, the point at which this FR's own recorded
-// threshold says to rethink the pin rather than widen it. I had made the edit;
-// the pin refused it, and I reverted rather than amending a closed list for my
-// own convenience — the same call as declining to raise the probe #81 pin for
-// my own change an hour earlier. The correction travels to the follow-on
-// milestone WITH the registration it belongs to, which is one coherent change
-// instead of prose now and behaviour later.
+// two, so a third would cross that FR's recorded threshold for rethinking the
+// pin rather than widening it. The edit was made, the pin refused it, and it
+// was reverted rather than amending a closed list for the author's own change;
+// the correction was deferred to the follow-on milestone.
 //
-// This row therefore asserts the DEFECT, not the fix. When the follow-on
-// milestone corrects the sentence, this row reds and must be rewritten — which
-// is how a deferral stays visible instead of becoming a forgotten TODO.
-describe("R2 — DEFERRED: gate-check still claims a probe that does not run", () => {
+// FIXED in STE-648 (M_163656). Operator ruling R2 split the two halves: the
+// sentence is corrected now WITHOUT registering the probe, and the
+// AC-STE-618.8 freeze admits line 120 by name. The rows below therefore assert
+// the CORRECTED state; the MEASURED row still pins that the module ships
+// unregistered, so a future registration reds it and forces this row's rewrite.
+describe("R2 — FIXED (STE-648): gate-check no longer claims a probe that does not run", () => {
   const skill = () => readFileSync(join(import.meta.dir, "..", "skills", "gate-check", "SKILL.md"), "utf-8");
 
   test("MEASURED — the module exists and no numbered entry registers it", () => {
@@ -391,10 +390,67 @@ describe("R2 — DEFERRED: gate-check still claims a probe that does not run", (
     expect(numbered.filter((l) => /^\d+\.\s+\*\*`commit_producing_skill_branch_gate`\*\*/.test(l)), "none registers it").toEqual([]);
   });
 
-  test("DOCUMENTED AS UNFIXED — the false 'colocated' claim is still in the shipped document; correcting it is the follow-on milestone's, with the registration", () => {
-    expect(skill(), "if this reds, the claim was corrected and this row is stale — rewrite it rather than deleting it").toContain(
-      "colocated with the `commit_producing_skill_branch_gate` probe",
+  // AC-STE-648.7 — the corrected state, per operator ruling R2: the sentence is
+  // corrected WITHOUT registering the probe (the MEASURED leg above still holds).
+  test("AC-STE-648.7: the false 'colocated … probe' claim is gone from the shipped document", () => {
+    expect(skill()).not.toContain("colocated with the `commit_producing_skill_branch_gate` probe");
+    const probeClaim = /`commit_producing_skill_branch_gate`\s+probe|probe\s+`commit_producing_skill_branch_gate`/;
+    expect(skill().split("\n").filter((l) => probeClaim.test(l)), "no line calls the module a probe").toEqual([]);
+  });
+
+  test("AC-STE-648.7: probe #41's entry states the module is unregistered and /gate-check does not run it", () => {
+    const entry = skill().split("\n").find((l) => /^41\.\s+\*\*`spec_research_result_shape`\*\*/.test(l));
+    expect(entry, "probe #41's entry is found").not.toBeUndefined();
+    expect(entry!).toContain(
+      "Sibling module: `commit_producing_skill_branch_gate` (M61) — no numbered entry registers it, so /gate-check does not run it.",
     );
+  });
+});
+
+// AC-STE-648.5 / AC-STE-648.6 — no shipped surface calls the unregistered
+// `commit_producing_skill_branch_gate` module a /gate-check probe. The SKILL
+// keeps its line count and STE-token count (absolute line-position pins).
+const PROBE_CLAIM =
+  /`commit_producing_skill_branch_gate`\s+probe|probe\s+`commit_producing_skill_branch_gate`|\/gate-check`?\s+probe\s+`?commit_producing_skill_branch_gate/;
+
+describe("AC-STE-648.5 — gate-check SKILL.md stops calling the branch-gate module a probe", () => {
+  const skill = () => readFileSync(join(import.meta.dir, "..", "skills", "gate-check", "SKILL.md"), "utf-8");
+
+  test("AC-STE-648.5: no line of gate-check SKILL.md calls commit_producing_skill_branch_gate a /gate-check probe", () => {
+    const mentions = skill().split("\n").filter((l) => l.includes("commit_producing_skill_branch_gate"));
+    expect(mentions.length, "CONTROL: the module is still named (the sentence is corrected, not deleted)").toBeGreaterThan(0);
+    expect(mentions.filter((l) => PROBE_CLAIM.test(l))).toEqual([]);
+  });
+
+  test("AC-STE-648.5 CONTROL: the SKILL still has 356 split-lines and 87 STE tokens", () => {
+    const body = skill();
+    expect(body.split("\n").length).toBe(356);
+    expect((body.match(/STE-\d+/g) ?? []).length).toBe(87);
+  });
+
+  test("AC-STE-648.5 CONTROL: the claim detector fires on the pre-fix sentence (it is not a detector that cannot fail)", () => {
+    expect(PROBE_CLAIM.test("Sibling probe family: colocated with the `commit_producing_skill_branch_gate` probe added in M61.")).toBe(true);
+    expect(PROBE_CLAIM.test("**Read-side safety net**: `/gate-check` probe `commit_producing_skill_branch_gate` parses each")).toBe(true);
+    expect(
+      PROBE_CLAIM.test("Sibling module: `commit_producing_skill_branch_gate` (M61) — no numbered entry registers it, so /gate-check does not run it."),
+    ).toBe(false);
+  });
+});
+
+describe("AC-STE-648.6 — docs/patterns.md stops calling the branch-gate module a /gate-check probe", () => {
+  const patterns = () => readFileSync(join(import.meta.dir, "..", "docs", "patterns.md"), "utf-8");
+
+  test("AC-STE-648.6: no line of docs/patterns.md describes commit_producing_skill_branch_gate as a /gate-check probe", () => {
+    const hits = patterns().split("\n").filter((l) => l.includes("commit_producing_skill_branch_gate") && PROBE_CLAIM.test(l));
+    expect(hits).toEqual([]);
+  });
+
+  test("AC-STE-648.6 CONTROL: the line describing the module stays path-free (docs/ is a reachability surface; only the **Where** inventory line names the path)", () => {
+    const described = patterns()
+      .split("\n")
+      .filter((l) => l.includes("commit_producing_skill_branch_gate") && !l.startsWith("**Where**"));
+    expect(described.length, "the module is still described outside the **Where** line").toBeGreaterThan(0);
+    expect(described.filter((l) => l.includes("commit_producing_skill_branch_gate.ts"))).toEqual([]);
   });
 });
 

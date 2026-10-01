@@ -99,6 +99,20 @@ function sessionIdFromEnv(): string {
   return id;
 }
 
+/**
+ * Check the session a receipt would be written under, writing nothing (no mkdir):
+ * throws, naming CLAUDE_CODE_SESSION_ID, when it is unset, empty or path-unsafe.
+ * Returns the receipt directory `writeReceipt` would use (AC-STE-646.7).
+ */
+export function assertReceiptSession(projectRoot: string): string {
+  const sessionId = sessionIdFromEnv();
+  try {
+    return receiptsDir(projectRoot, sessionId);
+  } catch (e) {
+    throw new Error(`CLAUDE_CODE_SESSION_ID is not path-safe: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 /** Write one receipt for the current session; returns the receipt file's path. */
 export function writeReceipt(projectRoot: string, input: ReceiptInput): string {
   const sessionId = sessionIdFromEnv();

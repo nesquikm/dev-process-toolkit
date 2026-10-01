@@ -3,7 +3,8 @@
 // The 4 Process-category hooks moved from `/setup --hooks` writing to user
 // `.claude/settings.json` over to plugin-bundled `hooks/hooks.json` so the
 // Claude Code harness auto-discovers them at session start and expands
-// `${CLAUDE_PLUGIN_ROOT}` against the plugin's runtime cache path.
+// `${CLAUDE_PLUGIN_ROOT}` against the plugin's runtime path (the cache for a
+// copied install, the source working tree for a local-directory marketplace).
 //
 // This single test file is the doc-conformance regression guard for all six
 // ACs of STE-289 (the verify lines for AC.1 and AC.6 both point at
