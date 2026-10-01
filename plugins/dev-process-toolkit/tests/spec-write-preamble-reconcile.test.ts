@@ -6,8 +6,11 @@
 // in the same style as the other SKILL.md-shape tests under `tests/`.
 //
 // M_840a06/STE-578 replaced the old "cites the STE-135 guard" pin: no such
-// guard exists (the import path has no existence check), so that assertion
-// was pinning a false claim open. It is deleted, not satisfied.
+// guard existed then (the import path had no check of any kind), so that
+// assertion was pinning a false claim open. It is deleted, not satisfied.
+// M_a85e46/STE-652 then gave the importer a real, narrow guard (it refuses a
+// key a local FR, active or archived, already binds), so § 0.5 stops claiming
+// "no existence check" and states that scope instead.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -69,5 +72,59 @@ describe("AC-STE-284.3 + AC-STE-578.1: § 0.5 Tracker-local reconciliation secti
     const body = readFileSync(SKILL_PATH, "utf-8");
     const lineCount = body.split("\n").length;
     expect(lineCount).toBeLessThanOrEqual(SKILL_LINE_CAP);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M_a85e46 / STE-652 — § 0.5's body line, rewritten in place.
+// Pinned by PATTERN on the single § 0.5 body paragraph (found by content, not
+// by line number — tests/m_840a06-ste-578-* owns the index pins).
+// ---------------------------------------------------------------------------
+
+function section05BodyLine(): string {
+  const body = readFileSync(SKILL_PATH, "utf-8");
+  const start = body.indexOf("### 0.5 Tracker-local reconciliation");
+  const end = body.indexOf("\n### ", start + 1);
+  if (start < 0 || end <= start) throw new Error("§ 0.5 not found — the slicer is broken");
+  const hits = body
+    .slice(start, end)
+    .split("\n")
+    .filter((l) => l.includes("reconcileTrackerLocal"));
+  if (hits.length !== 1) throw new Error(`expected ONE § 0.5 body line naming reconcileTrackerLocal, found ${hits.length}`);
+  return hits[0]!;
+}
+
+describe("AC-STE-652.5 / AC-STE-652.10: § 0.5 states the importer's real guard and the shared-repo option", () => {
+  test("AC-STE-652.5: the line no longer claims importFromTracker has no existence check", () => {
+    const line = section05BodyLine();
+    expect(line).toContain("importFromTracker");
+    expect(line, "§ 0.5 still claims the importer has no existence check").not.toMatch(/no existence check/i);
+    expect(line, "§ 0.5 still claims the importer writes unconditionally").not.toMatch(/writes the FR file unconditionally/i);
+  });
+
+  test("AC-STE-652.5: the line states the guard's scope — it refuses only a key a local FR (active or archived) already binds", () => {
+    const line = section05BodyLine();
+    const SCOPE_RE = /importFromTracker`?[^;]{0,40}\brefuses\b[^;]{0,80}\b(active or archived|archived or active)\b[^;]{0,40}\bbinds?\b/i;
+    // CONTROL: the regex fires on the sentence it is meant to catch.
+    expect(
+      SCOPE_RE.test("`importFromTracker` refuses only a key a local FR (active or archived) already binds; otherwise"),
+      "SCOPE_RE stopped matching its own control string",
+    ).toBe(true);
+    expect(SCOPE_RE.test(line), "§ 0.5 does not state the importer's bound-key refusal scope").toBe(true);
+    // The outward write the consent rule exists for is still named.
+    expect(line).toContain("provider.sync(spec)");
+    expect(line).toMatch(/never auto-imported/i);
+  });
+
+  test("AC-STE-652.10: the line tells the preamble to pass `{ shared: true }` in a shared repository", () => {
+    const line = section05BodyLine();
+    expect(line).toContain("{ shared: true }");
+    expect(line).toMatch(/shared[^;]{0,60}\{ shared: true \}|\{ shared: true \}[^;]{0,60}shared/i);
+  });
+
+  test("AC-STE-652.10: the line reports `skippedMilestones` as a count, never as a mismatch", () => {
+    const line = section05BodyLine();
+    expect(line).toContain("skippedMilestones");
+    expect(line).toMatch(/skippedMilestones`?[^;]{0,80}\bas a count\b|\bcount\b[^;]{0,80}skippedMilestones/i);
   });
 });

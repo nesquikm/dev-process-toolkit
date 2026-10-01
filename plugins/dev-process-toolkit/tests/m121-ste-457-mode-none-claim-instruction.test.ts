@@ -471,7 +471,7 @@ describe("AC-STE-457.4 — both caps hold, each on its OWN measurement", () => {
     // pinned exactly.
     // M_840a06/STE-578 took this 246 -> 245: § 0.5 of spec-write/SKILL.md cited
     // `STE-135` as the guard on the tracker-orphan auto-import, and that citation
-    // was false on both halves (the import module carries no existence check, and
+    // was false on both halves (the import module then carried no clobber guard, and
     // STE-135 is the resolver lookup contract). Deleting a FALSE citation lowers
     // the tree count, so this pin moves DOWN. Still exact, not a cap: an added
     // token reds at 246 and a further deletion reds at 244.
