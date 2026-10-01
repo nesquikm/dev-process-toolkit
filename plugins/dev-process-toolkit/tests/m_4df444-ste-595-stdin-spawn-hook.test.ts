@@ -329,17 +329,28 @@ describe("AC-STE-595.4 — registered repo-level, probes green, the file-run com
     expect(git(["rev-parse", "--verify", "--quiet", "main"]).exitCode, "control: main resolves").toBe(0);
     const onMain = git(["show", "main:plugins/dev-process-toolkit/hooks/hooks.json"]);
     expect(onMain.exitCode, "control: hooks.json exists on main").toBe(0);
+    // PIN MOVE (M_163656/STE-649): a matcher may WIDEN (STE-649 adds
+    // addTeamworkGraphContext to the tracker-write gate's matcher), so a hook
+    // is identified by event + command, and main's matcher may only grow:
+    // every name main's matcher lists must still be listed.
     type Group = { matcher?: string; hooks: { command: string }[] };
-    const commands = (json: string): string[] => {
+    const commands = (json: string): Map<string, string> => {
       const hooks = (JSON.parse(json) as { hooks: Record<string, Group[]> }).hooks;
-      return Object.entries(hooks).flatMap(([event, groups]) =>
-        groups.flatMap((g) => g.hooks.map((h) => `${event}|${g.matcher ?? ""}|${h.command}`)),
+      return new Map(
+        Object.entries(hooks).flatMap(([event, groups]) =>
+          groups.flatMap((g) => g.hooks.map((h) => [`${event}|${h.command}`, g.matcher ?? ""] as [string, string])),
+        ),
       );
     };
-    const now = new Set(commands(readFileSync(HOOKS_JSON, "utf-8")));
+    const names = (matcher: string): string[] => matcher.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? [];
+    const now = commands(readFileSync(HOOKS_JSON, "utf-8"));
     const before = commands(onMain.stdout.toString());
-    expect(before.length, "control: main registers hooks").toBeGreaterThan(0);
-    for (const c of before) expect(now.has(c), `hooks.json lost a hook main registers: ${c}`).toBe(true);
+    expect(before.size, "control: main registers hooks").toBeGreaterThan(0);
+    for (const [hook, matcher] of before) {
+      expect(now.has(hook), `hooks.json lost a hook main registers: ${hook}`).toBe(true);
+      const widened = new Set(names(now.get(hook) ?? ""));
+      for (const n of names(matcher)) expect(widened.has(n), `${hook}: the matcher no longer names ${n}`).toBe(true);
+    }
     expect(readFileSync(HOOKS_JSON, "utf-8")).not.toMatch(/stdin[_-]?spawn/i);
   });
 

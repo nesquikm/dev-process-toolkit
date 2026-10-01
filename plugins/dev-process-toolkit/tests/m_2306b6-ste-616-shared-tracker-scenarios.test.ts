@@ -18,8 +18,13 @@
 //   AC.14  no vacuous scenario: declared invocation kinds recorded, refused
 //          AND permitted writes where the hook is declared, the summary line.
 //   AC.16  no new probe, capability key or smoke leg; skip sites unchanged.
-//   D-2 / D-3   the two named known defects, asserted at their measured
-//          behaviour, titled as the defect.
+//   D-2         a named known defect, asserted at its measured behaviour,
+//          titled as the defect.
+//   D-3         FIXED by STE-645: the row asserts the refusal, titled FIXED.
+//   D-5, D-6, D-7  FIXED by STE-649: each refusal names its real cause — two
+//          checkouts of one repository (with a different-repositories and a
+//          two-tags control), an unreadable receipt with its errno, another
+//          session's receipt with that session's id.
 //
 // The registry (`adapters/_shared/src/shared_tracker_scenarios.ts`) is loaded
 // with a dynamic import so its absence reds the registry clauses by name
@@ -799,6 +804,34 @@ describe("AC-STE-616.11 — the tracker-write matcher against the classified inv
   }
 });
 
+describe("STE-649 — addTeamworkGraphContext in the classified inventory and the cross-grade", () => {
+  test("AC-STE-649.6 — the inventory classifies addTeamworkGraphContext as gated-write, and get_triage_responsibility and list_custom_views as read", () => {
+    const inv = readInventory();
+    expect(inv.servers.atlassian!.classification?.addTeamworkGraphContext?.class).toBe("gated-write");
+    expect(inv.servers.linear!.classification?.get_triage_responsibility?.class).toBe("read");
+    expect(inv.servers.linear!.classification?.list_custom_views?.class).toBe("read");
+  });
+  test("the runner's genericWriteInput names both teamwork-graph sides, so the cross-grade refuses it on ownership and never for want of a key", () => {
+    expect(genericWriteInput("jira", "addTeamworkGraphContext", "GF-1")).toEqual({
+      cloudId: "fixture-cloud",
+      relationshipType: "jira-work-item-links-jira-work-item",
+      objectIdentifier: "GF-1",
+      targetObjectIdentifier: "GF-1",
+    });
+  });
+  test("AC-STE-649.2 — jira: in a declared shared root with no receipt, the spawned hook refuses addTeamworkGraphContext under B's server name on ownership, naming the key", async () => {
+    await withSharedTrackerFixture({ tracker: "jira", shape: "coexist" }, async (fx) => {
+      const transcript = join(fx.scratch, "empty.jsonl");
+      writeFileSync(transcript, "");
+      const key = `${JIRA_PROJECT}-1`;
+      const r = await spawnHook("jira", fx.b.root, "addTeamworkGraphContext", genericWriteInput("jira", "addTeamworkGraphContext", key), transcript, SERVERS.jira.b);
+      expect(r.exitCode, r.stderr).toBe(2);
+      expect(r.stderr).toContain(key);
+      expect(r.stderr).not.toMatch(/names no resolvable ticket key/);
+    });
+  }, 120_000);
+});
+
 // ===========================================================================
 // AC-STE-616.16 — nothing new pinned
 // ===========================================================================
@@ -923,38 +956,69 @@ describe("What ships as a known defect", () => {
       // Control — a qualifying re-list with no such container permits.
       expect(m.control).toEqual({ decisionAct: "create", exitCode: 0, blocked: false, containersWithTitle: 1, writesAdded: 1, namesKey: false });
     }, SCENARIO_TIMEOUT);
-    test(`KNOWN DEFECT D-5 (${tracker}) — a relocated checkout's receipt-location refusal is worded as a label carrying two tags, in both directions: receipt in B's main checkout with the write decided in B's worktree, and receipt in B's worktree with the write decided in B's main checkout`, async () => {
+    test(`FIXED D-5 (${tracker}) — a relocated checkout's receipt-location refusal names both checkout roots, the root its receipts were announced in and one repository's checkouts, in both directions; controls: two different repositories sharing a tag, and labels carrying two tags (AC-STE-649.13 .. .17)`, async () => {
       const m = await measureKnownDefectD5(tracker, PLUGIN_ROOT);
-      for (const [direction, r] of [
-        ["receipt in the main checkout, write decided in the worktree", m.mainReceiptWorktreeWrite],
-        ["receipt in the worktree, write decided in the main checkout", m.worktreeReceiptMainWrite],
+      // Was (v2.91.0, KNOWN DEFECT D-5): /labels \[[^\],]+\] carry more than one repo tag of the declared targets/, no receipt location named.
+      const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const announcedIn = (root: string) => new RegExp(`announced in [(\`"]?${esc(root)}`);
+      for (const [direction, r, receipts] of [
+        ["receipt in the main checkout, write decided in the worktree", m.mainReceiptWorktreeWrite, m.roots.main],
+        ["receipt in the worktree, write decided in the main checkout", m.worktreeReceiptMainWrite, m.roots.worktree],
       ] as const) {
         expect(r, direction).not.toBeNull();
-        expect(r!.exitCode, `${direction}:\n${r!.stderr}`).toBe(2);
-        // The labels carry ONE tag; two declared roots share it. Measured wording:
-        expect(r!.stderr, direction).toMatch(/labels \[[^\],]+\] carry more than one repo tag of the declared targets/);
-        // …and no receipt location is named anywhere in the refusal.
-        expect(/receipt|\.dpt\/ledger/i.test(r!.stderr), `${direction}: the refusal names no receipt location:\n${r!.stderr}`).toBe(false);
+        expect(r!.exitCode, `${direction}:\n${r!.stderr}`).toBe(2); // AC-STE-649.17
+        // AC-STE-649.13 — both roots, and the root the receipts were announced in.
+        expect(r!.stderr, direction).toContain(m.roots.main);
+        expect(r!.stderr, direction).toContain(m.roots.worktree);
+        expect(r!.stderr, direction).toMatch(announcedIn(receipts));
+        expect(r!.stderr, direction).toMatch(/checkouts of one repository/);
+        // AC-STE-649.14 — the labels carry ONE tag.
+        expect(r!.stderr, direction).not.toMatch(/carry more than one repo tag/);
       }
+      // AC-STE-649.15 — the opposite break for the wording: two repositories are not checkouts of one.
+      expect(m.differentRepos!.exitCode, m.differentRepos!.stderr).toBe(2);
+      expect(m.differentRepos!.stderr).toContain(m.roots.main);
+      expect(m.differentRepos!.stderr).toContain(m.roots.clone);
+      expect(m.differentRepos!.stderr).toMatch(/different repositories/);
+      expect(m.differentRepos!.stderr).not.toMatch(/checkouts of one/);
+      expect(m.differentRepos!.stderr).not.toMatch(/carry more than one repo tag/);
+      // AC-STE-649.16 — KEEP: two different declared tags keep HEAD's wording.
+      expect(m.twoTags!.exitCode, m.twoTags!.stderr).toBe(2);
+      expect(m.twoTags!.stderr).toMatch(/labels \[[^\]]+, [^\]]+\] carry more than one repo tag of the declared targets .*, so the target cannot be resolved\./);
+      expect(m.twoTags!.stderr).not.toMatch(/checkouts of one|different repositories/);
+      // AC-STE-649.17 — every leg refused; the double took no write.
+      expect(m.writesAdded, "the double's write count across the D-5 legs").toBe(0);
     }, SCENARIO_TIMEOUT);
-    test(`KNOWN DEFECT D-6 (${tracker}) — an unreadable receipt directory is reported in the malformed-receipt wording: no substring tells it from a malformed receipt once paths, session ids and counts are normalised`, async () => {
+    test(`FIXED D-6 (${tracker}) — an unreadable receipt directory says "could not be read" with its errno; a malformed receipt still says "failed to parse"; the two refusals differ once paths, session ids and counts are normalised (AC-STE-649.18, .19, .22)`, async () => {
       const m = await measureKnownDefectsReceipts(tracker, PLUGIN_ROOT);
-      expect(m.writesAdded, "no refused write reached the double").toBe(0);
+      // Was (v2.91.0, KNOWN DEFECT D-6): the unreadable case in the malformed wording, indistinguishable after normalisation.
+      expect(m.writesAdded, "no refused write reached the double").toBe(0); // AC-STE-649.22
       expect(m.malformed!.exitCode, m.malformed!.stderr).toBe(2);
       expect(m.unreadable!.exitCode, m.unreadable!.stderr).toBe(2);
-      expect(m.unreadable!.stderr).toMatch(/announced receipt file\(s\) failed to parse and were ignored/);
-      expect(normalisedRefusal(m.unreadable!.stderr)).toBe(normalisedRefusal(m.malformed!.stderr));
+      expect(m.unreadable!.stderr).toMatch(/announced receipt file\(s\) could not be read/); // AC-STE-649.18
+      expect(m.unreadable!.stderr).toMatch(/EACCES/);
+      expect(m.unreadable!.stderr).not.toMatch(/failed to parse/);
+      expect(m.malformed!.stderr).toMatch(/announced receipt file\(s\) failed to parse and were ignored/); // AC-STE-649.19
+      expect(m.malformed!.stderr).not.toMatch(/could not be read/);
+      expect(normalisedRefusal(m.unreadable!.stderr)).not.toBe(normalisedRefusal(m.malformed!.stderr));
     }, SCENARIO_TIMEOUT);
-    // NON-DISCRIMINATING BY CONSTRUCTION: D-7 pins that another session's
-    // receipt is indistinguishable from no receipt at all, so this check can
-    // never tell those two cases apart — that sameness IS the measured defect.
-    // It goes red if the hook ever names the other session, or permits the write.
-    test(`KNOWN DEFECT D-7 (${tracker}) — another session's receipt prints the plain no-receipt text (non-discriminating against the no-receipt case by construction)`, async () => {
+    // DISCRIMINATING since STE-649: at v2.91.0 D-7 pinned that another
+    // session's receipt was indistinguishable from no receipt at all; the fix
+    // names the other session, so the two normalised refusals now differ.
+    test(`FIXED D-7 (${tracker}) — another session's receipt names "another session" and that session's id; a create with no receipt keeps HEAD's text with no such note; neither adds a write (AC-STE-649.20, .21, .22)`, async () => {
       const m = await measureKnownDefectsReceipts(tracker, PLUGIN_ROOT);
+      const NO_RECEIPT = "no create receipt announced by create_idempotency_probe.ts decide in this session authorises it.";
+      expect(m.writesAdded, "no refused write reached the double").toBe(0); // AC-STE-649.22
       expect(m.otherSession!.exitCode, m.otherSession!.stderr).toBe(2);
       expect(m.noReceipt!.exitCode, m.noReceipt!.stderr).toBe(2);
-      expect(m.otherSession!.stderr).toContain("no create receipt announced by create_idempotency_probe.ts decide in this session authorises it.");
-      expect(normalisedRefusal(m.otherSession!.stderr)).toBe(normalisedRefusal(m.noReceipt!.stderr));
+      expect(m.otherSessionId).not.toBe("");
+      // AC-STE-649.20
+      expect(m.otherSession!.stderr).toMatch(/another session/);
+      expect(m.otherSession!.stderr).toContain(m.otherSessionId);
+      // AC-STE-649.21 — KEEP: the no-receipt refusal is HEAD's, word for word, and carries no note.
+      expect(m.noReceipt!.stderr.split("\n")[0]).toMatch(new RegExp(`: ${NO_RECEIPT.replace(/[.]/g, "\\.")}$`));
+      expect(m.noReceipt!.stderr).not.toMatch(/another session/);
+      expect(normalisedRefusal(m.otherSession!.stderr)).not.toBe(normalisedRefusal(m.noReceipt!.stderr));
     }, SCENARIO_TIMEOUT);
     test(`KNOWN DEFECT D-2 (${tracker}) — an FR archived on B's main branch but active on an unmerged branch reads idle: sibling_release.ts exits 0 where AC-STE-616.8 requires 1`, async () => {
       const m = await measureKnownDefectD2(tracker, PLUGIN_ROOT);
@@ -962,11 +1026,48 @@ describe("What ships as a known defect", () => {
       // A fix flips this to 1 and must update the FR's known-defect record.
       expect(m.exitCode, m.output).toBe(0);
     }, SCENARIO_TIMEOUT);
-    test(`KNOWN DEFECT D-3 (${tracker}) — B's CLAUDE.md without its project: line routes the repoint to resume, which rewrites the binding and exits 0 with no row run`, async () => {
+    test(`FIXED D-3 (${tracker}) — B's CLAUDE.md without its project: line refuses before any row and leaves the file unchanged (AC-STE-645.11, AC-STE-645.15)`, async () => {
       const m = await measureKnownDefectD3(tracker, PLUGIN_ROOT);
-      expect({ exitCode: m.exitCode, stdout: m.stdout.trim(), rowLines: m.rowLines, claudeMdChanged: m.claudeMdChanged }).toEqual({ exitCode: 0, stdout: "resume", rowLines: 0, claudeMdChanged: true });
+      // Before STE-645 this measured { exitCode: 0, stdout: "resume", rowLines: 0, claudeMdChanged: true }.
+      expect({ exitCode: m.exitCode, stdout: m.stdout.trim(), rowLines: m.rowLines, claudeMdChanged: m.claudeMdChanged }, m.stderr).toEqual({ exitCode: 1, stdout: "", rowLines: 0, claudeMdChanged: false });
+      // Discriminating: an unrelated pre-row refusal would also exit 1 with no row.
+      expect(m.stderr).toContain("project:");
+      expect(m.stderr).toMatch(/\bgit\b/);
     }, SCENARIO_TIMEOUT);
   }
+});
+
+describe("AC-STE-645.15 — D-3 ships fixed, not known", () => {
+  test("no test title carries the D-3 known-defect label, and the FIXED D-3 row runs once per tracker", () => {
+    const src = readFileSync(THIS_SUITE, "utf-8");
+    const titles = [...src.matchAll(/\btest\(\s*[`"']([^`"']*)/g)].map((m) => m[1]!);
+    const known = ["KNOWN", "DEFECT", "D-3"].join(" ");
+    expect(titles.filter((t) => t.includes(known))).toEqual([]);
+    const fixed = titles.filter((t) => t.startsWith("FIXED D-3 (${tracker})"));
+    expect(fixed.length, "one FIXED D-3 row, inside the per-tracker loop").toBe(1);
+    // The row sits in the describe's loop over both trackers.
+    const at = src.indexOf(["test(", "`FIXED D-3 (${tracker})"].join(""));
+    const loop = src.lastIndexOf('for (const tracker of ["jira", "linear"] as const)', at);
+    const enclosing = src.lastIndexOf("\ndescribe(", at);
+    expect(loop, "the FIXED D-3 row runs on jira and linear").toBeGreaterThan(enclosing);
+  });
+});
+
+describe("STE-649 — D-5, D-6 and D-7 ship fixed, not known", () => {
+  test("no test title carries the D-5, D-6 or D-7 known-defect label, and each FIXED row runs once, inside the per-tracker loop", () => {
+    const src = readFileSync(THIS_SUITE, "utf-8");
+    const titles = [...src.matchAll(/\btest\(\s*[`"']([^`"']*)/g)].map((m) => m[1]!);
+    for (const id of ["D-5", "D-6", "D-7"]) {
+      const known = ["KNOWN", "DEFECT", id].join(" ");
+      expect(titles.filter((t) => t.includes(known)), id).toEqual([]);
+      const fixed = titles.filter((t) => t.startsWith(`FIXED ${id} (\${tracker})`));
+      expect(fixed.length, `one FIXED ${id} row`).toBe(1);
+      const at = src.indexOf(["test(", `\`FIXED ${id} (\${tracker})`].join(""));
+      const loop = src.lastIndexOf('for (const tracker of ["jira", "linear"] as const)', at);
+      const enclosing = src.lastIndexOf("\ndescribe(", at);
+      expect(loop, `the FIXED ${id} row runs on jira and linear`).toBeGreaterThan(enclosing);
+    }
+  });
 });
 
 void LINEAR_PROJECT;

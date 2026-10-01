@@ -12,12 +12,16 @@
 // candidate's declaration through `readWorkspaceBinding` — never a second
 // CLAUDE.md parser. No declared candidate → silent exit 0.
 //
+// STE-649 widened the gated list to 27 names (STE-607's archived 26 plus
+// `addTeamworkGraphContext`) and made both link tools — `createIssueLink` and
+// the Teamwork Graph link — refuse a Jira-item side that resolves to no key.
+//
 // The stdin entry is guarded by `import.meta.main`, so importing this module
 // for its constants has no side effect.
 
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { emitNFR10, parseHookPayload, readTranscriptLines, type HookPayload } from "../session.ts";
+import { emitNFR10, parseHookPayload, readTranscriptLines, RECEIPT_RESULT_WAIT_MS, type HookPayload } from "../session.ts";
 import {
   readWorkspaceBinding,
   type WorkspaceAdapterKey,
@@ -33,6 +37,7 @@ import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_own
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
 import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
+import { exemptsJoinConsent } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
@@ -46,7 +51,8 @@ export { simpleCommandWords } from "../../../../adapters/_shared/src/shell_invoc
 export const HOOK_NAME = "pre-tracker-write-gate";
 
 // ---------------------------------------------------------------------------
-// §1 — the ONE list the hooks.json matcher is generated from
+// §1 — the ONE list the hooks.json matcher is generated from: 27 names, 7
+// Atlassian + 20 Linear (STE-649 amends STE-607's 26 with addTeamworkGraphContext)
 // ---------------------------------------------------------------------------
 
 const ATLASSIAN_WRITE_TOOLS = [
@@ -56,6 +62,7 @@ const ATLASSIAN_WRITE_TOOLS = [
   "addCommentToJiraIssue",
   "addWorklogToJiraIssue",
   "createIssueLink",
+  "addTeamworkGraphContext",
 ] as const;
 
 const LINEAR_WRITE_TOOLS = [
@@ -133,10 +140,12 @@ export const TRACKER_READ_TOOLS: readonly string[] = [
   "get_status_updates",
   "get_team",
   "get_template",
+  "get_triage_responsibility",
   "get_user",
   "get_workspace",
   "list_agent_skills",
   "list_comments",
+  "list_custom_views",
   "list_cycles",
   "list_diffs",
   "list_documents",
@@ -227,6 +236,9 @@ export function acceptedShape(module: string, args: string): string {
   const sub = RECEIPT_WRITING_SUBCOMMANDS[module];
   return `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${module}" ${sub ? `${sub} ` : ""}${args}`;
 }
+
+/** `ticket_ownership.ts decide` — read-only, so not a receipt-writing subcommand (STE-649). */
+const DECIDE_OWNERSHIP_SHAPE = `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts" decide <projectRoot> <ticket.json>`;
 
 /** The plain-invocation rule every receipt refusal states (§3). */
 const PLAIN_RULE =
@@ -407,13 +419,19 @@ export function invokedDecidingModule(command: string): string | null {
  * but is NOT accepted by `invokedDecidingModule` — chained, redirected,
  * `cd`-prefixed, or quoted beyond the grammar. Its receipt is ignored, so the
  * refusal names it instead of leaving the model to repeat the same shape.
+ * STE-650 AC.12 — the recogniser reads what RAN: `bun` spelled by an absolute
+ * path, a `bash -c` body and a backslash-continued line count; a segment that
+ * only echoes the invocation does not. The receipt's own accepted shape
+ * (`invokedDecidingModule`) is unchanged.
  */
+/** `bun` as a command word, bare or spelled by a path ending in `/bun` (STE-650 AC.12). */
+const BUN_WORD = `(?:^|\\s)(?:[^\\s"'=]*/)?bun\\b`;
 const DECIDING_MODULE_PATTERNS = Object.entries(RECEIPT_WRITING_SUBCOMMANDS).map(([m, sub]) => {
   const mod = m.replace(/\./g, "\\.");
   return {
     // `bun … <module>` then an optional closing quote, whitespace, and the
     // receipt subcommand (any argument for a module with no subcommand).
-    direct: new RegExp(`(?:^|\\s)bun\\b.*${mod}["']?\\s+${sub === null ? "\\S" : `${sub}\\b`}`),
+    direct: new RegExp(`${BUN_WORD}.*${mod}["']?\\s+${sub === null ? "\\S" : `${sub}\\b`}`),
     assigned: new RegExp(`(?:^|\\s)([A-Za-z_][A-Za-z0-9_]*)=\\S*${mod}`),
   };
 });
@@ -422,13 +440,19 @@ function rejectedDecidingCommand(command: string): boolean {
   if (invokedDecidingModule(command) !== null) return false;
   // Only a segment that RUNS a deciding module under `bun` counts; one that
   // merely names it (`grep`, `rg`, `echo`) runs nothing and is not reported.
-  const segments = command.split(/;|&&|\|\||\||\n/);
+  // STE-650 AC.12 — a backslash-newline continuation is one line, a
+  // `bash -c "…"` / `sh -c '…'` body is what runs, and a segment that only
+  // hands the invocation to `echo`/`printf` as an argument runs nothing.
+  const unwrapped = command
+    .replace(/\\\r?\n/g, " ")
+    .replace(/(?:^|(?<=[\s;&|(]))(?:\S*\/)?(?:ba|z|da)?sh\s+-c\s+(["'])([\s\S]*?)\1/g, (_m, _q, body: string) => ` ${body}`);
+  const segments = unwrapped.split(/;|&&|\|\||\||\n/).filter((seg) => !/^\s*(?:echo|printf)\b/.test(seg));
   return DECIDING_MODULE_PATTERNS.some(({ direct, assigned }) => {
     if (segments.some((seg) => direct.test(seg))) return true;
     return segments.some((seg, i) => {
       const name = assigned.exec(seg)?.[1];
       if (name === undefined) return false;
-      const viaVar = new RegExp(`(?:^|\\s)bun\\b.*(?:\\$${name}\\b|"\\$${name}"|\\$\\{${name}\\})`);
+      const viaVar = new RegExp(`${BUN_WORD}.*(?:\\$${name}\\b|"\\$${name}"|\\$\\{${name}\\})`);
       return segments.slice(i + 1).some((later) => viaVar.test(later));
     });
   });
@@ -451,6 +475,23 @@ function receiptRootOf(path: string, sessionId: string): string | null {
   return abs.startsWith(dir + sep) ? root : null;
 }
 
+/**
+ * STE-649 (D-7) — the session id a receipt path belongs to when it sits
+ * directly under `receiptsDir(<root>, <other>)` for a session other than
+ * `sessionId`; null otherwise.
+ */
+function foreignSessionOf(path: string, sessionId: string): string | null {
+  const abs = resolve(path);
+  const other = basename(dirname(abs));
+  if (other === sessionId) return null;
+  const root = dirname(dirname(dirname(dirname(dirname(abs)))));
+  try {
+    return dirname(abs) === receiptsDir(root, other) ? other : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface Announcement {
   root: string;
   /** The deciding module whose run printed this announcement (`RECEIPT_ANNOUNCING_MODULES`). */
@@ -461,7 +502,7 @@ export interface Announcement {
   /**
    * False when the file's bytes no longer hash to the digest its command
    * announced: rewritten after the announcement, so it authorises nothing.
-   * An unreadable file stays intact here and is counted as unparseable later.
+   * An unreadable file stays intact here and is counted as unreadable (with its errno) later.
    */
   intact: boolean;
 }
@@ -471,6 +512,8 @@ export interface AnnouncementScan {
   announcements: Announcement[];
   /** Bash commands naming a receipt-writing subcommand in a shape `invokedDecidingModule` rejects. */
   rejected: string[];
+  /** STE-649 (D-7) — accepted announcements of a receipt filed under another session's directory; they authorise nothing. */
+  foreign: Array<{ path: string; session: string }>;
 }
 
 /** Whether the receipt file still carries the bytes its announcement hashed. */
@@ -502,6 +545,7 @@ export function scanAnnouncements(lines: string[], sessionId: string): Announcem
   const announcingBash = new Map<string, string>(); // tool_use id → the deciding module it ran
   const out: Announcement[] = [];
   const rejected: string[] = [];
+  const foreign: Array<{ path: string; session: string }> = [];
   lines.forEach((line, idx) => {
     for (const b of contentBlocks(line)) {
       if (b.type === "tool_use" && b.name === "Bash" && typeof b.id === "string") {
@@ -523,16 +567,23 @@ export function scanAnnouncements(lines: string[], sessionId: string): Announcem
         const root = receiptRootOf(receiptPath, sessionId);
         if (root !== null) {
           out.push({ root, module: announcingBash.get(b.tool_use_id)!, receiptPath, line: idx, intact: stillAnnounced(receiptPath, a.digest) });
+        } else {
+          const session = foreignSessionOf(receiptPath, sessionId);
+          if (session !== null) foreign.push({ path: receiptPath, session });
         }
       }
     }
   });
-  return { announcements: out, rejected };
+  return { announcements: out, rejected, foreign };
 }
 
 export function candidateRoots(payload: HookPayload, announcements: Announcement[]): string[] {
+  return candidateRootsFrom(gitTopLevel(payload.cwd), announcements);
+}
+
+/** `candidateRoots` over an already-resolved cwd top level. */
+function candidateRootsFrom(top: string | null, announcements: Announcement[]): string[] {
   const roots: string[] = [];
-  const top = gitTopLevel(payload.cwd);
   if (top !== null) roots.push(top);
   for (const a of announcements) {
     if (!roots.includes(a.root)) roots.push(a.root);
@@ -1026,6 +1077,7 @@ function gateCreate(
   announcements: Announcement[],
   declared: DeclaredTarget[],
   note: string,
+  cwdTop: string | null,
 ): ExitCode {
   const shape = callShape(call.adapter, call.input);
   if (shape.project === "" && shape.team === "") {
@@ -1048,6 +1100,9 @@ function gateCreate(
   let target = binding[0];
   if (binding.length > 1) {
     const tagged = binding.filter((d) => d.binding.repoTag && shape.labels.includes(d.binding.repoTag));
+    if (tagged.length > 1 && tagged.every((d) => d.binding.repoTag === tagged[0].binding.repoTag)) {
+      return refuseSameTag(call, shape, tagged, announcements, cwdTop, note);
+    }
     if (tagged.length !== 1) {
       return refuse(
         `${call.tool} into ${shape.project || shape.team}: labels [${shape.labels.join(", ")}] carry ${tagged.length === 0 ? "no" : "more than one"} repo tag of the declared targets ${binding.map((d) => `${d.root} (${d.binding.repoTag})`).join(", ")}, so the target cannot be resolved.${note}`,
@@ -1126,6 +1181,57 @@ function gateCreate(
   return refuse(
     `${where}: no create receipt announced by ${DECIDE_CMD} in this session authorises it.${allSpent}${note}`,
     `run ${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt fast")} in ${target.root} for this ticket ${PLAIN_RULE}, then retry.`,
+  );
+}
+
+/** The absolute git common directory of `root` (one per repository, shared by its worktrees), or null. */
+function gitCommonDir(root: string): string | null {
+  try {
+    const p = Bun.spawnSync(["git", "-C", root, "rev-parse", "--git-common-dir"], { stdout: "pipe", stderr: "pipe", timeout: 2000 });
+    if (p.exitCode !== 0) return null;
+    const out = p.stdout.toString().trim();
+    return out.length > 0 ? realpathOr(resolve(root, out)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * D-5 — every tagged target declares the SAME repo tag, so the labels carry one
+ * tag, not several: the targets are two checkouts of one repository (or two
+ * repositories declaring one tag). Name the roots, where this session's
+ * receipts were announced, and where the call runs from. Runs git only here.
+ */
+function refuseSameTag(
+  call: TrackerCall,
+  shape: CreateShape,
+  tagged: DeclaredTarget[],
+  announcements: Announcement[],
+  cwdTop: string | null,
+  note: string,
+): ExitCode {
+  const roots = tagged.map((d) => d.root);
+  const common = roots.map(gitCommonDir);
+  // Only git's own answer names the cause: a root whose common dir cannot be
+  // read is neither proven one repository nor proven another.
+  const unreadable = roots.filter((_, i) => common[i] === null);
+  const oneRepo = unreadable.length === 0 && common.every((c) => c === common[0]);
+  const kind =
+    unreadable.length > 0
+      ? `roots, and git cannot tell whether they are one repository (no git common dir for ${unreadable.join(", ")})`
+      : oneRepo
+        ? "checkouts of one repository"
+        : "different repositories";
+  const announced = roots.filter((r) => announcements.some((a) => a.root === r));
+  const where = announced.length > 0 ? `this session's receipts were announced in ${announced.join(", ")}` : "no receipt of this session was announced in any of them";
+  const from = cwdTop !== null ? `, and the call runs from ${cwdTop}` : "";
+  return refuse(
+    `${call.tool} into ${shape.project || shape.team}: the repo tag ${tagged[0].binding.repoTag} is declared by ${roots.length} ${kind} (${roots.join(", ")}); ${where}${from}, so the target cannot be resolved.${note}`,
+    unreadable.length > 0
+      ? `check that each of those roots is a git checkout, then run the deciding commands and this write from ONE of them and retry.`
+      : oneRepo
+        ? `run the deciding commands and this write from ONE checkout, then retry.`
+        : `if these are two clones of one project, run the deciding commands and this write from ONE of them; if they are different projects, give each its own repo tag in its declaration; then retry.`,
   );
 }
 
@@ -1413,14 +1519,57 @@ export function isContainer(tool: string, input: Record<string, unknown>): boole
   );
 }
 
+/** The Teamwork Graph relationship types whose target is a Jira item (STE-649). */
+const TEAMWORK_ITEM_TARGETS = new Set(["jira-work-item-links-jira-work-item", "jira-work-item-blocks-jira-work-item"]);
+
+/** A call that links two tickets: `createIssueLink`, or a Teamwork Graph link. */
+function isLinkTool(tool: string): boolean {
+  return tool === "createIssueLink" || tool === "addTeamworkGraphContext";
+}
+
 /** The input fields a ticket call names its subject in: both sides of a link, else the issue fields. */
 function subjectValues(call: TrackerCall): unknown[] {
   const i = call.input;
-  return call.tool === "createIssueLink" ? [i.inwardIssue, i.outwardIssue] : [i.issueIdOrKey, i.id, i.issueId, i.issue];
+  if (call.tool === "createIssueLink") return [i.inwardIssue, i.outwardIssue];
+  if (call.tool === "addTeamworkGraphContext") {
+    // The object is always a Jira item; the target is one only for item↔item relationship types.
+    const itemTarget = typeof i.relationshipType === "string" && TEAMWORK_ITEM_TARGETS.has(i.relationshipType);
+    return itemTarget ? [i.objectIdentifier, i.targetObjectIdentifier] : [i.objectIdentifier];
+  }
+  return [i.issueIdOrKey, i.id, i.issueId, i.issue];
+}
+
+/** A Jira `/browse/<KEY>` URL; its key is the item it names (STE-649). */
+const BROWSE_URL = /^https?:\/\/[^/?#\s]+\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)\/?(?:[?#]\S*)?$/;
+
+/** A link side's raw spelling, as named in a refusal. */
+function sideText(v: unknown): string {
+  return (typeof v === "number" ? String(v) : asKey(v)).trim();
+}
+
+/**
+ * STE-649 — a Jira-item side of a link resolves only from a key or a
+ * `/browse/<KEY>` URL; a numeric id, an ARI or any other URL resolves to
+ * nothing (null).
+ */
+function resolveItemSide(v: unknown): string | null {
+  const s = sideText(v);
+  if (TICKET_KEY.test(s)) return s.toUpperCase();
+  const m = BROWSE_URL.exec(s);
+  return m ? m[1]!.toUpperCase() : null;
+}
+
+/** A link's Jira-item sides that resolve to no ticket key (STE-649); empty for any other call. */
+function unresolvedItemSides(call: TrackerCall): unknown[] {
+  return isLinkTool(call.tool) ? subjectValues(call).filter((v) => resolveItemSide(v) === null) : [];
 }
 
 /** §2 — a ticket call's subject keys: `issueIdOrKey`, both keys of a link, `id`, or the commented issue. */
 export function subjectKeys(call: TrackerCall): string[] {
+  if (isLinkTool(call.tool)) {
+    const sides = subjectValues(call).map(resolveItemSide).filter((k): k is string => k !== null);
+    return [...new Set(sides)];
+  }
   const keys = subjectValues(call)
     .map((v) => asKey(v).trim())
     .filter((k) => TICKET_KEY.test(k));
@@ -1518,15 +1667,50 @@ function createdMilestoneIdOf(text: string): string | null {
   return null;
 }
 
-/** The answer an `AskUserQuestion` tool_result selected, read from the harness's structured record. */
-function selectedAnswers(p: ParsedLine, block: ContentBlock): string[] {
+/**
+ * STE-650 AC-8 — the answer the harness recorded to ONE question of an
+ * `AskUserQuestion` tool_result: `toolUseResult.answers` keyed by question
+ * text, else the harness's own sentence `"<question>"="<answer>"`. Null when
+ * the result records no answer to that question.
+ */
+function answerTo(p: ParsedLine, block: ContentBlock, question: string): string | null {
   const tur = p.raw.toolUseResult as { answers?: unknown } | undefined;
   if (tur && tur.answers && typeof tur.answers === "object") {
-    return Object.values(tur.answers as Record<string, unknown>).filter((v): v is string => typeof v === "string");
+    const v = (tur.answers as Record<string, unknown>)[question];
+    return typeof v === "string" ? v : null;
   }
-  // Fallback: the harness's own sentence, `"<question>"="<answer>".`
   const text = resultText(block.content);
-  return [...text.matchAll(/"="([^"]*)"(?=[.,]\s|[.,]?$)/g)].map((m) => m[1]);
+  const at = text.indexOf(`"${question}"="`);
+  if (at < 0) return null;
+  const m = /^([^"]*)"(?=[.,]\s|[.,]?$)/.exec(text.slice(at + question.length + 4));
+  return m ? m[1]! : null;
+}
+
+/**
+ * STE-650 AC-8 — the ONE per-question consent matcher both consent checks
+ * use: an answered AskUserQuestion consents to `label` only when a question
+ * whose own text names the subject (`names`) and offers `label` as an option
+ * was answered exactly `label`, and every such question was. Another
+ * question's answer neither grants nor withholds it.
+ * Twin: `consentedPerQuestion` in adapters/_shared/src/shared_tracker_live_grader.ts
+ */
+function consentedPerQuestion(questions: unknown, p: ParsedLine, block: ContentBlock, label: string, names: (question: string) => boolean): boolean {
+  if (!Array.isArray(questions)) return false;
+  // The questions this ask put about the subject: each names it and offers
+  // the label. Consent needs at least one, and every one answered exactly the
+  // label — a "no" to one of them is never overridden by a "yes" to another
+  // (review FO-2). A question about something else neither grants nor
+  // withholds it.
+  const relevant = questions.filter((q) => {
+    const question = (q as { question?: unknown } | null)?.question;
+    if (typeof question !== "string" || !names(question)) return false;
+    const options = (q as { options?: unknown } | null)?.options;
+    return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
+  });
+  return (
+    relevant.length > 0 &&
+    relevant.every((q) => answerTo(p, block, (q as { question: string }).question) === label)
+  );
 }
 
 function operatorText(p: ParsedLine): string {
@@ -1538,19 +1722,19 @@ function operatorText(p: ParsedLine): string {
   return (content as ContentBlock[]).map((b) => (b?.type === "text" && typeof b.text === "string" ? b.text : "")).join("\n");
 }
 
-/** Line indices of an ANSWERED consent to `<verb> <key>` (§4). */
+/** Line indices of an ANSWERED consent to `<verb> <key>` (§4), read per question (`consentedPerQuestion`, STE-650 AC-8). */
 function consentLines(parsed: Array<ParsedLine | null>, key: string, verb: "Import" | "Adopt"): number[] {
   const label = `${verb} ${key}`;
-  const asks = new Set<string>();
+  const asks = new Map<string, unknown>();
   const out: number[] = [];
   parsed.forEach((p, idx) => {
     if (!p) return;
     for (const b of p.blocks) {
       if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string") {
-        if (namesKey(JSON.stringify(b.input ?? {}), key)) asks.add(b.id);
+        asks.set(b.id, (b.input as { questions?: unknown } | undefined)?.questions);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (b.is_error === true || !asks.has(b.tool_use_id)) continue;
-        if (selectedAnswers(p, b).some((a) => a === label)) out.push(idx);
+        if (consentedPerQuestion(asks.get(b.tool_use_id), p, b, label, (q) => namesKey(q, key))) out.push(idx);
       }
     }
     const text = operatorText(p);
@@ -1615,6 +1799,15 @@ function gateTicket(
   note: string,
   stale: StaleRead | null = null,
 ): ExitCode {
+  // STE-649 — every Jira-item side of a link must resolve; an owned other side does not excuse one that does not.
+  const unresolved = unresolvedItemSides(call);
+  if (unresolved.length > 0) {
+    const named = unresolved.map((v) => `"${sideText(v)}"`).join(", ");
+    return refuse(
+      `${call.tool}: the Jira-item side ${named} cannot be resolved to a ticket key — a side resolves only from a key (e.g. GF-123) or a /browse/<KEY> URL, never from a numeric id, an ARI or another URL — so the link is refused whatever its other side.${note}`,
+      `pass every Jira-item side of the link as its key or its /browse/<KEY> URL, then retry.`,
+    );
+  }
   const keys = subjectKeys(call);
   if (keys.length === 0) {
     return refuse(
@@ -1636,7 +1829,7 @@ function gateTicket(
   };
   const ownedKey = (k: { key: string; targets: DeclaredTarget[] }) =>
     k.targets.length === 0 || k.targets.some((t) => owns(ctx, t.root, k.key));
-  const isLink = call.tool === "createIssueLink";
+  const isLink = isLinkTool(call.tool);
   const bound = inScope.filter((k) => k.targets.length > 0);
   const unowned = inScope.filter((k) => !ownedKey(k));
   // A link needs one owned side; every other ticket call needs every subject owned.
@@ -1649,7 +1842,12 @@ function gateTicket(
   const lag = stale === null ? "" : ` (The transcript read did not yet hold this call's own tool_use ${stale.id}; it was graded as the last call of its turn.)`;
   return refuse(
     `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${lag}${note}`,
-    `run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json> [--adopt]")} (or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry.`,
+    // STE-649 AC.8 — `decide` writes no receipt, so its shape is spelled
+    // literally: acceptedShape() would print `confirm decide`.
+    // STE-649 AC.10 — `--adopt` is conditional, never an unconditional `[--adopt]`.
+    `first run ${DECIDE_OWNERSHIP_SHAPE} to read the ticket's ownership verdict, then run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} (only when decide's verdict is unowned and the operator answered "Adopt <KEY>" append \`--adopt\`; or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry. ` +
+      // STE-649 AC.9 — the verdicts no receipt can clear, and their routes.
+      `A foreign-repo verdict (the ticket carries another repository's tag) or a container verdict (the ticket is an Epic) is refused by both confirm and consent, and on Linear confirm also refuses another project's ticket in the same team: make that write from the owning repository, or relabel the ticket to this repository first.`,
   );
 }
 
@@ -1768,31 +1966,24 @@ const unansweredConsent = (label: string): string => `no AskUserQuestion after i
 
 /**
  * STE-643 — true when an AskUserQuestion after the decision's announcement
- * names its key or title in a question's own text, offers `label` as an
- * option, and the harness recorded exactly `label` as the answer.
+ * holds a question whose own text names its key or title, offers `label` as
+ * an option, and was answered exactly `label` (per question — STE-650 AC-8).
  */
 function answeredAfter(parsed: Array<ParsedLine | null>, d: ConsentSubject, label: string): boolean {
-  const asks = new Set<string>();
+  // The QUESTION text must name the decision: the label itself always
+  // carries the key or title, so reading the options too would let a
+  // correctly-labelled option ride an unrelated question.
+  const names = (q: string): boolean => (d.key !== "" && namesKey(q, d.key)) || (d.title !== null && d.title !== "" && q.includes(d.title));
+  const asks = new Map<string, unknown>();
   for (let idx = d.line + 1; idx < parsed.length; idx++) {
     const p = parsed[idx];
     if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string") {
-        const questions = (b.input as { questions?: unknown } | undefined)?.questions;
-        // The QUESTION text must name the decision: the label itself always
-        // carries the key or title, so reading the options too would let a
-        // correctly-labelled option ride an unrelated question.
-        const text = Array.isArray(questions) ? questions.map((q) => String((q as { question?: unknown } | null)?.question ?? "")).join("\n") : "";
-        const names = (d.key !== "" && namesKey(text, d.key)) || (d.title !== null && d.title !== "" && text.includes(d.title));
-        const offers = Array.isArray(questions) && questions.some((q) => {
-          const options = (q as { options?: unknown } | null)?.options;
-          return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
-        });
-        if (names && offers) asks.add(b.id);
+        asks.set(b.id, (b.input as { questions?: unknown } | undefined)?.questions);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (b.is_error === true || !asks.has(b.tool_use_id)) continue;
-        const answers = selectedAnswers(p, b);
-        if (answers.length > 0 && answers.every((a) => a === label)) return true;
+        if (consentedPerQuestion(asks.get(b.tool_use_id), p, b, label, names)) return true;
       }
     }
   }
@@ -1922,9 +2113,13 @@ function decides(d: MilestoneDecision, c: CreateShape): boolean {
  * to their consent label after them (STE-643). Once a decision permits it,
  * STE-644 further requires a re-list: a `relistsAfter` listing of the
  * project's containers recorded after that decision, whose last result is
- * within LISTING_FRESH_MS of this call (`freshBefore`). A fresh re-list that
+ * within LISTING_FRESH_MS of the grading time (`freshBefore`). A fresh re-list that
  * holds an open container of the same title (`openSameTitle`) refuses with a
- * join remedy; no fresh re-list refuses with `relistRemedy`. The live grader's
+ * join remedy; no fresh re-list refuses with `relistRemedy`. On Linear an
+ * allowed decision whose only re-list is a full 50-row window (never proof of
+ * the last page) refuses with the consent remedy instead — answer
+ * `Create \`<title>\`` — since another re-list returns the same window
+ * (STE-650 AC.13); a consented decision accepts that window. The live grader's
  * twin of the re-list rule is `relistedAfter` in shared_tracker_live_grader.ts.
  */
 function gateMilestoneCreate(
@@ -1995,8 +2190,14 @@ function gateMilestoneCreate(
   if (permitting) {
     // STE-644 — once the permit is otherwise met, the create needs a later,
     // complete, canonical-scope listing of the project's containers.
-    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, permitting.forbidden).filter((r) => freshBefore(parsed, r));
-    const dup = fresh.map((r) => openSameTitle(call.adapter, r, want.title)).find((k) => k !== null);
+    // STE-650 AC-13 — a full Linear milestone window never proves the last
+    // page, so an allowed decision followed by a 50-row re-list needs the
+    // operator's consent answer, exactly like a forbidden one.
+    const label = consentLabel(permitting);
+    const consented = permitting.forbidden || (call.adapter === "linear" && answeredAfter(parsed, permitting, label));
+    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, consented).filter((r) => freshBefore(parsed, r));
+    const capped = consented || call.adapter !== "linear" ? [] : relistsAfter(parsed, permitting.line, call.adapter, want.project, true).filter((r) => freshBefore(parsed, r));
+    const dup = [...fresh, ...capped].map((r) => openSameTitle(call.adapter, r, want.title)).find((k) => k !== null);
     if (dup !== undefined) {
       return refuse(
         `${where}: the re-list of project ${want.project}'s containers after its create decision (${permitting.path}) holds the open ${name} \`${dup}\` titled "${want.title}", so creating it again would duplicate it.${note}`,
@@ -2004,6 +2205,12 @@ function gateMilestoneCreate(
       );
     }
     if (fresh.length > 0) return 0;
+    if (capped.length > 0) {
+      return refuse(
+        `${where}: the re-list of project ${want.project}'s containers after its create decision (${permitting.path}) returned a full window of ${capped[capped.length - 1]!.items.length} rows, which never proves the ${name} "${want.title}" is absent, and ${unansweredConsent(label)}.${note}`,
+        `ask the operator with AskUserQuestion, naming "${want.title}" and offering "${label}"; only that recorded answer after the decision permits this create — another re-list returns the same full window.`,
+      );
+    }
     return refuse(
       `${where}: its create decision (${permitting.path}) has no later, complete listing of project ${want.project}'s containers recorded in this session, so the ${name} "${want.title}" may exist already.${note}`,
       relistRemedy(call.adapter, want.project),
@@ -2150,10 +2357,14 @@ function gateJoinedLabels(
   // Review TWR-4 (round 2): an Epic this session created needs no join
   // consent — it is its own — but its labels write is still a read-merge: the
   // listed labels and the milestone label below are checked for every joined
-  // Epic, created here or not (AC-STE-608.10 (d)).
-  const createdHere = createdKeys(parseLines(transcript), call.adapter).has(key);
+  // Epic, created here or not (AC-STE-608.10 (d)). STE-650 AC.1 — the hook
+  // derives the key's ownership route and the shared predicate decides; the
+  // hook tells only "created" from every other route (an FR binding, a reuse,
+  // binding or import receipt), and none of those is exempt.
+  const parsed = parseLines(transcript);
+  const route = createdKeys(parsed, call.adapter).has(key) ? "created" : "not-created";
   const consent = consentLabel(join);
-  const unconsented = !createdHere && join.forbidden && !answeredAfter(parseLines(transcript), join, consent);
+  const unconsented = !exemptsJoinConsent(route) && join.forbidden && !answeredAfter(parsed, join, consent);
   if (unconsented) {
     return refuse(
       `editJiraIssue on ${key}, an Epic joined by ${join.path}: that decision printed default=forbidden, and ${unansweredConsent(consent)}.${note}`,
@@ -2227,8 +2438,9 @@ function checkFloors(call: TrackerCall, declared: DeclaredTarget[]): ExitCode {
 
 /**
  * §6 — the refusal suffix naming inputs the hook could not read: an unreadable
- * transcript (no announced roots, no session-created keys) and the count of
- * announced receipt files that failed to parse and were ignored.
+ * transcript (no announced roots, no session-created keys), the count of
+ * announced receipt files that could not be read (with their errno codes), and
+ * the count that were read but failed to parse.
  */
 function unreadableInputsNote(payload: HookPayload, transcript: string[] | null, scan: AnnouncementScan): string {
   const { announcements } = scan;
@@ -2236,21 +2448,43 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
     return ` The session transcript (${payload.transcript_path || "no transcript_path"}) is unreadable, so no announced receipt roots or session-created keys were counted.`;
   }
   let unparseable = 0;
+  let unreadable = 0;
+  const errnos = new Set<string>();
   let rewritten = 0;
+  const ownSession = sessionIdOf(payload);
+  const otherSessions = scan.foreign.map((f) => f.session);
   for (const a of announcements) {
     if (!a.intact) {
       rewritten++;
       continue;
     }
+    let raw: string;
     try {
-      JSON.parse(readFileSync(a.receiptPath, "utf-8"));
+      raw = readFileSync(a.receiptPath, "utf-8");
+    } catch (e) {
+      unreadable++;
+      errnos.add((e as NodeJS.ErrnoException)?.code ?? "unknown error");
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
     } catch {
       unparseable++;
+      continue;
     }
+    const writer = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>).sessionId : undefined;
+    if (typeof writer === "string" && writer !== ownSession) otherSessions.push(writer);
   }
   const notes: string[] = [];
+  if (unreadable > 0) notes.push(` ${unreadable} announced receipt file(s) could not be read (${[...errnos].join(", ")}) and were ignored.`);
   if (unparseable > 0) notes.push(` ${unparseable} announced receipt file(s) failed to parse and were ignored.`);
   if (rewritten > 0) notes.push(` ${rewritten} announced receipt file(s) changed after their announcement and were ignored.`);
+  if (otherSessions.length > 0) {
+    notes.push(
+      ` ${otherSessions.length} announced receipt file(s) belong to another session (${[...new Set(otherSessions)].join(", ")}) and authorise nothing in this one — run the deciding command in this session.`,
+    );
+  }
   if (scan.rejected.length > 0) {
     const last = scan.rejected[scan.rejected.length - 1]!;
     notes.push(
@@ -2260,8 +2494,12 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
   return notes.join("");
 }
 
-/** STE-641 — how long the gate waits for the gated call's own tool_use line to reach the transcript. */
-export const GATED_LINE_WAIT_MS = 2000;
+/**
+ * STE-641 — how long the gate waits for the gated call's own tool_use line to
+ * reach the transcript. The ONE transcript-lag bound: the gate-check and spec-review gates'
+ * receipt wait (`RECEIPT_RESULT_WAIT_MS`, STE-650) is the same value.
+ */
+export const GATED_LINE_WAIT_MS = RECEIPT_RESULT_WAIT_MS;
 const GATED_LINE_POLL_MS = 25;
 
 /** Whether a read holds a tool_use block whose `id` is `id` (a mere mention in text does not count). */
@@ -2298,14 +2536,15 @@ export function awaitGatedLine(
   return { lines, stale: false };
 }
 
-type Graded = { exit: ExitCode } | { scan: AnnouncementScan; declared: DeclaredTarget[] };
+type Graded = { exit: ExitCode } | { scan: AnnouncementScan; declared: DeclaredTarget[]; cwdTop: string | null };
 
 /** Announcements, declarations and the declared targets of one transcript read; an exit when grading ends there. */
 function gradeRead(payload: HookPayload, call: TrackerCall, lines: string[], sessionId: string): Graded {
   // One pass over the transcript for announcements, shared by candidate
   // resolution and every gate below (no session id → nothing announced).
   const scan = scanAnnouncements(lines, sessionId);
-  const declarations = readDeclarations(candidateRoots(payload, scan.announcements), call.adapter);
+  const cwdTop = gitTopLevel(payload.cwd);
+  const declarations = readDeclarations(candidateRootsFrom(cwdTop, scan.announcements), call.adapter);
   for (const d of declarations) {
     if (d.ok) continue;
     return {
@@ -2319,7 +2558,7 @@ function gradeRead(payload: HookPayload, call: TrackerCall, lines: string[], ses
   if (declared.length === 0) return { exit: 0 }; // §3 — byte-identical when undeclared
   const floor = checkFloors(call, declared);
   if (floor !== 0) return { exit: floor };
-  return { scan, declared };
+  return { scan, declared, cwdTop };
 }
 
 export function run(stdin: string): ExitCode {
@@ -2359,11 +2598,11 @@ export function run(stdin: string): ExitCode {
     graded = gradeRead(payload, call, lines, sessionId);
     if ("exit" in graded) return graded.exit;
   }
-  const { scan, declared } = graded;
+  const { scan, declared, cwdTop } = graded;
   const announcements = scan.announcements;
 
   const note = unreadableInputsNote(payload, transcript, scan);
-  if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note);
+  if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note, cwdTop);
   if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note);
   const joined = gateJoinedLabels(call, sessionId, announcements, declared, note, lines);
   if (joined !== null) return joined;

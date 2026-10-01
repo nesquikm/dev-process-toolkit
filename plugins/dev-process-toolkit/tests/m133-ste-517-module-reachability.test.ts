@@ -691,3 +691,22 @@ describe("AC-STE-517.12 — catalogued references never fail the gate", () => {
     }
   });
 });
+
+// AC-STE-648.9 (STE-648) — correcting gate-check SKILL.md line 120 must not
+// move the ordered-unreachable count: the corrected sentence names the
+// `commit_producing_skill_branch_gate` module with NO path (naming the path was
+// measured to raise orderedUnreachable to 121). Keep-behaviour pin.
+describe("AC-STE-648.9 — the line-120 correction leaves orderedUnreachable at the ledger head", () => {
+  test("AC-STE-648.9: runModuleReachabilityProbe(repoRoot).orderedUnreachable equals the ledger head (120) and ok is true", async () => {
+    const report = await runModuleReachabilityProbe(repoRoot);
+    // Never a bare literal for the live pin (AC-STE-557.6): equal to the ledger head.
+    expect(report.orderedUnreachable).toBe(ORDERED_UNREACHABLE_PIN);
+    expect(report.ok).toBe(true);
+  });
+
+  test("AC-STE-648.9 CONTROL: gate-check SKILL.md line 120 carries no module path for the branch-gate module", () => {
+    const line = readFileSync(gateCheckSkillMd, "utf-8").split("\n")[120 - 1]!;
+    expect(line).toMatch(/^41\. \*\*`spec_research_result_shape`\*\*/);
+    expect(line).not.toContain("commit_producing_skill_branch_gate.ts");
+  });
+});

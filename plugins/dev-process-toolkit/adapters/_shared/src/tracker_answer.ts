@@ -244,6 +244,13 @@ export function trackerItemKey(tracker: TrackerKind, item: Record<string, unknow
 }
 
 /**
+ * A Linear team KEY (`STE`), as opposed to a team display name. Shared by the
+ * binding writer, the repoint's declare route and the team-key migration —
+ * this module imports nothing of theirs, so none of them closes a cycle.
+ */
+export const LINEAR_TEAM_KEY = /^[A-Z][A-Z0-9]*$/;
+
+/**
  * NAMED ASSUMPTION — a Linear identifier is `<TEAMKEY>-<n>`, so its prefix is
  * the team key. Observed 2026-09-21: `list_issues(team: "STE")` rows carry
  * `id: "STE-618"` and `team: "<display name>"`, and `list_teams` exposes no

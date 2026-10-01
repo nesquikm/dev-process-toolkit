@@ -9,27 +9,43 @@
 // Front doors:
 //   bun run adapters/_shared/src/repoint_tracker_binding.ts <projectRoot> <mode> <newProject>
 //     --projects <file> --containers <file> [--issue-types <file>] [--statuses <file>]
-//     [--labels <file>] [--peer <path>]… [--team <team>]
+//     [--labels <file>] [--peer <path>]… [--team <team>] [--shared <tag>] [--issue-type <type>]
 //   bun run adapters/_shared/src/repoint_tracker_binding.ts <projectRoot> --verify
 //
-// A repoint prints one `<n> PASS|REFUSE|NOT-APPLICABLE <reason>` line per row,
-// rows 1 to 7 in order, and exits 1 when any row refuses — having written
-// nothing. When none refuses it re-points CLAUDE.md through
+// A repoint first checks CLAUDE_CODE_SESSION_ID, the session its receipt is
+// written under: unset or path-unsafe refuses before any row, writing nothing
+// (STE-646). It then prints one `<n> PASS|REFUSE|NOT-APPLICABLE <reason>` line
+// per row, rows 1 to 7 in order, and exits 1 when any row refuses — having
+// written nothing. When none refuses it re-points CLAUDE.md through
 // `writeTrackerSubsection` (STE-603) alone, writes one `repoint` receipt
-// (STE-602), prints row 8's `8 …` report lines (branches and worktrees still
-// binding the old project, and the legacy bindings that keep it alive), and
-// prints the receipt's `dpt-receipt:` line last.
-// A row whose input is absent, unreadable or malformed REFUSES; it never
-// passes on an input it could not read.
+// (STE-602) as that writer's commit step — a receipt that cannot be written
+// restores CLAUDE.md byte for byte and refuses — prints row 8's `8 …` report
+// lines (branches and worktrees still binding the old project, and the legacy
+// bindings that keep it alive), and prints the receipt's `dpt-receipt:` line
+// last. A row whose input is absent, unreadable or malformed REFUSES; it
+// never passes on an input it could not read.
 //
 // `--verify` re-reads `specs/tracker-config.yaml` against the status snapshot
-// of this session's latest `repoint` receipt and prints `verify PASS|FAIL`.
+// and config sha256 of this session's latest `repoint` receipt and prints
+// `verify UNCHANGED` (byte-identical to the recorded config), `verify PASS`
+// (rewritten, every status kept) or `verify FAIL` (a status dropped, exit 1).
 // It writes nothing.
 //
-// Not every run is a repoint. A sub-section whose `project:` is absent or the
+// Not every run is a repoint. A sub-section whose `project:` is the
 // `<deferred>` placeholder is a RESUME; one already bound to `<newProject>` is
 // a DECLARE (STE-603). Neither runs the rows: the command prints `resume` or
-// `declare` and hands straight to the sub-section writer.
+// `declare`, hands straight to the sub-section writer with any `--shared` /
+// `--issue-type` declaration, and prints the writer's diff and whether it
+// wrote anything. The writer refuses to move a bound project on its own —
+// only the rows route waives that check (`repoint: true`, STE-645) — and the
+// declare route itself refuses a `--team` that moves a key-shaped Linear team
+// (on a resume the writer refuses it). The rows route never declares:
+// `--shared` / `--issue-type` there refuse before any row, naming the
+// declare-first command (`--issue-type` on Linear refuses outright). A
+// sub-section with no `project:` value at all is
+// neither: it refuses before any row, naming a restore from git when a
+// shared-container declaration survives, and the writer's `--project` when
+// none does. A Linear resume onto `team: <deferred>` needs `--team`.
 
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -40,13 +56,22 @@ import {
   resolveAttachTarget,
 } from "./attach_project_milestone";
 import { readActiveSpecsFromGit, type ActiveSpecsRead } from "./active_plan_ship_ready";
-import { nfr10Message } from "./dpt_version";
+import { nfr10Message, runningDptManifestPath } from "./dpt_version";
 import { parseFrontmatter } from "./frontmatter";
 import { parseMilestoneToken } from "./milestone_token";
 import { parsePlanHeading } from "./plan_heading";
 import { readListingFile, type ReadListing } from "./resolve_milestone_identity";
 import { readTaskTrackingSection } from "./resolver_config";
-import { writeTrackerSubsection } from "./setup/tracker_binding_write";
+import {
+  declarationContext,
+  floorLine,
+  projectLinesOf,
+  RESTORE_PROJECT_REMEDY,
+  sharedDeclarationParts,
+  shellArg,
+  TrackerBindingRestoreError,
+  writeTrackerSubsection,
+} from "./setup/tracker_binding_write";
 import { parseWorktreePorcelain, runGit } from "./target_repo";
 import {
   epicTokenOutside,
@@ -58,14 +83,14 @@ import {
   runTaskTrackingWorkspaceBindingPresentProbe,
 } from "./task_tracking_workspace_binding_present";
 import { readTrackerConfig } from "./tracker_config";
-import { announceReceipt, oneLine, printable, readSessionReceipts, writeReceipt } from "./tracker_receipts";
+import { announceReceipt, assertReceiptSession, oneLine, printable, readSessionReceipts, receiptDigest, writeReceipt } from "./tracker_receipts";
 import {
   locateSubsection,
   readWorkspaceBinding,
   type WorkspaceAdapterKey,
   type WorkspaceBinding,
 } from "./workspace_binding";
-import { readCompleteList, readTrackerPage, type CompleteListTool } from "./tracker_answer";
+import { LINEAR_TEAM_KEY, readCompleteList, readTrackerPage, type CompleteListTool } from "./tracker_answer";
 
 export type RowVerdict = "PASS" | "REFUSE" | "NOT-APPLICABLE";
 
@@ -123,6 +148,10 @@ export interface RepointArgs {
   labels?: string;
   peers: string[];
   team?: string;
+  /** `--shared <tag>`: declare this repository shared under that repo_tag (declare/resume only). */
+  shared?: string;
+  /** `--issue-type <type>`: the jira_issue_type to declare (declare/resume only). */
+  declaredIssueType?: string;
 }
 
 /** A refusal raised before any row runs (arguments, mode, section). NFR-10 shape, every part flattened. */
@@ -133,8 +162,10 @@ export class RepointRefusal extends Error {
   }
 }
 
+const COMMAND = 'bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/repoint_tracker_binding.ts"';
+
 const USAGE =
-  "bun run adapters/_shared/src/repoint_tracker_binding.ts <projectRoot> <jira|linear> <newProject> --projects <file> --containers <file> [--issue-types <file>] [--statuses <file>] [--labels <file>] [--peer <path>]… [--team <team>]";
+  `${COMMAND} <projectRoot> <jira|linear> <newProject> --projects <file> --containers <file> [--issue-types <file>] [--statuses <file>] [--labels <file>] [--peer <path>]… [--team <team>] [--shared <tag>] [--issue-type <type>]`;
 
 const DEFERRED = "<deferred>";
 
@@ -331,10 +362,14 @@ function readPeer(path: string): Input<string> {
   return { ok: true, value: path };
 }
 
-/** The trimmed value of `key:` in `text`'s tracker sub-section, through `locateSubsection`. */
+/** The lines of `text`'s tracker sub-section, through `locateSubsection` ([] when there is none). */
+function subsectionLinesIn(text: string, adapter: WorkspaceAdapterKey): string[] {
+  return locateSubsection(text.replace(/\r\n?/g, "\n").split("\n"), adapter) ?? [];
+}
+
+/** The trimmed value of `key:` in `text`'s tracker sub-section. */
 function subsectionValueIn(text: string, adapter: WorkspaceAdapterKey, key: string): string | undefined {
-  const sub = locateSubsection(text.replace(/\r\n?/g, "\n").split("\n"), adapter) ?? [];
-  for (const line of sub) {
+  for (const line of subsectionLinesIn(text, adapter)) {
     const m = /^([a-z_][a-z0-9_]*)\s*:\s*(.*)$/.exec(line);
     if (m && m[1] === key && m[2]!.trim().length > 0) return m[2]!.trim();
   }
@@ -388,6 +423,15 @@ export type Route =
   | { kind: "rows"; oldProject: string; binding: Input<WorkspaceBinding> };
 
 /**
+ * STE-646: the declare-route command on the CURRENT project `currentProject`
+ * with the declaration `flags` — what the rows route's flag refusal and rows
+ * 2 and 3's own-side refusals tell the operator to run first.
+ */
+function declareFirstCommand(args: RepointArgs, currentProject: string, flags: string[]): string {
+  return [COMMAND, shellArg(args.projectRoot), args.mode, shellArg(currentProject), ...flags].join(" ");
+}
+
+/**
  * Refuse a run that has no binding to move (`mode: none`, no section, or a
  * mode that differs from the one passed), else route it: resume, declare, or
  * the rows.
@@ -425,10 +469,90 @@ export function routeRepoint(args: RepointArgs): Route {
   } catch (e) {
     binding = failed(firstLine(e));
   }
+  // One read of CLAUDE.md for every guard below, so none can see other bytes.
+  const text = readFileSync(claudeMd, "utf-8");
+  const subLines = subsectionLinesIn(text, args.mode);
   // A refused declaration still names its project: read the line the reader read.
-  const project = binding.ok ? binding.value.project : subsectionValue(claudeMd, args.mode, "project");
-  if (project === undefined || project === DEFERRED) return { kind: "resume" };
-  if (project === args.newProject) return { kind: "declare" };
+  const project = binding.ok ? binding.value.project : subsectionValueIn(text, args.mode, "project");
+  // STE-645: two `project:` lines bind nothing one reader agrees on (the
+  // writer rewrites the first, the reader keeps the last) — refuse before any
+  // row, with the writer's own cause and remedy.
+  const projectLines = projectLinesOf(subLines);
+  if (projectLines.length > 1) {
+    const title = args.mode === "jira" ? "Jira" : "Linear";
+    throw new RepointRefusal(
+      `Refusing: the \`### ${title}\` sub-section carries ${projectLines.length} \`project:\` lines (${projectLines.join(", ")}), so there is no one binding to re-point.`,
+      `keep exactly one \`project:\` line in the \`### ${title}\` sub-section by hand, then re-run.`,
+      `${context}, key=project, current="${projectLines.join("|")}"`,
+    );
+  }
+  // STE-645: only `<deferred>` resumes. An absent `project:` names no project
+  // to resume from, so it refuses before any row is decided or printed.
+  if (project === undefined) {
+    const declared = sharedDeclarationParts(subLines);
+    throw new RepointRefusal(
+      `Refusing: the \`### ${args.mode === "jira" ? "Jira" : "Linear"}\` sub-section has no \`project:\` value, so there is no binding to re-point and nothing to resume.`,
+      declared.length > 0
+        ? RESTORE_PROJECT_REMEDY
+        : `bind a project first with bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/setup/tracker_binding_write.ts" ${shellArg(args.projectRoot)} ${args.mode} --project <p>, then re-run.`,
+      `${context}, key=project, current=absent${declared.length > 0 ? `, ${declarationContext(declared)}` : ""}`,
+    );
+  }
+  if (project === DEFERRED) {
+    // STE-645: a Linear resume onto a still-deferred team would bind a project
+    // no team owns — refuse before writing unless --team names one.
+    if (args.mode === "linear" && args.team === undefined) {
+      const team = binding.ok ? binding.value.team : subsectionValueIn(text, args.mode, "team");
+      if (team === DEFERRED) {
+        throw new RepointRefusal(
+          "Refusing: the `### Linear` sub-section has `team: <deferred>`, so resuming would bind a project with no team.",
+          "re-run with --team <team> to bind the team alongside the project.",
+          `${context}, key=team, current=${DEFERRED}`,
+        );
+      }
+    }
+    return { kind: "resume" };
+  }
+  if (project === args.newProject) {
+    // STE-646: the declare route never moves a key-shaped team — refuse before
+    // the writer; a display-name team is still replaced by a key-shaped --team.
+    if (args.mode === "linear" && args.team !== undefined) {
+      const team = binding.ok ? binding.value.team : subsectionValueIn(text, args.mode, "team");
+      if (team !== undefined && LINEAR_TEAM_KEY.test(team) && team !== args.team) {
+        throw new RepointRefusal(
+          `Refusing: CLAUDE.md binds Linear \`team: ${team}\`, and a declare on ${project} never moves the team to ${args.team}.`,
+          `re-run without --team to keep team ${team}.`,
+          `${context}, key=team, current="${team}", requested="${args.team}"`,
+        );
+      }
+    }
+    return { kind: "declare" };
+  }
+  // STE-646: rows 2 and 3 read the pre-flip declaration, so the rows route
+  // never declares — refuse the declaration flags before any row, naming the
+  // command that declares them on the CURRENT project first.
+  const declFlags = [
+    ...(args.shared !== undefined ? ["--shared"] : []),
+    ...(args.declaredIssueType !== undefined ? ["--issue-type"] : []),
+  ];
+  if (args.mode === "linear" && args.declaredIssueType !== undefined) {
+    throw new RepointRefusal(
+      `Refusing: --issue-type on a Linear repoint — Linear has no issue type, so there is nothing to declare.`,
+      `re-run without --issue-type.`,
+      `${context}, current=${project}, flags=${declFlags.join("|")}`,
+    );
+  }
+  if (declFlags.length > 0) {
+    const declareFirst = declareFirstCommand(args, project, [
+      `--shared ${args.shared !== undefined ? shellArg(args.shared) : "<tag>"}`,
+      ...(args.mode === "jira" ? [`--issue-type ${args.declaredIssueType !== undefined ? shellArg(args.declaredIssueType) : "<type>"}`] : []),
+    ]);
+    throw new RepointRefusal(
+      `Refusing: ${declFlags.join(" and ")} on a repoint from ${project} to ${args.newProject} — rows 2 and 3 read the declaration as it stands before the flip, so a repoint never declares.`,
+      `declare on the current project first with ${declareFirst}, then re-run this repoint without ${declFlags.join(" or ")}.`,
+      `${context}, current=${project}, flags=${declFlags.join("|")}`,
+    );
+  }
   return { kind: "rows", oldProject: project, binding };
 }
 
@@ -445,13 +569,18 @@ async function probe25Violations(root: string): Promise<string | undefined> {
   return report.violations.map((v) => v.reason).join("; ");
 }
 
+/** STE-646: row 2's and row 3's own-side remedy — declare `flag` on the CURRENT project `oldProject`, then re-run. */
+function declareFirstRemedy(args: RepointArgs, oldProject: string, flag: string): string {
+  return `Declare it on the current project first with ${declareFirstCommand(args, oldProject, [flag])}, then re-run this repoint`;
+}
+
 /** Row 2: probe #25 in process here and at each peer, then each peer's project and tag. */
-async function decideRow2(args: RepointArgs, binding: Input<WorkspaceBinding>, peers: Input<string>[]): Promise<RowResult> {
+async function decideRow2(args: RepointArgs, binding: Input<WorkspaceBinding>, peers: Input<string>[], oldProject: string): Promise<RowResult> {
   const own = await probe25Violations(args.projectRoot);
   if (own !== undefined) return row(2, "REFUSE", `probe #25 reports: ${own}`);
   if (!binding.ok) return row(2, "REFUSE", binding.reason);
   const tag = binding.value.repoTag;
-  if (tag === undefined) return row(2, "REFUSE", "the target is shared and this repository declares no repo_tag");
+  if (tag === undefined) return row(2, "REFUSE", `the target is shared and this repository declares no repo_tag. ${declareFirstRemedy(args, oldProject, args.mode === "jira" ? "--shared <tag> --issue-type <type>" : "--shared <tag>")}`);
   for (const peer of peers) {
     if (!peer.ok) return row(2, "REFUSE", peer.reason);
     const path = peer.value;
@@ -477,11 +606,11 @@ async function decideRow2(args: RepointArgs, binding: Input<WorkspaceBinding>, p
  * measured getJiraProjectIssueTypesMetadata answer, proven whole), and the
  * same at every peer.
  */
-function decideRow3(args: RepointArgs, peers: Input<string>[]): RowResult {
+function decideRow3(args: RepointArgs, peers: Input<string>[], oldProject: string): RowResult {
   const types = readMeasuredList("--issue-types", args.issueTypes, "jira:getJiraProjectIssueTypesMetadata", "name");
   if (!types.ok) return row(3, "REFUSE", types.reason);
   const own = subsectionValue(join(args.projectRoot, "CLAUDE.md"), "jira", "jira_issue_type");
-  if (own === undefined) return row(3, "REFUSE", "this repository declares no jira_issue_type");
+  if (own === undefined) return row(3, "REFUSE", `this repository declares no jira_issue_type. ${declareFirstRemedy(args, oldProject, "--issue-type <type>")}`);
   if (!types.value.includes(own)) {
     return row(3, "REFUSE", `jira_issue_type ${own} is not offered by ${args.newProject} (--issue-types lists ${types.value.join(", ")})`);
   }
@@ -773,12 +902,12 @@ export async function decideRows(args: RepointArgs, route: Extract<Route, { kind
   // Row 2 — probe #25 green here and at every peer; a shared target carries a tag;
   // every peer binds the new project under a distinct tag.
   if (!shared) results.push(row(2, "NOT-APPLICABLE", unshared));
-  else results.push(await decideRow2(args, binding, peers));
+  else results.push(await decideRow2(args, binding, peers, route.oldProject));
 
   // Row 3 — the issue type (Jira only, shared targets only).
   if (args.mode === "linear") results.push(row(3, "NOT-APPLICABLE", "Linear has no issue-type override"));
   else if (!shared) results.push(row(3, "NOT-APPLICABLE", unshared));
-  else results.push(decideRow3(args, peers));
+  else results.push(decideRow3(args, peers, route.oldProject));
 
   // Row 4 — the tracker config and the new project's statuses.
   results.push(decideRow4(args));
@@ -807,39 +936,80 @@ function bindingFields(args: RepointArgs): { project: string; team?: string } {
  * Every row passed: flip the binding through the one sub-section writer
  * (STE-603) — it re-renders the stop paragraph for the new project and keeps
  * every other line — then record one `repoint` receipt (STE-602). Returns the
- * receipt's path. A receipt that cannot be written after CLAUDE.md was
- * refuses, naming the file to revert.
+ * receipt's path. The receipt is written as the writer's `commit` step: a
+ * receipt that cannot be written restores CLAUDE.md byte for byte and refuses
+ * (AC-STE-646.8); a restore that fails too refuses naming the file to revert.
  */
 export function writeRepoint(args: RepointArgs, oldProject: string, rows: RowResult[]): string {
   const claudeMd = join(args.projectRoot, "CLAUDE.md");
-  writeTrackerSubsection(claudeMd, args.mode, bindingFields(args));
   const statusSnapshot = rows.find((r) => r.row === 4)?.statusSnapshot ?? [];
+  const context = `projectRoot=${args.projectRoot}, mode=${args.mode}, oldProject=${oldProject}, newProject=${args.newProject}`;
+  let receipt: string | undefined;
+  let receiptFailed = false;
+  const commit = (): void => {
+    try {
+      // The config's bytes at write time, so `--verify` can tell UNCHANGED from rewritten (AC-STE-646.11).
+      const configPath = join(args.projectRoot, "specs", "tracker-config.yaml");
+      const trackerConfigSha256 = existsSync(configPath) ? receiptDigest(readFileSync(configPath)) : undefined;
+      receipt = writeReceipt(args.projectRoot, {
+        kind: "repoint",
+        adapter: args.mode,
+        container: args.newProject,
+        subject: claudeMd,
+        decision: "repoint",
+        evidence: {
+          oldProject,
+          newProject: args.newProject,
+          ...(args.team !== undefined ? { team: args.team } : {}),
+          statusSnapshot,
+          trackerConfig: join("specs", "tracker-config.yaml"),
+          ...(trackerConfigSha256 !== undefined ? { trackerConfigSha256 } : {}),
+          rows: rows.map((r) => ({ row: r.row, verdict: r.verdict })),
+          // Each input whose completeness the session asserted rather than the
+          // tracker proved (COMPLETENESS_ASSERTED_MARKER on its row line).
+          assertedCompleteness: rows.flatMap((r) => r.asserted ?? []),
+        },
+      });
+    } catch (e) {
+      receiptFailed = true;
+      throw e;
+    }
+  };
   try {
-    return writeReceipt(args.projectRoot, {
-      kind: "repoint",
-      adapter: args.mode,
-      container: args.newProject,
-      subject: claudeMd,
-      decision: "repoint",
-      evidence: {
-        oldProject,
-        newProject: args.newProject,
-        ...(args.team !== undefined ? { team: args.team } : {}),
-        statusSnapshot,
-        trackerConfig: join("specs", "tracker-config.yaml"),
-        rows: rows.map((r) => ({ row: r.row, verdict: r.verdict })),
-        // Each input whose completeness the session asserted rather than the
-        // tracker proved (COMPLETENESS_ASSERTED_MARKER on its row line).
-        assertedCompleteness: rows.flatMap((r) => r.asserted ?? []),
-      },
-    });
+    writeTrackerSubsection(claudeMd, args.mode, { ...bindingFields(args), repoint: true, commit });
   } catch (e) {
-    throw new RepointRefusal(
-      `Refusing: CLAUDE.md was re-pointed from ${printable(oldProject)} to ${printable(args.newProject)}, but the \`repoint\` receipt could not be written (${firstLine(e)}).`,
-      `revert ${claudeMd} (git checkout -- CLAUDE.md), fix the receipt store, then re-run.`,
-      `projectRoot=${args.projectRoot}, mode=${args.mode}, oldProject=${oldProject}, newProject=${args.newProject}`,
-    );
+    if (e instanceof TrackerBindingRestoreError) {
+      // The restore follows either a failed receipt (commit) or a failed
+      // read-back of the written file; name the one that happened.
+      const what = receiptFailed ? "the `repoint` receipt could not be written" : "the written CLAUDE.md did not read back";
+      throw new RepointRefusal(
+        `Refusing: ${what} (${firstLine(e.cause)}), and CLAUDE.md could not be restored (${firstLine(e.restoreError)}) — CLAUDE.md is left re-pointed from ${printable(oldProject)} to ${printable(args.newProject)}.`,
+        `review ${claudeMd} (git diff -- CLAUDE.md) and revert the re-point by hand or with git checkout -- CLAUDE.md, which also discards any uncommitted edits to that file; then ${receiptFailed ? "fix the receipt store" : "fix the file so the binding reads back"} and re-run.`,
+        context,
+      );
+    }
+    if (receiptFailed) {
+      throw new RepointRefusal(
+        `Refusing: the \`repoint\` receipt could not be written (${firstLine(e)}); CLAUDE.md was restored byte for byte and still binds ${printable(oldProject)}.`,
+        "fix the receipt store, then re-run.",
+        context,
+      );
+    }
+    throw e;
   }
+  if (receipt === undefined) {
+    // The writer saw no change to make, so commit never ran: record the receipt now.
+    try {
+      commit();
+    } catch (e) {
+      throw new RepointRefusal(
+        `Refusing: the \`repoint\` receipt could not be written (${firstLine(e)}); CLAUDE.md was not changed.`,
+        "fix the receipt store, then re-run.",
+        context,
+      );
+    }
+  }
+  return receipt as string;
 }
 
 // ------------------------------------------------------------------ row 8
@@ -970,17 +1140,24 @@ export function reportRow8(args: RepointArgs, oldProject: string): string[] {
  * of this session's latest `repoint` receipt (step 7f may have rewritten the
  * config). Returns the statuses the config dropped — empty when intact. No
  * receipt refuses: what was not recorded cannot be verified. Writes nothing.
+ * `unchanged` is true when the same receipt recorded a `trackerConfigSha256`
+ * and the config's bytes still hash to it; a receipt without it is never unchanged.
  */
-export function verifyRepoint(projectRoot: string): string[] {
+export function verifyRepoint(projectRoot: string): { dropped: string[]; unchanged: boolean } {
   const root = resolve(projectRoot);
   const context = `projectRoot=${root}`;
   const sessionId = process.env.CLAUDE_CODE_SESSION_ID ?? "";
   let latest: string[] | undefined;
+  let latestSha: string | undefined;
   if (sessionId !== "") {
     for (const r of readSessionReceipts(root, sessionId).receipts) {
       if (r.kind !== "repoint" || !isObject(r.evidence)) continue;
       const snap = r.evidence.statusSnapshot;
-      if (Array.isArray(snap) && snap.every((x) => typeof x === "string")) latest = snap as string[];
+      if (Array.isArray(snap) && snap.every((x) => typeof x === "string")) {
+        latest = snap as string[];
+        const sha = r.evidence.trackerConfigSha256;
+        latestSha = typeof sha === "string" ? sha : undefined;
+      }
     }
   }
   if (latest === undefined) {
@@ -995,7 +1172,9 @@ export function verifyRepoint(projectRoot: string): string[] {
     throw new RepointRefusal(`Refusing: cannot read the tracker config — ${config.reason}.`, "restore specs/tracker-config.yaml, then re-run --verify.", context);
   }
   const present = new Set(config.value);
-  return latest.filter((s) => !present.has(s));
+  const dropped = latest.filter((s) => !present.has(s));
+  const unchanged = latestSha !== undefined && receiptDigest(readFileSync(join(root, "specs", "tracker-config.yaml"))) === latestSha;
+  return { dropped, unchanged };
 }
 
 // ------------------------------------------------------------------ front door
@@ -1016,13 +1195,15 @@ export function parseRepointArgs(argv: string[]): RepointArgs {
     );
   }
   const args: RepointArgs = { projectRoot: resolve(projectRoot), mode, newProject, peers: [] };
-  const single: Record<string, "projects" | "containers" | "issueTypes" | "statuses" | "labels" | "team"> = {
+  const single: Record<string, "projects" | "containers" | "issueTypes" | "statuses" | "labels" | "team" | "shared" | "declaredIssueType"> = {
     "--projects": "projects",
     "--containers": "containers",
     "--issue-types": "issueTypes",
     "--statuses": "statuses",
     "--labels": "labels",
     "--team": "team",
+    "--shared": "shared",
+    "--issue-type": "declaredIssueType",
   };
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i]!;
@@ -1045,7 +1226,11 @@ if (import.meta.main) {
   try {
     const argv = process.argv.slice(2);
     if (argv.length === 2 && argv[1] === "--verify") {
-      const dropped = verifyRepoint(argv[0]!);
+      const { dropped, unchanged } = verifyRepoint(argv[0]!);
+      if (unchanged) {
+        process.stdout.write("verify UNCHANGED specs/tracker-config.yaml is byte-identical to the one the repoint recorded\n");
+        process.exit(0);
+      }
       if (dropped.length === 0) {
         process.stdout.write("verify PASS specs/tracker-config.yaml carries every status in the repoint snapshot\n");
         process.exit(0);
@@ -1057,9 +1242,29 @@ if (import.meta.main) {
     const route = routeRepoint(args);
     if (route.kind !== "rows") {
       // Resume and declare hand straight to the one sub-section writer (STE-603).
-      writeTrackerSubsection(join(args.projectRoot, "CLAUDE.md"), args.mode, bindingFields(args));
+      const result = writeTrackerSubsection(join(args.projectRoot, "CLAUDE.md"), args.mode, {
+        ...bindingFields(args),
+        ...(args.shared !== undefined ? { shared: { repoTag: args.shared } } : {}),
+        ...(args.declaredIssueType !== undefined ? { issueType: args.declaredIssueType } : {}),
+      });
       process.stdout.write(`${route.kind}\n`);
+      for (const line of result.diff.split("\n").filter((l) => l.length > 0)) process.stdout.write(`${oneLine(line)}\n`);
+      process.stdout.write(`${oneLine(result.changed ? `${route.kind}: CLAUDE.md written` : `${route.kind}: nothing written`)}\n`);
+      // The writer's own floor line (STE-647 AC.5): a --shared run through the
+      // repoint says what happened to the floor exactly as the writer does. The
+      // repoint takes no --floor; only the writer's --floor moves it.
+      if (result.floorChange !== undefined) process.stdout.write(floorLine(result.floorChange, runningDptManifestPath()));
       process.exit(0);
+    }
+    // A receipt this run could not write refuses before any row is decided (AC-STE-646.7).
+    try {
+      assertReceiptSession(args.projectRoot);
+    } catch (e) {
+      throw new RepointRefusal(
+        `Refusing: this run could not write its \`repoint\` receipt (${firstLine(e)}), so no row is decided.`,
+        "run the repoint from a Claude Code session, which sets a path-safe CLAUDE_CODE_SESSION_ID, then re-run.",
+        `projectRoot=${args.projectRoot}, mode=${args.mode}, newProject=${args.newProject}, env=CLAUDE_CODE_SESSION_ID`,
+      );
     }
     const rows = await decideRows(args, route);
     for (const r of rows) process.stdout.write(`${r.row} ${r.verdict} ${r.reason}\n`);

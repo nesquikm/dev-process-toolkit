@@ -14,7 +14,8 @@
 // ---------------------------------------------------------------------------
 // CONTRACT this suite reads from the hook module (the implementer satisfies it)
 // ---------------------------------------------------------------------------
-//   export const TRACKER_WRITE_TOOLS: readonly string[]      — §1, the 26 names
+//   export const TRACKER_WRITE_TOOLS: readonly string[]      — §1, the 27 names
+//                                     (STE-607's 26 plus addTeamworkGraphContext, STE-649)
 //   export const TRACKER_READ_TOOLS: readonly string[]
 //   export const UNGATED_WRITE_TOOLS: Readonly<Record<string, string>>
 //                                     — name -> one-line reason
@@ -90,7 +91,11 @@ const DECIDE = "create_idempotency_probe.ts";
 const CONSENT = "container_ownership.ts";
 const CONFIRM = "ticket_ownership.ts";
 
-/** §1 — the list, verbatim from the FR. */
+/**
+ * §1 — the list, verbatim from the FR. AC-STE-649.1 amends STE-607 §1: the
+ * archived list of 26 names is history; `addTeamworkGraphContext` (a Jira
+ * links/blocks writer) sits at index 6, after createIssueLink.
+ */
 const FR_WRITE_LIST = [
   "createJiraIssue",
   "editJiraIssue",
@@ -98,6 +103,7 @@ const FR_WRITE_LIST = [
   "addCommentToJiraIssue",
   "addWorklogToJiraIssue",
   "createIssueLink",
+  "addTeamworkGraphContext",
   "save_issue",
   "save_milestone",
   "save_comment",
@@ -119,7 +125,7 @@ const FR_WRITE_LIST = [
   "delete_status_update",
   "save_document",
 ] as const;
-const ATLASSIAN_WRITES = new Set(FR_WRITE_LIST.slice(0, 6));
+const ATLASSIAN_WRITES = new Set(FR_WRITE_LIST.slice(0, 7));
 
 // ------------------------------------------------------------------ cleanup
 
@@ -720,6 +726,16 @@ function jiraCreate(c: JiraCreate = {}): Record<string, unknown> {
   };
 }
 
+/**
+ * STE-649 — an addTeamworkGraphContext input in its live schema's shape:
+ * `relationshipType` one of the five jira-work-item types, and
+ * `objectIdentifier` / `targetObjectIdentifier`, each "an ARI, a full URL, or
+ * a stable key".
+ */
+function teamworkLink(object: string, target: string, relationshipType: string): Record<string, unknown> {
+  return { cloudId: CLOUD, relationshipType, objectIdentifier: object, targetObjectIdentifier: target };
+}
+
 const transition = (key: string) => ({
   cloudId: CLOUD,
   issueIdOrKey: key,
@@ -741,6 +757,8 @@ function sampleInput(tool: string): Record<string, unknown> {
       return { cloudId: CLOUD, issueIdOrKey: "GF-111", timeSpent: "1h" };
     case "createIssueLink":
       return { cloudId: CLOUD, inwardIssue: "GF-111", outwardIssue: "GF-101", type: "Relates" };
+    case "addTeamworkGraphContext":
+      return teamworkLink("GF-111", "GF-101", "jira-work-item-links-jira-work-item");
     case "save_issue":
       return { team: "STE", project: "DPT", title: "A new ticket", labels: [] };
     case "save_milestone":
@@ -817,7 +835,7 @@ function gateGroup(): HookGroup | undefined {
 // ===========================================================================
 
 describe("AC-STE-607.1 — undeclared repositories see no change", () => {
-  test("every TRACKER_WRITE_TOOLS tool × {no CLAUDE.md, mode: none, tracker mode with no tag} → exit 0, empty stdout, empty stderr", async () => {
+  test("every TRACKER_WRITE_TOOLS tool × {no CLAUDE.md, mode: none, tracker mode with no tag} → exit 0, empty stdout, empty stderr (27×3 with addTeamworkGraphContext, AC-STE-649.5)", async () => {
     const { TRACKER_WRITE_TOOLS } = await hookModule();
     expect(TRACKER_WRITE_TOOLS.length).toBe(FR_WRITE_LIST.length);
 
@@ -896,7 +914,7 @@ const READ_CONTROLS = [
 ] as const;
 
 describe("AC-STE-607.2 — hooks.json matcher, derived from TRACKER_WRITE_TOOLS", () => {
-  test("TRACKER_WRITE_TOOLS is exactly the FR §1 list", async () => {
+  test("TRACKER_WRITE_TOOLS is exactly the FR §1 list, as amended by AC-STE-649.1", async () => {
     const { TRACKER_WRITE_TOOLS } = await hookModule();
     expect([...TRACKER_WRITE_TOOLS].sort()).toEqual([...FR_WRITE_LIST].sort());
     expect(new Set(TRACKER_WRITE_TOOLS).size).toBe(TRACKER_WRITE_TOOLS.length);
@@ -919,7 +937,7 @@ describe("AC-STE-607.2 — hooks.json matcher, derived from TRACKER_WRITE_TOOLS"
     expect(gateGroup()?.matcher).toBe(derived);
   });
 
-  test("the compiled matcher matches every listed tool under all four server spellings", () => {
+  test("the compiled matcher matches every listed tool under all four server spellings (AC-STE-649.1)", () => {
     const re = new RegExp(gateGroup()!.matcher!);
     const misses: string[] = [];
     for (const tool of FR_WRITE_LIST) {
@@ -966,12 +984,13 @@ function unpartitioned(names: readonly string[], m: HookModule): string[] {
 }
 
 describe("AC-STE-607.2 — the tool inventory partitions into the three sets", () => {
-  test("the checked-in inventory records its capture date and per-server counts that match its lists", () => {
+  test("the checked-in inventory records its capture date and per-server counts that match its lists (AC-STE-649.6)", () => {
     const inv = readInventory();
-    expect(inv.captured_at).toBe("2026-09-18");
+    // AC-STE-649.6 — recaptured 2026-09-30 from BOTH server spellings.
+    expect(inv.captured_at).toBe("2026-09-30");
     expect(Object.keys(inv.servers).sort()).toEqual(["atlassian", "linear"]);
-    expect(inv.servers.atlassian!.count).toBe(40);
-    expect(inv.servers.linear!.count).toBe(66);
+    expect(inv.servers.atlassian!.count).toBe(41);
+    expect(inv.servers.linear!.count).toBe(68);
     for (const s of Object.values(inv.servers)) {
       expect(s.tools.length).toBe(s.count);
       expect(new Set(s.tools).size).toBe(s.count);
@@ -981,7 +1000,7 @@ describe("AC-STE-607.2 — the tool inventory partitions into the three sets", (
   test("every inventory name sits in exactly one of TRACKER_WRITE_TOOLS, TRACKER_READ_TOOLS, UNGATED_WRITE_TOOLS", async () => {
     const m = await hookModule();
     const names = Object.values(readInventory().servers).flatMap((s) => s.tools);
-    expect(names.length).toBe(106);
+    expect(names.length).toBe(109); // AC-STE-649.6
     expect(unpartitioned(names, m)).toEqual([]);
   });
 
@@ -5529,7 +5548,12 @@ describe("STE-644 — a container create needs a fresh, complete re-list of its 
       expect(runs[2]!.stderr).toContain(SAME_ID);
       // Review round 1: every other case is refused for want of a qualifying
       // re-list — its remedy names the Linear listing — never coincidentally.
-      for (const i of [0, 1, 3, 4]) expect(runs[i]!.stderr, cases[i]![0]).toContain("`list_milestones` for project DPT");
+      for (const i of [0, 1, 3]) expect(runs[i]!.stderr, cases[i]![0]).toContain("`list_milestones` for project DPT");
+      // PIN MOVE (M_163656/STE-650 AC.13): a complete 50-row re-list is refused
+      // with the CONSENT remedy — another re-list returns the same full window,
+      // so naming it again looped.
+      expect(runs[4]!.stderr, cases[4]![0]).toContain("Create `Payouts`");
+      expect(runs[4]!.stderr, cases[4]![0]).not.toContain("`list_milestones` for project DPT");
     }, 120_000);
 
     test("permitted: 49 rows without the name; and 50 rows after an answered \"Create `Payouts`\" (the only way past a full window) → exit 0", async () => {
@@ -5637,3 +5661,940 @@ describe("review round 2 — refusals and freshness on the line-absent path", ()
   }, 60_000);
 });
 
+
+// ===========================================================================
+// STE-649 (M_163656) — the tracker-write gate covers every link writer and
+// names true causes. Anchors re-derived by content (M1 rewrote the hook).
+//
+// Every refusal this FR adds or changes is ALSO graded with the gated call's
+// own tool_use line absent (AC-STE-649.23, the "never lands" legs): Claude
+// Code writes a message's tool_use lines only after the first call's
+// PreToolUse hook returns, so the default helper's appended line is a proxy
+// the production path of a lone or first call never sees.
+// ===========================================================================
+
+const TWG = (server = "atlassian"): string => `mcp__${server}__addTeamworkGraphContext`;
+const TW_LINKS = "jira-work-item-links-jira-work-item";
+const TW_BLOCKS = "jira-work-item-blocks-jira-work-item";
+const TW_REMOTE = "jira-work-item-links-jira-work-item-remote-link";
+const TW_PROJECT = "jira-work-item-tracks-atlassian-project";
+const TW_GOAL = "jira-work-item-contributes-to-atlassian-goal";
+/** The gated call's own line never reaches the transcript before grading (the production path of a lone call). */
+const NEVER_LANDS = { toolUseId: GATED_641, stale: true } as const;
+const escRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const lineOf = (r: Run, prefix: "Refusing: " | "Remedy: "): string => r.stderr.split("\n").find((l) => l.startsWith(prefix)) ?? "";
+
+/** One refusal case, graded on both reads: the gated line landed, and never landed. */
+interface RefusalCase {
+  label: string;
+  tool: string;
+  input: Record<string, unknown>;
+  cwd: string;
+  transcript: string;
+  check: (r: Run) => void;
+}
+
+async function gradeBothReads(cases: RefusalCase[]): Promise<void> {
+  const runs = await mapBounded(
+    cases.flatMap((c) => [
+      { c, read: "gated line landed", o: { cwd: c.cwd, transcript: c.transcript } as RunOpts },
+      { c, read: "gated line never lands", o: { cwd: c.cwd, transcript: c.transcript, ...NEVER_LANDS } as RunOpts },
+    ]),
+    HOOK_SPAWN_LIMIT,
+    async (x) => ({ x, r: await runHook(x.c.tool, x.c.input, x.o) }),
+  );
+  const failures: string[] = [];
+  for (const { x, r } of runs) {
+    try {
+      x.c.check(r);
+    } catch (e) {
+      failures.push(`${x.c.label} [${x.read}]: ${(e as Error).message}`);
+    }
+  }
+  expect(failures).toEqual([]);
+}
+
+/** A worktree of `root` on a fresh branch; removed with the suite. */
+function worktreeOf(root: string, label: string): string {
+  const parent = tempDir(`649-${label}`);
+  const wt = join(parent, "wt");
+  git(root, "worktree", "add", "-q", "-b", `wt-649-${label}-${parent.slice(-6)}`, wt);
+  const real = realpathSync(wt);
+  cleanups.unshift(() => {
+    try {
+      git(root, "worktree", "remove", "--force", real);
+    } catch {
+      /* the parent may already be gone */
+    }
+  });
+  return real;
+}
+
+// ---------------------------------------------------------------- A7 — links
+
+describe("AC-STE-649.1 — the registered matcher gates addTeamworkGraphContext under both server spellings", () => {
+  test("AC-STE-649.1 — the registered matcher matches mcp__claude_ai_Atlassian__addTeamworkGraphContext and mcp__atlassian__addTeamworkGraphContext", () => {
+    const re = new RegExp(gateGroup()!.matcher!);
+    expect({
+      claude_ai_Atlassian: re.test("mcp__claude_ai_Atlassian__addTeamworkGraphContext"),
+      atlassian: re.test("mcp__atlassian__addTeamworkGraphContext"),
+    }).toEqual({ claude_ai_Atlassian: true, atlassian: true });
+    // CONTROL — the read twins stay unmatched.
+    expect(re.test("mcp__claude_ai_Atlassian__getTeamworkGraphContext")).toBe(false);
+    expect(re.test("mcp__atlassian__getTeamworkGraphObject")).toBe(false);
+  });
+
+  test("AC-STE-649.1 — the spawned hook refuses a FE↔FE blocks link from BE under BOTH spellings (opposite break: exit 0 at HEAD)", async () => {
+    const w = makeWorld();
+    const transcript = new Session().save(w.scratch);
+    const input = teamworkLink("GF-101", "GF-102", TW_BLOCKS);
+    const [a, b] = await Promise.all([
+      runHook(TWG("atlassian"), input, { cwd: w.be, transcript }),
+      runHook(TWG("claude_ai_Atlassian"), input, { cwd: w.be, transcript }),
+    ]);
+    expectRefusal(a, "addTeamworkGraphContext", "GF-101", "GF-102");
+    expectRefusal(b, "addTeamworkGraphContext", "GF-101", "GF-102");
+  }, 30_000);
+});
+
+describe("AC-STE-649.2 / .3 / .4 — every Jira-item side of a link resolves from a key or a /browse/ URL", () => {
+  let w: World;
+  beforeAll(() => {
+    w = makeWorld();
+  });
+  const run = (tool: string, input: Record<string, unknown>) =>
+    runHook(tool, input, { cwd: w.be, transcript: new Session().save(w.scratch) });
+
+  test("AC-STE-649.2 — addTeamworkGraphContext whose resolved Jira-item sides are all unowned → exit 2 (blocks and links); one owned side and no unresolvable side → exit 0", async () => {
+    // Opposite break: every refusal below exits 0 at HEAD (the tool is ungated).
+    expectRefusal(await run(TWG(), teamworkLink("GF-101", "GF-102", TW_BLOCKS)), "GF-101", "GF-102", /neither side is owned|not owned/);
+    expectRefusal(await run(TWG(), teamworkLink("GF-102", "GF-101", TW_LINKS)), "GF-101", "GF-102");
+    expectPermit(await run(TWG(), teamworkLink("GF-111", "GF-101", TW_LINKS)));
+    expectPermit(await run(TWG(), teamworkLink("GF-101", "GF-111", TW_BLOCKS)));
+  }, 30_000);
+
+  test("AC-STE-649.3 — createIssueLink {inwardIssue: \"10101\", outwardIssue: \"GF-111\"} → exit 2 naming the numeric side, although GF-111 is owned (opposite break: exit 0 at HEAD)", async () => {
+    expectRefusal(
+      await run(JIRA("createIssueLink"), { cloudId: CLOUD, inwardIssue: "10101", outwardIssue: "GF-111", type: "Relates" }),
+      "10101",
+      /resolv/i,
+    );
+  }, 30_000);
+
+  test("AC-STE-649.3 — a Jira-item side given as an ARI, a numeric id or a non-/browse/ URL refuses the link beside an owned side, on both link tools", async () => {
+    const cases: Array<[string, string, Record<string, unknown>, string]> = [
+      ["addTeamworkGraphContext, ARI object", TWG(), teamworkLink("ari:cloud:jira:9f3c0000:issue/10101", "GF-111", TW_LINKS), "ari:cloud:jira:9f3c0000:issue/10101"],
+      ["addTeamworkGraphContext, numeric blocks target", TWG(), teamworkLink("GF-111", "10101", TW_BLOCKS), "10101"],
+      ["addTeamworkGraphContext, REST URL object", TWG(), teamworkLink(`https://${CLOUD}/rest/api/3/issue/10101`, "GF-111", TW_LINKS), `https://${CLOUD}/rest/api/3/issue/10101`],
+      ["addTeamworkGraphContext, numeric object before an Atlas target", TWG(), teamworkLink("10101", "ATLAS-20426", TW_PROJECT), "10101"],
+      ["createIssueLink, ARI outward side", JIRA("createIssueLink"), { cloudId: CLOUD, inwardIssue: "GF-111", outwardIssue: "ari:cloud:jira:9f3c0000:issue/10101", type: "Relates" }, "ari:cloud:jira:9f3c0000:issue/10101"],
+      // A URL that carries a key but is not /browse/<KEY> is not a resolution.
+      ["createIssueLink, board URL naming a key", JIRA("createIssueLink"), { cloudId: CLOUD, inwardIssue: "GF-111", outwardIssue: `https://${CLOUD}/jira/software/projects/GF/issues/GF-101`, type: "Relates" }, `https://${CLOUD}/jira/software/projects/GF/issues/GF-101`],
+    ];
+    const failures: string[] = [];
+    for (const [label, tool, input, side] of cases) {
+      const r = await run(tool, input);
+      try {
+        expectRefusal(r, side, /resolv/i);
+      } catch (e) {
+        failures.push(`${label}: ${(e as Error).message}`);
+      }
+    }
+    expect(failures).toEqual([]);
+  }, 60_000);
+
+  test("AC-STE-649.3 — a /browse/<KEY> URL side resolves to its key: beside owned GF-111 → exit 0; /browse/GF-101 ↔ GF-102 (both FE's) → exit 2 naming GF-101", async () => {
+    const browse = (k: string) => `https://${CLOUD}/browse/${k}`;
+    expectPermit(await run(TWG(), teamworkLink(browse("GF-101"), "GF-111", TW_LINKS)));
+    expectPermit(await run(JIRA("createIssueLink"), { cloudId: CLOUD, inwardIssue: browse("GF-101"), outwardIssue: "GF-111", type: "Relates" }));
+    // Discriminating: HEAD drops the URL side and names only GF-102.
+    expectRefusal(
+      await run(JIRA("createIssueLink"), { cloudId: CLOUD, inwardIssue: browse("GF-101"), outwardIssue: "GF-102", type: "Relates" }),
+      "GF-101",
+      "GF-102",
+    );
+    expectRefusal(await run(TWG(), teamworkLink(browse("GF-101"), browse("GF-102"), TW_BLOCKS)), "GF-101", "GF-102");
+  }, 30_000);
+
+  test("AC-STE-649.4 — an Atlas project or goal target and a remote-link target are never graded as ticket keys", async () => {
+    // Permitted: the object is owned; the target is no ticket subject, whatever it looks like.
+    expectPermit(await run(TWG(), teamworkLink("GF-111", "ATLAS-20426", TW_PROJECT)));
+    expectPermit(await run(TWG(), teamworkLink("GF-111", "ari:cloud:townsquare:9f3c0000:project/42", TW_PROJECT)));
+    expectPermit(await run(TWG(), teamworkLink("GF-111", "https://example.invalid/runbook", TW_REMOTE)));
+    // Refused: FE's object is the only subject. A target shaped like BE's own
+    // GF-111 (a goal key, a remote /browse/ link) must not stand in as the owned side.
+    expectRefusal(await run(TWG(), teamworkLink("GF-101", "ATLAS-20426", TW_PROJECT)), "GF-101");
+    expectRefusal(await run(TWG(), teamworkLink("GF-101", "GF-111", TW_GOAL)), "GF-101");
+    expectRefusal(await run(TWG(), teamworkLink("GF-101", `https://${CLOUD}/browse/GF-111`, TW_REMOTE)), "GF-101");
+  }, 60_000);
+});
+
+describe("AC-STE-649.5 — undeclared repositories see no change for addTeamworkGraphContext", () => {
+  test("AC-STE-649.5 — matched by the registered matcher, yet exit 0 with empty stdout and stderr in every undeclared kind, under both spellings", async () => {
+    const re = new RegExp(gateGroup()!.matcher!);
+    expect(re.test(TWG("claude_ai_Atlassian")), "the call is hooked at all").toBe(true);
+    const noClaudeMd = tempDir("649-undeclared-none");
+    gitInit(noClaudeMd);
+    const modeNone = tempDir("649-undeclared-mode-none");
+    writeFileSync(join(modeNone, "CLAUDE.md"), "# Fixture\n\n## Task Tracking\n\nmode: none\n\n## Verification\n\nrun_cmd: none\n");
+    gitInit(modeNone);
+    const jiraNoTag = tempDir("649-undeclared-jira");
+    declareJira(jiraNoTag, null);
+    gitInit(jiraNoTag);
+    const transcript = new Session().save(tempDir("649-undeclared-scratch"));
+    for (const cwd of [noClaudeMd, modeNone, jiraNoTag]) {
+      for (const server of ["atlassian", "claude_ai_Atlassian"]) {
+        for (const input of [teamworkLink("GF-101", "GF-102", TW_BLOCKS), teamworkLink("ari:cloud:jira:x:issue/1", "10101", TW_LINKS)]) {
+          expectSilent(await runHook(TWG(server), input, { cwd, transcript }));
+        }
+      }
+    }
+  }, 60_000);
+});
+
+/** Every tool name the live servers listed on 2026-09-30, one list per tracker (the union of both spellings). */
+const LIVE_2026_09_30 = {
+  atlassian: "addCommentToJiraIssue addTeamworkGraphContext addWorklogToJiraIssue atlassianUserInfo createCompassComponent createCompassComponentRelationship createCompassCustomFieldDefinition createConfluenceFooterComment createConfluenceInlineComment createConfluencePage createIssueLink createJiraIssue editJiraIssue fetch getAccessibleAtlassianResources getCompassComponent getCompassComponents getCompassCustomFieldDefinitions getConfluenceCommentChildren getConfluencePage getConfluencePageDescendants getConfluencePageFooterComments getConfluencePageInlineComments getConfluenceSpaces getContentFormatGuide getIssueLinkTypes getJiraIssue getJiraIssueRemoteIssueLinks getJiraIssueTypeMetaWithFields getJiraProjectIssueTypesMetadata getPagesInConfluenceSpace getTeamworkGraphContext getTeamworkGraphObject getTransitionsForJiraIssue getVisibleJiraProjects lookupJiraAccountId search searchConfluenceUsingCql searchJiraIssuesUsingJql transitionJiraIssue updateConfluencePage".split(" "),
+  linear: "create_attachment create_attachment_from_upload create_issue_label delete_attachment delete_comment delete_diff_comment delete_status_update extract_images get_agent_skill get_attachment get_diff get_diff_threads get_document get_issue get_issue_status get_milestone get_notifications get_project get_release get_release_note get_status_updates get_team get_template get_triage_responsibility get_user get_workspace list_agent_skills list_comments list_custom_views list_cycles list_diffs list_documents list_issue_labels list_issue_statuses list_issues list_milestones list_project_labels list_projects list_release_notes list_release_pipelines list_releases list_teams list_templates list_users mark_notification merge_diff prepare_attachment_upload resolve_diff_thread restore_issue_label restore_project_label retire_issue_label retire_project_label save_comment save_diff_comment save_document save_issue save_issue_label save_milestone save_project save_project_label save_release save_release_note save_status_update search_documentation share_issue submit_diff_review unshare_issue update_diff".split(" "),
+} as const;
+/** Measured 2026-09-30: only the claude_ai_Atlassian spelling lists addTeamworkGraphContext (40 vs 41). */
+const LIVE_SPELLINGS: Array<{ prefix: string; tools: readonly string[] }> = [
+  { prefix: "mcp__atlassian__", tools: LIVE_2026_09_30.atlassian.filter((t) => t !== "addTeamworkGraphContext") },
+  { prefix: "mcp__claude_ai_Atlassian__", tools: LIVE_2026_09_30.atlassian },
+  { prefix: "mcp__linear__", tools: LIVE_2026_09_30.linear },
+  { prefix: "mcp__claude_ai_Linear__", tools: LIVE_2026_09_30.linear },
+];
+
+describe("AC-STE-649.6 — the inventory lists every live tool of both servers", () => {
+  test("CONTROL — the pinned live capture holds 41 Atlassian and 68 Linear names, no duplicates", () => {
+    expect(LIVE_2026_09_30.atlassian.length).toBe(41);
+    expect(LIVE_2026_09_30.linear.length).toBe(68);
+    expect(new Set(LIVE_2026_09_30.atlassian).size + new Set(LIVE_2026_09_30.linear).size).toBe(109);
+    expect(LIVE_SPELLINGS.map((s) => s.tools.length)).toEqual([40, 41, 68, 68]);
+  });
+
+  test("AC-STE-649.6 — every name the live servers list, under both spellings, sits in exactly one of TRACKER_WRITE_TOOLS, TRACKER_READ_TOOLS and UNGATED_WRITE_TOOLS", async () => {
+    const m = await hookModule();
+    const misplaced = LIVE_SPELLINGS.flatMap((s) => unpartitioned(s.tools, m).map((t) => `${s.prefix}${t}`));
+    expect(misplaced).toEqual([]);
+    expect(m.TRACKER_WRITE_TOOLS).toContain("addTeamworkGraphContext");
+    expect(m.TRACKER_READ_TOOLS).toEqual(expect.arrayContaining(["get_triage_responsibility", "list_custom_views"]));
+  });
+
+  test("AC-STE-649.6 — the checked-in inventory's per-server lists are the live lists, and each tool's classification agrees with the hook's three sets", async () => {
+    const m = await hookModule();
+    const inv = readInventory() as Inventory & { servers: Record<string, { classification?: Record<string, { class: string }> }> };
+    expect([...inv.servers.atlassian!.tools].sort()).toEqual([...LIVE_2026_09_30.atlassian].sort());
+    expect([...inv.servers.linear!.tools].sort()).toEqual([...LIVE_2026_09_30.linear].sort());
+    const disagree: string[] = [];
+    for (const [server, s] of Object.entries(inv.servers)) {
+      for (const t of s.tools) {
+        const want = m.TRACKER_WRITE_TOOLS.includes(t) ? "gated-write" : m.TRACKER_READ_TOOLS.includes(t) ? "read" : t in m.UNGATED_WRITE_TOOLS ? "out-of-scope" : "unpartitioned";
+        const got = s.classification?.[t]?.class ?? "unclassified";
+        if (got !== want) disagree.push(`${server}.${t}: inventory ${got}, hook ${want}`);
+      }
+    }
+    expect(disagree).toEqual([]);
+  });
+});
+
+// ------------------------------------------------- A8 + C-OWNR — the remedy
+
+/** Where `--adopt` is offered affirmatively (not "no --adopt" / "without --adopt"). */
+function affirmativeAdopts(remedy: string): number[] {
+  const out: number[] = [];
+  for (const m of remedy.matchAll(/--adopt/g)) {
+    const before = remedy.slice(Math.max(0, m.index! - 12), m.index!);
+    if (/\b(?:no|without)\s+`?$/.test(before)) continue;
+    out.push(m.index!);
+  }
+  return out;
+}
+
+const DECIDE_OWNERSHIP_SHAPE = `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${CONFIRM}" decide <projectRoot> <ticket.json>`;
+const CONFIRM_SHAPE = `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${CONFIRM}" confirm`;
+const CONSENT_SHAPE = `bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/${CONSENT}" consent`;
+/** HEAD's ownership Refusing line (d9a7a721..51a453e2), a transition on one unowned key. */
+const headOwnershipRefusing = (tool: string, key: string, root: string, lag = ""): string =>
+  `Refusing: ${tool} on ${key}: the ticket is not owned by the declared target ${root} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${lag}`;
+const HEAD_LAG = ` (The transcript read did not yet hold this call's own tool_use ${GATED_641}; it was graded as the last call of its turn.)`;
+
+describe("AC-STE-649.8 .. .11 — the ownership refusal routes through `ticket_ownership decide`, by verdict", () => {
+  let w: World;
+  beforeAll(() => {
+    w = makeWorld();
+  });
+  const both = async () => {
+    const transcript = new Session().save(w.scratch);
+    const [landed, never] = await Promise.all([
+      runHook(JIRA("transitionJiraIssue"), transition("GF-101"), { cwd: w.be, transcript }),
+      runHook(JIRA("transitionJiraIssue"), transition("GF-101"), { cwd: w.be, transcript, ...NEVER_LANDS }),
+    ]);
+    return [
+      { read: "gated line landed", r: landed },
+      { read: "gated line never lands (AC-STE-649.23)", r: never },
+    ];
+  };
+
+  test("AC-STE-649.8 — the remedy's first step is `ticket_ownership.ts decide <projectRoot> <ticket.json>`, never spelled `confirm decide` (both reads)", async () => {
+    for (const { read, r } of await both()) {
+      expectRefusal(r, "GF-101");
+      const remedy = lineOf(r, "Remedy: ");
+      expect(remedy, read).toContain(DECIDE_OWNERSHIP_SHAPE);
+      expect(remedy.indexOf(DECIDE_OWNERSHIP_SHAPE), `${read}: decide is the first command`).toBe(remedy.indexOf('bun run "'));
+      // CONTROL — acceptedShape() would insert the receipt subcommand.
+      expect(r.stderr, read).not.toContain(`${CONFIRM}" confirm decide`);
+    }
+  }, 30_000);
+
+  test("AC-STE-649.9 — the remedy says confirm and consent both refuse another repository's tag and an Epic, that confirm refuses another project's ticket in the same team on Linear, and names the owning-repository and relabel routes (both reads)", async () => {
+    for (const { read, r } of await both()) {
+      const remedy = lineOf(r, "Remedy: ");
+      for (const needle of [/foreign-repo/, /\bcontainer\b/, /another repository'?s tag/i, /\bEpic\b/, /\bLinear\b/, /another project/i, /same team/i, /owning repository/i, /relabel/i]) {
+        expect({ read, needle: String(needle), hit: needle.test(remedy) }).toEqual({ read, needle: String(needle), hit: true });
+      }
+    }
+  }, 30_000);
+
+  test("AC-STE-649.10 — `--adopt` is tied only to the unowned verdict and an answered \"Adopt GF-101\", and `[--adopt]` is never offered unconditionally (both reads)", async () => {
+    for (const { read, r } of await both()) {
+      expect(r.stderr, read).not.toContain("<ticket.json> [--adopt]");
+      expect(r.stderr, read).not.toContain("[--adopt]");
+      const remedy = lineOf(r, "Remedy: ");
+      const adopts = affirmativeAdopts(remedy);
+      expect(adopts.length, `${read}: the adopt route is still offered`).toBeGreaterThan(0);
+      for (const at of adopts) {
+        const clause = remedy.slice(Math.max(0, at - 250), at + 80);
+        expect({ read, unowned: /\bunowned\b/.test(clause), answered: /"Adopt (?:GF-101|<KEY>)"/.test(clause) }).toEqual({ read, unowned: true, answered: true });
+      }
+    }
+  }, 30_000);
+
+  test("AC-STE-649.11 — KEEP: the refusal still carries both accepted shapes, and its Refusing line is byte-identical to HEAD (both reads)", async () => {
+    const [landed, never] = await both();
+    for (const { read, r } of [landed!, never!]) {
+      expect(r.stderr, read).toContain(`${CONFIRM}" confirm`);
+      expect(r.stderr, read).toContain(`${CONSENT}" consent`);
+      expect(r.stderr, read).toContain(CONFIRM_SHAPE);
+      expect(r.stderr, read).toContain(CONSENT_SHAPE);
+      expect(r.stderr, read).toContain("the ticket is not owned by the declared target");
+    }
+    expect(lineOf(landed!.r, "Refusing: ")).toBe(headOwnershipRefusing("transitionJiraIssue", "GF-101", w.be));
+    expect(lineOf(never!.r, "Refusing: ")).toBe(headOwnershipRefusing("transitionJiraIssue", "GF-101", w.be, HEAD_LAG));
+  }, 30_000);
+
+  test("AC-STE-649.11 — KEEP: a two-sided FE↔FE link's Refusing line is byte-identical to HEAD", async () => {
+    const r = await runHook(JIRA("createIssueLink"), { cloudId: CLOUD, inwardIssue: "GF-101", outwardIssue: "GF-102", type: "Relates" }, { cwd: w.be, transcript: new Session().save(w.scratch) });
+    expect(lineOf(r, "Refusing: ")).toBe(
+      `Refusing: createIssueLink on GF-101, GF-102: neither side is owned by the declared target ${w.be} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.`,
+    );
+  }, 30_000);
+});
+
+describe("AC-STE-649.12 — docs/hooks-reference.md states the same limits", () => {
+  test("AC-STE-649.12 — the pre-tracker-write-gate Requirement bullet says confirm and consent refuse another repository's tag and an Epic, and confirm another project's ticket in the same team on Linear", () => {
+    const doc = readFileSync(join(PLUGIN_ROOT, "docs", "hooks-reference.md"), "utf-8");
+    const section = doc.slice(doc.indexOf("### pre-tracker-write-gate"));
+    const bullet = section.split("\n").find((l) => l.startsWith("- **Requirement:**")) ?? "";
+    expect(bullet.length, "the Requirement bullet exists").toBeGreaterThan(0);
+    const sentences = bullet.split(/(?<=[.;])\s+/);
+    const limits = sentences.filter((x) => /another repository'?s tag/i.test(x) && /\bEpic\b/.test(x) && /refuse/i.test(x));
+    expect(limits.length, "a sentence stating the tag / Epic refusal").toBeGreaterThan(0);
+    expect(bullet).toMatch(/\bconfirm\b/);
+    expect(bullet).toMatch(/\bconsent\b/);
+    expect(sentences.some((x) => /\bLinear\b/.test(x) && /another project/i.test(x) && /same team/i.test(x))).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------ A9 — D-5
+
+describe("AC-STE-649.13 .. .17 — D-5: a same-tag receipt location names its real cause", () => {
+  const CARRY_TWO = /carry more than one repo tag/;
+  const announcedIn = (root: string) => new RegExp(`announced in [(\`"]?${escRe(root)}`);
+
+  test("AC-STE-649.13 / .14 / .17 — both directions (receipts in BE's main checkout, write from its worktree; and the reverse): exit 2 naming both roots, the announcing root and one repository's checkouts, never \"more than one repo tag\"", async () => {
+    const w = makeWorld();
+    const wt = worktreeOf(w.be, "d5");
+    const mainReceipts = new Session();
+    mainReceipts.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const wtReceipts = new Session();
+    wtReceipts.announceDecide(wt, createReceipt(wt, { title: "BE payout export" }));
+    for (const [direction, s, cwd, receipts, writer] of [
+      ["receipts in the main checkout, write from the worktree", mainReceipts, wt, w.be, wt],
+      ["receipts in the worktree, write from the main checkout", wtReceipts, w.be, wt, w.be],
+    ] as const) {
+      const r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd, transcript: s.save(w.scratch) });
+      try {
+        expectRefusal(r, w.be, wt, /checkouts of one repository/, announcedIn(receipts));
+        expect(r.stderr).not.toMatch(CARRY_TWO);
+        expect(r.stderr).not.toMatch(announcedIn(writer));
+      } catch (e) {
+        throw new Error(`${direction}: ${(e as Error).message}`);
+      }
+    }
+  }, 60_000);
+
+  test("AC-STE-649.15 — two DIFFERENT repositories declaring one tag are named as different repositories, not as checkouts of one", async () => {
+    const w = makeWorld();
+    const be2 = tempDir("649-be2");
+    declareJira(be2, BE_TAG);
+    gitInit(be2);
+    const s = new Session();
+    s.announceDecide(be2, createReceipt(be2, { title: "BE payout export" }));
+    const r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, w.be, be2, /different repositories/);
+    expect(r.stderr).not.toMatch(/checkouts of one/);
+    expect(r.stderr).not.toMatch(CARRY_TWO);
+  }, 60_000);
+
+  test("AC-STE-649.15 (review) — when git cannot read a root's common dir, the refusal says it cannot tell, never \"different repositories\"", async () => {
+    const w = makeWorld();
+    const be3 = tempDir("649-be3");
+    declareJira(be3, BE_TAG); // no git init: rev-parse --git-common-dir fails there
+    const s = new Session();
+    s.announceDecide(be3, createReceipt(be3, { title: "BE payout export" }));
+    const r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, w.be, be3, /cannot tell whether/);
+    expect(r.stderr).not.toMatch(/different repositories|checkouts of one/);
+    expect(r.stderr).toContain(be3);
+  }, 60_000);
+
+  test("AC-STE-649.16 — KEEP: labels genuinely carrying two different declared tags keep HEAD's wording, byte for byte", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const r = await runHook(JIRA("createJiraIssue"), jiraCreate({ labels: [FE_TAG, BE_TAG] }), { cwd: w.fe, transcript: s.save(w.scratch) });
+    expectRefusal(r);
+    expect(lineOf(r, "Refusing: ")).toBe(
+      `Refusing: createJiraIssue into GF: labels [${FE_TAG}, ${BE_TAG}] carry more than one repo tag of the declared targets ${w.fe} (${FE_TAG}), ${w.be} (${BE_TAG}), so the target cannot be resolved.`,
+    );
+    expect(r.stderr).not.toMatch(/checkouts of one|different repositories/);
+  }, 60_000);
+});
+
+// ------------------------------------------------------------ A10 — D-6
+
+describe("AC-STE-649.18 / .19 — D-6: an unreadable receipt is not a malformed one", () => {
+  test("AC-STE-649.18 / .19 — a receipt directory at mode 000 says \"could not be read\" with EACCES, never \"failed to parse\"; a malformed receipt says \"failed to parse\", never \"could not be read\"", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const transcript = s.save(w.scratch);
+    const dir = receiptsDir(w.be, SESSION);
+    let r: Run;
+    chmodSync(dir, 0o000);
+    try {
+      r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript });
+    } finally {
+      chmodSync(dir, 0o755);
+    }
+    expectRefusal(r, /could not be read/, /EACCES/);
+    expect(r.stderr).not.toMatch(/failed to parse/);
+
+    // AC-STE-649.19 — the malformed twin.
+    const w2 = makeWorld();
+    const d2 = receiptsDir(w2.be, SESSION);
+    mkdirSync(d2, { recursive: true });
+    const garbage = join(d2, "zz-garbage.json");
+    writeFileSync(garbage, "{ this is not a receipt");
+    const s2 = new Session();
+    s2.announceDecide(w2.be, garbage);
+    const m = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w2.be, transcript: s2.save(w2.scratch) });
+    expectRefusal(m, /1 announced receipt file\(s\) failed to parse and were ignored/);
+    expect(m.stderr).not.toMatch(/could not be read/);
+  }, 60_000);
+
+  test("AC-STE-649.23 — never lands: the mode-000 receipt directory still says \"could not be read\" (EACCES), not \"failed to parse\"", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }));
+    const transcript = s.save(w.scratch);
+    const dir = receiptsDir(w.be, SESSION);
+    let r: Run;
+    chmodSync(dir, 0o000);
+    try {
+      r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript, ...NEVER_LANDS });
+    } finally {
+      chmodSync(dir, 0o755);
+    }
+    expectRefusal(r, /could not be read/, /EACCES/);
+    expect(r.stderr).not.toMatch(/failed to parse/);
+  }, 60_000);
+});
+
+// ------------------------------------------------------------ A11 — D-7
+
+describe("AC-STE-649.20 / .21 — D-7: another session's receipt is named as such", () => {
+  const NO_RECEIPT = "no create receipt announced by create_idempotency_probe.ts decide in this session authorises it.";
+
+  test("AC-STE-649.20 — the only announced receipt sits in another session's directory → exit 2 naming \"another session\" and its id", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }, OTHER_SESSION));
+    const r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, /another session/, OTHER_SESSION);
+  }, 30_000);
+
+  test("AC-STE-649.20 — the only announced receipt sits in this session's directory but its JSON names another session → exit 2 naming \"another session\" and its id", async () => {
+    const w = makeWorld();
+    const foreign = createReceipt(w.be, { title: "BE payout export" }, OTHER_SESSION);
+    const dir = receiptsDir(w.be, SESSION);
+    mkdirSync(dir, { recursive: true });
+    const misfiled = join(dir, "misfiled-from-other-session.json");
+    copyFileSync(foreign, misfiled);
+    const s = new Session();
+    s.announceDecide(w.be, misfiled);
+    const r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: s.save(w.scratch) });
+    expectRefusal(r, /another session/, OTHER_SESSION);
+  }, 30_000);
+
+  test("AC-STE-649.21 — KEEP: a create with no receipt at all keeps HEAD's refusal text, with no \"another session\" note", async () => {
+    const w = makeWorld();
+    const r = await runHook(JIRA("createJiraIssue"), jiraCreate(), { cwd: w.be, transcript: new Session().save(w.scratch) });
+    expectRefusal(r);
+    expect(lineOf(r, "Refusing: ")).toBe(`Refusing: createJiraIssue in ${w.be}: ${NO_RECEIPT}`);
+    expect(r.stderr).not.toMatch(/another session/);
+  }, 30_000);
+});
+
+// ------------------------------------------------ AC-STE-649.23 — never lands
+
+describe("AC-STE-649.23 — every refusal STE-649 adds or changes holds when the gated line never lands", () => {
+  test("AC-STE-649.23 — the link refusals (all-unowned, numeric, ARI, non-/browse/ URL, goal and remote-link targets) on both reads", async () => {
+    const w = makeWorld();
+    const transcript = new Session().save(w.scratch);
+    const refused = (label: string, tool: string, input: Record<string, unknown>, ...needles: Array<string | RegExp>): RefusalCase => ({
+      label,
+      tool,
+      input,
+      cwd: w.be,
+      transcript,
+      check: (r) => expectRefusal(r, ...needles),
+    });
+    await gradeBothReads([
+      refused("addTeamworkGraphContext FE↔FE blocks", TWG(), teamworkLink("GF-101", "GF-102", TW_BLOCKS), "GF-101", "GF-102"),
+      refused("addTeamworkGraphContext FE↔FE under claude_ai_Atlassian", TWG("claude_ai_Atlassian"), teamworkLink("GF-101", "GF-102", TW_LINKS), "GF-101", "GF-102"),
+      refused("createIssueLink numeric side beside owned GF-111", JIRA("createIssueLink"), { cloudId: CLOUD, inwardIssue: "10101", outwardIssue: "GF-111", type: "Relates" }, "10101", /resolv/i),
+      refused("addTeamworkGraphContext ARI side beside owned GF-111", TWG(), teamworkLink("ari:cloud:jira:9f3c0000:issue/10101", "GF-111", TW_LINKS), "ari:cloud:jira:9f3c0000:issue/10101", /resolv/i),
+      refused("createIssueLink board-URL side beside owned GF-111", JIRA("createIssueLink"), { cloudId: CLOUD, inwardIssue: "GF-111", outwardIssue: `https://${CLOUD}/jira/software/projects/GF/issues/GF-101`, type: "Relates" }, /resolv/i),
+      refused("createIssueLink /browse/GF-101 ↔ GF-102", JIRA("createIssueLink"), { cloudId: CLOUD, inwardIssue: `https://${CLOUD}/browse/GF-101`, outwardIssue: "GF-102", type: "Relates" }, "GF-101", "GF-102"),
+      refused("FE object with a goal target shaped like GF-111", TWG(), teamworkLink("GF-101", "GF-111", TW_GOAL), "GF-101"),
+      refused("FE object with a remote /browse/GF-111 target", TWG(), teamworkLink("GF-101", `https://${CLOUD}/browse/GF-111`, TW_REMOTE), "GF-101"),
+    ]);
+  }, 120_000);
+
+  test("AC-STE-649.23 — the D-5 refusals (both directions, and two repositories sharing a tag) on both reads", async () => {
+    const w = makeWorld();
+    const wt = worktreeOf(w.be, "d5-never");
+    const be2 = tempDir("649-be2-never");
+    declareJira(be2, BE_TAG);
+    gitInit(be2);
+    const announcedIn = (root: string) => new RegExp(`announced in [(\`"]?${escRe(root)}`);
+    const sessionFor = (root: string): string => {
+      const s = new Session();
+      s.announceDecide(root, createReceipt(root, { title: "BE payout export" }));
+      return s.save(w.scratch);
+    };
+    const notTwoTags = (r: Run) => expect(r.stderr).not.toMatch(/carry more than one repo tag/);
+    await gradeBothReads([
+      {
+        label: "receipts in main, write from the worktree",
+        tool: JIRA("createJiraIssue"),
+        input: jiraCreate(),
+        cwd: wt,
+        transcript: sessionFor(w.be),
+        check: (r) => {
+          expectRefusal(r, w.be, wt, /checkouts of one repository/, announcedIn(w.be));
+          notTwoTags(r);
+        },
+      },
+      {
+        label: "receipts in the worktree, write from main",
+        tool: JIRA("createJiraIssue"),
+        input: jiraCreate(),
+        cwd: w.be,
+        transcript: sessionFor(wt),
+        check: (r) => {
+          expectRefusal(r, w.be, wt, /checkouts of one repository/, announcedIn(wt));
+          notTwoTags(r);
+        },
+      },
+      {
+        label: "two different repositories declaring one tag",
+        tool: JIRA("createJiraIssue"),
+        input: jiraCreate(),
+        cwd: w.be,
+        transcript: sessionFor(be2),
+        check: (r) => {
+          expectRefusal(r, w.be, be2, /different repositories/);
+          expect(r.stderr).not.toMatch(/checkouts of one/);
+          notTwoTags(r);
+        },
+      },
+    ]);
+  }, 120_000);
+
+  test("AC-STE-649.23 — the D-7 refusals (another session's directory; JSON naming another session) on both reads", async () => {
+    const w = makeWorld();
+    const inOther = new Session();
+    inOther.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export" }, OTHER_SESSION));
+    const foreign = createReceipt(w.be, { title: "BE payout export" }, OTHER_SESSION);
+    const dir = receiptsDir(w.be, SESSION);
+    mkdirSync(dir, { recursive: true });
+    const misfiled = join(dir, "misfiled-never-lands.json");
+    copyFileSync(foreign, misfiled);
+    const copied = new Session();
+    copied.announceDecide(w.be, misfiled);
+    const names = (r: Run) => expectRefusal(r, /another session/, OTHER_SESSION);
+    await gradeBothReads([
+      { label: "receipt in another session's directory", tool: JIRA("createJiraIssue"), input: jiraCreate(), cwd: w.be, transcript: inOther.save(w.scratch), check: names },
+      { label: "receipt JSON naming another session", tool: JIRA("createJiraIssue"), input: jiraCreate(), cwd: w.be, transcript: copied.save(w.scratch), check: names },
+    ]);
+  }, 120_000);
+});
+
+// ===========================================================================
+// STE-650 (M_163656) — the grader mirrors the hook; consent is read per
+// question; the recogniser and the remedies read what ran.
+//
+// Hook-side legs. Every refusal this FR adds or changes is graded on BOTH
+// reads (`gradeBothReads`: the gated line landed, and never lands —
+// AC-STE-650.15). Each leg is either RED at HEAD for the reason its AC states,
+// or a labelled keep-behaviour CONTROL that shows the opposite break.
+// ===========================================================================
+
+/**
+ * One AskUserQuestion carrying SEVERAL questions, answered per question, in
+ * the shape Claude Code records it: the tool_use holds every question and its
+ * options; the tool_result holds the harness sentence naming each
+ * `"<question>"="<answer>"` pair and `toolUseResult.answers` keyed by question.
+ */
+function askMany(s: Session, qs: Array<{ question: string; labels: string[]; answer: string }>): string {
+  const questions = qs.map((q, i) => ({
+    question: q.question,
+    header: `Q${i + 1}`,
+    multiSelect: false,
+    options: q.labels.map((label) => ({ label, description: label })),
+  }));
+  const id = s.toolUse("AskUserQuestion", { questions });
+  s.toolResult(
+    id,
+    `Your questions have been answered: ${qs.map((q) => `"${q.question}"="${q.answer}"`).join(", ")}. You can now continue with these answers in mind.`,
+    false,
+    { toolUseResult: { questions, answers: Object.fromEntries(qs.map((q) => [q.question, q.answer])) } },
+  );
+  return id;
+}
+
+/** A question that names neither GF-85 nor "Payouts" — it is not about the decision. */
+const UNRELATED_NOTE_QUESTION = "Also post a note to the team channel?";
+
+describe("STE-650 AC-STE-650.2 — hook: a key owned only through an FR binding or a reuse, binding or import receipt still needs the join consent", () => {
+  /** How BE comes to own GF-85 before the forbidden title join, one route per row. */
+  type Route = "fr-binding" | "reuse-receipt" | "binding-receipt" | "import-receipt" | "created";
+  const ROUTES: readonly Route[] = ["fr-binding", "reuse-receipt", "binding-receipt", "import-receipt"];
+
+  function own(w: World, s: Session, route: Route): void {
+    switch (route) {
+      case "fr-binding":
+        boundFr(w.be, "GF-85");
+        git(w.be, "add", "-A");
+        git(w.be, "commit", "-q", "-m", "bind GF-85");
+        return;
+      case "reuse-receipt":
+        s.announce(DECIDE, `decide "${w.be}" /tmp/page.json --title "Payouts" --parent GF-85 --attempt fast`, reuseReceipt(w.be, "GF-85", "Payouts"), '{"outcome":"reused","key":"GF-85"}');
+        return;
+      case "binding-receipt":
+        s.announce(
+          CONFIRM,
+          `confirm "${w.be}" GF-85 /tmp/ticket.json`,
+          receiptIn(w.be, { kind: "binding", adapter: "jira", container: "GF", subject: "GF-85", decision: "owned", evidence: { verdict: "owned", tracked: 1 } }),
+          '{"decision":"owned"}',
+        );
+        return;
+      case "import-receipt":
+        s.ask("GF-85", "Import", { answer: "Import GF-85" });
+        s.announce(CONSENT, `consent "${w.be}" GF-85 /tmp/page.json`, importReceipt(w.be, "GF-85"), '{"decision":"import"}');
+        return;
+      case "created":
+        s.mcp(JIRA("createJiraIssue"), EPIC_CREATE("Payouts"), { key: "GF-85", id: "10085" });
+        return;
+    }
+  }
+
+  test("CONTROL — with no route, BE does not own GF-85: a transition is refused", async () => {
+    const w = makeWorld();
+    expectRefusal(await runHook(JIRA("transitionJiraIssue"), transition("GF-85"), { cwd: w.be, transcript: new Session().save(w.scratch) }), "GF-85");
+  });
+
+  for (const route of ROUTES) {
+    test(`CONTROL (${route}) — the route really owns GF-85: a transition on it → exit 0`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      own(w, s, route);
+      expectPermit(await runHook(JIRA("transitionJiraIssue"), transition("GF-85"), { cwd: w.be, transcript: s.save(w.scratch) }));
+    });
+
+    test(`AC-STE-650.2 (${route}) — keep-behaviour: a labels write after an unanswered forbidden title join → exit 2 naming Join GF-85 (both reads)`, async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      own(w, s, route);
+      s.bash(d.command, d.out);
+      await gradeBothReads([
+        { label: route, tool: JIRA("editJiraIssue"), input: MERGE_GF_85, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, NAMES_JOIN_GF_85) },
+      ]);
+    }, 60_000);
+  }
+
+  test("AC-STE-650.2 (created) — an Epic this session created needs no join consent: the read-merge labels write → exit 0", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    own(w, s, "created");
+    s.bash(d.command, d.out);
+    expectPermit(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+});
+
+describe("STE-650 AC-STE-650.8 — hook: consent is read per question", () => {
+  test("AC-STE-650.8 (join) — the question naming GF-85 answered exactly \"Join `GF-85`\", another question answered \"No\" → exit 0 (HEAD: every answer must equal the label → exit 2)", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askMany(s, [
+      { question: JOIN_GF_85_QUESTION, labels: [JOIN_GF_85, SKIP_GF_85], answer: JOIN_GF_85 },
+      { question: UNRELATED_NOTE_QUESTION, labels: ["Yes", "No"], answer: "No" },
+    ]);
+    expectPermit(await runSh(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+
+  test("AC-STE-650.8 (join) CONTROL — the question naming GF-85 answered \"Skip `GF-85`\", an unrelated question offering and answered \"Join `GF-85`\" → exit 2 on both reads (guards a per-answer `.some`)", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askMany(s, [
+      { question: JOIN_GF_85_QUESTION, labels: [JOIN_GF_85, SKIP_GF_85], answer: SKIP_GF_85 },
+      { question: "Proceed with the milestone?", labels: [JOIN_GF_85, "Cancel"], answer: JOIN_GF_85 },
+    ]);
+    await gradeBothReads([
+      { label: "join, subject question skipped", tool: JIRA("editJiraIssue"), input: MERGE_GF_85, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, NAMES_JOIN_GF_85) },
+    ]);
+  }, 60_000);
+
+  for (const order of ["skip first", "join first"] as const) {
+    test(`AC-STE-650.8 (review FO-2, ${order}) — two questions both naming GF-85 and offering \"Join \`GF-85\`\", one answered Join and one Skip → exit 2 on both reads: a no is never overridden by a yes`, async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      const skip = { question: JOIN_GF_85_QUESTION, labels: [JOIN_GF_85, SKIP_GF_85], answer: SKIP_GF_85 };
+      const join = { question: "Confirm: join the existing Epic GF-85 for this milestone?", labels: [JOIN_GF_85, SKIP_GF_85], answer: JOIN_GF_85 };
+      askMany(s, order === "skip first" ? [skip, join] : [join, skip]);
+      await gradeBothReads([
+        { label: `contradictory answers (${order})`, tool: JIRA("editJiraIssue"), input: MERGE_GF_85, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, NAMES_JOIN_GF_85) },
+      ]);
+    }, 60_000);
+  }
+
+  test("AC-STE-650.8 (container create) — the question naming \"Payouts\" answered exactly \"Create `Payouts`\", another answered \"No\" → exit 0 (HEAD: exit 2)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-multi-create");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(50) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askMany(s, [
+      { question: CREATE_PAYOUTS_QUESTION, labels: [CREATE_PAYOUTS, SKIP_PAYOUTS], answer: CREATE_PAYOUTS },
+      { question: UNRELATED_NOTE_QUESTION, labels: ["Yes", "No"], answer: "No" },
+    ]);
+    s.relist(cappedRows(50), { tracker: "linear" });
+    expectPermit(await runSh(LINEAR("save_milestone"), { project: "DPT", name: "Payouts" }, { cwd: root, transcript: s.save(scratch) }));
+  }, 60_000);
+
+  test("AC-STE-650.8 / .15 (container create) — the question naming \"Payouts\" answered \"Skip `Payouts`\", an unrelated question offering and answered \"Create `Payouts`\" → exit 2 naming Create `Payouts`, on both reads (guards a per-answer `.some`)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-multi-create-no");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(50) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askMany(s, [
+      { question: CREATE_PAYOUTS_QUESTION, labels: [CREATE_PAYOUTS, SKIP_PAYOUTS], answer: SKIP_PAYOUTS },
+      { question: UNRELATED_NOTE_QUESTION, labels: [CREATE_PAYOUTS, "No"], answer: CREATE_PAYOUTS },
+    ]);
+    s.relist(cappedRows(50), { tracker: "linear" });
+    await gradeBothReads([{
+      label: "per-question container-create consent",
+      tool: LINEAR("save_milestone"),
+      input: { project: "DPT", name: "Payouts" },
+      cwd: root,
+      transcript: s.save(scratch),
+      check: (r) => expectRefusal(r, /Create `Payouts`/),
+    }]);
+  }, 60_000);
+
+  describe("the import / adopt consent (consentLines)", () => {
+    let w: World;
+    beforeAll(() => {
+      w = makeWorld();
+    });
+    const importAnnounced = (s: Session) =>
+      s.announce(CONSENT, `consent "${w.be}" GF-121 /tmp/page.json`, importReceipt(w.be, "GF-121"), '{"decision":"import"}');
+    const IMPORT_Q = "Import GF-121 into this repository?";
+
+    test("AC-STE-650.8 (import) — the question naming GF-121 answered \"Skip GF-121\", an unrelated question offering and answered \"Import GF-121\" → exit 2 on both reads (HEAD: any answer equal to the label consents → exit 0)", async () => {
+      const s = new Session();
+      askMany(s, [
+        { question: IMPORT_Q, labels: ["Import GF-121", "Skip GF-121"], answer: "Skip GF-121" },
+        { question: "Confirm before I continue?", labels: ["Import GF-121", "Cancel"], answer: "Import GF-121" },
+      ]);
+      importAnnounced(s);
+      await gradeBothReads([
+        { label: "import, subject question skipped", tool: JIRA("transitionJiraIssue"), input: transition("GF-121"), cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, "GF-121") },
+      ]);
+    });
+
+    test("AC-STE-650.8 (import) CONTROL — the question naming GF-121 answered exactly \"Import GF-121\", another answered \"No\" → exit 0 (guards a per-answer `.every`)", async () => {
+      const s = new Session();
+      askMany(s, [
+        { question: IMPORT_Q, labels: ["Import GF-121", "Skip GF-121"], answer: "Import GF-121" },
+        { question: "Also tidy its labels?", labels: ["Yes", "No"], answer: "No" },
+      ]);
+      importAnnounced(s);
+      expectPermit(await runHook(JIRA("transitionJiraIssue"), transition("GF-121"), { cwd: w.be, transcript: s.save(w.scratch) }));
+    });
+  });
+});
+
+describe("STE-650 AC-STE-650.12 — the 'not a plain invocation' recogniser reads what ran", () => {
+  let w: World;
+  beforeAll(() => {
+    w = makeWorld();
+  });
+  const MOD = () => join(ADAPTERS_SRC, DECIDE);
+  const ARGS_SQ = `decide '/tmp/proj' /tmp/page.json --title 'BE recogniser' --parent GF-85 --attempt fast`;
+  const ARGS = `decide "/tmp/proj" /tmp/page.json --title "BE recogniser" --parent GF-85 --attempt fast`;
+  const COUNTED = /\b1 Bash command\(s\) ran a deciding subcommand in a shape that is not a plain invocation/;
+  const ANY_NOTE = /not a plain invocation, so any receipt/;
+  const create = jiraCreate({ title: "BE recogniser" });
+  const sessionWith = (command: string): string => {
+    const s = new Session();
+    s.bash(command, '{"outcome":"create"}');
+    return s.save(w.scratch);
+  };
+
+  const COUNTS: Array<{ label: string; command: () => string; quoted: string }> = [
+    { label: "an absolute bun path", command: () => `/usr/local/bin/bun run "${MOD()}" ${ARGS}`, quoted: "/usr/local/bin/bun run" },
+    { label: "a `bash -c` body", command: () => `bash -c "bun run '${MOD()}' ${ARGS_SQ}"`, quoted: "bash -c" },
+    { label: "a backslash-continued invocation", command: () => `bun run \\\n  "${MOD()}" \\\n  ${ARGS}`, quoted: DECIDE },
+  ];
+  for (const c of COUNTS) {
+    test(`AC-STE-650.12 — ${c.label} is counted and quoted in the note, on both reads (HEAD: not counted, no note)`, async () => {
+      await gradeBothReads([
+        { label: c.label, tool: JIRA("createJiraIssue"), input: create, cwd: w.be, transcript: sessionWith(c.command()), check: (r) => expectRefusal(r, COUNTED, c.quoted) },
+      ]);
+    });
+  }
+
+  test("AC-STE-650.12 — `echo \"run it: bun run <module> decide …\"` only echoes the invocation: no note (HEAD: counted)", async () => {
+    const r = await runHook(JIRA("createJiraIssue"), create, { cwd: w.be, transcript: sessionWith(`echo "run it: bun run ${MOD()} ${ARGS_SQ}"`) });
+    expectRefusal(r, /no create receipt/);
+    expect(r.stderr).not.toMatch(ANY_NOTE);
+  });
+
+  test("AC-STE-650.12 CONTROL — `echo \"bun run <module> decide …\"` is not counted (keep-behaviour: guards a `bash -c` unwrap that also unwraps echo)", async () => {
+    const r = await runHook(JIRA("createJiraIssue"), create, { cwd: w.be, transcript: sessionWith(`echo "bun run ${MOD()} ${ARGS_SQ}"`) });
+    expectRefusal(r, /no create receipt/);
+    expect(r.stderr).not.toMatch(ANY_NOTE);
+  });
+
+  test("AC-STE-650.12 CONTROL — the plain invocation's accepted shape is unchanged: a plain `bun run <module> decide …` draws no note", async () => {
+    const r = await runHook(JIRA("createJiraIssue"), create, { cwd: w.be, transcript: sessionWith(`bun run "${MOD()}" ${ARGS}`) });
+    expectRefusal(r, /no create receipt/);
+    expect(r.stderr).not.toMatch(ANY_NOTE);
+  });
+});
+
+describe("STE-650 AC-STE-650.13 — a full 50-row Linear re-list gets the consent remedy, not the re-list remedy", () => {
+  const SAVE = { project: "DPT", name: "Payouts" };
+  /** A create decided over 49 rows (default=allowed), then a complete re-list that returns exactly 50. */
+  function allowedThenFullRelist(arrange: (s: Session) => void = () => {}): { root: string; transcript: string } {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-full-relist");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(49) });
+    if (!d.out.split("\n").includes("default=allowed")) throw new Error(`fixture: the 49-row decision did not print default=allowed:\n${d.out}`);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.relist(cappedRows(50), { tracker: "linear" });
+    arrange(s);
+    return { root, transcript: s.save(scratch) };
+  }
+  const consentRemedy = (r: Run) => {
+    expectRefusal(r, /Create `?Payouts`?/);
+    const remedy = lineOf(r, "Remedy: ");
+    expect(remedy).toMatch(/AskUserQuestion/);
+    expect(remedy).toMatch(/Create `Payouts`/);
+    expect(remedy, "a re-list remedy loops: the next re-list returns the same 50 rows").not.toMatch(/list_milestones/);
+  };
+
+  test("AC-STE-650.13 — no answer → exit 2 with the consent remedy, on both reads (HEAD: the re-list remedy)", async () => {
+    const { root, transcript } = allowedThenFullRelist();
+    await gradeBothReads([{ label: "49-row allowed decision, 50-row re-list", tool: LINEAR("save_milestone"), input: SAVE, cwd: root, transcript, check: consentRemedy }]);
+  }, 60_000);
+
+  test("AC-STE-650.13 — following that remedy ends the loop: answered \"Create `Payouts`\" after the decision → exit 0 (HEAD: exit 2, re-list remedy again)", async () => {
+    const { root, transcript } = allowedThenFullRelist((s) => askConsent(s, CREATE_PAYOUTS_QUESTION, [CREATE_PAYOUTS, SKIP_PAYOUTS], { answer: CREATE_PAYOUTS }));
+    expectPermit(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript }));
+  }, 60_000);
+
+  test("AC-STE-650.13 CONTROL — a 50-row forbidden decision and a 50-row re-list, no answer → the consent remedy (keep-behaviour)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-full-forbidden");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(50) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.relist(cappedRows(50), { tracker: "linear" });
+    consentRemedy(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript: s.save(scratch) }));
+  }, 60_000);
+
+  test("AC-STE-650.13 / .15 — a capped 50-row re-list holding an open \"Payouts\", no answer → exit 2 naming the duplicate, on both reads (the capped window still sees a duplicate)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-capped-dup");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(49) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    const rows = cappedRows(50);
+    rows[49] = { id: "00000000-0000-4000-8000-0000000000aa", name: "Payouts" };
+    s.relist(rows, { tracker: "linear" });
+    await gradeBothReads([{
+      label: "capped re-list holding the title",
+      tool: LINEAR("save_milestone"),
+      input: SAVE,
+      cwd: root,
+      transcript: s.save(scratch),
+      check: (r) => expectRefusal(r, /00000000-0000-4000-8000-0000000000aa/, /duplicate/),
+    }]);
+  }, 60_000);
+
+  test("AC-STE-650.13 CONTROL — a 49-row re-list after the 49-row decision still permits with no answer (keep-behaviour)", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("650-49-relist");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(49) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    s.relist(cappedRows(49), { tracker: "linear" });
+    expectPermit(await runSh(LINEAR("save_milestone"), SAVE, { cwd: root, transcript: s.save(scratch) }));
+  }, 60_000);
+});
+
+describe("STE-650 AC-STE-650.14 — the archived STE-644 freshness bullet names the grading time", () => {
+  test("AC-STE-650.14 — the Requirement's **Fresh:** bullet carries an amendment clause naming the grading time", () => {
+    const text = readFileSync(join(REPO_ROOT, "specs", "frs", "archive", "STE-644.md"), "utf-8");
+    const requirement = text.split("## Requirement")[1]?.split("## Acceptance Criteria")[0] ?? "";
+    const bullet = requirement.split("\n").find((l) => l.startsWith("- **Fresh:**")) ?? "";
+    expect(bullet, "CONTROL — the bullet exists").toContain("120 s");
+    expect(bullet).toMatch(/amended/i);
+    expect(bullet).toMatch(/grading time/i);
+  });
+});

@@ -33,6 +33,7 @@ import { CHILD_LISTING_REJECTED } from "./sibling_release.ts";
 
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
+import { exemptsJoinConsent, type OwnershipRoute } from "./join_consent_ownership";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
 import { listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
 import { isCanonicalContainerListing, milestoneIdFromEpicKey, milestoneIdFromLinearMilestone, normalizeMilestoneTitle } from "./milestone_token";
@@ -1061,6 +1062,7 @@ const notObserved = (reason: string): PredicateResult => ({ outcome: "not-observ
  */
 export const TRACKER_WRITE_TOOL_NAMES: readonly string[] = [
   "createJiraIssue", "editJiraIssue", "transitionJiraIssue", "addCommentToJiraIssue", "addWorklogToJiraIssue", "createIssueLink",
+  "addTeamworkGraphContext",
   "save_issue", "save_milestone", "save_comment", "delete_comment", "create_attachment", "create_attachment_from_upload",
   "delete_attachment", "share_issue", "unshare_issue", "save_project", "create_issue_label", "save_issue_label",
   "retire_issue_label", "restore_issue_label", "save_project_label", "retire_project_label", "restore_project_label",
@@ -2198,13 +2200,70 @@ function attachBinds(tracker: SharedTrackerId, shape: CreateShape, r: BundleRece
   return (id !== "" && id === shape.container) || names.some((n) => sameName(n, shape.container));
 }
 
+/** The same ticket: title (normalized), project and container — labels aside. Twin: `sameTicket` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+function sameTicket(a: CreateShape, b: CreateShape): boolean {
+  return normalizeTitleForCompare(a.title) === normalizeTitleForCompare(b.title) && sameName(a.project, b.project) && sameName(a.container, b.container);
+}
+
+/** A 4xx status the tracker answered with — 408 excluded. Twin: `TRACKER_4XX` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const TRACKER_4XX = /\b(?:error|status(?:\s+code)?|http)\b[:\s]*4(?!08)\d\d\b/i;
+/** Words that make any answer ambiguous. Twin: `MAY_HAVE_RUN` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const MAY_HAVE_RUN = /time[ds]?[\s-]*out|\b5\d\d\b|interrupt|aborted|reset/i;
+/**
+ * Whether an errored create's result proves it never reached the tracker (a
+ * hook or permission refusal, a user rejection, a refused input, a definite
+ * 4xx). Twin: `neverRan` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ * (the bundle keeps no `toolDenialKind`, so only the text arm is mirrored).
+ */
+function createNeverRan(c: ToolCall): boolean {
+  const text = c.result.text.trimStart();
+  return (
+    text.startsWith("PreToolUse:") ||
+    text.startsWith("The user doesn't want to proceed") ||
+    text.startsWith("<tool_use_error>InputValidationError") ||
+    (TRACKER_4XX.test(text) && !MAY_HAVE_RUN.test(text))
+  );
+}
+
 /** A ticket key as the hook resolves one (`GF-123`, `STE-9`). */
 const TICKET_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
-/** A ticket call's subject keys, as the hook reads them: both sides of a link, else the issue fields. */
-function subjectKeys(c: ToolCall): string[] {
+/*
+ * STE-649 — the link-side helpers below are deliberate twins of the hook's, kept
+ * here rather than imported (the grader never imports hook code; the drift guard
+ * in tests/m_2306b6-ste-617-live-grader.test.ts holds them equal).
+ */
+/** The Teamwork Graph relationship types whose target is a Jira item. Twin: `TEAMWORK_ITEM_TARGETS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const TEAMWORK_ITEM_TARGETS = new Set(["jira-work-item-links-jira-work-item", "jira-work-item-blocks-jira-work-item"]);
+/** A call that links two tickets. Twin: `isLinkTool` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const isLinkTool = (c: ToolCall): boolean => ["createIssueLink", "addTeamworkGraphContext"].includes(bareTool(c.name));
+/** The input fields a ticket call names its subject in. Twin: `subjectValues` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+function subjectValues(c: ToolCall): unknown[] {
   const i = c.input;
-  const vals = bareTool(c.name) === "createIssueLink" ? [i.inwardIssue, i.outwardIssue] : [i.issueIdOrKey, i.id, i.issueId, i.issue];
-  return [...new Set(vals.map((v) => asKey(v).trim()).filter((k) => TICKET_KEY.test(k)).map((k) => k.toUpperCase()))];
+  const t = bareTool(c.name);
+  if (t === "createIssueLink") return [i.inwardIssue, i.outwardIssue];
+  if (t === "addTeamworkGraphContext") {
+    const itemTarget = typeof i.relationshipType === "string" && TEAMWORK_ITEM_TARGETS.has(i.relationshipType);
+    return itemTarget ? [i.objectIdentifier, i.targetObjectIdentifier] : [i.objectIdentifier];
+  }
+  return [i.issueIdOrKey, i.id, i.issueId, i.issue];
+}
+/** A Jira `/browse/<KEY>` URL. Twin: `BROWSE_URL` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const BROWSE_URL = /^https?:\/\/[^/?#\s]+\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)\/?(?:[?#]\S*)?$/;
+/** A link side's raw spelling. Twin: `sideText` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const sideText = (v: unknown): string => (typeof v === "number" ? String(v) : asKey(v)).trim();
+/** A link's Jira-item side resolves only from a key or a `/browse/<KEY>` URL. Twin: `resolveItemSide` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+function resolveItemSide(v: unknown): string | null {
+  const s = sideText(v);
+  if (TICKET_KEY.test(s)) return s.toUpperCase();
+  const m = BROWSE_URL.exec(s);
+  return m ? m[1]!.toUpperCase() : null;
+}
+/** A link's Jira-item sides that resolve to no ticket key, as spelled. Twin: `unresolvedItemSides` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const unresolvedSides = (c: ToolCall): string[] => (isLinkTool(c) ? subjectValues(c).filter((v) => resolveItemSide(v) === null).map(sideText) : []);
+/** A ticket call's subject keys, as the hook reads them: the resolved sides of a link, else the issue fields. */
+function subjectKeys(c: ToolCall): string[] {
+  if (isLinkTool(c)) return [...new Set(subjectValues(c).map(resolveItemSide).filter((k): k is string => k !== null))];
+  return [...new Set(subjectValues(c).map((v) => asKey(v).trim()).filter((k) => TICKET_KEY.test(k)).map((k) => k.toUpperCase()))];
 }
 
 /** How the hook classes a successful tracker write: a ticket create, a milestone-container create, another container write, or a ticket write. */
@@ -2221,9 +2280,56 @@ function writeClass(c: ToolCall): WriteClass {
   return "ticket";
 }
 
+/** A text names `key` as a whole token. Twin: `namesKey` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const namesKey = (text: string, key: string): boolean =>
+  key !== "" && new RegExp(`(^|[^A-Za-z0-9_-])${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_]|-[0-9])`).test(text);
+
+/**
+ * STE-650 AC-8 — the answer the harness sentence `"<question>"="<answer>"`
+ * records to ONE question, or null. The bundle keeps no `toolUseResult`, so
+ * only the sentence arm is mirrored.
+ * Twin: `answerTo` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ */
+function answerTo(text: string, question: string): string | null {
+  const at = text.indexOf(`"${question}"="`);
+  if (at < 0) return null;
+  const m = /^([^"]*)"(?=[.,]\s|[.,]?$)/.exec(text.slice(at + question.length + 4));
+  return m ? m[1]! : null;
+}
+
+/**
+ * STE-650 AC-8 — the ONE per-question consent matcher: an answered
+ * AskUserQuestion consents to `label` only when a question whose own text
+ * names the subject (`names`) and offers `label` as an option was answered
+ * exactly `label`, and every such question was. Another question's answer
+ * neither grants nor withholds it.
+ * Twin: `consentedPerQuestion` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ */
+function consentedPerQuestion(c: ToolCall, label: string, names: (question: string) => boolean): boolean {
+  const questions = (c.input as { questions?: unknown }).questions;
+  if (!Array.isArray(questions)) return false;
+  // The questions this ask put about the subject: each names it and offers
+  // the label. Consent needs at least one, and every one answered exactly the
+  // label — a "no" to one of them is never overridden by a "yes" to another
+  // (review FO-2). A question about something else neither grants nor
+  // withholds it.
+  const relevant = questions.filter((q) => {
+    const question = (q as { question?: unknown } | null)?.question;
+    if (typeof question !== "string" || !names(question)) return false;
+    const options = (q as { options?: unknown } | null)?.options;
+    return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
+  });
+  return (
+    relevant.length > 0 &&
+    relevant.every((q) => answerTo(c.result.text, (q as { question: string }).question) === label)
+  );
+}
+
 /**
  * The times, in `s`, the operator consented to `label` (`Import DST-7`,
- * `Adopt DST-7`): an answered AskUserQuestion whose answer is that label, or
+ * `Adopt DST-7`): an answered AskUserQuestion holding a question that names
+ * the key, offers the label and was answered exactly that label (per question —
+ * STE-650 AC-8, as the hook's `consentLines` reads it), or
  * the first user message's answers block giving exactly that label under
  * `ORPHAN_CONSENT_ANSWER_KEY` (the route a `claude -p` child has, where an
  * AskUserQuestion comes back as an error). The block's value must EQUAL the
@@ -2232,7 +2338,8 @@ function writeClass(c: ToolCall): WriteClass {
  * reads a block from any operator message; the grade reads only the first.
  */
 function consentTimes(s: BundleSession, label: string): number[] {
-  const out = s.calls.filter((c) => c.name === "AskUserQuestion" && !c.result.isError && c.result.text.includes(`="${label}"`)).map((c) => ms(c.at));
+  const key = label.slice(label.indexOf(" ") + 1);
+  const out = s.calls.filter((c) => c.name === "AskUserQuestion" && !c.result.isError && consentedPerQuestion(c, label, (q) => namesKey(q, key))).map((c) => ms(c.at));
   if (s.answers?.[ORPHAN_CONSENT_ANSWER_KEY] === label && s.answersAt !== undefined) out.push(ms(s.answersAt));
   return out.filter((t) => !Number.isNaN(t));
 }
@@ -2247,39 +2354,37 @@ const answeredBefore = (s: BundleSession, index: number, label: string): boolean
  * STE-643 — mirrors the hook's `answeredAfter` rule: a `milestone-decision`
  * receipt recording `default: "forbidden"` authorises its write only after an
  * AskUserQuestion — after the decision's announcement (call `from`) and before
- * the write (call `to`), in the write's own chain — that names the decision's
- * key or title in a question's own text, offers the
- * consent label among its options, and whose recorded answer is exactly that
- * label. The label is computed from the decision's act, key and title, never
+ * the write (call `to`), in the write's own chain — holding a question whose
+ * own text names the decision's key or title, offers the consent label among
+ * its options, and was answered exactly that label (per question — STE-650 AC-8). The label is computed from the decision's act, key and title, never
  * from `evidence.options`. An errored question authorises nothing. A decision
  * whose default is not forbidden needs no answer.
  * Twin: `answeredAfter` / `consentLabel` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
  * (separate modules by design — keep both in step).
  */
 function forbiddenDecisionConsented(s: BundleSession, decision: BundleReceipt, from: number, to: number): boolean {
+  return decision.evidence.default !== "forbidden" || decisionAnswered(s, decision, from, to);
+}
+
+/**
+ * Whether the operator answered `decision`'s consent label between calls
+ * `from` and `to`, WHATEVER its default — the half of
+ * `forbiddenDecisionConsented` a Linear capped re-list also needs (STE-650
+ * AC.13). Twin: `answeredAfter` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts.
+ */
+function decisionAnswered(s: BundleSession, decision: BundleReceipt, from: number, to: number): boolean {
   const ev = decision.evidence;
-  if (ev.default !== "forbidden") return true;
   const key = str(ev.key);
   const title = str(ev.title);
   const label = ev.act === "join" ? `Join \`${key}\`` : `Create \`${title}\``;
-  const namesKey = (text: string): boolean =>
-    key !== "" && new RegExp(`(^|[^A-Za-z0-9_-])${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_]|-[0-9])`).test(text);
+  const names = (q: string): boolean => namesKey(q, key) || (title !== "" && q.includes(title));
   for (let j = from + 1; j < to && j < s.calls.length; j++) {
     const c = s.calls[j]!;
     if (c.name !== "AskUserQuestion" || c.result.isError) continue;
     // The hook reads only the gated call's own transcript, so a question
     // asked in another chain (a subagent's sidechain) never consents for it.
     if (c.sidechain !== s.calls[to]?.sidechain) continue;
-    const questions = (c.input as { questions?: unknown }).questions;
-    const text = Array.isArray(questions) ? questions.map((q) => String((q as { question?: unknown } | null)?.question ?? "")).join("\n") : "";
-    if (!(namesKey(text) || (title !== "" && text.includes(title)))) continue;
-    const offers = Array.isArray(questions) && questions.some((q) => {
-      const options = (q as { options?: unknown } | null)?.options;
-      return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
-    });
-    if (!offers) continue;
-    const answers = [...c.result.text.matchAll(/"="([^"]*)"(?=[.,]\s|[.,]?$)/g)].map((m) => m[1]);
-    if (answers.length > 0 && answers.every((a) => a === label)) return true;
+    if (consentedPerQuestion(c, label, names)) return true;
   }
   return false;
 }
@@ -2324,11 +2429,28 @@ export const PRE_RELIST_HOOK_SOURCES: ReadonlySet<string> = new Set([
 export const HOOK_SOURCE = "templates/hooks/_lib/hooks/pre-tracker-write-gate.ts";
 
 /**
+ * The behaviour digest over its per-file map: SHA-256 over the sorted
+ * `"<sha>  <path>\n"` lines. `behaviourDigest` builds its digest with it, and
+ * `hookDemandsRelist` re-derives a bundle's recorded digest with it
+ * (AC-STE-650.7), so the two can never disagree about the recipe.
+ */
+const digestOfFiles = (files: Record<string, string>): string =>
+  createHash("sha256")
+    .update(Object.keys(files).sort().map((p) => `${files[p]}  ${p}\n`).join(""))
+    .digest("hex");
+
+/**
  * STE-644 — whether the run is held to the re-list: true unless the hook
  * source its behaviour digest records is one of PRE_RELIST_HOOK_SOURCES. A
- * bundle that records no hook source is held to it.
+ * bundle that records no hook source is held to it, and so is one whose
+ * recorded digest disagrees with its own file map (AC-STE-650.7): the map's
+ * hook-source entry is then not trusted.
  */
-export const hookDemandsRelist = (b: LiveBundle): boolean => !PRE_RELIST_HOOK_SOURCES.has(b.run.behaviourDigest.files[HOOK_SOURCE] ?? "");
+export const hookDemandsRelist = (b: LiveBundle): boolean => {
+  const { digest, files } = b.run.behaviourDigest;
+  if (digestOfFiles(files) !== digest) return true;
+  return !PRE_RELIST_HOOK_SOURCES.has(files[HOOK_SOURCE] ?? "");
+};
 
 /**
  * STE-644 — the grade's twin of the hook's `relistsAfter` + `freshBefore` +
@@ -2388,13 +2510,20 @@ function relistedAfter(s: BundleSession, tracker: SharedTrackerId, project: stri
   return { ok, dup: null };
 }
 
-/** STE-644 (v) — the hook's LISTING_FRESH_MS: a re-list's last page older than this before the create does not qualify. */
+/** STE-644 (v) — a re-list's last page older than this before the create does not qualify. Twin: `LISTING_FRESH_MS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
 const LISTING_FRESH_MS = 120_000;
 
-/** Whether `last` is within LISTING_FRESH_MS before `at`; a missing or unreadable timestamp is not fresh. */
+/** STE-650 AC-3 — a re-list stamped more than this AFTER the create does not qualify. Twin: `LISTING_FUTURE_SKEW_MS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const LISTING_FUTURE_SKEW_MS = 5_000;
+
+/**
+ * Whether `last` is within LISTING_FRESH_MS before `at` (and at most
+ * LISTING_FUTURE_SKEW_MS after it); a missing or unreadable timestamp is not
+ * fresh. Twin: `freshBefore` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ */
 function fresh(last: string | undefined, at: string | undefined): boolean {
   const gap = Date.parse(at ?? "") - Date.parse(last ?? "");
-  return Number.isFinite(gap) && gap <= LISTING_FRESH_MS;
+  return Number.isFinite(gap) && gap <= LISTING_FRESH_MS && gap >= -LISTING_FUTURE_SKEW_MS;
 }
 
 const rootOfPath = (p: string): Root | null => (/^<([AB])>\//.exec(p)?.[1] as Root | undefined) ?? null;
@@ -2410,17 +2539,29 @@ const rootOfPath = (p: string): Root | null => (/^<([AB])>\//.exec(p)?.[1] as Ro
  *   - a ticket create: an unspent `create` receipt of the repository whose tag
  *     the create carries, matching its project, title, tag and parent or
  *     milestone (one receipt, one create), AND an `attach-target` receipt of
- *     that repository binding the create's milestone;
+ *     that repository binding the create's milestone, not every one of which
+ *     relied on an unanswered default=forbidden join (STE-650 AC.5). No
+ *     receipt authorises a create of a ticket an earlier create in the session
+ *     settled, or may have made (a parallel duplicate among them);
  *   - an Epic / `save_milestone` create: an unspent `milestone-decision` whose
- *     act is create, for the same project and the byte-equal title;
+ *     act is create, for the same project and the byte-equal title — the
+ *     first such decision the hook permits (not forbidden, or consented),
+ *     else the first unspent one (STE-650 AC.6);
  *   - a write on a ticket key in the run's containers: the key is owned —
  *     created earlier in the session, bound by an FR file of the session's
  *     repository (or a repository it announced a receipt in), or named by a
  *     `reuse` receipt's key, a `binding` receipt's subject (an adopt only after
  *     the answered `Adopt <KEY>`), an `import` receipt's subject after the
- *     answered `Import <KEY>`, or (a Jira labels-only edit) a join decision's key.
- *   A consent (`Adopt <KEY>`, `Import <KEY>`) is an answered AskUserQuestion or
- *   the first user message's answers block giving exactly that label, before
+ *     answered `Import <KEY>`, or (a Jira labels-only edit) a join decision's
+ *     key. A labels-only edit of a key with a recorded join, owned by any
+ *     route, is graded against the LATEST join: it must be its read-merge (every
+ *     listed label plus the milestone label), and needs that join's consent
+ *     when it printed default=forbidden unless `exemptsJoinConsent` waives it
+ *     for the key's ownership route — only a key this session created
+ *     (STE-650 AC.1, AC.2, AC.4).
+ *   A consent (`Adopt <KEY>`, `Import <KEY>`) is an answered AskUserQuestion
+ *   holding a question that names the key and was answered exactly that label,
+ *   or the first user message's answers block giving exactly that label, before
  *   the announcing run (`answeredBefore`).
  * Other container writes (a project, a label, a status update, a document, a
  * milestone edit) are not gated by a receipt: the hook refuses them outright,
@@ -2508,6 +2649,24 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
       }
       return set.records.find((r) => r.kind === kind && r.adapter === tracker && r.sessionId === s.sessionId && announces(a, r)) ?? null;
     };
+    /**
+     * STE-643 (AC-STE-650.5) — the hook's provenanceUnproven, for the case it
+     * refuses on consent: the path of the default=forbidden join decision an
+     * attach target's provenance names, announced in this session before call
+     * `to` and unanswered before it; null otherwise.
+     * Twin: `provenanceUnproven` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+     */
+    const unconsentedJoin = (attach: BundleReceipt, to: number): string | null => {
+      const p = attach.evidence.provenance as Record<string, unknown> | null | undefined;
+      if (!p || typeof p !== "object" || p.kind !== "decided" || typeof p.receipt !== "string") return null;
+      for (const a of ann) {
+        if (a.index >= to || a.path !== p.receipt) continue;
+        const d = receiptOf(a, "milestone-decision");
+        if (d === null || d.evidence.act !== "join" || d.evidence.default !== "forbidden") continue;
+        if (!forbiddenDecisionConsented(s, d, a.index, to)) return d.path;
+      }
+      return null;
+    };
     const spent = new Set<string>();
     const created = new Set<string>();
     for (const { c, i } of writes) {
@@ -2522,31 +2681,49 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
         } else {
           const root = tagged[0]!;
           const mine = before.filter((a) => rootOfPath(a.path) === root);
-          const receipt = mine
+          // STE-642 / STE-641 (AC-STE-650.5) — an earlier create of this
+          // ticket that returned (settled or unkeyed), or whose error does not
+          // prove it never ran (a timeout, a 5xx — the parallel duplicate
+          // among them), leaves no receipt, fresh or not, that authorises
+          // another create of it.
+          // Twin: `priorCreates` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+          const prior = s.calls.slice(0, i).find((p) => {
+            if (!isCreateAttempt(p) || writeClass(p) !== "ticket-create" || p.sidechain !== c.sidechain) return false;
+            if (!sameTicket(callShape(tracker, p.input), shape)) return false;
+            return !p.result.isError || !createNeverRan(p);
+          });
+          const receipt = prior ? undefined : mine
             .map((a) => receiptOf(a, "create"))
             .find((r) => r !== null && !spent.has(r.path) && createMismatch(tracker, shape, payloadShape(tracker, (r.evidence.createPayload ?? {}) as Record<string, unknown>), b.roots[root].tag) === null);
-          if (!receipt) why = `create of "${shape.title}" follows no unspent create receipt announced by create_idempotency_probe.ts decide in <${root}> that records its project, title, tag and ${tracker === "jira" ? "parent" : "milestone"}`;
+          if (prior) why = `create of "${shape.title}" repeats an earlier create of that ticket (${prior.ref}) that ${prior.result.isError ? "may have made it" : `returned ${itemKeys(prior).join(", ") || "no key"}`}, and no create receipt authorises a second create of it`;
+          else if (!receipt) why = `create of "${shape.title}" follows no unspent create receipt announced by create_idempotency_probe.ts decide in <${root}> that records its project, title, tag and ${tracker === "jira" ? "parent" : "milestone"}`;
           else {
             spent.add(receipt.path);
-            if (!mine.some((a) => {
-              const r = receiptOf(a, "attach-target");
-              return r !== null && attachBinds(tracker, shape, r);
-            })) why = `create of "${shape.title}" follows no attach-target receipt announced by attach_project_milestone.ts in <${root}> that resolved the container it binds`;
+            const binding = mine.map((a) => receiptOf(a, "attach-target")).filter((r): r is BundleReceipt => r !== null && attachBinds(tracker, shape, r));
+            if (binding.length === 0) why = `create of "${shape.title}" follows no attach-target receipt announced by attach_project_milestone.ts in <${root}> that resolved the container it binds`;
+            else if (binding.every((r) => unconsentedJoin(r, i) !== null)) why = `create of "${shape.title}" binds an attach target that relied on a join decision (${unconsentedJoin(binding[0]!, i)}) that printed default=forbidden, and no AskUserQuestion after it was answered with its consent label`;
           }
         }
       } else if (cls === "milestone-create") {
         const project = tracker === "jira" ? str(c.input.projectKey) : str(c.input.project);
         const name = tracker === "jira" ? str(c.input.summary) : str(c.input.name);
-        const found = before
+        // AC-STE-650.6 — the hook's pick: of the unspent matching decisions,
+        // the first one it permits (not forbidden, or consented) governs; only
+        // when none is permitted does the first unspent one explain the refusal.
+        const unspent = before
           .map((a) => ({ a, r: receiptOf(a, "milestone-decision") }))
-          .find(({ r }) => r !== null && !spent.has(r.path) && r.evidence.act === "create" && sameName(str(r.container), project) && str(r.evidence.title) === name);
+          .filter(({ r }) => r !== null && !spent.has(r.path) && r.evidence.act === "create" && sameName(str(r.container), project) && str(r.evidence.title) === name);
+        const found = unspent.find(({ a, r }) => forbiddenDecisionConsented(s, r!, a.index, i)) ?? unspent[0];
         const decision = found?.r ?? null;
         if (!decision) why = `milestone-container create of "${name}" in ${project} follows no unspent create decision announced by resolve_milestone_identity.ts for that project and title`;
         else {
           spent.add(decision.path);
           if (!forbiddenDecisionConsented(s, decision, found!.a.index, i)) why = `milestone-container create of "${name}" in ${project} relied on a create decision (${decision.path}) that printed default=forbidden, and no AskUserQuestion after it was answered "Create \`${name}\`"`;
           else if (hookDemandsRelist(b)) {
-            const relist = relistedAfter(s, tracker, project, found!.a.index, i, decision.evidence.default === "forbidden", name);
+            // The hook's bound (STE-650 AC.13): a forbidden decision, or an
+            // allowed Linear one the operator answered, accepts a capped window.
+            const consented = decision.evidence.default === "forbidden" || (tracker === "linear" && decisionAnswered(s, decision, found!.a.index, i));
+            const relist = relistedAfter(s, tracker, project, found!.a.index, i, consented, name);
             if (relist.dup !== null) why = `milestone-container create of "${name}" in ${project} follows a listing of the project's containers that holds the open container \`${relist.dup}\` of that title, so it duplicates it`;
             else if (!relist.ok) why = `milestone-container create of "${name}" in ${project} follows no complete, canonical listing of the project's containers recorded after its create decision (${decision.path})`;
           }
@@ -2554,7 +2731,9 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
       } else {
         const subjects = subjectKeys(c);
         const keys = subjects.filter(inRunContainers);
-        if (subjects.length === 0) why = "ticket write names no ticket key the hook could resolve";
+        const unresolved = unresolvedSides(c);
+        if (unresolved.length > 0) why = `link names the Jira-item side ${unresolved.map((v) => `"${v}"`).join(", ")} that resolves to no ticket key (only a key or a /browse/<KEY> URL does), whatever its other side`;
+        else if (subjects.length === 0) why = "ticket write names no ticket key the hook could resolve";
         else if (keys.length === 0) {
           // THE THIRD CASE, which used to fall through to `why = null` and grade
           // as gated: every key this write names is outside the run's own
@@ -2567,30 +2746,56 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
         } else {
           const roots = new Set<Root>([s.root, ...before.map((a) => rootOfPath(a.path)).filter((r): r is Root => r !== null)]);
           const labelsOnly = bareTool(c.name) === "editJiraIssue" && Object.keys((c.input.fields ?? {}) as object).every((k) => k === "labels");
-          const owned = (k: string): boolean => {
-            if (created.has(k)) return true;
-            if ([...roots].some((r) => b.repos[r].frBindings.some((f) => f.key.toUpperCase() === k))) return true;
-            const receipted = before.some((a) => {
+          /** HOW the session owns `k` (STE-650 AC.2), or null when it does not. */
+          const routeOf = (k: string): OwnershipRoute | null => {
+            if (created.has(k)) return "created";
+            if ([...roots].some((r) => b.repos[r].frBindings.some((f) => f.key.toUpperCase() === k))) return "fr-binding";
+            for (const a of before) {
               const reuse = receiptOf(a, "reuse");
-              if (reuse && str(reuse.evidence.key).toUpperCase() === k) return true;
+              if (reuse && str(reuse.evidence.key).toUpperCase() === k) return "reuse-receipt";
               const bind = receiptOf(a, "binding");
-              if (bind && bind.subject.toUpperCase() === k && (bind.decision !== "adopt" || answeredBefore(s, a.index, `Adopt ${k}`))) return true;
+              if (bind && bind.subject.toUpperCase() === k && (bind.decision !== "adopt" || answeredBefore(s, a.index, `Adopt ${k}`))) return "binding-receipt";
               const imp = receiptOf(a, "import");
-              return imp !== null && imp.subject.toUpperCase() === k && answeredBefore(s, a.index, `Import ${k}`);
-            });
-            if (receipted) return true;
-            if (tracker !== "jira" || !labelsOnly) return false;
+              if (imp !== null && imp.subject.toUpperCase() === k && answeredBefore(s, a.index, `Import ${k}`)) return "import-receipt";
+            }
+            return null;
+          };
+          const writtenLabels = stringList(((c.input.fields ?? {}) as Record<string, unknown>).labels);
+          /**
+           * STE-650 AC.4 — the read-merge: every label the join listed plus the
+           * join's milestone label; a join naming no readable milestone id fails it.
+           * Twin: the read-merge tail of `gateJoinedLabels` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+           */
+          const readMerged = (join: BundleReceipt): boolean => {
+            let milestone: string;
+            try {
+              milestone = milestoneLabel(str(join.evidence.milestoneId));
+            } catch {
+              return false;
+            }
+            return [...stringList(join.evidence.labels), milestone].every((l) => writtenLabels.includes(l));
+          };
+          const owned = (k: string): boolean => {
+            const route = routeOf(k);
+            const exempt = route !== null && exemptsJoinConsent(route);
+            if (tracker !== "jira" || !labelsOnly) return route !== null;
             // STE-643 — as in the hook's gateJoinedLabels, the LATEST join of
             // the key governs: a later forbidden, unanswered join is not
-            // rescued by an earlier allowed one.
+            // rescued by an earlier allowed one. STE-650 AC.2 — and, as there,
+            // only a key this session created is exempt from that join's
+            // consent; any other ownership route still needs the answer.
+            // STE-650 AC.4 — the exemption waives the CONSENT only: the labels
+            // value is still the read-merge the join printed, created or not.
             let latest: { a: ModuleAnnouncement; join: BundleReceipt } | null = null;
             for (const a of before) {
               const join = receiptOf(a, "milestone-decision");
               if (join && join.evidence.act === "join" && str(join.evidence.key).toUpperCase() === k) latest = { a, join };
             }
-            return latest !== null && forbiddenDecisionConsented(s, latest.join, latest.a.index, i);
+            if (latest === null) return route !== null;
+            if (!exempt && !forbiddenDecisionConsented(s, latest.join, latest.a.index, i)) return false;
+            return readMerged(latest.join);
           };
-          const ok = bareTool(c.name) === "createIssueLink" ? keys.some(owned) : keys.every(owned);
+          const ok = isLinkTool(c) ? keys.some(owned) : keys.every(owned);
           if (!ok) why = `write on ${keys.join(", ")} follows no receipt, creation or FR binding in this session that makes the key its repository's`;
         }
       }
@@ -3555,10 +3760,7 @@ export function behaviourDigest(pluginRoot: string, opts: { trackedFiles?: reado
     const body = p === MANIFEST ? bytes.toString("utf-8").replace(VERSION_FIELD, VERSION_PLACEHOLDER) : bytes;
     files[p] = createHash("sha256").update(body).digest("hex");
   }
-  const digest = createHash("sha256")
-    .update(paths.map((p) => `${files[p]}  ${p}\n`).join(""))
-    .digest("hex");
-  return { ok: true, digest, files };
+  return { ok: true, digest: digestOfFiles(files), files };
 }
 
 // ---------------------------------------------------------------------------

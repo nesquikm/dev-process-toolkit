@@ -31,6 +31,13 @@
 //     project, the leg does not run and the report lists it in `skipped` —
 //     never counted as passed. The repoint command's row 7 applies the same
 //     two exported checks (`foreignJiraKeyProject`, `epicTokenOutside`).
+//   STE-647 — remedies only; verdicts are unchanged. A key-prefix remedy says
+//     the file's ticket stays in its own project and is read by key, then
+//     gives each route with its condition: an untracked leftover (`git status`
+//     shows `??`) moves out of the checkout; a tracked file in a checkout
+//     that moved takes the repoint command, or is archived. The paragraph
+//     remedy re-runs the writer without `--shared`, so following it never
+//     moves the floor. Commands are named through `${CLAUDE_PLUGIN_ROOT}`.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -38,7 +45,7 @@ import { checkVersionFloor, nfr10Message, runningDptVersion } from "./dpt_versio
 import { parseFrontmatter } from "./frontmatter";
 import { oneLine } from "./tracker_receipts";
 import { milestoneIdFromEpicKey, PLAN_FILENAME_RE, parseMilestoneToken } from "./milestone_token";
-import { renderSharedTrackerSentinel, SHARED_TRACKER_MARKER } from "./setup/tracker_binding_write";
+import { renderSharedTrackerSentinel, SHARED_TRACKER_MARKER, shellArg } from "./setup/tracker_binding_write";
 import {
   locateSubsection,
   readWorkspaceBinding,
@@ -104,7 +111,7 @@ function buildMessage(reason: string, file: string, mode: string): string {
   ].join("\n");
 }
 
-const WRITER = "plugins/dev-process-toolkit/adapters/_shared/src/setup/tracker_binding_write.ts";
+const WRITER = "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/setup/tracker_binding_write.ts";
 
 function buildSharedMessage(leg: string, reason: string, remedy: string, file: string, mode: string): string {
   return nfr10Message(
@@ -199,7 +206,7 @@ export async function runTaskTrackingWorkspaceBindingPresentProbe(
   }
 
   const paragraphs = stopParagraphs(locateSubsection(lines, adapterKey) ?? []);
-  const rewrite = `re-run \`bun run ${WRITER} <projectRoot> ${adapterKey} --project <project> --shared <tag>\` to re-render it`;
+  const rewrite = `re-run \`bun run "${WRITER}" <projectRoot> ${adapterKey} --project <project> --shared <tag>\` to re-render it`;
   if (binding.shared) {
     // Leg (b) — exactly one paragraph, byte-equal to the render.
     const expected = renderSharedTrackerSentinel({
@@ -216,7 +223,10 @@ export async function runTaskTrackingWorkspaceBindingPresentProbe(
     }
     if (problem !== null) {
       const reason = `${subTitle} declares repo_tag "${binding.repoTag}" but the shared-container stop paragraph ${problem}`;
-      violations.push(violation(reason, buildSharedMessage("paragraph", reason, `${rewrite}.`, rel, resolved.mode)));
+      // STE-647 AC.9 — a plain re-run re-renders a kept declaration's paragraph
+      // at its existing floor; `--shared` is not needed and never moves it.
+      const rerender = `re-run \`bun run "${WRITER}" <projectRoot> ${adapterKey} --project ${binding.project !== undefined && binding.project !== null ? shellArg(binding.project) : "<project>"}\` to re-render it`;
+      violations.push(violation(reason, buildSharedMessage("paragraph", reason, `${rerender}.`, rel, resolved.mode)));
     }
     // Leg (c) — the running toolkit version at or above the floor.
     let running: string | null = null;
@@ -261,7 +271,7 @@ export async function runTaskTrackingWorkspaceBindingPresentProbe(
 
 const KEY_PREFIX_LEG = "key-prefix leg";
 const KEY_PREFIX_SKIP = `${KEY_PREFIX_LEG} (Jira only)`;
-const REPOINT = "plugins/dev-process-toolkit/adapters/_shared/src/repoint_tracker_binding.ts";
+const REPOINT = "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/repoint_tracker_binding.ts";
 
 /** The regular `.md` files directly under `dir` (never a sub-directory such as `archive/`), sorted by name. */
 export function mdFiles(dir: string): string[] {
@@ -336,7 +346,7 @@ function keyPrefixViolations(
 ): TaskTrackingWorkspaceBindingViolation[] {
   const prefix = epicTokenPrefix(project);
   const out: TaskTrackingWorkspaceBindingViolation[] = [];
-  const push = (abs: string, line: number, rawReason: string): void => {
+  const push = (abs: string, line: number, rawReason: string, home: string): void => {
     // A filename or key may carry a newline; nothing it supplies starts a line.
     const rel = oneLine(relative(projectRoot, abs));
     const reason = oneLine(rawReason);
@@ -347,7 +357,7 @@ function keyPrefixViolations(
       note: `${rel}:${line} — ${reason}`,
       message: nfr10Message(
         `task_tracking_workspace_binding_present: ${reason}`,
-        `the bound project was changed without the repoint command — restore \`project:\` and run \`bun run ${REPOINT} <projectRoot> jira ${project} --projects <file> --containers <file>\`, or archive the FR / plan before repointing.`,
+        `the file's ticket stays in ${oneLine(home)} and is read by key — nothing here moves it. If \`git status\` shows \`??\` for the file, it is an untracked leftover: move it out of this checkout. If it is tracked and this checkout moved to ${project}, run \`bun run "${REPOINT}" <projectRoot> jira ${shellArg(project)} --projects <projects.json> --containers <containers.json>\` from a Claude Code session, or archive the FR / plan.`,
         `file=${rel}, mode=${mode}, leg=key-prefix, project=${project}, probe=task_tracking_workspace_binding_present`,
       ),
     });
@@ -360,7 +370,7 @@ function keyPrefixViolations(
     const key = activeJiraKeyOf(content);
     const foreign = key === undefined ? undefined : foreignJiraKeyProject(key, project);
     if (key === undefined || foreign === undefined) continue;
-    push(abs, lineOf(content, key), `active FR tracker key "${key}" is in project "${foreign}", not the bound Jira project "${project}"`);
+    push(abs, lineOf(content, key), `active FR tracker key "${key}" is in project "${foreign}", not the bound Jira project "${project}"`, foreign);
   }
 
   const planDir = join(projectRoot, "specs", "plan");
@@ -374,6 +384,7 @@ function keyPrefixViolations(
       abs,
       lineOf(content, token),
       `active Epic-keyed plan "${token}" does not start with "${prefix ?? `M_${project}_`}", the bound Jira project "${project}"`,
+      "its own project",
     );
   }
   return out;

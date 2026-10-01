@@ -34,13 +34,17 @@ function defaultPluginRoot(): string {
   return resolve(import.meta.dir, "..", "..", "..");
 }
 
+/** The manifest `runningDptVersion` reads: `<pluginRoot>/.claude-plugin/plugin.json`. */
+export function runningDptManifestPath(pluginRoot?: string): string {
+  return join(pluginRoot ?? defaultPluginRoot(), ".claude-plugin", "plugin.json");
+}
+
 /**
  * The running toolkit version: `version` from
  * `<pluginRoot>/.claude-plugin/plugin.json`. Never a literal.
  */
 export function runningDptVersion(pluginRoot?: string): string {
-  const root = pluginRoot ?? defaultPluginRoot();
-  const manifest = join(root, ".claude-plugin", "plugin.json");
+  const manifest = runningDptManifestPath(pluginRoot);
   let version: unknown;
   try {
     version = JSON.parse(readFileSync(manifest, "utf-8"))?.version;
