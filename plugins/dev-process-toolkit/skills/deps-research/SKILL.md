@@ -50,7 +50,7 @@ When `specs/deps.yaml` is **absent** OR contains **zero entries**, emit the CANO
 
 ## Branch-gate exemption
 
-This skill writes nothing under VCS — it only reads `specs/deps.yaml` and sibling-checkout `docs/` trees and emits the summary block to its parent's context. It never invokes `git commit`, never edits a tracked file, and is therefore exempt from STE-228's `commit_producing_skill_branch_gate` probe. The exemption is enforced by the `NON_COMMIT_PRODUCING_SKILLS` allowlist in `adapters/_shared/src/commit_producing_skill_branch_gate.ts` — `deps-research` is on that list alongside `spec-research` and `report-issue` (AC-STE-301.12).
+This skill writes nothing under VCS — it only reads `specs/deps.yaml` and sibling-checkout `docs/` trees and emits the summary block to its parent's context. It never invokes `git commit`, never edits a tracked file, and is therefore exempt from STE-228's `commit_producing_skill_branch_gate` check. The exemption is enforced by the `NON_COMMIT_PRODUCING_SKILLS` allowlist in `adapters/_shared/src/commit_producing_skill_branch_gate.ts` — `deps-research` is on that list alongside `spec-research` and `report-issue` (AC-STE-301.12).
 
 ## Rules
 

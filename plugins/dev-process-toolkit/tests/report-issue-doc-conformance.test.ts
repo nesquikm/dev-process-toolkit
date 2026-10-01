@@ -93,6 +93,13 @@ describe("AC-STE-229.10 — branch-gate-exemption note", () => {
     expect(body).toContain("STE-228");
   });
 
+  test("AC-STE-656.1: no sentence naming commit_producing_skill_branch_gate calls it a probe (no numbered entry registers it)", () => {
+    const flat = readSkill("report-issue").replace(/\n[ \t]*/g, " ");
+    const naming = flat.split(/(?<=[.;!?])\s+(?=[A-Z`(*\[])/).filter((s) => s.includes("commit_producing_skill_branch_gate"));
+    expect(naming.length).toBeGreaterThan(0);
+    expect(naming.filter((s) => /\bprobes?\b/i.test(s))).toEqual([]);
+  });
+
   test("SKILL.md states the skill writes nothing under VCS / never invokes git commit", () => {
     const body = readSkill("report-issue");
     expect(body).toMatch(/write[s]?\s+nothing\s+under\s+VCS|writes\s+no\s+files\s+under\s+VCS/i);

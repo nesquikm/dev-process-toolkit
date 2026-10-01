@@ -127,9 +127,12 @@ One more gate reads receipts, not a `Skill` tool_use:
   Silent where this CLAUDE.md declares no shared tracker container.
 
 Full manual: `docs/hooks-reference.md` inside the installed dev-process-toolkit
-plugin — not a path in this repository. Open it from the plugin cache
-(`~/.claude/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/docs/hooks-reference.md`)
-or read it in the plugin's source repository.
+plugin — not a path in this repository. A copied install (a remote
+marketplace) keeps it in the plugin cache at
+`$CLAUDE_CONFIG_DIR/plugins/cache/dev-process-toolkit/dev-process-toolkit/<version>/docs/hooks-reference.md`
+(`$CLAUDE_CONFIG_DIR` defaults to `~/.claude`). A local-directory marketplace
+(a `directory` source) copies nothing and loads the plugin in place, so read it
+in the plugin's own working tree at `plugins/dev-process-toolkit/docs/hooks-reference.md`.
 
 <!-- Other user-invocable skills (call directly as needed):
      - `/deliver` — the full delivery pipeline orchestrator: it chains the phase
