@@ -1,4 +1,4 @@
-// Shared helpers for STE-610 (M_685ff6) — declaring a span in both plans,
+// Shared helpers for STE-610 (M_685ff6) — declaring a span (each side its own plan since STE-651),
 // the one-sided state, and the shared-container children check.
 //
 // Leading underscore: a helper module, never collected as a suite.

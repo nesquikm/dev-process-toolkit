@@ -68,12 +68,14 @@ import { readWorkspaceBinding } from "./workspace_binding";
 import { verifySpan } from "./spans_repos";
 import {
   decideMilestoneMint,
+  JIRA_EPIC_LISTING_FIELDS_CLAUSE,
   type JiraDecisionRow,
   type LinearDecisionRow,
   type MilestoneMintDecision,
   milestoneIdFromEpicKey,
   milestoneIdFromLinearMilestone,
 } from "./milestone_token";
+export { JIRA_EPIC_LISTING_FIELDS } from "./milestone_token";
 import {
   mintMilestoneLinear,
   type MintMilestoneLinearProvider,
@@ -228,8 +230,12 @@ export function milestoneGateSentence(input: {
   decision: MilestoneMintDecision;
   rows: readonly GateSentenceRow[];
   shared: boolean;
-  /** STE-610 AC-STE-610.4 — the sibling a shared join was verified against (dry run). */
-  sibling?: { tag: string; path: string };
+  /**
+   * STE-610 AC-STE-610.4 — the sibling a shared join was verified against (dry
+   * run). STE-651 AC-STE-651.11 — `planSource` names where its plan was found
+   * (`worktree <path>`, `branch <name>` or a remote-tracking ref).
+   */
+  sibling?: { tag: string; path: string; planSource?: string };
 }): { gate: string; forbidden: boolean } {
   const { mode, project, decision } = input;
   const kind = mode === "jira" ? "Epic" : "project milestone";
@@ -237,7 +243,8 @@ export function milestoneGateSentence(input: {
   if (decision.act === "join") {
     const row = mode === "jira" ? input.rows.find((r) => r.key === decision.key) : undefined;
     const status = mode === "jira" ? `status ${row?.statusName ?? row?.statusCategory ?? "unknown"}` : "no status listed";
-    const withSibling = input.sibling === undefined ? "" : ` with sibling ${input.sibling.tag} at ${input.sibling.path}`;
+    const heldBy = input.sibling?.planSource === undefined ? "" : `, its plan \`${joinedMilestoneId(mode, decision.key)}\` held by ${input.sibling.planSource}`;
+    const withSibling = input.sibling === undefined ? "" : ` with sibling ${input.sibling.tag} at ${input.sibling.path}${heldBy}`;
     gate = `join the existing ${kind} ${decision.key} "${decision.name}" (${status}) in project ${project} via ${decision.via}${withSibling}; nothing is created.`;
   } else {
     gate = `create a new ${kind} "${input.title ?? ""}" in project ${project}.`;
@@ -582,9 +589,16 @@ export function readListingFile(args: Pick<FrontDoorArgs, "mode" | "project" | "
     const f = issue.fields;
     if (typeof f.summary !== "string") throw shape(`issue ${key} carries no string \`summary\``);
     const projectKey = isObject(f.project) && typeof f.project.key === "string" ? f.project.key : undefined;
+    if (projectKey === undefined) {
+      throw new FrontDoorRefusal(
+        `Refusing: issue ${key} carries no project field (fields.project.key) — the Epic search was saved with a fields list that omitted \`project\`, so the listing cannot prove its rows are project ${args.project}'s.`,
+        `search project ${args.project}'s Epics again ${JIRA_EPIC_LISTING_FIELDS_CLAUSE}, save that answer, and decide again.`,
+        `${context}, row=${key}, project=absent`,
+      );
+    }
     if (projectKey !== args.project || !key.startsWith(`${args.project}-`)) {
       throw new FrontDoorRefusal(
-        `Refusing: issue ${key} is keyed outside project ${args.project} (project ${projectKey ?? "absent"}) — the file is not that project's Epic listing.`,
+        `Refusing: issue ${key} is keyed outside project ${args.project} (project ${projectKey}) — the file is not that project's Epic listing.`,
         `enumerate project ${args.project}'s Epics only, save that answer, and decide again.`,
         `${context}, row=${key}`,
       );
@@ -593,7 +607,7 @@ export function readListingFile(args: Pick<FrontDoorArgs, "mode" | "project" | "
     if (typeName !== "Epic") {
       throw new FrontDoorRefusal(
         `Refusing: issue ${key} is ${typeName === undefined ? "listed with no issue type" : `a ${typeName}, not an Epic`} — the file is not project ${args.project}'s Epic listing.`,
-        `enumerate project ${args.project}'s Epics with the issuetype field, save that answer, and decide again.`,
+        `enumerate project ${args.project}'s Epics ${JIRA_EPIC_LISTING_FIELDS_CLAUSE}, save that answer, and decide again.`,
         `${context}, row=${key}, issuetype=${typeName ?? "absent"}`,
       );
     }
@@ -622,7 +636,7 @@ export function readListingFile(args: Pick<FrontDoorArgs, "mode" | "project" | "
 async function verifyJoinSibling(
   args: FrontDoorArgs,
   milestoneId: string,
-): Promise<{ tag: string; path: string }> {
+): Promise<{ tag: string; path: string; planSource: string }> {
   // A refusal is the span reader's own NFR-10 text; the front door's catch
   // prints it verbatim, line by line through `printable`.
   const v = await verifySpan({
@@ -632,7 +646,7 @@ async function verifyJoinSibling(
     siblingPath: args.sibling!,
     dryRun: true,
   });
-  return { tag: v.siblingTag, path: v.siblingRoot };
+  return { tag: v.siblingTag, path: v.siblingRoot, planSource: v.siblingPlan.source };
 }
 
 /** Decide, then write the one receipt, then return the lines to print. */
@@ -762,7 +776,7 @@ async function runDecisionFrontDoor(argv: readonly string[]): Promise<string[]> 
       ...(observedLabels !== undefined ? { labels: observedLabels } : {}),
       shared: binding.shared,
       ...(possiblyCapped ? { possiblyCapped: true } : {}),
-      ...(sibling !== undefined ? { sibling: { tag: sibling.tag, path: sibling.path, given: args.sibling } } : {}),
+      ...(sibling !== undefined ? { sibling: { tag: sibling.tag, path: sibling.path, given: args.sibling, planSource: sibling.planSource } } : {}),
       default: forbidden ? "forbidden" : "allowed",
       ...(options !== undefined ? { options } : {}),
       listing: { file: resolve(args.listingFile), sha256: listing.sha256, rowKeys: listing.rowKeys },
