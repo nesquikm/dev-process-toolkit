@@ -129,6 +129,7 @@ ticket gets one line carrying the two option labels to show verbatim:
 options: Import <KEY> | Skip <KEY>
 ```
 
+The tracker-write hook counts an `Import <KEY>` answer only when the question's own text names the ticket key (options alone do not count), and the latest such answer before the write governs.
 On an explicit `Import <KEY>` answer, record consent before the import:
 
 ```bash

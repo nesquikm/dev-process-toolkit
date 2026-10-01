@@ -137,7 +137,8 @@ concrete pattern via the active adapter's `## Tool surface` table.
    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts confirm <projectRoot> <KEY> <ticket.json> [--adopt]`;
    in a shared repository it writes the `binding` receipt that the
    tracker-write hook requires before the claim's transition. A ticket that
-   is not ours never reaches the routing below.
+   is not ours never reaches the routing below. The tracker-write hook counts
+   an Adopt answer only when the question's own text names the ticket key (options alone do not count), and the latest such answer before the write governs.
 1. **Read state + assignee.** Call `mcp__<tracker>__get_issue(<id>)`. Capture
    `status`, `assigneeId` / `assignee`, and `updatedAt`.
 2. **Decision routing (five-way)** — the table `claimRoute(status, assignee,

@@ -28,8 +28,8 @@
 //     compliant shipped skill.
 //
 // The walk is rooted at `plugins/dev-process-toolkit/skills/` (the house
-// idiom, shared with probe #66 `public_surface_count_drift` and probe #33
-// `commit_producing_skill_branch_gate`), so a consumer project's
+// idiom, shared with probe #57 `public_surface_count_drift` and the
+// `commit_producing_skill_branch_gate` module), so a consumer project's
 // `.claude/skills/` tree is never dragged into scope.
 //
 // Violation shape follows probe #37 `cross_cutting_spec_stale_file_refs`:

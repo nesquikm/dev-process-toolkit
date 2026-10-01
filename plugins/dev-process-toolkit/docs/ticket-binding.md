@@ -113,7 +113,8 @@ with zero tracker writes and zero files — the prompt is never shown. An
 adopt question (`Adopt <KEY>` / `Skip <KEY>`) after it, and Skip exits
 cleanly. Only after the operator says yes (and, for `unowned`, Adopt) does
 the skill run `confirm <projectRoot> <KEY> <ticket.json>` (`--adopt` after
-an Adopt), and only then import or claim.
+an Adopt), and only then import or claim. The tracker-write hook counts an
+Adopt answer only when the question's own text names the ticket key (options alone do not count), and the latest such answer before the write governs.
 
 ## Mandatory confirmation
 

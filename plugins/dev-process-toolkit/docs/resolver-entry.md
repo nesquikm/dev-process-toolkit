@@ -43,7 +43,7 @@ before any write:
 3. Print the mandatory confirmation `Operating on ticket <ID>: <title> — proceed? [y/N]`
    (`docs/ticket-binding.md` § Mandatory confirmation); anything but yes exits cleanly.
 4. When the verdict is `unowned`, ask the adopt question (`Adopt <KEY>` / `Skip <KEY>`);
-   Skip exits cleanly.
+   Skip exits cleanly. The tracker-write hook counts an Adopt answer only when the question's own text names the ticket key (options alone do not count), and the latest such answer before the write governs.
 5. Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts" confirm <projectRoot> <KEY> <ticket.json>`
    (`--adopt` after an Adopt). Only a zero exit reaches
    `importFromTracker(…, ticketImportOwnership(<projectRoot>, <ticket JSON>))`
