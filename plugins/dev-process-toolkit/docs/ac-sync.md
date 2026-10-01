@@ -81,6 +81,12 @@ Responses:
    on either side. Cancel on any AC cancels the whole
    resolution event, not just that AC.
 
+A diff of tracker-only `jira-<n>` rows paired with local-only rows means
+the ticket still carries draft placeholder ids (`AC.<n>` or
+`AC-<tracker-id>.<n>`), which parse to adapter-local `jira-<n>` ids.
+Keeping local on each pair heals it: the push rewrites the ticket with
+the real `AC-<tracker-id>.<n>` ids.
+
 No bulk shortcuts like `accept all tracker`. Shortcuts hide the
 drift the sync is supposed to surface.
 

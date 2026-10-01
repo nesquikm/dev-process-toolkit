@@ -1,7 +1,7 @@
 // Shared YAML frontmatter parser — consolidates the near-duplicate variants
 // that were inlined in local_provider and plan_lock. Minimal-YAML scope:
 // scalar values, single-level `tracker:` map,
-// `{}` empty-map literal, `null` literal, quoted string passthrough.
+// `{}` empty-map literal, `null` literal, quoted strings (unescaped).
 //
 // Design rationale: we intentionally do NOT pull a YAML library — the
 // frontmatter schema is tightly constrained (Schemas Q, R, S, T) and the
@@ -157,15 +157,33 @@ export function parseFrontmatter(
 
 function stripQuotes(v: string): string {
   if (v.length >= 2) {
-    if (v.startsWith('"') && v.endsWith('"')) return v.slice(1, -1);
-    if (v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1);
+    if (v.startsWith('"') && v.endsWith('"')) {
+      // A backslash means the writer escaped the value; undo it as JSON.
+      // Escapes that are not valid JSON read as the raw slice (pre-STE-654).
+      // Contract: this applies to EVERY double-quoted frontmatter value, not
+      // only `title`, and only when it carries a backslash — so a field that
+      // must keep a literal `\n` or `\t` (a Windows path, a regex) belongs in
+      // single quotes, where only `''` is unescaped.
+      if (v.includes("\\")) {
+        try {
+          const parsed: unknown = JSON.parse(v);
+          if (typeof parsed === "string") return parsed;
+        } catch {
+          // fall through to the raw slice
+        }
+      }
+      return v.slice(1, -1);
+    }
+    if (v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1).replace(/''/g, "'");
   }
   return v;
 }
 
 // YAML-literal coercion for scalar values: `null` → null, bare `true`/`false`
-// → booleans, everything else → quote-stripped string. Quoted literals
-// (`"true"`, `'null'`) stay strings — users asked for a string explicitly.
+// → booleans, everything else → unquoted string (see stripQuotes: an escaped
+// double-quoted value is JSON-unescaped, a single-quoted one has `''` folded
+// to `'`). Quoted literals (`"true"`, `'null'`) stay strings — users asked
+// for a string explicitly.
 function coerceScalar(v: string): string | boolean | null {
   if (v === "null") return null;
   if (v === "true") return true;
