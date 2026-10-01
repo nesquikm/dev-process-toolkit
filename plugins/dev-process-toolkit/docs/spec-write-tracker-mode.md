@@ -23,6 +23,7 @@ The order is load-bearing. Trackers skip cancelled numbers, renumber across work
 2. **Create the tracker ticket.** Call `Provider.sync(spec)` → `upsertTicketMetadata(null, …)`. **Workspace binding.** Before invoking, call `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` from `adapters/_shared/src/workspace_binding.ts` and pass `team` + `project` + `defaultLabels` into the call so the new ticket lands on the correct project board with the configured labels. Linear adapter rejects creates that lack `project` per the silent-landing trap; Jira adapter rejects creates that lack `project` per the Jira API requirement. **Labels** are optional and forwarded only when `defaultLabels` is populated (Linear → `save_issue.labels`; Jira → `createJiraIssue.additional_fields.labels`). The tracker allocator returns the real ID (e.g., `<TKR>-NN`).
 3. **Substitute globally.** Replace every `<tracker-id>` with the returned ID in one pass.
 4. **Write the FR file.** Only after substitution completes — the file on disk never contains a placeholder.
+5. **Re-sync the ticket.** Call `Provider.sync(spec)` again. With its `tracker:` binding the FR is now an update of the returned key, which sends title and description — the substituted AC ids and the back-link rendered with the real key — and, since the re-sync passes no labels on the spec, leaves labels untouched. Without this step the ticket keeps the placeholder-era description written at create time.
 
 ### Worked example
 
@@ -68,7 +69,10 @@ After each AC-list save in `specs/frs/<tracker-id>.md`'s
 goes straight to `upsert_ticket_metadata(null, title, description)` to
 mint a new ticket; the returned ID becomes the FR filename
 (`specs/frs/<tracker-id>.md`) — the filename IS the binding (no
-separate traceability matrix is maintained).
+separate traceability matrix is maintained). Once the FR file is
+written, it re-syncs the ticket with one more `Provider.sync(spec)` —
+an update of the returned key that sends title and description (the
+substituted AC ids, the real back-link) and, carrying no labels on the spec, leaves labels untouched.
 
 ## Cancel semantics
 

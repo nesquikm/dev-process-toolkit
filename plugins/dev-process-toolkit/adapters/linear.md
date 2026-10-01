@@ -276,6 +276,10 @@ observed status; operators fix either by transitioning the ticket to
    mandatory and routes readers to the file-per-FR spec file. The legacy
    `{fr_anchor}` variable + `specs/requirements.md#...` path has been
    retired — the v1 monolithic-requirements layout has no v2 equivalent.
+   On a new issue `{tracker_id}` is rendered on the post-create update,
+   not on the create: the ID is unknown at create time, so the create
+   carries the FR body and the update that follows it re-renders the
+   description with the returned ID substituted.
 5. Return the issue ID. After the call, the `TrackerProvider` post-write
    guard verifies `updatedAt` advanced; a silent no-op raises
    `TrackerWriteNoOpError`.

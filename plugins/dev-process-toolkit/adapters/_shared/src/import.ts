@@ -27,6 +27,7 @@
 import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { acPrefix } from "./ac_prefix";
+import { escapeYamlScalar } from "./fr_frontmatter";
 import { stripLinearACFences } from "../../linear/src/format_description";
 import type { FRSpec, Provider } from "./provider";
 import { assertListingProject, classifyTicket, isOfferable, normalizeContainerItems, normalizeContainerPage } from "./container_ownership";
@@ -222,7 +223,7 @@ function renderFRFile(p: RenderParams): string {
     ? "- TODO: AC list from tracker was empty. Add ACs here or in the tracker; FR-39 sync will reconcile.\n"
     : p.acs.map((ac, i) => `- AC-${prefix}.${i + 1}: ${ac}\n`).join("");
   return `---
-title: ${p.title}
+title: ${escapeYamlScalar(p.title)}
 milestone: ${p.milestone}
 status: active
 archived_at: null

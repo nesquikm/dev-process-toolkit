@@ -435,7 +435,11 @@ the canonical form (no round-trip loop).
 3. Render `ticket_description_template` with `{fr_body}` and `{tracker_id}`
    (Jira key, e.g. `ABC-123`) substituted; back-link to
    `specs/frs/{tracker_id}.md` is mandatory. The legacy `{fr_anchor}` +
-   `specs/requirements.md#...` form has been retired.
+   `specs/requirements.md#...` form has been retired. On a new ticket
+   `{tracker_id}` is rendered on the post-create update, not on the create:
+   the key is unknown at create time, so the create carries the FR body
+   and the update that follows it re-renders the description with the
+   returned key substituted.
 4. Return the ticket id.
 
 Every write here passes through the silent-no-op trap: post-call
