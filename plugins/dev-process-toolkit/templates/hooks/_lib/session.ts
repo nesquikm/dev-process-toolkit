@@ -99,22 +99,6 @@ export function oneLine(text: string): string {
 
 
 /**
- * Emit a 3-line NFR-10-shape block.
- *
- * Byte-stable substrings (per STE-286 §104):
- *   "<verdict>: <why>"
- *   "Remedy: <how>"
- *   "Context: mode=hook, ticket=unbound, skill=<skill>, hook=<hook>"
- *
- * STDERR by default, and STDOUT for the one thing a hook says while PERMITTING
- * (M_85e846 review round 3). A PreToolUse hook that exits 0 surfaces no stderr
- * at all, so a finding reported alongside a permitted action has to leave by
- * the other channel or it is not reported at all — which is the defect: a
- * DETECTED forgery thrown away because the commit was legitimately vouched for
- * by a second announcement. The exit code is unchanged and the action still
- * runs; only the words reach the operator.
- */
-/**
  * The sentence a refusal owes when it blocks a CHAINED command.
  *
  * A PreToolUse refusal blocks the WHOLE Bash call, so everything chained after
@@ -133,6 +117,22 @@ export function chainedCallNote(command: unknown): string {
   return " This refusal blocked the WHOLE command, so anything chained after it did not run either — re-run those parts as their own commands once this is satisfied.";
 }
 
+/**
+ * Emit a 3-line NFR-10-shape block.
+ *
+ * Byte-stable substrings (per STE-286 §104):
+ *   "<verdict>: <why>"
+ *   "Remedy: <how>"
+ *   "Context: mode=hook, ticket=unbound, skill=<skill>, hook=<hook>"
+ *
+ * STDERR by default, and STDOUT for the one thing a hook says while PERMITTING
+ * (M_85e846 review round 3). A PreToolUse hook that exits 0 surfaces no stderr
+ * at all, so a finding reported alongside a permitted action has to leave by
+ * the other channel or it is not reported at all — which is the defect: a
+ * DETECTED forgery thrown away because the commit was legitimately vouched for
+ * by a second announcement. The exit code is unchanged and the action still
+ * runs; only the words reach the operator.
+ */
 export function emitNFR10(
   verdict: "Refusing" | "Reminder",
   why: string,
@@ -840,12 +840,84 @@ export function findSkillToolUse(
 }
 
 /**
- * STE-650 — how long the gate-check and spec-review gates wait for a pending receipt run's
+ * STE-650 — how long the command gates (gate-check, spec-review and, since
+ * STE-655, the tdd commit gate) wait for a pending receipt run's
  * tool_result to reach the transcript. The tracker gate's
  * `GATED_LINE_WAIT_MS` is defined as this value, so the bound is one number.
  */
 export const RECEIPT_RESULT_WAIT_MS = 2000;
 const RECEIPT_RESULT_POLL_MS = 25;
+
+/**
+ * STE-650 / STE-655 — a receipt miss a pending receipt run could explain: no
+ * detected forgery, and a reason (if any) the missing result could change.
+ */
+function lagCanExplain(m: EvidenceMiss): boolean {
+  return m.tampered !== true && (m.reason === undefined || LAG_EXPLAINABLE.has(m.reason));
+}
+
+/**
+ * STE-655 — the ONE bounded wait for transcript lag, shared by every evidence
+ * reader (`requireSkillToolUse`, `requireTddEvidence`).
+ *
+ * A receipt run whose tool_use is on disk but whose tool_result has not been
+ * flushed yet is transcript LAG, not a missing receipt. Only in that state (a
+ * miss a pending result could change AND this gate's own unresolved run,
+ * `pendingRunOf`) re-read the transcript via `rescan` and `grade` again once
+ * the result lands, bounded by wall-clock time: the deadline is
+ * RECEIPT_RESULT_WAIT_MS after the first grade, and a re-scan started just
+ * before it may finish just after, so the worst case is that plus one re-scan
+ * and grade. The permit path and a genuinely old receipt with its result on
+ * disk never wait.
+ *
+ * `lagging` is true when the wait ended with the miss standing, still
+ * lag-explainable, and this gate's receipt run STILL unresolved: the grade was
+ * computed without the one result that could change it, so the caller names
+ * the lag (`emitReceiptLagRefusal`) rather than the graded miss.
+ */
+export function waitOutReceiptLag(
+  first: SkillCallScan,
+  rescan: () => SkillCallScan,
+  grade: (s: SkillCallScan) => EvidenceMiss | null,
+  target?: EvidenceTarget,
+): { scan: SkillCallScan; miss: EvidenceMiss | null; lagging: boolean } {
+  let scan = first;
+  let miss = grade(scan);
+  const pending = (s: SkillCallScan): boolean => s.incomplete.some((run) => pendingRunOf(target, run));
+  const deadline = Date.now() + RECEIPT_RESULT_WAIT_MS;
+  while (miss !== null && lagCanExplain(miss) && Date.now() < deadline && pending(scan)) {
+    Bun.sleepSync(Math.max(1, Math.min(RECEIPT_RESULT_POLL_MS, deadline - Date.now())));
+    // The fail-open leg is asked ONCE, before any other verdict: a re-read
+    // that finds no transcript (or no Skill call) leaves the miss already
+    // graded standing, never turns it into a pass (review FO-1).
+    const next = rescan();
+    if (!next.found || next.windows === null) break;
+    scan = next;
+    miss = grade(scan);
+  }
+  return { scan, miss, lagging: miss !== null && lagCanExplain(miss) && pending(scan) };
+}
+
+/**
+ * STE-650 AC.10 / STE-655 — the lag refusal, one wording for every gate that
+ * waits. The bounded wait ran out with a receipt run STILL unresolved: any
+ * order claim the graded miss makes (e.g. `outside-window`) is unmeasured, so
+ * name the lag and send the operator to retry unchanged.
+ */
+function emitReceiptLagRefusal(miss: EvidenceMiss, skill: string, hook: string): void {
+  emitNFR10(
+    "Refusing",
+    `this action writes to ${miss.root ?? "a toolkit-managed checkout"}, and the ` +
+      `transcript has not caught up: a run of the ${skill} receipt front door in ` +
+      `this session still has no result on disk after waiting ${RECEIPT_RESULT_WAIT_MS} ms, ` +
+      `so the receipt it announced cannot be read back yet — this is transcript ` +
+      `lag, not evidence that the gate did not run.`,
+    `retry this action unchanged in a moment; only if it refuses the same way ` +
+      `again, run /${skill} and let it finish first.`,
+    skill,
+    hook,
+  );
+}
 
 /**
  * Same check as `findSkillToolUse`, but emits the byte-stable NFR-10
@@ -862,7 +934,8 @@ const RECEIPT_RESULT_POLL_MS = 25;
  *
  * STE-650 — a receipt miss graded while a receipt run's tool_result is not on
  * disk yet is transcript LAG. This path serves the gate-check and spec-review
- * gates; the tdd commit gate reads `requireTddEvidence` and does not wait yet.
+ * gates; since STE-655 the tdd commit gate's `requireTddEvidence` waits through
+ * the same helper (`waitOutReceiptLag`) on door one.
  * The gate re-reads for up to
  * RECEIPT_RESULT_WAIT_MS; if the result lands it grades again, and if it never
  * does (and the miss is one a pending result could explain, LAG_EXPLAINABLE)
@@ -876,38 +949,18 @@ export function requireSkillToolUse(
   payload: HookPayload,
   target?: EvidenceTarget,
 ): { found: boolean } {
-  let scan = scanSkillCalls(skill, payload, target);
-  if (scan.found) {
+  const first = scanSkillCalls(skill, payload, target);
+  if (first.found) {
     // STE-614 AC.5 — the repository-scoped leg, demanded IN ADDITION to the
     // transcript leg and never instead of it. The transcript says the gate ran
     // in this session; only the receipt says it ran against THIS checkout.
-    const grade = (s: SkillCallScan): EvidenceMiss | null =>
-      firstReceiptMiss(s.windows, target, s.announcements, s.misreads, s.incomplete);
-    let miss = grade(scan);
-    // STE-650 AC.9 — a receipt run whose tool_use is on disk but whose
-    // tool_result has not been flushed yet is transcript LAG, not a missing
-    // receipt. Only in that state (a miss a pending result could change AND
-    // this gate's own unresolved run) re-read the transcript and grade again
-    // once the result lands, bounded by wall-clock time, scans included. The
-    // permit path and a genuinely old receipt with its result on disk never wait.
-    const lagCanExplain = (m: EvidenceMiss): boolean =>
-      m.tampered !== true && (m.reason === undefined || LAG_EXPLAINABLE.has(m.reason));
-    const deadline = Date.now() + RECEIPT_RESULT_WAIT_MS;
-    while (
-      miss !== null &&
-      lagCanExplain(miss) &&
-      Date.now() < deadline &&
-      scan.incomplete.some((run) => pendingRunOf(target, run))
-    ) {
-      Bun.sleepSync(Math.max(1, Math.min(RECEIPT_RESULT_POLL_MS, deadline - Date.now())));
-      // The fail-open leg is asked ONCE, before any other verdict: a re-read
-      // that finds no transcript (or no Skill call) leaves the miss already
-      // graded standing, never turns it into a pass (review FO-1).
-      const next = scanSkillCalls(skill, payload, target);
-      if (!next.found || next.windows === null) break;
-      scan = next;
-      miss = grade(scan);
-    }
+    // STE-650 AC.9 — graded through the shared bounded wait for transcript lag.
+    const { scan, miss, lagging } = waitOutReceiptLag(
+      first,
+      () => scanSkillCalls(skill, payload, target),
+      (s) => firstReceiptMiss(s.windows, target, s.announcements, s.misreads, s.incomplete),
+      target,
+    );
     if (miss === null) {
       // PERMITTED, and still not necessarily silent. See `receiptNotes`: a
       // detected forgery alongside a genuine vouch is permitted correctly and
@@ -924,24 +977,10 @@ export function requireSkillToolUse(
       }
       return { found: true };
     }
-    // STE-650 AC.10 — the bounded wait ran out with a receipt run STILL
-    // unresolved. That is transcript lag, not a verdict about the receipt: the
-    // grade above was computed without the one result that could change it, so
-    // any order claim it makes (e.g. `outside-window`) is unmeasured. Name the
-    // lag and send the operator to retry unchanged.
-    if (scan.incomplete.some((run) => pendingRunOf(target, run)) && lagCanExplain(miss)) {
-      emitNFR10(
-        "Refusing",
-        `this action writes to ${miss.root ?? "a toolkit-managed checkout"}, and the ` +
-          `transcript has not caught up: a run of the ${skill} receipt front door in ` +
-          `this session still has no result on disk after waiting ${RECEIPT_RESULT_WAIT_MS} ms, ` +
-          `so the receipt it announced cannot be read back yet — this is transcript ` +
-          `lag, not evidence that the gate did not run.`,
-        `retry this action unchanged in a moment; only if it refuses the same way ` +
-          `again, run /${skill} and let it finish first.`,
-        skill,
-        hook,
-      );
+    // STE-650 AC.10 — the wait ran out with this gate's receipt run STILL
+    // unresolved: name the lag, never the unmeasured graded miss.
+    if (lagging) {
+      emitReceiptLagRefusal(miss, skill, hook);
       return { found: false };
     }
     emitNFR10("Refusing", miss.why, miss.how, skill, hook);
@@ -949,11 +988,11 @@ export function requireSkillToolUse(
   }
   emitNFR10(
     "Refusing",
-    scan.denied
+    first.denied
       ? `every ${skill} Skill tool_use in this session ended in an error or a ` +
           `denial, so none of them is evidence that the skill ran.`
       : `required ${skill} Skill tool_use not found in current session.`,
-    scan.denied
+    first.denied
       ? `run /${skill} again and let it finish before retrying this action.`
       : `run /${skill} before retrying this action.`,
     skill,
@@ -1143,6 +1182,19 @@ export function findRedBeforeProof(
   if (lines === null) {
     return { found: true, uncovered: [] };
   }
+  return proofCoverage(lines, requiredPaths, scope);
+}
+
+/**
+ * The red-before coverage of already-read transcript `lines` — the pure half of
+ * `findRedBeforeProof`, so a caller that must not read the transcript twice
+ * (STE-655: `requireTddEvidence`'s door two) grades the one read it made.
+ */
+function proofCoverage(
+  lines: string[],
+  requiredPaths: string[],
+  scope?: ProofScope,
+): { found: boolean; uncovered: string[] } {
   if (requiredPaths.length === 0) {
     return { found: false, uncovered: [] };
   }
@@ -1188,31 +1240,39 @@ export function requireTddEvidence(
   // checkout says nothing about a commit aimed at a second one; the receipt leg
   // is what places it. Door two is NOT graded against it: a red-before proof
   // names the repository it covers (NF-2), so it carries its own scope.
-  const repoMiss = doorOne.found
-    ? firstReceiptMiss(
-        doorOne.windows,
-        target,
-        doorOne.announcements,
-        doorOne.misreads,
-        doorOne.incomplete,
-      )
-    : null;
-  if (doorOne.found && repoMiss === null) {
+  const grade = (sc: SkillCallScan): EvidenceMiss | null =>
+    firstReceiptMiss(sc.windows, target, sc.announcements, sc.misreads, sc.incomplete);
+  const permitDoorOne = (sc: SkillCallScan): { found: boolean } => {
     // Same permit-path report as `requireSkillToolUse`, for the same reason:
     // the finding belongs to the receipt, not to the door it came through.
-    for (const note of receiptReports(
-      doorOne.windows,
-      target,
-      doorOne.announcements,
-      doorOne.misreads,
-      doorOne.incomplete,
-    )) {
+    for (const note of receiptReports(sc.windows, target, sc.announcements, sc.misreads, sc.incomplete)) {
       emitNFR10("Reminder", note.why, note.how, skill, hook, "stdout");
     }
     return { found: true };
-  }
-  if (findRedBeforeProof(payload, requiredPaths, target?.proof).found) {
+  };
+  // A clean door one permits at once, without waiting.
+  if (doorOne.found && grade(doorOne) === null) return permitDoorOne(doorOne);
+  // Door two, read ONCE (STE-655 review). Door one got here only by reading a
+  // READABLE transcript (an unreadable one fails open inside `scanSkillCalls`
+  // and never reaches this line), so a read here that finds none is not a
+  // proof: it can never turn the miss door one graded into a pass (FO-1), and
+  // a single read leaves no window between a check and a re-check. A covering
+  // proof permits BEFORE any lag wait (AC-STE-655.5).
+  const lines = readTranscriptLines(payload);
+  if (lines !== null && proofCoverage(lines, requiredPaths, target?.proof).found) {
     return { found: true };
+  }
+  // STE-655 — only now does door one wait out transcript lag, through the
+  // shared helper; a receipt with its result on disk never waits.
+  const waited = doorOne.found
+    ? waitOutReceiptLag(doorOne, () => scanSkillCalls(skill, payload, target), grade, target)
+    : null;
+  const repoMiss = waited?.miss ?? null;
+  if (waited !== null && repoMiss === null) return permitDoorOne(waited.scan);
+  if (repoMiss !== null && waited?.lagging === true) {
+    // STE-655 — the same lag refusal `requireSkillToolUse` gives.
+    emitReceiptLagRefusal(repoMiss, skill, hook);
+    return { found: false };
   }
   if (repoMiss !== null) {
     emitNFR10("Refusing", repoMiss.why, repoMiss.how, skill, hook);

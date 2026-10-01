@@ -53,6 +53,7 @@ import { SMOKE_OUTCOMES } from "../adapters/_shared/src/smoke_verdict";
 import { LINEAR_MILESTONE_WINDOW } from "../adapters/_shared/src/tracker_answer";
 import { milestoneLabel } from "../adapters/_shared/src/attach_project_milestone";
 import { milestoneIdFromEpicKey } from "../adapters/_shared/src/milestone_token";
+import { mutateInRegion } from "./_sited-mutation";
 // The hook's own lists, imported only to pin the grader's copies to them: the
 // writer map (the drift guard in "a receipt counts as announced only by its
 // writer") and the tracker-write tool set (the drift guard in "HARDENING 8").
@@ -6048,4 +6049,458 @@ describe("STE-650 AC-STE-650.8 — grader: consent is read per question", () => 
       expect(ungatedAt(grade(b), importWrite(b).ref)).toBe(false);
     });
   }
+});
+
+// ===========================================================================
+// STE-655 (M_a85e46) — the grader reads the hook's labels envelope and the
+// latest answer, mirrors the container prior-create rule, and grades every
+// side a link or relation writes.
+//
+// Each leg is RED at HEAD for the reason its AC states, or a labelled CONTROL
+// (keep-behaviour) that shows the opposite break. The hook-side twins live in
+// tests/hook-modules-pre-tracker-write-gate.test.ts ("STE-655 …").
+// ===========================================================================
+
+const OWNERSHIP_SRC_655 = join(pluginRoot, "adapters", "_shared", "src", "join_consent_ownership.ts");
+const ENVELOPE_DECL_655 = "export function labelsEnvelope(";
+
+/** Make S13's repository (B) own `key` by an FR binding (the AC-STE-650.2 fr-binding route). */
+const frBound = (key: string) => (b: LiveBundle, s: BundleSession): void => {
+  b.repos[s.root].frBindings.push({ path: `specs/frs/fr-655-${key.toLowerCase()}.md`, title: `fr 655 ${key}`, key, milestone: null });
+};
+const joinQ655 = (epic: string, spanTitle: string) => `Join the existing Epic ${epic} "${spanTitle}" as this repository's milestone?`;
+/** Insert an answered AskUserQuestion into `s` just before call `before`. */
+function askBefore(s: BundleSession, before: ToolCall, question: string, labels: string[], answer: string, tag: string): void {
+  const ask = consentAsk(question, labels, answer);
+  insertCall(s, s.calls.indexOf(before), { ref: `${s.sessionId}:toolu_655_${tag}`, name: "AskUserQuestion", input: ask.input, result: ask.result, sidechain: false });
+}
+
+describe("STE-655 AC-STE-655.8 — one exported labels-envelope predicate, called by the hook and the grader", () => {
+  test("AC-STE-655.8 — source pin: the hook's joined-labels gate and the grader's labels-only test both import and call labelsEnvelope; neither declares its own or keeps its inline key test", () => {
+    const hook = readFileSync(HOOK_PATH_650, "utf-8");
+    const graderSrc = readFileSync(GRADER_PATH, "utf-8");
+    const importsIt = (src: string, from: RegExp) =>
+      [...src.matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]+)"/g)].some((m) => /\blabelsEnvelope\b/.test(m[1]!) && from.test(m[2]!));
+    const declaresIt = (src: string) => /(?:function\s+labelsEnvelope\b|(?:const|let|var)\s+labelsEnvelope\s*=)/.test(src);
+    const gate = functionBody(hook, "gateJoinedLabels");
+    const writes = functionBody(graderSrc, "gatedWrites");
+    expect({
+      shared: readFileSync(OWNERSHIP_SRC_655, "utf-8").split(ENVELOPE_DECL_655).length - 1,
+      hookImports: importsIt(hook, /adapters\/_shared\/src\/join_consent_ownership(?:\.ts)?$/),
+      hookCallsInGateJoinedLabels: gate.includes("labelsEnvelope("),
+      hookKeepsInlineKeyTest: gate.includes('k !== "cloudId"'),
+      hookDeclares: declaresIt(hook),
+      graderImports: importsIt(graderSrc, /^\.\/join_consent_ownership(?:\.ts)?$/),
+      graderCallsInGatedWrites: writes.includes("labelsEnvelope("),
+      graderKeepsInlineKeyTest: /\.every\(\(k\) => k === "labels"\)/.test(writes),
+      graderDeclares: declaresIt(graderSrc),
+    }).toEqual({
+      shared: 1,
+      hookImports: true,
+      hookCallsInGateJoinedLabels: true,
+      hookKeepsInlineKeyTest: false,
+      hookDeclares: false,
+      graderImports: true,
+      graderCallsInGatedWrites: true,
+      graderKeepsInlineKeyTest: false,
+      graderDeclares: false,
+    });
+  });
+});
+
+describe("STE-655 AC-STE-655.9 — grader: a top-level format key changes nothing about a joined Epic's labels write", () => {
+  for (const k of ["contentFormat", "responseContentFormat"] as const) {
+    test(`CONTROL (AC-STE-655.9, ${k}) — unanswered forbidden join → ungated-write`, () => {
+      const { b, w } = labelsJoinFixture("title", null);
+      w.input[k] = "markdown";
+      expect(ungatedAt(grade(b), w.ref)).toBe(true);
+    });
+    test(`CONTROL (AC-STE-655.9, ${k}) — allowed key join, labels that drop the listed label → ungated-write`, () => {
+      const { b, w } = labelsJoinFixture("key", null, "S13", { write: (_listed, m) => [m] });
+      w.input[k] = "markdown";
+      expect(ungatedAt(grade(b), w.ref)).toBe(true);
+    });
+    test(`CONTROL (AC-STE-655.9, ${k}) — answered Join and the exact read-merge → not ungated-write`, () => {
+      const { b, w } = labelsJoinFixture("title", null, "S13", { ask: (epic, spanTitle, labels) => consentAsk(joinQ655(epic, spanTitle), labels, labels[0]!) });
+      w.input[k] = "markdown";
+      expect(ungatedAt(grade(b), w.ref)).toBe(false);
+    });
+  }
+});
+
+describe("STE-655 AC-STE-655.10 — grader: another key under `fields` beside labels on a joined Epic is ungated-write", () => {
+  test("AC-STE-655.10 — answered Join, the exact read-merge plus fields.summary, B owning the Epic by an FR binding → ungated-write (HEAD: not labels-only → owned by the binding → clean)", () => {
+    const { b, w } = labelsJoinFixture("title", null, "S13", {
+      arrange: (bb, s, epic) => frBound(epic)(bb, s),
+      ask: (epic, spanTitle, labels) => consentAsk(joinQ655(epic, spanTitle), labels, labels[0]!),
+    });
+    (w.input.fields as Record<string, unknown>).summary = "Renamed by B";
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("CONTROL (AC-STE-655.10) — the same write without fields.summary → not ungated-write", () => {
+    const { b, w } = labelsJoinFixture("title", null, "S13", {
+      arrange: (bb, s, epic) => frBound(epic)(bb, s),
+      ask: (epic, spanTitle, labels) => consentAsk(joinQ655(epic, spanTitle), labels, labels[0]!),
+    });
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+});
+
+describe("STE-655 AC-STE-655.10 hardening (review r0) — grader: a top-level `update` block beside labels on a joined Epic is ungated-write, as the hook refuses it", () => {
+  test("AC-STE-655.10 — answered Join, the exact read-merge plus a top-level update block → ungated-write (the hook and grader read ONE envelope)", () => {
+    const { b, w } = labelsJoinFixture("title", null, "S13", {
+      arrange: (bb, s, epic) => frBound(epic)(bb, s),
+      ask: (epic, spanTitle, labels) => consentAsk(joinQ655(epic, spanTitle), labels, labels[0]!),
+    });
+    (w.input as Record<string, unknown>).update = { summary: [{ set: "Renamed by B" }] };
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+});
+
+describe("STE-655 AC-STE-655.10 hardening (review r0) — grader: an update-only labels write on a joined Epic is ungated-write", () => {
+  test("AC-STE-655.10 — answered Join, B owning the Epic, the write carries update.labels and no fields → ungated-write", () => {
+    const { b, w } = labelsJoinFixture("title", null, "S13", {
+      arrange: (bb, s, epic) => frBound(epic)(bb, s),
+      ask: (epic, spanTitle, labels) => consentAsk(joinQ655(epic, spanTitle), labels, labels[0]!),
+    });
+    const input = w.input as Record<string, unknown>;
+    const labels = (input.fields as { labels: unknown }).labels;
+    delete input.fields;
+    input.update = { labels: [{ set: labels }] };
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+});
+
+describe("STE-655 AC-STE-655.11 — grader: labels plus other fields on an owned key no join names grades as at HEAD", () => {
+  for (const t of TRACKERS) {
+    test(`CONTROL (AC-STE-655.11, ${t}) — labels + a title/summary on the key S13 imported → not ungated-write; on a key it does not own → ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const s = session(b, "S13");
+      const owned = intruderKey(b);
+      const foreign = createdKeys(session(b, "S3"))[0]!;
+      const edit = (key: string, tag: string) => {
+        const w = appendTicketWrite(b, s, key, tag, "edit");
+        if (t === "jira") w.input.fields = { labels: [TAG_B], summary: "renamed by B" };
+        else Object.assign(w.input, { title: "renamed by B" });
+        return w;
+      };
+      const mine = edit(owned, "655_11_owned");
+      const theirs = t === "jira" ? edit(foreign, "655_11_foreign") : edit("STE-903", "655_11_foreign");
+      const v = grade(b);
+      expect({ owned: ungatedAt(v, mine.ref), foreign: ungatedAt(v, theirs.ref) }).toEqual({ owned: false, foreign: true });
+    });
+  }
+});
+
+describe("STE-655 AC-STE-655.12 — grader: across asks, the latest answer to the join governs", () => {
+  const twoAsks = (first: 0 | 1, later: { question?: string; answer: 0 | 1 }) => {
+    const { b, w } = labelsJoinFixture("title", null, "S13", { ask: (epic, spanTitle, labels) => consentAsk(joinQ655(epic, spanTitle), labels, labels[first]!) });
+    const s = session(b, "S13");
+    const epic = String(w.input.issueIdOrKey);
+    const labels = [`Join \`${epic}\``, `Skip \`${epic}\``];
+    askBefore(s, w, later.question ?? joinQ655(epic, title("S3 span milestone")), labels, labels[later.answer]!, "12_later");
+    return { b, w };
+  };
+  test("AC-STE-655.12 — Join in one ask, Skip in a later ask, both before the labels write → ungated-write (HEAD: any consenting ask → clean)", () => {
+    const { b, w } = twoAsks(0, { answer: 1 });
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("CONTROL (AC-STE-655.12) — Skip then Join → not ungated-write", () => {
+    const { b, w } = twoAsks(1, { answer: 0 });
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+  test("CONTROL (AC-STE-655.12) — Join, then a later ask whose question does not name the Epic (offering and answered Skip) → not ungated-write", () => {
+    const { b, w } = twoAsks(0, { question: "Proceed with the milestone?", answer: 1 });
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+  test("AC-STE-655.17 — mutant `first-consent-wins` (decisionAnswered) is killed by the AC-STE-655.12 leg: Join then Skip before the labels write → the mutant grades it clean", async () => {
+    const { b, w } = twoAsks(0, { answer: 1 });
+    expect(ungatedAt(grade(b), w.ref), "the shipped grader flags it (the AC-STE-655.12 leg)").toBe(true);
+    await withGraderMutant655("first-wins", "if (verdict !== null) latest = verdict;", "if (verdict === true) return true;", "function decisionAnswered(", (g) => {
+      expect(ungatedAt(gradeWith655(g, b), w.ref), "the mutant must grade it clean — the leg sees the mutation").toBe(false);
+    });
+  });
+});
+
+describe("STE-655 AC-STE-655.13 — grader: the latest answer governs Import / Adopt and container Create consent", () => {
+  for (const t of TRACKERS) {
+    /** S13's import consent re-asked: `answers` in order (each Import or Skip), then optionally an unrelated later ask, all before the consent run. */
+    const importAsks = (answers: Array<"Import" | "Skip">, unrelated = false) => {
+      const b = buildPassingBundle(t);
+      const s = session(b, "S13");
+      const u = intruderKey(b);
+      const ask = s.calls.find((c) => c.name === "AskUserQuestion")!;
+      const q1 = String((ask.input.questions as Array<{ question: string }>)[0]!.question);
+      const labels = [`Import ${u}`, `Skip ${u}`];
+      const first = consentAsk(q1, labels, `${answers[0]} ${u}`);
+      ask.input = first.input;
+      ask.result = first.result;
+      const announce = s.calls[s.calls.indexOf(ask) + 1]!;
+      answers.slice(1).forEach((a, n) => askBefore(s, announce, q1, labels, `${a} ${u}`, `13_imp_${n}`));
+      if (unrelated) askBefore(s, announce, "Proceed with the sync?", labels, `Skip ${u}`, "13_imp_unrelated");
+      return b;
+    };
+    test(`${t}: AC-STE-655.13 (Import) — Import in one ask, Skip in a later ask → the import write is ungated-write (HEAD: any earlier consent)`, () => {
+      const b = importAsks(["Import", "Skip"]);
+      expect(ungatedAt(grade(b), importWrite(b).ref)).toBe(true);
+    });
+    test(`${t}: CONTROL (AC-STE-655.13, Import) — Skip then Import → not ungated-write; Import then an unrelated ask answered Skip → not ungated-write`, () => {
+      const a = importAsks(["Skip", "Import"]);
+      const c = importAsks(["Import"], true);
+      expect({ skipThenImport: ungatedAt(grade(a), importWrite(a).ref), unrelated: ungatedAt(grade(c), importWrite(c).ref) }).toEqual({ skipThenImport: false, unrelated: false });
+    });
+
+    test(`${t}: AC-STE-655.13 hardening (review r0, Import) — Import, the consent receipt, THEN Skip before the write → the import write is ungated-write`, () => {
+      const b = importAsks(["Import"]);
+      const s = session(b, "S13");
+      const u = intruderKey(b);
+      const w = importWrite(b);
+      const ask = s.calls.find((c) => c.name === "AskUserQuestion")!;
+      const q1 = String((ask.input.questions as Array<{ question: string }>)[0]!.question);
+      askBefore(s, w, q1, [`Import ${u}`, `Skip ${u}`], `Skip ${u}`, "13_imp_after_receipt");
+      expect(ungatedAt(grade(b), importWrite(b).ref)).toBe(true);
+    });
+
+    const adoptAsks = (answers: Array<"Adopt" | "Skip">) => {
+      const b = buildPassingBundle(t);
+      const s = session(b, "S13");
+      const key = oldClientKey(b);
+      const labels = [`Adopt ${key}`, `Skip ${key}`];
+      answers.forEach((a, n) => {
+        const ask = consentAsk(`Adopt ${key} into this repository?`, labels, `${a} ${key}`);
+        appendCall(s, "AskUserQuestion", ask.input, ask.result, `655_adopt_${n}`);
+      });
+      appendAnnounced(b, s, "binding", moduleCommand("ticket_ownership.ts", "confirm", `<B> ${key} <B>/.dpt/tmp/ticket.json --adopt`), { subject: key, decision: "adopt" }, "655_adopt");
+      return { b, w: appendTicketWrite(b, s, key, "655_adopt") };
+    };
+    test(`${t}: AC-STE-655.13 (Adopt) — Adopt in one ask, Skip in a later ask, then the adopt binding → the write is ungated-write (HEAD: any earlier consent)`, () => {
+      const { b, w } = adoptAsks(["Adopt", "Skip"]);
+      expect(ungatedAt(grade(b), w.ref)).toBe(true);
+    });
+    test(`${t}: CONTROL (AC-STE-655.13, Adopt) — Skip then Adopt → not ungated-write`, () => {
+      const { b, w } = adoptAsks(["Skip", "Adopt"]);
+      expect(ungatedAt(grade(b), w.ref)).toBe(false);
+    });
+  }
+
+  /** S3's Linear mint with a capped re-list, and its Create consent asked `answers` in order before the create (AC-STE-650.13's shape). */
+  const createAsks = (answers: Array<"Create" | "Skip">) => {
+    const b = buildPassingBundle("linear");
+    const s = session(b, "S3");
+    const decide = bashCall(s, /resolve_milestone_identity\.ts/);
+    const name = String(announcedReceipt(b, decide).evidence.title);
+    const create = createCallOf(s);
+    for (const c of s.calls.filter((c, j) => j > s.calls.indexOf(decide) && j < s.calls.indexOf(create) && c.name.endsWith("list_milestones"))) c.result.lastPage = false;
+    const labels = [`Create \`${name}\``, `Skip \`${name}\``];
+    answers.forEach((a, n) => askBefore(s, create, `Create the milestone "${name}" in ${b.run.container}?`, labels, labels[a === "Create" ? 0 : 1]!, `13_create_${n}`));
+    return { b, create };
+  };
+  test("linear: AC-STE-655.13 (container create) — Create in one ask, Skip in a later ask, a capped re-list → the create is ungated-write (HEAD: any answered ask)", () => {
+    const { b, create } = createAsks(["Create", "Skip"]);
+    expect(ungatedAt(grade(b), create.ref)).toBe(true);
+  });
+  test("linear: CONTROL (AC-STE-655.13, container create) — Skip then Create → not ungated-write", () => {
+    const { b, create } = createAsks(["Skip", "Create"]);
+    expect(ungatedAt(grade(b), create.ref)).toBe(false);
+  });
+});
+
+describe("STE-655 AC-STE-655.14 — grader: a container create after a settled, lost or parallel create of it is a finding, as the hook refuses it", () => {
+  const TIMEOUT: ToolCall["result"] = { isError: true, text: "Error: the request to the tracker timed out after 60 s", exitCode: null, items: null, lastPage: null };
+  for (const t of TRACKERS) {
+    const nameKey = t === "jira" ? "summary" : "name";
+    /**
+     * S3's container mint (decide, re-list, create) followed by a SECOND create,
+     * backed by its own decision and a fresh complete re-list: of the same
+     * container (`same`), or of another one. `mode` sets what the first create
+     * became: settled (it returned its key), lost (it timed out) or parallel
+     * (it timed out, and the second create shares its message).
+     */
+    const recreate = (mode: "settled" | "lost" | "parallel", same: boolean) => {
+      const b = buildPassingBundle(t);
+      const s = session(b, "S3");
+      const decide = bashCall(s, /resolve_milestone_identity\.ts/);
+      const r1 = announcedReceipt(b, decide);
+      const create = createCallOf(s);
+      const relist = s.calls[s.calls.indexOf(create) - 1]!;
+      const name = String(r1.evidence.title);
+      const second = same ? name : title("S3 a second span milestone");
+      const command = String(decide.input.command).replace(name, second);
+      /** A second decision for `second`, a clone of S3's own receipt, announced by a Bash call inserted at `index`. */
+      const decideAgain = (index: number, tag: string): void => {
+        const path = `<${s.root}>/.dpt/ledger/receipts/${s.sessionId}/milestone-decision-655-${tag}.json`;
+        const set = b.repos[s.root].receipts;
+        if (!set.readable) throw new Error("fixture: receipts unreadable");
+        set.records.push({ ...clone(r1), path, sha256: sha256(path), subject: second, evidence: { ...clone(r1.evidence), title: second } });
+        insertCall(s, index, { ref: `${s.sessionId}:toolu_655_${tag}`, name: "Bash", input: { command, description: "run" }, result: { isError: false, text: `act=create\ndefault=allowed\ndpt-receipt: ${path} sha256:${sha256(path)}`, exitCode: 0, items: null, lastPage: null }, sidechain: false });
+      };
+      const item = { ...clone(create.result.items![0]!), key: t === "jira" ? `${b.run.container}-197` : "5f3a9c01-7d2e-4f00-9a00-000000000097", summary: second };
+      const ok: ToolCall["result"] = { isError: false, text: "", exitCode: null, items: [item], lastPage: null };
+      const input = { ...clone(create.input), [nameKey]: second };
+      if (mode !== "settled") create.result = clone(TIMEOUT);
+      if (mode === "parallel") {
+        decideAgain(s.calls.indexOf(relist), "par");
+        const dup: ToolCall = { ...clone(create), ref: `${create.ref}_parallel_655`, input, result: ok };
+        s.calls.splice(s.calls.indexOf(create) + 1, 0, dup);
+        return { b, dup };
+      }
+      // A later round: decide again, re-list again (complete, before the create), create again.
+      decideAgain(s.calls.length, "again");
+      s.calls.at(-1)!.at = new Date(Date.parse(s.calls.at(-2)!.at) + 1000).toISOString();
+      appendCall(s, relist.name, clone(relist.input), clone(relist.result), "655_relist");
+      const dup = appendCall(s, create.name, input, ok, "655_dup");
+      return { b, dup };
+    };
+    for (const mode of ["settled", "lost", "parallel"] as const) {
+      test(`${t}: AC-STE-655.14 (${mode}) — a second create of the same container, backed by its own decision and re-list → ungated-write (HEAD: the fresh decision permits it)`, () => {
+        const { b, dup } = recreate(mode, true);
+        expect(ungatedAt(grade(b), dup.ref)).toBe(true);
+      });
+      test(`${t}: CONTROL (AC-STE-655.14, ${mode}) — the same shape creating a DIFFERENT container → not ungated-write`, () => {
+        const { b, dup } = recreate(mode, false);
+        expect(ungatedAt(grade(b), dup.ref)).toBe(false);
+      });
+    }
+    test(`${t}: AC-STE-655.17 — mutant \`no-container-prior-create\` (gatedWrites milestone-create) is killed by the AC-STE-655.14 leg (settled): a second create of the same container → the mutant grades it clean`, async () => {
+      const { b, dup } = recreate("settled", true);
+      expect(ungatedAt(grade(b), dup.ref), "the shipped grader flags it (the AC-STE-655.14 leg)").toBe(true);
+      await withGraderMutant655("no-container-prior", "if (prior) why = `milestone-container create of", "if (false) why = `milestone-container create of", undefined, (g) => {
+        expect(ungatedAt(gradeWith655(g, b), dup.ref), "the mutant must grade it clean — the leg sees the mutation").toBe(false);
+      });
+    });
+  }
+});
+
+describe("STE-655 AC-STE-655.15 — grader: a createIssueLink carrying a comment needs every side owned", () => {
+  const linkIn = (withComment: boolean, otherSide: "foreign" | "owned") => {
+    const b = buildPassingBundle("jira");
+    const s = session(b, "S13");
+    const mine = intruderKey(b);
+    const other = otherSide === "foreign" ? createdKeys(session(b, "S3"))[0]! : `${b.run.container}-198`;
+    if (otherSide === "owned") frBound(other)(b, s);
+    const input = { cloudId: "cloud-dst", inwardIssue: mine, outwardIssue: other, type: "Relates", ...(withComment ? { comment: "Linked while splitting the payout export." } : {}) };
+    const w = appendCall(s, `${serverPrefix("jira", s.root)}createIssueLink`, input, { isError: false, text: "", exitCode: null, items: [], lastPage: null }, `655_link_${withComment}_${otherSide}`);
+    return { b, w };
+  };
+  test("AC-STE-655.15 — a comment, one side S13's own, the other S3's Epic → ungated-write (HEAD: one owned side → clean)", () => {
+    const { b, w } = linkIn(true, "foreign");
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("CONTROL (AC-STE-655.15) — the same link without the comment → not ungated-write; with the comment and both sides owned → not ungated-write", () => {
+    const plain = linkIn(false, "foreign");
+    const both = linkIn(true, "owned");
+    expect({ plain: ungatedAt(grade(plain.b), plain.w.ref), bothOwned: ungatedAt(grade(both.b), both.w.ref) }).toEqual({ plain: false, bothOwned: false });
+  });
+  test("AC-STE-655.17 — mutant `link-needs-one-side` (linkNeedsEverySide → false) is killed by the AC-STE-655.15 leg: a comment, one side owned → the mutant grades it clean", async () => {
+    const { b, w } = linkIn(true, "foreign");
+    expect(ungatedAt(grade(b), w.ref), "the shipped grader flags it (the AC-STE-655.15 leg)").toBe(true);
+    const decl = "export function linkNeedsEverySide(input: unknown): boolean {";
+    await withOwnershipMutant655("link-one-side", decl, `${decl}\n  return false;`, (g) => {
+      expect(ungatedAt(gradeWith655(g, b), w.ref), "the mutant must grade it clean — the leg sees the mutation").toBe(false);
+    });
+  });
+});
+
+describe("STE-655 AC-STE-655.16 — grader: Linear save_issue relation fields are link sides, and never stand in for the issue", () => {
+  const update = (input: Record<string, unknown>, own: string[] = []) => {
+    const b = buildPassingBundle("linear");
+    const s = session(b, "S13");
+    for (const k of own) frBound(k)(b, s);
+    const w = appendCall(s, `${serverPrefix("linear", s.root)}save_issue`, input, { isError: false, text: "", exitCode: null, items: [], lastPage: null }, `655_rel_${Object.keys(input).join("_")}`);
+    return { b, w, mine: intruderKey(b) };
+  };
+  test("CONTROL (AC-STE-655.16) — an update of a sibling's issue whose every relation target is S13's own → ungated-write", () => {
+    const probe = buildPassingBundle("linear");
+    const mine = intruderKey(probe);
+    const { b, w } = update({ id: "STE-903", relatedTo: [mine], blockedBy: [mine], blocks: [mine], duplicateOf: mine });
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  for (const [field, value] of [["relatedTo", ["OPS-5"]], ["blockedBy", ["OPS-5"]], ["blocks", ["OPS-5"]], ["duplicateOf", "OPS-5"]] as const) {
+    test(`AC-STE-655.16 (${field}) — an update of S13's own issue whose ${field} target OPS-5 lies outside the bound team → ungated-write (HEAD: relation fields unread → clean)`, () => {
+      const probe = buildPassingBundle("linear");
+      const { b, w } = update({ id: intruderKey(probe), [field]: value });
+      expect(ungatedAt(grade(b), w.ref)).toBe(true);
+    });
+  }
+  test("AC-STE-655.16 hardening (review r0) — with no Linear team recorded for the run, a relation target cannot be shown in-team, so the update is ungated-write (fail closed, as the hook)", () => {
+    const probe = buildPassingBundle("linear");
+    const { b, w } = update({ id: intruderKey(probe), relatedTo: ["STE-904"] }, ["STE-904"]);
+    delete (b.run as { linearTeam?: string }).linearTeam;
+    expect(ungatedAt(grade(b), w.ref)).toBe(true);
+  });
+  test("CONTROL (AC-STE-655.16) — an update of S13's own issue relating only to another key it owns → not ungated-write", () => {
+    const probe = buildPassingBundle("linear");
+    const { b, w } = update({ id: intruderKey(probe), relatedTo: ["STE-904"] }, ["STE-904"]);
+    expect(ungatedAt(grade(b), w.ref)).toBe(false);
+  });
+  test("AC-STE-655.17 — mutant `relation-targets-unread` (gatedWrites) is killed by the AC-STE-655.16 leg: S13's own issue relatedTo OPS-5 → the mutant grades it clean", async () => {
+    const probe = buildPassingBundle("linear");
+    const { b, w } = update({ id: intruderKey(probe), relatedTo: ["OPS-5"] });
+    expect(ungatedAt(grade(b), w.ref), "the shipped grader flags it (the AC-STE-655.16 leg)").toBe(true);
+    await withGraderMutant655("relations-unread", "const outsideTargets = relationTargets(bareTool(c.name), c.input)", "const outsideTargets = ([] as unknown[])", undefined, (g) => {
+      expect(ungatedAt(gradeWith655(g, b), w.ref), "the mutant must grade it clean — the leg sees the mutation").toBe(false);
+    });
+  });
+});
+
+/**
+ * STE-655 AC.17 — the [from, to) span of the declaration `decl` in `doc`, up to
+ * its closing `\n}\n`; the whole document when `decl` is absent. Throws unless
+ * `decl` occurs exactly once: an undetermined region must never read as a kill.
+ */
+function declRegion655(doc: string, decl?: string): [number, number] {
+  if (decl === undefined) return [0, doc.length];
+  const from = doc.indexOf(decl);
+  if (from < 0 || doc.indexOf(decl, from + 1) >= 0) throw new Error(`mutation: \`${decl}\` does not occur exactly once`);
+  const end = doc.indexOf("\n}\n", from);
+  if (end < 0) throw new Error(`mutation: \`${decl}\` has no closing brace`);
+  return [from, end + 3];
+}
+
+/** STE-655 AC.17 — run `f` with a grader copy whose own text has `find` → `repl`, sited inside `within`'s body when given. */
+async function withGraderMutant655(name: string, find: string, repl: string, within: string | undefined, f: (g: GraderModule) => void): Promise<void> {
+  await withTmpAsync(`ste655-${name}-`, async (dir) => {
+    const { g } = await graderCopy(dir, name, (src) => {
+      const [from, to] = declRegion655(src, within);
+      return mutateInRegion(src, from, to, find, repl, { label: `shared_tracker_live_grader.ts${within ? ` · ${within}` : ""}` });
+    });
+    f(g);
+  });
+}
+
+/** STE-655 AC.17 — run `f` with a grader copy importing a join_consent_ownership.ts in which `find` → `repl`. */
+async function withOwnershipMutant655(name: string, find: string, repl: string, f: (g: GraderModule) => void): Promise<void> {
+  await withTmpAsync(`ste655-${name}-`, async (dir) => {
+    const doc = readFileSync(OWNERSHIP_SRC_655, "utf-8");
+    const mutantFile = join(dir, "join_consent_ownership_mutant.ts");
+    writeFileSync(mutantFile, mutateInRegion(doc, 0, doc.length, find, repl, { label: "join_consent_ownership.ts" }));
+    const { g } = await graderCopy(dir, name, (src) => src.replace(/from "\.\/join_consent_ownership"/, `from ${JSON.stringify(mutantFile.replace(/\.ts$/, ""))}`));
+    f(g);
+  });
+}
+
+/** The mutant's verdict on `b`. */
+const gradeWith655 = (g: GraderModule, b: LiveBundle): LiveVerdict => g.gradeBundle(b, { behaviourDigestNow: b.run.behaviourDigest.digest });
+
+describe("STE-655 AC-STE-655.17 — the grader's labels-envelope test, mutated, is killed by a named leg", () => {
+  test("AC-STE-655.17 — a labelsEnvelope that drops every extra field key turns the AC-STE-655.10 leg clean (killed)", async () => {
+    await withTmpAsync("ste655-envelope-", async (dir) => {
+      const doc = readFileSync(OWNERSHIP_SRC_655, "utf-8");
+      const renamed = mutateInRegion(doc, 0, doc.length, ENVELOPE_DECL_655, "function labelsEnvelope__unmutated(", { label: "join_consent_ownership.ts" });
+      const mutantFile = join(dir, "join_consent_ownership_mutant.ts");
+      writeFileSync(
+        mutantFile,
+        `${renamed}\n// STE-655 mutant drops-extra-keys\nexport function labelsEnvelope(input: unknown): { extraKeys: string[] } | null {\n  const f = (input as { fields?: unknown } | null)?.fields;\n  return f !== null && typeof f === "object" && "labels" in (f as object) ? { extraKeys: [] } : null;\n}\n`,
+      );
+      const { g } = await graderCopy(dir, "envelope-mutant", (src) => src.replace(/from "\.\/join_consent_ownership"/, `from ${JSON.stringify(mutantFile.replace(/\.ts$/, ""))}`));
+      const { b, w } = labelsJoinFixture("title", null, "S13", {
+        arrange: (bb, s, epic) => frBound(epic)(bb, s),
+        ask: (epic, spanTitle, labels) => consentAsk(joinQ655(epic, spanTitle), labels, labels[0]!),
+      });
+      (w.input.fields as Record<string, unknown>).summary = "Renamed by B";
+      expect(ungatedAt(grade(b), w.ref), "the shipped grader flags it (the AC-STE-655.10 leg)").toBe(true);
+      const v = g.gradeBundle(b, { behaviourDigestNow: b.run.behaviourDigest.digest });
+      expect(ungatedAt(v, w.ref), "the mutant must grade it clean — the leg sees the mutation").toBe(false);
+    });
+  });
 });
