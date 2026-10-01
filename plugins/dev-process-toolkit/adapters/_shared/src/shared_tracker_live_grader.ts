@@ -33,7 +33,7 @@ import { CHILD_LISTING_REJECTED } from "./sibling_release.ts";
 
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
-import { exemptsJoinConsent, type OwnershipRoute } from "./join_consent_ownership";
+import { exemptsJoinConsent, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets, type OwnershipRoute } from "./join_consent_ownership";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
 import { listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
 import { isCanonicalContainerListing, milestoneIdFromEpicKey, milestoneIdFromLinearMilestone, normalizeMilestoneTitle } from "./milestone_token";
@@ -2205,6 +2205,16 @@ function sameTicket(a: CreateShape, b: CreateShape): boolean {
   return normalizeTitleForCompare(a.title) === normalizeTitleForCompare(b.title) && sameName(a.project, b.project) && sameName(a.container, b.container);
 }
 
+/** A milestone-container create's project and title: a Jira Epic's projectKey/summary, a Linear milestone's project/name. Twin: `MILESTONE_CREATES.shape` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+function containerShape(tracker: SharedTrackerId, input: Record<string, unknown>): { project: string; title: string } {
+  return tracker === "jira" ? { project: str(input.projectKey), title: str(input.summary) } : { project: str(input.project), title: str(input.name) };
+}
+
+/** The same milestone container: project, and the title under the container normalizer. Twin: `sameContainer` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+function sameContainer(a: { project: string; title: string }, b: { project: string; title: string }): boolean {
+  return normalizeMilestoneTitle(a.title) === normalizeMilestoneTitle(b.title) && sameName(a.project, b.project);
+}
+
 /** A 4xx status the tracker answered with — 408 excluded. Twin: `TRACKER_4XX` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
 const TRACKER_4XX = /\b(?:error|status(?:\s+code)?|http)\b[:\s]*4(?!08)\d\d\b/i;
 /** Words that make any answer ambiguous. Twin: `MAY_HAVE_RUN` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
@@ -2303,51 +2313,65 @@ function answerTo(text: string, question: string): string | null {
  * names the subject (`names`) and offers `label` as an option was answered
  * exactly `label`, and every such question was. Another question's answer
  * neither grants nor withholds it.
- * Twin: `consentedPerQuestion` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ * The hook reads the same rule through its `consentVerdict` (templates/hooks/_lib/hooks/pre-tracker-write-gate.ts).
  */
 function consentedPerQuestion(c: ToolCall, label: string, names: (question: string) => boolean): boolean {
+  return consentVerdict(c, label, names) === true;
+}
+
+/**
+ * STE-655 AC-12 — the per-question verdict of one answered ask on `label`:
+ * `null` when no question in it names the subject and offers the label, else
+ * whether every such question was answered exactly `label`. The rule is the
+ * shared `perQuestionConsent`; only the answer lookup is the grader's.
+ * Twin: `consentVerdict` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ */
+function consentVerdict(c: ToolCall, label: string, names: (question: string) => boolean): boolean | null {
   const questions = (c.input as { questions?: unknown }).questions;
-  if (!Array.isArray(questions)) return false;
-  // The questions this ask put about the subject: each names it and offers
-  // the label. Consent needs at least one, and every one answered exactly the
-  // label — a "no" to one of them is never overridden by a "yes" to another
-  // (review FO-2). A question about something else neither grants nor
-  // withholds it.
-  const relevant = questions.filter((q) => {
-    const question = (q as { question?: unknown } | null)?.question;
-    if (typeof question !== "string" || !names(question)) return false;
-    const options = (q as { options?: unknown } | null)?.options;
-    return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
-  });
-  return (
-    relevant.length > 0 &&
-    relevant.every((q) => answerTo(c.result.text, (q as { question: string }).question) === label)
-  );
+  return perQuestionConsent(questions, label, names, (question) => answerTo(c.result.text, question));
 }
 
 /**
  * The times, in `s`, the operator consented to `label` (`Import DST-7`,
  * `Adopt DST-7`): an answered AskUserQuestion holding a question that names
  * the key, offers the label and was answered exactly that label (per question —
- * STE-650 AC-8, as the hook's `consentLines` reads it), or
+ * STE-650 AC-8, as the hook's `consentedBefore` reads it), or
  * the first user message's answers block giving exactly that label under
  * `ORPHAN_CONSENT_ANSWER_KEY` (the route a `claude -p` child has, where an
  * AskUserQuestion comes back as an error). The block's value must EQUAL the
- * label — the hook's `consentLines` rule since D-8, which before it accepted
+ * label — the hook's `consentedBefore` rule since D-8, which before it accepted
  * any value merely naming the key (so `Skip DST-7` read as consent). The hook
  * reads a block from any operator message; the grade reads only the first.
  */
 function consentTimes(s: BundleSession, label: string): number[] {
   const key = label.slice(label.indexOf(" ") + 1);
   const out = s.calls.filter((c) => c.name === "AskUserQuestion" && !c.result.isError && consentedPerQuestion(c, label, (q) => namesKey(q, key))).map((c) => ms(c.at));
-  if (s.answers?.[ORPHAN_CONSENT_ANSWER_KEY] === label && s.answersAt !== undefined) out.push(ms(s.answersAt));
+  const block = answersBlockConsentTime(s, label);
+  if (block !== null) out.push(block);
   return out.filter((t) => !Number.isNaN(t));
+}
+
+/** The time of the first user message's answers block when it gives exactly `label`; null otherwise. */
+function answersBlockConsentTime(s: BundleSession, label: string): number | null {
+  return s.answers?.[ORPHAN_CONSENT_ANSWER_KEY] === label && s.answersAt !== undefined ? ms(s.answersAt) : null;
 }
 
 /** Whether the question `label` answers (e.g. `Import DST-7`) was answered before call `index` of `s`. */
 const answeredBefore = (s: BundleSession, index: number, label: string): boolean => {
   const at = s.calls[index] ? ms(s.calls[index]!.at) : Number.POSITIVE_INFINITY;
-  return consentTimes(s, label).some((t) => t < at);
+  const key = label.slice(label.indexOf(" ") + 1);
+  // STE-655 AC-13: the LATEST answer that puts the subject decides — a
+  // consent later answered Skip is withdrawn. The answers block of the first
+  // user message precedes every call.
+  const block = answersBlockConsentTime(s, label);
+  let latest = block !== null && block < at;
+  for (const c of s.calls) {
+    if (!(ms(c.at) < at)) continue;
+    if (c.name !== "AskUserQuestion" || c.result.isError) continue;
+    const verdict = consentVerdict(c, label, (q) => namesKey(q, key));
+    if (verdict !== null) latest = verdict;
+  }
+  return latest;
 };
 
 /**
@@ -2378,15 +2402,18 @@ function decisionAnswered(s: BundleSession, decision: BundleReceipt, from: numbe
   const title = str(ev.title);
   const label = ev.act === "join" ? `Join \`${key}\`` : `Create \`${title}\``;
   const names = (q: string): boolean => namesKey(q, key) || (title !== "" && q.includes(title));
+  let latest = false;
   for (let j = from + 1; j < to && j < s.calls.length; j++) {
     const c = s.calls[j]!;
     if (c.name !== "AskUserQuestion" || c.result.isError) continue;
     // The hook reads only the gated call's own transcript, so a question
     // asked in another chain (a subagent's sidechain) never consents for it.
     if (c.sidechain !== s.calls[to]?.sidechain) continue;
-    if (consentedPerQuestion(c, label, names)) return true;
+    // STE-655 AC-12: the latest ask that puts the subject decides.
+    const verdict = consentVerdict(c, label, names);
+    if (verdict !== null) latest = verdict;
   }
-  return false;
+  return latest;
 }
 
 /**
@@ -2715,7 +2742,19 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           .filter(({ r }) => r !== null && !spent.has(r.path) && r.evidence.act === "create" && sameName(str(r.container), project) && str(r.evidence.title) === name);
         const found = unspent.find(({ a, r }) => forbiddenDecisionConsented(s, r!, a.index, i)) ?? unspent[0];
         const decision = found?.r ?? null;
-        if (!decision) why = `milestone-container create of "${name}" in ${project} follows no unspent create decision announced by resolve_milestone_identity.ts for that project and title`;
+        // STE-655 AC.14 — an earlier create of this container that returned
+        // (settled or unkeyed), or whose error does not prove it never ran (a
+        // timeout, a 5xx — the parallel duplicate among them), leaves no
+        // decision, fresh or not, that authorises another create of it.
+        // Twin: `priorCreates` filtered by `sameContainer` in gateMilestoneCreate,
+        // templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+        const prior = s.calls.slice(0, i).find((p) => {
+          if (!isCreateAttempt(p) || writeClass(p) !== "milestone-create" || p.sidechain !== c.sidechain) return false;
+          if (!sameContainer(containerShape(tracker, p.input), { project, title: name })) return false;
+          return !p.result.isError || !createNeverRan(p);
+        });
+        if (prior) why = `milestone-container create of "${name}" in ${project} repeats an earlier create of that container (${prior.ref}) that ${prior.result.isError ? "may have made it" : `returned ${itemKeys(prior).join(", ") || "no key"}`}, and no decision authorises a second create of it`;
+        else if (!decision) why = `milestone-container create of "${name}" in ${project} follows no unspent create decision announced by resolve_milestone_identity.ts for that project and title`;
         else {
           spent.add(decision.path);
           if (!forbiddenDecisionConsented(s, decision, found!.a.index, i)) why = `milestone-container create of "${name}" in ${project} relied on a create decision (${decision.path}) that printed default=forbidden, and no AskUserQuestion after it was answered "Create \`${name}\`"`;
@@ -2732,7 +2771,20 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
         const subjects = subjectKeys(c);
         const keys = subjects.filter(inRunContainers);
         const unresolved = unresolvedSides(c);
-        if (unresolved.length > 0) why = `link names the Jira-item side ${unresolved.map((v) => `"${v}"`).join(", ")} that resolves to no ticket key (only a key or a /browse/<KEY> URL does), whatever its other side`;
+        // STE-655 AC.16 — a relation target is a link side for resolution only:
+        // it must be a key in the run's team. Never a subject (owned() below
+        // still grades `id` alone). Twin: the relation-target check in gateTicket.
+        const spaces = runSpaces(b);
+        const outsideTargets = relationTargets(bareTool(c.name), c.input)
+          .map(sideText)
+          // Order vs the hook: the hook returns before this check for an issue no
+          // declared target binds; the grader grades such a write ungated anyway
+          // (out-of-space key), so checking relations first changes no verdict.
+          // No team recorded for the run: no target can be shown in-team, so it
+          // is not (fail closed, as the hook, which demands a declared binding).
+          .filter((v) => !TICKET_KEY.test(v) || spaces === null || !spaces.some((sp) => sameName(sp, v.slice(0, v.lastIndexOf("-")))));
+        if (outsideTargets.length > 0) why = `update names the relation target ${outsideTargets.map((v) => `"${v}"`).join(", ")} that resolves to no key in this run's team, whatever its issue`;
+        else if (unresolved.length > 0) why = `link names the Jira-item side ${unresolved.map((v) => `"${v}"`).join(", ")} that resolves to no ticket key (only a key or a /browse/<KEY> URL does), whatever its other side`;
         else if (subjects.length === 0) why = "ticket write names no ticket key the hook could resolve";
         else if (keys.length === 0) {
           // THE THIRD CASE, which used to fall through to `why = null` and grade
@@ -2745,7 +2797,9 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           why = `write on ${subjects.join(", ")} names no ticket in this run's containers (${containers}), so it is a write on a ticket outside this run`;
         } else {
           const roots = new Set<Root>([s.root, ...before.map((a) => rootOfPath(a.path)).filter((r): r is Root => r !== null)]);
-          const labelsOnly = bareTool(c.name) === "editJiraIssue" && Object.keys((c.input.fields ?? {}) as object).every((k) => k === "labels");
+          // STE-655 AC.8 — the hook's labels envelope, shared: a labels write on
+          // a joined Epic carrying any other field key is not a read-merge.
+          const envelope = bareTool(c.name) === "editJiraIssue" ? labelsEnvelope(c.input) : null;
           /** HOW the session owns `k` (STE-650 AC.2), or null when it does not. */
           const routeOf = (k: string): OwnershipRoute | null => {
             if (created.has(k)) return "created";
@@ -2754,9 +2808,9 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
               const reuse = receiptOf(a, "reuse");
               if (reuse && str(reuse.evidence.key).toUpperCase() === k) return "reuse-receipt";
               const bind = receiptOf(a, "binding");
-              if (bind && bind.subject.toUpperCase() === k && (bind.decision !== "adopt" || answeredBefore(s, a.index, `Adopt ${k}`))) return "binding-receipt";
+              if (bind && bind.subject.toUpperCase() === k && (bind.decision !== "adopt" || (answeredBefore(s, a.index, `Adopt ${k}`) && answeredBefore(s, i, `Adopt ${k}`)))) return "binding-receipt";
               const imp = receiptOf(a, "import");
-              if (imp !== null && imp.subject.toUpperCase() === k && answeredBefore(s, a.index, `Import ${k}`)) return "import-receipt";
+              if (imp !== null && imp.subject.toUpperCase() === k && answeredBefore(s, a.index, `Import ${k}`) && answeredBefore(s, i, `Import ${k}`)) return "import-receipt";
             }
             return null;
           };
@@ -2778,7 +2832,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           const owned = (k: string): boolean => {
             const route = routeOf(k);
             const exempt = route !== null && exemptsJoinConsent(route);
-            if (tracker !== "jira" || !labelsOnly) return route !== null;
+            if (tracker !== "jira" || envelope === null) return route !== null;
             // STE-643 — as in the hook's gateJoinedLabels, the LATEST join of
             // the key governs: a later forbidden, unanswered join is not
             // rescued by an earlier allowed one. STE-650 AC.2 — and, as there,
@@ -2792,10 +2846,11 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
               if (join && join.evidence.act === "join" && str(join.evidence.key).toUpperCase() === k) latest = { a, join };
             }
             if (latest === null) return route !== null;
+            if (envelope.extraKeys.length > 0) return false;
             if (!exempt && !forbiddenDecisionConsented(s, latest.join, latest.a.index, i)) return false;
             return readMerged(latest.join);
           };
-          const ok = isLinkTool(c) ? keys.some(owned) : keys.every(owned);
+          const ok = isLinkTool(c) && !linkNeedsEverySide(c.input) ? keys.some(owned) : keys.every(owned);
           if (!ok) why = `write on ${keys.join(", ")} follows no receipt, creation or FR binding in this session that makes the key its repository's`;
         }
       }

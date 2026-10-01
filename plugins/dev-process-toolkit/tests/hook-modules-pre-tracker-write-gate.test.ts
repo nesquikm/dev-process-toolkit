@@ -49,6 +49,7 @@ import {
   appendFileSync,
   chmodSync,
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -73,6 +74,7 @@ import { milestoneIdFromEpicKey, milestoneIdFromLinearMilestone } from "../adapt
 import { claudeMd, makeSpanFixture, pluginManifest } from "./_span_fixture";
 import { BE_TAG, FE_TAG, boundFr, declareJira, declareLinear } from "./_orphan_pages";
 import { deriveBlockingGates } from "./_blocking_gates";
+import { mutateInRegion } from "./_sited-mutation";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -6597,4 +6599,498 @@ describe("STE-650 AC-STE-650.14 — the archived STE-644 freshness bullet names 
     expect(bullet).toMatch(/amended/i);
     expect(bullet).toMatch(/grading time/i);
   });
+});
+
+// ===========================================================================
+// STE-655 (M_a85e46) — hook and grader read one envelope and the latest
+// answer; links and relations grade every side they write.
+//
+// Hook-side legs. Every refusal this FR adds or changes is graded on BOTH reads
+// (`gradeBothReads`: the gated line landed, and never lands — AC-STE-655.17).
+// Each leg is RED at HEAD for the reason its AC states, or a labelled CONTROL
+// (keep-behaviour) that shows the opposite break. The grader twins live in
+// tests/m_2306b6-ste-617-live-grader.test.ts ("STE-655 …").
+// ===========================================================================
+
+/** Make BE own `key` through a tracked FR binding (the AC-STE-650.2 fr-binding route). */
+function ownViaFrBinding(root: string, key: string, tracker: "jira" | "linear" = "jira"): void {
+  boundFr(root, key, tracker);
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", `bind ${key}`);
+}
+
+const FORMAT_KEYS = ["contentFormat", "responseContentFormat"] as const;
+/** MERGE_GF_85 carrying a top-level format key. */
+const mergeWithFormat = (k: (typeof FORMAT_KEYS)[number], labels: string[] = MERGE_GF_85.fields.labels) => ({
+  ...MERGE_GF_85,
+  fields: { labels },
+  [k]: "markdown",
+});
+/** A labels value that drops the listed `team-x`: not the read-merge. */
+const CLOBBER_GF_85 = ["milestone-M_GF_85"];
+
+describe("STE-655 AC-STE-655.9 — hook: a top-level format key does not take a joined Epic's labels write past the join gate", () => {
+  for (const k of FORMAT_KEYS) {
+    test(`AC-STE-655.9 (${k}) — unanswered forbidden join, the read-merge, BE owning GF-85 by an FR binding → exit 2 naming Join GF-85, both reads (HEAD: falls to the ticket gate → exit 0)`, async () => {
+      const w = makeWorld();
+      ownViaFrBinding(w.be, "GF-85");
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      await gradeBothReads([
+        { label: `${k}, unanswered`, tool: JIRA("editJiraIssue"), input: mergeWithFormat(k), cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, NAMES_JOIN_GF_85) },
+      ]);
+    }, 60_000);
+
+    test(`AC-STE-655.9 (${k}) — answered Join, labels that drop team-x (not the read-merge), BE owning GF-85 → exit 2 naming the dropped label, both reads (HEAD: exit 0)`, async () => {
+      const w = makeWorld();
+      ownViaFrBinding(w.be, "GF-85");
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      askJoinGF85(s, { answer: JOIN_GF_85 });
+      await gradeBothReads([
+        { label: `${k}, clobbering labels`, tool: JIRA("editJiraIssue"), input: mergeWithFormat(k, CLOBBER_GF_85), cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, /team-x/) },
+      ]);
+    }, 60_000);
+
+    test(`AC-STE-655.9 (${k}) — answered Join and the exact read-merge, with no other ownership route → exit 0 (HEAD: falls to the ticket gate → exit 2 not owned)`, async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      askJoinGF85(s, { answer: JOIN_GF_85 });
+      expectPermit(await runHook(JIRA("editJiraIssue"), mergeWithFormat(k), { cwd: w.be, transcript: s.save(w.scratch) }));
+    }, 60_000);
+  }
+
+  test("CONTROL — without a format key the same three cases grade as at HEAD: unanswered → exit 2, clobbering → exit 2, answered read-merge → exit 0", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const unanswered = new Session();
+    unanswered.bash(d.command, d.out);
+    const answered = new Session();
+    answered.bash(d.command, d.out);
+    askJoinGF85(answered, { answer: JOIN_GF_85 });
+    const t = answered.save(w.scratch);
+    expectRefusal(await runHook(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: unanswered.save(w.scratch) }), NAMES_JOIN_GF_85);
+    expectRefusal(await runHook(JIRA("editJiraIssue"), { ...MERGE_GF_85, fields: { labels: CLOBBER_GF_85 } }, { cwd: w.be, transcript: t }), /team-x/);
+    expectPermit(await runHook(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: t }));
+  }, 60_000);
+});
+
+describe("STE-655 AC-STE-655.10 — hook: another key under `fields` beside labels on a joined Epic is refused, naming it", () => {
+  for (const [extra, value] of [["summary", "Payouts (renamed)"], ["description", "Rewritten by BE."]] as const) {
+    test(`AC-STE-655.10 (${extra}) — answered Join and the exact read-merge plus fields.${extra}, BE owning GF-85 → exit 2 naming ${extra}, both reads (HEAD: falls to the ticket gate → exit 0)`, async () => {
+      const w = makeWorld();
+      ownViaFrBinding(w.be, "GF-85");
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      askJoinGF85(s, { answer: JOIN_GF_85 });
+      const input = { ...MERGE_GF_85, fields: { ...MERGE_GF_85.fields, [extra]: value } };
+      await gradeBothReads([
+        { label: `labels + ${extra}`, tool: JIRA("editJiraIssue"), input, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, "GF-85", extra) },
+      ]);
+    }, 60_000);
+  }
+});
+
+describe("STE-655 AC-STE-655.10 hardening (review r0) — hook: a labels write sent through a top-level `update` block on a joined Epic is graded as a labels write", () => {
+  test("AC-STE-655.10 — answered Join, BE owning GF-85, an editJiraIssue whose only edit is update.labels (no fields) → exit 2 naming update, both reads (before: no fields.labels → fell to the ownership rule → exit 0)", async () => {
+    const w = makeWorld();
+    ownViaFrBinding(w.be, "GF-85");
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askJoinGF85(s, { answer: JOIN_GF_85 });
+    const { fields: _f, ...rest } = MERGE_GF_85 as { fields: unknown } & Record<string, unknown>;
+    const input = { ...rest, update: { labels: [{ set: ["team-x"] }] } };
+    await gradeBothReads([
+      { label: "update-only labels", tool: JIRA("editJiraIssue"), input, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, "GF-85", "update") },
+    ]);
+  }, 60_000);
+});
+
+describe("STE-655 AC-STE-655.11 — hook: labels plus other fields on an owned key no join names grades as at HEAD", () => {
+  test("CONTROL (AC-STE-655.11) — labels + summary on GF-111 (BE's FR binding, no join) → exit 0; the same on FE's GF-101 → exit 2 not owned", async () => {
+    const w = makeWorld();
+    const t = new Session().save(w.scratch);
+    const edit = (key: string, extra: Record<string, unknown> = {}) => ({ cloudId: CLOUD, issueIdOrKey: key, fields: { labels: [BE_TAG], summary: "BE payout export v2" }, ...extra });
+    expectPermit(await runHook(JIRA("editJiraIssue"), edit("GF-111"), { cwd: w.be, transcript: t }));
+    expectPermit(await runHook(JIRA("editJiraIssue"), edit("GF-111", { contentFormat: "markdown" }), { cwd: w.be, transcript: t }));
+    expectRefusal(await runHook(JIRA("editJiraIssue"), edit("GF-101"), { cwd: w.be, transcript: t }), "GF-101", /not owned/);
+  }, 60_000);
+});
+
+describe("STE-655 AC-STE-655.12 — hook: across asks, the latest answer to the join governs", () => {
+  const PROCEED_Q = "Proceed with the milestone?";
+
+  test("AC-STE-655.12 — Join answered in one ask, Skip in a later ask, both before the labels write → exit 2 naming Join GF-85, both reads (HEAD: the first consenting ask wins → exit 0)", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askJoinGF85(s, { answer: JOIN_GF_85 });
+    askJoinGF85(s, { answer: SKIP_GF_85 });
+    await gradeBothReads([
+      { label: "join then skip", tool: JIRA("editJiraIssue"), input: MERGE_GF_85, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, NAMES_JOIN_GF_85) },
+    ]);
+  }, 60_000);
+
+  test("CONTROL (AC-STE-655.12) — Skip then Join → exit 0", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askJoinGF85(s, { answer: SKIP_GF_85 });
+    askJoinGF85(s, { answer: JOIN_GF_85 });
+    expectPermit(await runHook(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+
+  test("CONTROL (AC-STE-655.12) — Join, then a later ask whose question does not name GF-85 (offering and answered Skip `GF-85`) → exit 0: it changes nothing", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askJoinGF85(s, { answer: JOIN_GF_85 });
+    askConsent(s, PROCEED_Q, [JOIN_GF_85, SKIP_GF_85], { answer: SKIP_GF_85 });
+    expectPermit(await runHook(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+
+  test("AC-STE-655.17 — mutant `first-consent-wins` (answeredAfter) is killed by the AC-STE-655.12 leg: Join then Skip before the labels write → the mutant permits", async () => {
+    const mod = hookWithMutation655("first-wins", HOOK_REL_655, "if (verdict !== null) latest = verdict;", "if (verdict === true) return true;", "function answeredAfter(");
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askJoinGF85(s, { answer: JOIN_GF_85 });
+    askJoinGF85(s, { answer: SKIP_GF_85 });
+    const t = s.save(w.scratch);
+    expectRefusal(await runHook(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: t }), NAMES_JOIN_GF_85);
+    const p = pristineHook655();
+    expectRefusal(await runHookModule(p, JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: retarget655(p, t) }), NAMES_JOIN_GF_85);
+    const r = await runHookModule(mod, JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: retarget655(mod, t) });
+    expect(r.exitCode, `the mutant must permit (the leg sees the mutation):\n${show(r)}`).toBe(0);
+  }, 60_000);
+});
+
+describe("STE-655 AC-STE-655.13 — hook: the latest answer governs Import / Adopt and container Create consent", () => {
+  const cases = [
+    { verb: "Import" as const, key: "GF-121", receipt: importReceipt, module: CONSENT, args: (root: string, key: string) => `consent "${root}" ${key} /tmp/page.json`, decision: "import" },
+    { verb: "Adopt" as const, key: "GF-122", receipt: adoptReceipt, module: CONFIRM, args: (root: string, key: string) => `confirm "${root}" ${key} /tmp/ticket.json --adopt`, decision: "binding" },
+  ];
+  for (const c of cases) {
+    const world = (answers: string[], unrelated = false): { w: World; transcript: string } => {
+      const w = makeWorld();
+      const s = new Session();
+      for (const a of answers) s.ask(c.key, c.verb, { answer: a });
+      if (unrelated) askConsent(s, "Proceed with the sync?", [`${c.verb} ${c.key}`, `Skip ${c.key}`], { answer: `Skip ${c.key}` });
+      s.announce(c.module, c.args(w.be, c.key), c.receipt(w.be, c.key), `{"decision":"${c.decision}"}`);
+      return { w, transcript: s.save(w.scratch) };
+    };
+    test(`AC-STE-655.13 (${c.verb}) — \`${c.verb} ${c.key}\` in one ask, \`Skip ${c.key}\` in a later ask, then the receipt → a transition on ${c.key} exits 2, both reads (HEAD: any earlier consent → exit 0)`, async () => {
+      const { w, transcript } = world([`${c.verb} ${c.key}`, `Skip ${c.key}`]);
+      await gradeBothReads([
+        { label: `${c.verb} then skip`, tool: JIRA("transitionJiraIssue"), input: transition(c.key), cwd: w.be, transcript, check: (r) => expectRefusal(r, c.key) },
+      ]);
+    }, 60_000);
+    test(`AC-STE-655.13 hardening (review r0, ${c.verb}) — \`${c.verb} ${c.key}\`, the receipt, THEN \`Skip ${c.key}\` before the write → exit 2, both reads (the latest answer before the gated call governs)`, async () => {
+      const w = makeWorld();
+      const s = new Session();
+      s.ask(c.key, c.verb, { answer: `${c.verb} ${c.key}` });
+      s.announce(c.module, c.args(w.be, c.key), c.receipt(w.be, c.key), `{"decision":"${c.decision}"}`);
+      s.ask(c.key, c.verb, { answer: `Skip ${c.key}` });
+      const transcript = s.save(w.scratch);
+      await gradeBothReads([
+        { label: `${c.verb}, receipt, then skip`, tool: JIRA("transitionJiraIssue"), input: transition(c.key), cwd: w.be, transcript, check: (r) => expectRefusal(r, c.key) },
+      ]);
+    }, 60_000);
+    test(`AC-STE-655.17 — mutant \`consent-at-receipt-only\` (owns) is killed by the AC-STE-655.13 hardening leg (${c.verb}): \`${c.verb} ${c.key}\`, the receipt, THEN \`Skip ${c.key}\` → the mutant permits`, async () => {
+      const mod = hookWithMutation655(
+        "receipt-only",
+        HOOK_REL_655,
+        "if (consentedBefore(ctx.parsed, key, verb, a.line) && consentedBefore(ctx.parsed, key, verb, ctx.parsed.length)) return true;",
+        "if (consentedBefore(ctx.parsed, key, verb, a.line)) return true;",
+      );
+      const w = makeWorld();
+      const s = new Session();
+      s.ask(c.key, c.verb, { answer: `${c.verb} ${c.key}` });
+      s.announce(c.module, c.args(w.be, c.key), c.receipt(w.be, c.key), `{"decision":"${c.decision}"}`);
+      s.ask(c.key, c.verb, { answer: `Skip ${c.key}` });
+      const transcript = s.save(w.scratch);
+      expectRefusal(await runHook(JIRA("transitionJiraIssue"), transition(c.key), { cwd: w.be, transcript }), c.key);
+      const p = pristineHook655();
+      expectRefusal(await runHookModule(p, JIRA("transitionJiraIssue"), transition(c.key), { cwd: w.be, transcript: retarget655(p, transcript) }), c.key);
+      const r = await runHookModule(mod, JIRA("transitionJiraIssue"), transition(c.key), { cwd: w.be, transcript: retarget655(mod, transcript) });
+      expect(r.exitCode, `the mutant must permit (the leg sees the mutation):\n${show(r)}`).toBe(0);
+    }, 60_000);
+    test(`CONTROL (AC-STE-655.13, ${c.verb}) — Skip then \`${c.verb} ${c.key}\` → exit 0`, async () => {
+      const { w, transcript } = world([`Skip ${c.key}`, `${c.verb} ${c.key}`]);
+      expectPermit(await runHook(JIRA("transitionJiraIssue"), transition(c.key), { cwd: w.be, transcript }));
+    }, 60_000);
+    test(`CONTROL (AC-STE-655.13, ${c.verb}) — \`${c.verb} ${c.key}\`, then a later ask that does not name ${c.key} answered Skip → exit 0`, async () => {
+      const { w, transcript } = world([`${c.verb} ${c.key}`], true);
+      expectPermit(await runHook(JIRA("transitionJiraIssue"), transition(c.key), { cwd: w.be, transcript }));
+    }, 60_000);
+  }
+
+  const createWorld = (answers: string[]): { root: string; transcript: string } => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("655-create-latest");
+    const d = realResolve(root, ["linear", "DPT", "--title", "Payouts"], scratch, { milestones: cappedRows(50) });
+    const s = new Session();
+    s.bash(d.command, d.out);
+    for (const a of answers) askConsent(s, CREATE_PAYOUTS_QUESTION, [CREATE_PAYOUTS, SKIP_PAYOUTS], { answer: a });
+    s.relist(cappedRows(50), { tracker: "linear" });
+    return { root, transcript: s.save(scratch) };
+  };
+  test("AC-STE-655.13 (container create) — `Create `Payouts`` in one ask, `Skip `Payouts`` in a later one → save_milestone exits 2 naming Create `Payouts`, both reads (HEAD: exit 0)", async () => {
+    const { root, transcript } = createWorld([CREATE_PAYOUTS, SKIP_PAYOUTS]);
+    await gradeBothReads([
+      { label: "create then skip", tool: LINEAR("save_milestone"), input: { project: "DPT", name: "Payouts" }, cwd: root, transcript, check: (r) => expectRefusal(r, /Create `Payouts`/) },
+    ]);
+  }, 60_000);
+  test("CONTROL (AC-STE-655.13, container create) — Skip then Create → exit 0", async () => {
+    const { root, transcript } = createWorld([SKIP_PAYOUTS, CREATE_PAYOUTS]);
+    expectPermit(await runHook(LINEAR("save_milestone"), { project: "DPT", name: "Payouts" }, { cwd: root, transcript }));
+  }, 60_000);
+});
+
+describe("STE-655 AC-STE-655.15 — hook: a createIssueLink carrying a comment needs every side owned", () => {
+  const COMMENT = "Linked while splitting the payout export.";
+  let w: World;
+  beforeAll(() => {
+    w = makeWorld();
+    ownViaFrBinding(w.be, "GF-113");
+  });
+  const link = (inward: string, outward: string, comment?: string) => ({ cloudId: CLOUD, inwardIssue: inward, outwardIssue: outward, type: "Relates", ...(comment === undefined ? {} : { comment }) });
+
+  test("AC-STE-655.15 — GF-111 (BE) ↔ GF-101 (FE) with a non-empty comment → exit 2 naming GF-101, both reads (HEAD: one owned side permits → exit 0)", async () => {
+    const transcript = new Session().save(w.scratch);
+    await gradeBothReads([
+      { label: "comment, inward owned", tool: JIRA("createIssueLink"), input: link("GF-111", "GF-101", COMMENT), cwd: w.be, transcript, check: (r) => expectRefusal(r, "GF-101") },
+      { label: "comment, outward owned", tool: JIRA("createIssueLink"), input: link("GF-101", "GF-111", COMMENT), cwd: w.be, transcript, check: (r) => expectRefusal(r, "GF-101") },
+    ]);
+  }, 60_000);
+
+  test("CONTROL (AC-STE-655.15) — the same link without the comment → exit 0; with the comment and both sides BE's (GF-111 ↔ GF-113) → exit 0", async () => {
+    const transcript = new Session().save(w.scratch);
+    expectPermit(await runHook(JIRA("createIssueLink"), link("GF-111", "GF-101"), { cwd: w.be, transcript }));
+    expectPermit(await runHook(JIRA("createIssueLink"), link("GF-111", "GF-113", COMMENT), { cwd: w.be, transcript }));
+  }, 60_000);
+
+  test("AC-STE-655.17 — mutant `link-needs-one-side` (linkNeedsEverySide → false) is killed by the AC-STE-655.15 leg: GF-111 ↔ GF-101 with a comment → the mutant permits", async () => {
+    const mod = hookWithMutation655("link-one-side", OWNERSHIP_REL_655, LINK_DECL_655, `${LINK_DECL_655}\n  return false;`);
+    const transcript = new Session().save(w.scratch);
+    const input = link("GF-111", "GF-101", COMMENT);
+    expectRefusal(await runHook(JIRA("createIssueLink"), input, { cwd: w.be, transcript }), "GF-101");
+    const r = await runHookModule(mod, JIRA("createIssueLink"), input, { cwd: w.be, transcript });
+    expect(r.exitCode, `the mutant must permit (the leg sees the mutation):\n${show(r)}`).toBe(0);
+  }, 60_000);
+});
+
+describe("STE-655 AC-STE-655.16 — hook: Linear save_issue relation fields are link sides, and never stand in for the issue", () => {
+  let root: string;
+  let scratch: string;
+  beforeAll(() => {
+    root = linearRepo(BE_TAG);
+    scratch = tempDir("655-relations");
+    ownViaFrBinding(root, "STE-900", "linear");
+    ownViaFrBinding(root, "STE-904", "linear");
+  });
+  const ALL_OWNED = { relatedTo: ["STE-900"], blockedBy: ["STE-904"], blocks: ["STE-900"], duplicateOf: "STE-904" };
+
+  test("CONTROL (AC-STE-655.16) — an update of unowned STE-901 whose every relation target (relatedTo, blockedBy, blocks, duplicateOf) is BE's → exit 2 naming STE-901, both reads", async () => {
+    const transcript = new Session().save(scratch);
+    await gradeBothReads([
+      { label: "unowned id, owned relations", tool: LINEAR("save_issue"), input: { id: "STE-901", state: "In Progress", ...ALL_OWNED }, cwd: root, transcript, check: (r) => expectRefusal(r, "STE-901") },
+      { label: "unowned id, owned relatedTo only", tool: LINEAR("save_issue"), input: { id: "STE-901", relatedTo: ["STE-900", "STE-904"] }, cwd: root, transcript, check: (r) => expectRefusal(r, "STE-901") },
+    ]);
+  }, 60_000);
+
+  for (const [field, value] of [["relatedTo", ["OPS-5"]], ["blockedBy", ["OPS-5"]], ["blocks", ["OPS-5"]], ["duplicateOf", "OPS-5"]] as const) {
+    test(`AC-STE-655.16 (${field}) — an update of BE's STE-900 whose ${field} target OPS-5 lies outside the bound team → exit 2 naming OPS-5, both reads (HEAD: relation fields unread → exit 0)`, async () => {
+      const transcript = new Session().save(scratch);
+      await gradeBothReads([
+        { label: `${field} outside the team`, tool: LINEAR("save_issue"), input: { id: "STE-900", [field]: value }, cwd: root, transcript, check: (r) => expectRefusal(r, "OPS-5") },
+      ]);
+    }, 60_000);
+  }
+
+  test("CONTROL (AC-STE-655.16) — an update of BE's STE-900 relating only to BE's STE-904, and a plain state change → exit 0", async () => {
+    const transcript = new Session().save(scratch);
+    expectPermit(await runHook(LINEAR("save_issue"), { id: "STE-900", relatedTo: ["STE-904"], blockedBy: ["STE-904"] }, { cwd: root, transcript }));
+    expectPermit(await runHook(LINEAR("save_issue"), { id: "STE-900", state: "Done" }, { cwd: root, transcript }));
+  }, 60_000);
+
+  test("AC-STE-655.17 — mutant `relation-targets-unread` (gateTicket) is killed by the AC-STE-655.16 leg: BE's STE-900 relatedTo OPS-5 → the mutant permits", async () => {
+    const mod = hookWithMutation655("relations-unread", HOOK_REL_655, "const outside = relationTargets(call.tool, call.input).filter", "const outside = ([] as unknown[]).filter");
+    const transcript = new Session().save(scratch);
+    const input = { id: "STE-900", relatedTo: ["OPS-5"] };
+    expectRefusal(await runHook(LINEAR("save_issue"), input, { cwd: root, transcript }), "OPS-5");
+    const r = await runHookModule(mod, LINEAR("save_issue"), input, { cwd: root, transcript });
+    expect(r.exitCode, `the mutant must permit (the leg sees the mutation):\n${show(r)}`).toBe(0);
+  }, 60_000);
+});
+
+// ---------------------------------------------------------------------------
+// AC-STE-655.8 / .17 — the shared labels-envelope predicate, mutated: each
+// mutant reds a named hook leg above. `labelsEnvelope` is the ONE exported
+// predicate (adapters/_shared/src/join_consent_ownership.ts, `export function`)
+// both the hook and the grader call: it answers null for a call that writes no
+// labels, else `{ extraKeys }` — the keys under `fields` other than `labels`
+// (format keys and other top-level keys are not field keys). The mutation is
+// sited with `mutateInRegion`: the real declaration is renamed away and a
+// mutant of the same name is appended, in a COPY of adapters/ + templates/.
+// ---------------------------------------------------------------------------
+
+const OWNERSHIP_SRC = join(ADAPTERS_SRC, "join_consent_ownership.ts");
+const ENVELOPE_DECL = "export function labelsEnvelope(";
+
+/** A copy of adapters/ and templates/ with `labelsEnvelope` replaced by `mutantBody`; returns the copied hook module. */
+function hookWithMutantEnvelope(label: string, mutantBody: string): string {
+  const root = join(tempDir(`655-mutant-${label}`), "plugin");
+  for (const dir of ["adapters", "templates"]) cpSync(join(PLUGIN_ROOT, dir), join(root, dir), { recursive: true });
+  const nm = join(REPO_ROOT, "node_modules");
+  if (existsSync(nm)) symlinkSync(nm, join(root, "node_modules"), "dir");
+  const file = join(root, "adapters", "_shared", "src", "join_consent_ownership.ts");
+  const doc = readFileSync(file, "utf-8");
+  const renamed = mutateInRegion(doc, 0, doc.length, ENVELOPE_DECL, "function labelsEnvelope__unmutated(", { label: "join_consent_ownership.ts" });
+  writeFileSync(file, `${renamed}\n// STE-655 mutant ${label}\nexport function labelsEnvelope(input: unknown): { extraKeys: string[] } | null {\n${mutantBody}\n}\n`);
+  return join(root, "templates", "hooks", "_lib", "hooks", `${HOOK}.ts`);
+}
+
+/**
+ * STE-655 AC.17 — the [from, to) span of the top-level declaration `decl` in
+ * `doc`, up to its closing `\n}\n`; the whole document when `decl` is absent.
+ * Throws unless `decl` occurs exactly once: an undetermined region must never
+ * read as a kill.
+ */
+function declRegion655(doc: string, decl?: string): [number, number] {
+  if (decl === undefined) return [0, doc.length];
+  const from = doc.indexOf(decl);
+  if (from < 0 || doc.indexOf(decl, from + 1) >= 0) throw new Error(`mutation: \`${decl}\` does not occur exactly once`);
+  const end = doc.indexOf("\n}\n", from);
+  if (end < 0) throw new Error(`mutation: \`${decl}\` has no closing brace`);
+  return [from, end + 3];
+}
+
+const MUTANT_HOOKS_655 = new Map<string, string>();
+/**
+ * STE-655 AC.17 — a copy of adapters/ and templates/ (as `hookWithMutantEnvelope`)
+ * with `find` → `repl` in `rel` (plugin-relative), sited by `mutateInRegion`
+ * inside `within`'s body when given. Memoised by `label`; returns the copied hook.
+ */
+function hookWithMutation655(label: string, rel: string, find: string, repl: string, within?: string): string {
+  const memo = MUTANT_HOOKS_655.get(label);
+  if (memo !== undefined) return memo;
+  const root = join(tempDir(`655-mutant-${label}`), "plugin");
+  for (const dir of ["adapters", "templates"]) cpSync(join(PLUGIN_ROOT, dir), join(root, dir), { recursive: true });
+  const nm = join(REPO_ROOT, "node_modules");
+  if (existsSync(nm)) symlinkSync(nm, join(root, "node_modules"), "dir");
+  const file = join(root, rel);
+  const doc = readFileSync(file, "utf-8");
+  const [from, to] = declRegion655(doc, within);
+  // `find === ""` is the pristine copy: the control that the copy itself (and
+  // `retarget655`) grades as the shipped hook does.
+  if (find !== "") writeFileSync(file, mutateInRegion(doc, from, to, find, repl, { label: `${rel}${within ? ` · ${within}` : ""}` }));
+  const mod = join(root, "templates", "hooks", "_lib", "hooks", `${HOOK}.ts`);
+  MUTANT_HOOKS_655.set(label, mod);
+  return mod;
+}
+
+/**
+ * The transcript `t` as the mutant copy behind `mod` reads it: every deciding
+ * command names the shipped plugin's absolute path, which the copied hook does
+ * not recognise as its own, so each is re-pointed at the copy.
+ */
+function retarget655(mod: string, t: string): string {
+  const copyRoot = resolve(dirname(mod), "..", "..", "..", "..");
+  const doc = readFileSync(t, "utf-8");
+  if (!doc.includes(PLUGIN_ROOT)) return t;
+  const out = `${t}.mutant.jsonl`;
+  writeFileSync(out, doc.split(PLUGIN_ROOT).join(copyRoot));
+  return out;
+}
+
+const HOOK_REL_655 = `templates/hooks/_lib/hooks/${HOOK}.ts`;
+/** The unmutated copy, for the retargeted legs' pristine control. */
+const pristineHook655 = (): string => hookWithMutation655("pristine", HOOK_REL_655, "", "");
+const OWNERSHIP_REL_655 = "adapters/_shared/src/join_consent_ownership.ts";
+/** Mutant 5 — linkNeedsEverySide always answers false (one owned side suffices). */
+const LINK_DECL_655 = "export function linkNeedsEverySide(input: unknown): boolean {";
+
+async function runHookModule(modulePath: string, tool: string, input: unknown, o: RunOpts): Promise<Run> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  delete env.CLAUDE_PROJECT_DIR;
+  env.CLAUDE_PLUGIN_ROOT = MANIFEST_DIR;
+  env.CLAUDE_CODE_SESSION_ID = SESSION;
+  const proc = Bun.spawn(["bun", "run", modulePath], { cwd: NEUTRAL_CWD, env, stdin: new Response(payload(tool, input, o)).body, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  return { exitCode: await proc.exited, stdout, stderr };
+}
+
+/** The mutants: one that recognises no labels write, one that drops every extra field key. */
+const ENVELOPE_MUTANTS = {
+  "never-a-labels-write": "  void input;\n  return null;",
+  "drops-extra-keys": "  const f = (input as { fields?: unknown } | null)?.fields;\n  return f !== null && typeof f === \"object\" && \"labels\" in (f as object) ? { extraKeys: [] } : null;",
+} as const;
+
+describe("STE-655 AC-STE-655.8 / .17 — the labels-envelope predicate: its contract, and mutants the hook legs kill", () => {
+  test("AC-STE-655.8 — join_consent_ownership.ts declares `export function labelsEnvelope(` exactly once", () => {
+    const src = readFileSync(OWNERSHIP_SRC, "utf-8");
+    expect(src.split(ENVELOPE_DECL).length - 1).toBe(1);
+  });
+
+  test("AC-STE-655.8 — labelsEnvelope: null for a write with no labels; extraKeys lists only the keys under `fields` beside labels; format keys are not field keys", async () => {
+    const m = (await import(OWNERSHIP_SRC)) as { labelsEnvelope?: (input: unknown) => { extraKeys: string[] } | null };
+    expect(typeof m.labelsEnvelope).toBe("function");
+    const f = m.labelsEnvelope!;
+    const norm = (v: { extraKeys: string[] } | null) => (v === null ? null : { extraKeys: [...v.extraKeys].sort() });
+    expect({
+      labelsOnly: norm(f(MERGE_GF_85)),
+      contentFormat: norm(f(mergeWithFormat("contentFormat"))),
+      responseContentFormat: norm(f(mergeWithFormat("responseContentFormat"))),
+      withSummary: norm(f({ ...MERGE_GF_85, fields: { labels: ["a"], summary: "x", description: "y" } })),
+      noLabels: norm(f({ ...MERGE_GF_85, fields: { summary: "x" } })),
+      noFields: norm(f({ cloudId: CLOUD, issueIdOrKey: "GF-85" })),
+    }).toEqual({
+      labelsOnly: { extraKeys: [] },
+      contentFormat: { extraKeys: [] },
+      responseContentFormat: { extraKeys: [] },
+      withSummary: { extraKeys: ["description", "summary"] },
+      noLabels: null,
+      noFields: null,
+    });
+  });
+
+  test("AC-STE-655.17 — mutant `never-a-labels-write` is killed by the AC-STE-655.9 leg: unanswered join + contentFormat, BE owning GF-85 → the mutant permits", async () => {
+    const mod = hookWithMutantEnvelope("never", ENVELOPE_MUTANTS["never-a-labels-write"]);
+    const w = makeWorld();
+    ownViaFrBinding(w.be, "GF-85");
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    const t = s.save(w.scratch);
+    expectRefusal(await runHook(JIRA("editJiraIssue"), mergeWithFormat("contentFormat"), { cwd: w.be, transcript: t }), NAMES_JOIN_GF_85);
+    const r = await runHookModule(mod, JIRA("editJiraIssue"), mergeWithFormat("contentFormat"), { cwd: w.be, transcript: t });
+    expect(r.exitCode, `the mutant must permit (the leg sees the mutation):\n${show(r)}`).toBe(0);
+  }, 60_000);
+
+  test("AC-STE-655.17 — mutant `drops-extra-keys` is killed by the AC-STE-655.10 leg: answered join + read-merge + fields.summary, BE owning GF-85 → the mutant permits", async () => {
+    const mod = hookWithMutantEnvelope("drops", ENVELOPE_MUTANTS["drops-extra-keys"]);
+    const w = makeWorld();
+    ownViaFrBinding(w.be, "GF-85");
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askJoinGF85(s, { answer: JOIN_GF_85 });
+    const t = s.save(w.scratch);
+    const input = { ...MERGE_GF_85, fields: { ...MERGE_GF_85.fields, summary: "Payouts (renamed)" } };
+    expectRefusal(await runHook(JIRA("editJiraIssue"), input, { cwd: w.be, transcript: t }), "summary");
+    const r = await runHookModule(mod, JIRA("editJiraIssue"), input, { cwd: w.be, transcript: t });
+    expect(r.exitCode, `the mutant must permit (the leg sees the mutation):\n${show(r)}`).toBe(0);
+  }, 60_000);
 });

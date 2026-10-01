@@ -25,11 +25,16 @@
 //                  disk → the HEAD outside-window refusal, and no wait
 //
 // Spawns are SERIAL (one hook at a time): timing is part of AC.11's claim.
+//
+// STE-655 (M_a85e46) adds the tdd commit gate as a third GATES row, so every
+// leg above runs for it too (AC-STE-655.2 .. .6); see the STE-655 section below.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join, relative } from "node:path";
+
+import { mutateInRegion } from "./_sited-mutation";
 
 import {
   PLUGIN_ROOT,
@@ -48,9 +53,28 @@ interface Gate {
   name: string;
   module: string;
   skill: string;
-  /** The front door's skill argument (`gate-check`, `spec-review`). */
+  /** The front door's skill argument (`gate-check`, `spec-review`, `tdd`). */
   frontDoorSkill: string;
   command: (repo: string) => string;
+  /** STE-655 — makes the checkout one this gate grades (the tdd gate needs a staged source file and its test). */
+  prepare?: (repo: string) => Promise<void>;
+}
+
+/** The staged set that raises the /tdd requirement (the tdd suite's `managedTddRepo`). */
+const TDD_STAGED: Record<string, string> = {
+  "package.json": '{"name":"fixture","version":"0.0.0","private":true}\n',
+  "specs/frs/STE-1.md": "---\ntitle: STE-1\nstatus: active\n---\n\n# STE-1\n",
+  "src/x.ts": "export const x = 1;\n",
+  "src/x.test.ts": "// test\n",
+};
+
+async function stageTddChange(repo: string): Promise<void> {
+  for (const [rel, body] of Object.entries(TDD_STAGED)) {
+    const full = join(repo, rel);
+    mkdirSync(join(full, ".."), { recursive: true });
+    writeFileSync(full, body);
+    await Bun.spawn(["git", "-C", repo, "add", rel], { stdout: "pipe", stderr: "pipe" }).exited;
+  }
 }
 
 const GATES: readonly Gate[] = [
@@ -67,6 +91,16 @@ const GATES: readonly Gate[] = [
     skill: "dev-process-toolkit:spec-review",
     frontDoorSkill: "spec-review",
     command: () => "gh pr create --title foo --body bar",
+  },
+  // STE-655 AC.6 — the tdd commit gate rides the same table: every leg below
+  // runs for it, including the FO-1 and never-lands legs.
+  {
+    name: "pre-commit-tdd-orchestrator",
+    module: join(HOOK_DIR, "pre-commit-tdd-orchestrator.ts"),
+    skill: "dev-process-toolkit:tdd",
+    frontDoorSkill: "tdd",
+    command: (repo) => `git -C ${repo} commit -m x`,
+    prepare: stageTddChange,
   },
 ];
 
@@ -87,13 +121,14 @@ afterAll(() => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
 });
 
-/** A toolkit-managed `git init` checkout, with no receipts yet. */
-async function managedRepo(label: string): Promise<string> {
+/** A toolkit-managed `git init` checkout, with no receipts yet (and, for a gate that needs one, its staged change). */
+async function managedRepo(label: string, gate?: Gate): Promise<string> {
   seq += 1;
   const dir = join(scratch, `${label}-${seq}`);
   mkdirSync(dir, { recursive: true });
   await Bun.spawn(["git", "init", "-q", dir], { stdout: "pipe", stderr: "pipe" }).exited;
   writeManagedClaudeMd(dir);
+  if (gate?.prepare) await gate.prepare(dir);
   return dir;
 }
 
@@ -154,6 +189,7 @@ async function runGate(
   repo: string,
   transcript: string,
   append: { lines?: string[]; act?: () => void; afterMs: number } | null = null,
+  pluginRoot: string = PLUGIN_ROOT,
 ): Promise<Run> {
   const stdin = JSON.stringify({
     session_id: SID,
@@ -165,9 +201,10 @@ async function runGate(
     tool_use_id: "toolu_650_gated_never_flushed",
   });
   const t0 = performance.now();
-  const proc = Bun.spawn(["bun", "run", gate.module], {
+  const module = pluginRoot === PLUGIN_ROOT ? gate.module : join(pluginRoot, relative(PLUGIN_ROOT, gate.module));
+  const proc = Bun.spawn(["bun", "run", module], {
     cwd: repo,
-    env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT, CLAUDE_CODE_SESSION_ID: SID },
+    env: { ...process.env, CLAUDE_PLUGIN_ROOT: pluginRoot, CLAUDE_CODE_SESSION_ID: SID },
     stdin: new Response(stdin).body,
     stdout: "pipe",
     stderr: "pipe",
@@ -204,7 +241,7 @@ function writeTranscript(lines: string[]): string {
 type Shape = "plain" | "incident";
 
 async function laggingWorld(gate: Gate, shape: Shape): Promise<{ repo: string; transcript: string; landing: string[] }> {
-  const repo = await managedRepo(`${gate.frontDoorSkill}-${shape}`);
+  const repo = await managedRepo(`${gate.frontDoorSkill}-${shape}`, gate);
   const lines: string[] = [];
   if (shape === "incident") {
     const old = mint(repo, gate);
@@ -239,7 +276,7 @@ for (const gate of GATES) {
     }
 
     test("AC-STE-650.10 (review) — a detected forgery is never renamed as lag: a tampered announcement plus a pending run keeps the tamper refusal", async () => {
-      const repo = await managedRepo(`${gate.frontDoorSkill}-tamper`);
+      const repo = await managedRepo(`${gate.frontDoorSkill}-tamper`, gate);
       const lines: string[] = [skillCall(gate, HOUR_AGO())];
       const announced = mint(repo, gate);
       lines.push(mintCall(gate, "b-done", new Date(Date.now() - 2_000).toISOString()), mintResult("b-done", announced));
@@ -254,7 +291,7 @@ for (const gate of GATES) {
     }, 30_000);
 
     test("AC-STE-650.10 / .11 (review) — a pending run of ANOTHER gate's front door neither waits nor renames a real miss as lag", async () => {
-      const repo = await managedRepo(`${gate.frontDoorSkill}-other`);
+      const repo = await managedRepo(`${gate.frontDoorSkill}-other`, gate);
       const other = gate.frontDoorSkill === "gate-check" ? "spec-review" : "gate-check";
       const otherCall = JSON.stringify({
         type: "assistant",
@@ -274,7 +311,7 @@ for (const gate of GATES) {
     }, 60_000);
 
     test("AC-STE-650.10 (review) — a tamper riding on an outside-window miss is never renamed as lag", async () => {
-      const repo = await managedRepo(`${gate.frontDoorSkill}-tamper-old`);
+      const repo = await managedRepo(`${gate.frontDoorSkill}-tamper-old`, gate);
       const old = mint(repo, gate);
       const lines: string[] = [mintCall(gate, "b-old", new Date(Date.now() - 7_200_000).toISOString()), mintResult("b-old", old), skillCall(gate, HOUR_AGO())];
       const announced = mint(repo, gate);
@@ -287,8 +324,8 @@ for (const gate of GATES) {
     }, 30_000);
 
     test("AC-STE-650.10 (review) — a window already claimed by another checkout (not-vouched) is never renamed as lag, even with this gate's own run pending", async () => {
-      const repo = await managedRepo(`${gate.frontDoorSkill}-claimed`);
-      const other = await managedRepo(`${gate.frontDoorSkill}-claimant`);
+      const repo = await managedRepo(`${gate.frontDoorSkill}-claimed`, gate);
+      const other = await managedRepo(`${gate.frontDoorSkill}-claimant`, gate);
       mint(repo, gate); // this checkout's receipt exists; no run in the window announced it
       const claimed = mint(other, gate);
       const lines: string[] = [skillCall(gate, HOUR_AGO())];
@@ -322,7 +359,7 @@ for (const gate of GATES) {
     }, 30_000);
 
     test("AC-STE-650.11 — a receipt that genuinely predates the window, its result on disk, keeps the outside-window refusal and never waits (keep-behaviour control)", async () => {
-      const repo = await managedRepo(`${gate.frontDoorSkill}-old`);
+      const repo = await managedRepo(`${gate.frontDoorSkill}-old`, gate);
       const old = mint(repo, gate);
       const transcript = writeTranscript([
         mintCall(gate, "b-old", new Date(Date.now() - 7_200_000).toISOString()),
@@ -344,3 +381,247 @@ for (const gate of GATES) {
     }, 60_000);
   });
 }
+
+// ===========================================================================
+// STE-655 (M_a85e46) — every command gate waits out lag alike.
+//
+// The table above now carries the tdd commit gate (AC-STE-655.6), so its legs
+// are AC-STE-655.2 (lands → exit 0), AC-STE-655.3 (never lands → the lag
+// refusal, never outside-window), AC-STE-655.4 (FO-1, all three gates) and
+// AC-STE-655.5's first half (a genuinely old receipt keeps the HEAD refusal and
+// never waits) for that row. The legs below are the rest: the shared-helper
+// source pin (AC.1), the FO-1 break mutation (AC.4 / AC.17), the red-before
+// door's no-wait permit (AC.5) and the amended STE-650 text (AC.7).
+// ===========================================================================
+
+const TDD_GATE = GATES.find((g) => g.name === "pre-commit-tdd-orchestrator");
+const SESSION_TS = join(PLUGIN_ROOT, "templates", "hooks", "_lib", "session.ts");
+
+/**
+ * The span of the top-level `function <name>(` (exported or not) in `src`, up
+ * to the next top-level declaration — the grader suite's `functionBody` rule.
+ */
+function functionSpan(src: string, name: string): { from: number; to: number } | null {
+  const m = new RegExp(`\\n(?:export )?function ${name}\\(`).exec(src);
+  if (!m) return null;
+  const from = m.index + 1;
+  const next = src.slice(from + 1).search(/\n(?:export )?(?:async )?(?:function |const |let |interface |type |class |\/\*\*|\/\/ ---)/);
+  return { from, to: next < 0 ? src.length : from + 1 + next };
+}
+const bodyOf = (src: string, name: string): string => {
+  const span = functionSpan(src, name);
+  return span === null ? "" : src.slice(span.from, span.to);
+};
+/** Every top-level function name `src` exports. */
+const exportedFunctions = (src: string): string[] => [...src.matchAll(/\nexport function (\w+)\(/g)].map((m) => m[1]!);
+/** The ONE exported function of session.ts that sleeps: the bounded-wait helper. */
+function waitHelpers(src: string): string[] {
+  return exportedFunctions(src).filter((n) => bodyOf(src, n).includes("Bun.sleepSync"));
+}
+
+describe("STE-655 AC-STE-655.6 — the GATES table carries the tdd commit gate", () => {
+  test("AC-STE-655.6 — a pre-commit-tdd-orchestrator row runs every leg of this table", () => {
+    expect(GATES.map((g) => g.name)).toEqual(["pre-commit-gate-check", "pre-pr-spec-review", "pre-commit-tdd-orchestrator"]);
+    expect(TDD_GATE?.skill).toBe("dev-process-toolkit:tdd");
+    expect(existsSync(TDD_GATE!.module), TDD_GATE!.module).toBe(true);
+  });
+});
+
+describe("STE-655 AC-STE-655.1 — one exported bounded-wait helper, called by both evidence readers", () => {
+  const src = readFileSync(SESSION_TS, "utf-8");
+
+  test("AC-STE-655.1 — session.ts exports exactly one function that waits (Bun.sleepSync), and it is neither evidence reader", () => {
+    const helpers = waitHelpers(src);
+    expect(helpers.length, `exported functions holding the wait: ${helpers.join(", ") || "none"}`).toBe(1);
+    expect(["requireSkillToolUse", "requireTddEvidence"]).not.toContain(helpers[0]);
+    // ONE wait in the file: no private copy beside the exported one.
+    expect(src.split("Bun.sleepSync").length - 1).toBe(1);
+  });
+
+  test("AC-STE-655.1 — source pin: requireSkillToolUse and requireTddEvidence both call the helper, and neither carries its own wait loop", () => {
+    const helper = waitHelpers(src)[0] ?? "<no helper>";
+    const readers = ["requireSkillToolUse", "requireTddEvidence"] as const;
+    const pin = Object.fromEntries(
+      readers.map((r) => {
+        const body = bodyOf(src, r);
+        return [
+          r,
+          {
+            found: body !== "",
+            callsHelper: body.includes(`${helper}(`),
+            sleeps: body.includes("Bun.sleepSync"),
+            polls: body.includes("RECEIPT_RESULT_POLL_MS"),
+            loops: /\bwhile\s*\(|\bfor\s*\(\s*;;/.test(body),
+          },
+        ];
+      }),
+    );
+    const want = { found: true, callsHelper: true, sleeps: false, polls: false, loops: false };
+    expect(pin).toEqual({ requireSkillToolUse: want, requireTddEvidence: want });
+  });
+
+  test("CONTROL — bodyOf reads the named function: requireTddEvidence holds the red-before door, requireSkillToolUse the STE-614 receipt leg", () => {
+    expect(bodyOf(src, "requireTddEvidence")).toContain("proofCoverage(");
+    expect(bodyOf(src, "requireSkillToolUse")).toContain("firstReceiptMiss(");
+  });
+});
+
+describe("STE-655 AC-STE-655.5 — the tdd gate's red-before door never waits on a genuinely old receipt", () => {
+  test("AC-STE-655.5 — an old receipt (result on disk) plus a red-before proof covering every staged path → exit 0, without waiting", async () => {
+    const gate = TDD_GATE!;
+    const repo = await managedRepo("tdd-old-proof", gate);
+    const old = mint(repo, gate);
+    const proof = JSON.stringify({
+      type: "user",
+      timestamp: new Date().toISOString(),
+      message: { role: "user", content: `dpt-red-before-proof: repo=${repo} ${Object.keys(TDD_STAGED).join(" ")}` },
+    });
+    const transcript = writeTranscript([
+      mintCall(gate, "b-old", new Date(Date.now() - 7_200_000).toISOString()),
+      mintResult("b-old", old),
+      skillCall(gate, HOUR_AGO()),
+      proof,
+    ]);
+    let best: Run | null = null;
+    for (let i = 0; i < 3; i++) {
+      const r = await runGate(gate, repo, transcript);
+      if (best === null || r.ms < best.ms) best = r;
+    }
+    const r = best!;
+    if (r.exitCode !== 0) throw new Error(`expected exit 0 through the red-before door, got:\n${show(r)}`);
+    expect(r.ms, `no receipt run is pending, so the gate must not wait (fastest ${Math.round(r.ms)} ms)`).toBeLessThan(WAIT_BOUND_MS * 0.75);
+  }, 60_000);
+
+  test("AC-STE-655.5 / .3 — a pending tdd receipt run whose result never lands, but a red-before proof covers every staged path → exit 0 (the proof is door two)", async () => {
+    const gate = TDD_GATE!;
+    const w = await laggingWorld(gate, "plain");
+    appendFileSync(
+      w.transcript,
+      `${JSON.stringify({ type: "user", timestamp: new Date().toISOString(), message: { role: "user", content: `dpt-red-before-proof: repo=${w.repo} ${Object.keys(TDD_STAGED).join(" ")}` } })}\n`,
+    );
+    const r = await runGate(gate, w.repo, w.transcript);
+    if (r.exitCode !== 0) throw new Error(`expected exit 0 through the red-before door, got:\n${show(r)}`);
+  }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// AC-STE-655.4 / .17 — the FO-1 break, mutated away, reds the FO-1 leg of all
+// three gates. The plugin tree (tests/ excluded) is copied once; session.ts in
+// the copy loses the wait helper's fail-open break, sited with
+// `mutateInRegion` inside the helper's own body; each gate's FO-1 leg is then
+// run from the copy. The mutant must PERMIT (the fail-open regression FO-1
+// fixed); the unmutated copy must refuse naming the lag (the copy works).
+// ---------------------------------------------------------------------------
+
+/** Copy the plugin tree (tests/ and node_modules excluded) into `dir`; link node_modules. */
+function copyPlugin(dir: string): string {
+  const copy = join(dir, "plugin");
+  const testsDir = join(PLUGIN_ROOT, "tests");
+  cpSync(PLUGIN_ROOT, copy, {
+    recursive: true,
+    filter: (src) => src !== testsDir && !src.startsWith(`${testsDir}/`) && basename(src) !== "node_modules",
+  });
+  const nm = join(PLUGIN_ROOT, "..", "..", "node_modules");
+  if (existsSync(nm)) symlinkSync(nm, join(copy, "node_modules"), "dir");
+  return copy;
+}
+
+/**
+ * Remove the FO-1 break from the wait helper in `doc`: the ONE line of the
+ * helper's body that breaks out of the wait on a re-read that found no
+ * transcript (it names `null` or `found`). Throws when the helper or that line
+ * is not determined — a mutation that misses must never read as a kill.
+ */
+function withoutFailOpenBreak(doc: string): string {
+  const helper = waitHelpers(doc)[0];
+  if (helper === undefined) throw new Error("mutation: session.ts exports no wait helper (a function holding Bun.sleepSync)");
+  const span = functionSpan(doc, helper)!;
+  const lines = doc.slice(span.from, span.to).split("\n").filter((l) => /\bbreak\b/.test(l) && /null|found/.test(l));
+  if (lines.length !== 1) throw new Error(`mutation: expected exactly one FO-1 break line in ${helper}, found ${lines.length}:\n${lines.join("\n")}`);
+  const line = lines[0]!;
+  return mutateInRegion(doc, span.from, span.to, line, line.replace(/\bbreak\b/, "{}"), { label: `the FO-1 break in ${helper}` });
+}
+
+describe("STE-655 AC-STE-655.4 / .17 — removing the FO-1 break reds the FO-1 leg of every gate", () => {
+  let mutant = "";
+  let pristine = "";
+  beforeAll(() => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "ste655-fo1-")));
+    pristine = copyPlugin(join(dir, "a"));
+    mutant = copyPlugin(join(dir, "b"));
+    const target = join(mutant, "templates", "hooks", "_lib", "session.ts");
+    let mutated: string | null = null;
+    try {
+      mutated = withoutFailOpenBreak(readFileSync(target, "utf-8"));
+    } catch (e) {
+      mutant = `!${(e as Error).message}`;
+    }
+    if (mutated !== null) writeFileSync(target, mutated);
+  });
+  afterAll(() => {
+    for (const root of [pristine, mutant]) if (root !== "" && !root.startsWith("!")) rmSync(join(root, ".."), { recursive: true, force: true });
+  });
+
+  test("CONTROL — the mutation is sited: exactly one FO-1 break line in the shipped helper", () => {
+    const src = readFileSync(SESSION_TS, "utf-8");
+    expect(withoutFailOpenBreak(src)).not.toBe(src);
+  });
+
+  for (const gate of GATES) {
+    test(`AC-STE-655.4 (${gate.name}) — CONTROL on the unmutated copy: the transcript renamed mid-wait → exit 2 naming the lag`, async () => {
+      const w = await laggingWorld(gate, "plain");
+      const r = await runGate(gate, w.repo, w.transcript, { act: () => renameSync(w.transcript, `${w.transcript}.gone`), afterMs: 600 }, pristine);
+      if (r.exitCode !== 2) throw new Error(`expected exit 2, got:\n${show(r)}`);
+      expect(r.stderr, show(r)).toMatch(NOT_CAUGHT_UP);
+    }, 30_000);
+
+    test(`AC-STE-655.4 / .17 (${gate.name}) — with the FO-1 break mutated away, the same leg PERMITS (exit 0): the mutation is killed by the FO-1 leg`, async () => {
+      if (mutant.startsWith("!")) throw new Error(mutant.slice(1));
+      const w = await laggingWorld(gate, "plain");
+      const r = await runGate(gate, w.repo, w.transcript, { act: () => renameSync(w.transcript, `${w.transcript}.gone`), afterMs: 600 }, mutant);
+      if (r.exitCode !== 0) throw new Error(`expected the mutant to fail open (exit 0) — the FO-1 leg must see this mutation — got:\n${show(r)}`);
+    }, 30_000);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AC-STE-655.17 — door two reads the transcript ONCE (STE-655 review r0).
+// requireTddEvidence asks door two only after door one read a READABLE
+// transcript, and it now does so with a single read whose null result is never
+// a proof — so a transcript that turns unreadable can neither fail door two
+// open nor slip between a check and a re-check. No timing in a test can put the
+// unreadable moment between door one's read and door two's, so the property is
+// pinned structurally here, and the FO-1 leg (transcript renamed mid-WAIT)
+// still runs against the gate as shipped.
+// ---------------------------------------------------------------------------
+
+describe("STE-655 AC-STE-655.17 — door two grades one read, and a missing read is never a proof", () => {
+  test("AC-STE-655.17 — requireTddEvidence reads the transcript exactly once for door two, never calls the fail-open findRedBeforeProof, and gates the proof on a non-null read", () => {
+    const doc = readFileSync(join(PLUGIN_ROOT, "templates", "hooks", "_lib", "session.ts"), "utf-8");
+    const span = functionSpan(doc, "requireTddEvidence");
+    if (span === null) throw new Error("session.ts declares no requireTddEvidence");
+    const body = doc.slice(span.from, span.to);
+    expect((body.match(/readTranscriptLines\(payload\)/g) ?? []).length, "door two reads the transcript exactly once").toBe(1);
+    expect(body, "door two must not call the fail-open findRedBeforeProof").not.toContain("findRedBeforeProof(");
+    expect(body, "a null read is never a proof").toContain("lines !== null && proofCoverage(lines,");
+  });
+
+  test("AC-STE-655.17 / AC-STE-655.4 — the tdd row's FO-1 leg as shipped: the transcript renamed mid-wait → exit 2 naming the lag, never a pass", async () => {
+    const w = await laggingWorld(TDD_GATE!, "plain");
+    const r = await runGate(TDD_GATE!, w.repo, w.transcript, { act: () => renameSync(w.transcript, `${w.transcript}.gone`), afterMs: 600 });
+    if (r.exitCode !== 2) throw new Error(`expected exit 2, got:\n${show(r)}`);
+    expect(r.stderr, show(r)).toMatch(NOT_CAUGHT_UP);
+  }, 30_000);
+});
+
+describe("STE-655 AC-STE-655.7 — the archived STE-650 FR names the amendment", () => {
+  test("AC-STE-655.7 — AC-STE-650.9 and AC-STE-650.10 each carry a clause naming STE-655 and the tdd gate", () => {
+    const fr = readFileSync(join(PLUGIN_ROOT, "..", "..", "specs", "frs", "archive", "STE-650.md"), "utf-8");
+    const line = (id: string) => fr.split("\n").find((l) => l.startsWith(`- ${id}:`)) ?? "";
+    const pin = (id: string) => ({ present: line(id) !== "", namesFr: /STE-655/.test(line(id)), namesTddGate: /\btdd\b/i.test(line(id)) });
+    expect({ ac9: pin("AC-STE-650.9"), ac10: pin("AC-STE-650.10") }).toEqual({
+      ac9: { present: true, namesFr: true, namesTddGate: true },
+      ac10: { present: true, namesFr: true, namesTddGate: true },
+    });
+  });
+});
