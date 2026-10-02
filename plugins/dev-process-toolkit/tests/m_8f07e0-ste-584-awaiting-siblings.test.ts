@@ -631,12 +631,14 @@ describe("AC-STE-584.13 — the dogfood note regex admits the two new rows; the 
 // ===========================================================================
 
 describe("AC-STE-584.14 — probe count and the unreachable pin hold", () => {
-  test("gate-check lists 85 numbered probes, contiguous 1..85", () => {
+  // Amended by AC-STE-659.3: probe count 85 -> 86.
+  test("gate-check lists 86 numbered probes, contiguous 1..86", () => {
     const numbers = [...read(skillPath("gate-check")).matchAll(/^(\d+)\. \*\*/gm)].map((m) =>
       Number(m[1]),
     );
-    expect(numbers).toHaveLength(85);
-    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 85 }, (_, i) => i + 1));
+    // Amended by AC-STE-659.3: probe count 85 -> 86.
+    expect(numbers).toHaveLength(86);
+    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 86 }, (_, i) => i + 1));
   });
 
   test("module reachability reports orderedUnreachable === the shipped ORDERED_UNREACHABLE_PIN with ok: true", async () => {

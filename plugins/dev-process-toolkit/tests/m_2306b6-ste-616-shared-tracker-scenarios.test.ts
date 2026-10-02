@@ -837,9 +837,11 @@ describe("STE-649 — addTeamworkGraphContext in the classified inventory and th
 // ===========================================================================
 
 describe("AC-STE-616.16 — no new probe, capability key or smoke leg", () => {
-  test("the numbered probe count in the gate-check skill is the kickoff's 85", () => {
+  // Amended by AC-STE-659.3: probe count 85 -> 86.
+  test("the numbered probe count in the gate-check skill is 86 — the kickoff's 85 plus #86", () => {
     const body = readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
-    expect([...body.matchAll(/^(\d+)\. \*\*/gm)].length).toBe(85);
+    // Amended by AC-STE-659.3: probe count 85 -> 86.
+    expect([...body.matchAll(/^(\d+)\. \*\*/gm)].length).toBe(86);
   });
   test("CANONICAL_CAPABILITY_KEYS.length, SMOKE_LEGS and the head of ORDERED_UNREACHABLE_PIN_LEDGER equal the kickoff's (read in a subprocess)", () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "dpt-ste616-pins-")));

@@ -366,12 +366,15 @@ describe("AC-STE-462.5 — gate-check SKILL.md registers probe #75 active_plan_s
     expect(block).toContain("tests/gate-check-active-plan-ship-ready.test.ts");
   });
 
-  test("the numbered probe list is contiguous 1..85", () => {
+  // Amended by AC-STE-659.3: probe count 85 -> 86.
+  test("the numbered probe list is contiguous 1..86", () => {
     // Recalibrated 82 → 83: M140 added #83 external_link_verdicts.
     const numbers = [...gateCheckSkill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
-    expect(numbers.length).toBe(85);
+    // Amended by AC-STE-659.3: probe count 85 -> 86.
+    expect(numbers.length).toBe(86);
     expect([...numbers].sort((a, b) => a - b)).toEqual(
-      Array.from({ length: 85 }, (_, i) => i + 1),
+      // Amended by AC-STE-659.3: probe count 85 -> 86.
+      Array.from({ length: 86 }, (_, i) => i + 1),
     );
   });
 
