@@ -774,9 +774,11 @@ const M137_ADOPTION_TEST_REL = "tests/m137-ste-533-stage-block-adoption.test.ts"
  * the cascade moved 83 -> 85, so THIS file's staleness half went dead exactly
  * as M137's had. Both now read 83.
  */
-const STALE_PROBE_COUNT = 83;
+// Amended by AC-STE-659.3: the previous count is now 85 (probe #86 landed), so the staleness half stays live.
+const STALE_PROBE_COUNT = 85;
 /** The count after this FR registers `external_link_verdicts`. */
-const NEW_PROBE_COUNT = 85;
+// Amended by AC-STE-659.3: probe count 85 -> 86.
+const NEW_PROBE_COUNT = 86;
 
 /**
  * Every surface carrying the probe count, as `[repo-relative-or-plugin-relative
@@ -890,7 +892,8 @@ function onlyLine(body: string, anchor: RegExp): { line: string; number: number 
 }
 
 describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
-  test("the live count is 85 and the numbers are contiguous 1..85", () => {
+  // Amended by AC-STE-659.3: probe count 85 -> 86.
+  test("the live count is 86 and the numbers are contiguous 1..86", () => {
     const registrations = probeRegistrationLines();
     expect(liveProbeCount()).toBe(NEW_PROBE_COUNT);
     expect(registrations.map((r) => r.number)).toEqual(
@@ -923,7 +926,8 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     }
   });
 
-  test("README's TWO pins read 85, each on its own unique measured line", () => {
+  // Amended by AC-STE-659.3: probe count 85 -> 86.
+  test("README's TWO pins read 86, each on its own unique measured line", () => {
     const readme = read(README);
     const gates = onlyLine(readme, /numbered `\/gate-check` probes/);
     const layers = onlyLine(readme, /which layers \d+ probes on top/);
@@ -951,7 +955,8 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     // read 83, the count immediately before the live one, and a derived leg
     // in tests/m_8f8e25-ste-558-scanner-registration.test.ts holds all three
     // tables to the same value so the next cascade cannot leave one behind.
-    expect(body).toContain("const STALE_PROBE_COUNT = 83;");
+    // Amended by AC-STE-659.3: M137's table moved 83 -> 85 with the cascade.
+    expect(body).toContain("const STALE_PROBE_COUNT = 85;");
     expect(body).not.toContain("const STALE_PROBE_COUNT = 82;");
     expect(body).not.toContain("const STALE_PROBE_COUNT = 81;");
 
@@ -997,8 +1002,9 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     const skill = read(GATE_CHECK_SKILL);
     // Repointed by M_8f8e25/STE-558: the warning must name the next
     // UNREGISTERED number (86 at 85 live registrations), never one that landed.
-    expect(skill).toContain("registering probe #86 will turn probe #81 red");
-    expect(skill).not.toContain("registering probe #85 will turn probe #81 red");
+    // Amended by AC-STE-659.3: the next unregistered number is #87 at 86 live registrations.
+    expect(skill).toContain("registering probe #87 will turn probe #81 red");
+    expect(skill).not.toContain("registering probe #86 will turn probe #81 red");
   });
 
   test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
