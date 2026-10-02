@@ -64,7 +64,11 @@ const PLUGIN_REL = "plugins/dev-process-toolkit";
 const BUNDLE_BASE = `${PLUGIN_REL}/tests/fixtures/shared-tracker-live`;
 const VERDICT_FILE = "verdict.json";
 const RUN_DATE = "2026-09-21";
-const KICKOFF = "230148c9";
+// RE-BASED (operator ruling 2026-10-02, M_6c25dd): the freeze kept its line
+// sets and moved its base from 230148c9 to c3d58347, the last M_6c25dd
+// implementation commit, whose step-3 rewrite (+5 lines) and probe row #86
+// were drift against the old base. The epic-close line moved 260 -> 265 with it.
+const KICKOFF = "c3d58347";
 const REAL_PLAN = "specs/plan/M_2306b6.md";
 const REAL_PLAN_SUITE = `${PLUGIN_REL}/tests/m_2306b6-ste-618-live-proof-real-plan.test.ts`;
 /**
@@ -1152,18 +1156,19 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   // entry — the post-ship checklist's item 3 names closing the milestone Epic
   // `<P>-<N>` and the sharing condition (AC-STE-653.23), rewritten in place.
   // The freeze is exactly {91, 260}; a third line still needs a fresh ruling.
+  // Re-based by M_6c25dd: the same checklist item now sits at line 265.
   const SHIP_PERMITTED_LINE = 91;
-  const SHIP_EPIC_CLOSE_LINE = 260;
+  const SHIP_EPIC_CLOSE_LINE = 265;
   const SHIP_PERMITTED = [SHIP_PERMITTED_LINE, SHIP_EPIC_CLOSE_LINE];
 
-  test("skills/ship-milestone/SKILL.md differs from the kickoff only on lines 91 and 260, each rewritten in place", () => {
+  test("skills/ship-milestone/SKILL.md differs from the kickoff only on lines 91 and 265, each rewritten in place", () => {
     const now = readFileSync(join(REPO, SHIP), "utf-8");
     const then = kickoff(SHIP);
     expect(driftBeyond(then, now, SHIP_PERMITTED)).toEqual([]);
     const epic = now.split("\n")[SHIP_EPIC_CLOSE_LINE - 1]!;
-    expect(then.split("\n")[SHIP_EPIC_CLOSE_LINE - 1], "line 260 was the checklist's item 3 at the kickoff").toMatch(/^  3\. Update any external references/);
+    expect(then.split("\n")[SHIP_EPIC_CLOSE_LINE - 1], "line 265 was the checklist's item 3 at the kickoff").toMatch(/^  3\. Update any external references/);
     expect(epic).toMatch(/^  3\. Update any external references/);
-    expect(epic, "line 260 names closing the milestone Epic by its key").toContain("close the milestone Epic <P>-<N>");
+    expect(epic, "line 265 names closing the milestone Epic by its key").toContain("close the milestone Epic <P>-<N>");
     expect(epic, "and the sharing condition").toMatch(/spans_repos.*shared/);
     const line = now.split("\n")[SHIP_PERMITTED_LINE - 1]!;
     expect(line).toMatch(/^4\. \*\*Sibling not provably idle\*\*/);
@@ -1172,7 +1177,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     expect(line, "and no longer tells a Linear child to follow `endCursor` at top level").not.toMatch(/previous page's `endCursor`/);
   });
 
-  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91 and 260), or an added line, fails the guard", () => {
+  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91 and 265), or an added line, fails the guard", () => {
     const now = readFileSync(join(REPO, SHIP), "utf-8");
     const then = kickoff(SHIP);
     const lines = now.split("\n");
