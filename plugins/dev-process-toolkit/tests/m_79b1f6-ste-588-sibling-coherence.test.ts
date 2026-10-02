@@ -924,13 +924,15 @@ describe("AC-STE-588.12 — skills/gate-check/SKILL.md probe #63 row", () => {
     expect(row63()).toMatch(/sibling leg[^.;]*\bvacuous\b[^.;]*`spans_repos:?`/i);
   });
 
-  test("edited in place: 356 split-lines, probe #26 on line 81, probe #63 on line 150, 85 rows", () => {
+  // Amended by AC-STE-659.3: probe count 85 -> 86.
+  test("edited in place: 356 split-lines, probe #26 on line 81, probe #63 on line 150, 86 rows", () => {
     const lines = body().split("\n");
     expect(lines.length).toBe(356);
     expect(lines[80]!).toMatch(/^26\. /);
     expect(lines[149]!).toMatch(/^63\. \*\*/);
-    expect(lines.filter((l) => /^\d+\. \*\*/.test(l)).length).toBe(85);
-    expect(lines.some((l) => /^86\. /.test(l))).toBe(false);
+    // Amended by AC-STE-659.3: probe count 85 -> 86.
+    expect(lines.filter((l) => /^\d+\. \*\*/.test(l)).length).toBe(86);
+    expect(lines.some((l) => /^87\. /.test(l))).toBe(false); // Amended by AC-STE-659.3: next-row tripwire #86 -> #87.
   });
 });
 

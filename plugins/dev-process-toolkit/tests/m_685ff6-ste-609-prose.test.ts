@@ -153,7 +153,8 @@ describe("AC-STE-609.9 — the probe #75 row in skills/gate-check/SKILL.md", () 
         .filter(([, n]) => n !== "");
     const mainPositions = positions(onMain);
     expect(mainPositions.length).toBeGreaterThan(0);
-    expect(positions(now)).toEqual(mainPositions);
+    // Amended by AC-STE-659.3: probe #86 (`milestone_name_unasked`) registers on line 173; rows 1..85 hold main's positions.
+    expect(positions(now)).toEqual([...mainPositions, [173, "86"]]);
   });
 });
 

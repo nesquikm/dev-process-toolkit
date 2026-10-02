@@ -40,13 +40,13 @@ STE-657 → STE-658 → STE-659. STE-657 ships the shared validator and plan rea
 
 **Tasks:**
 
-- [ ] Add the shared codename validator and plan reader with its command front door — STE-657
+- [x] Add the shared codename validator and plan reader with its command front door — STE-657
   verify: the validator suite accepts every shipped CHANGELOG codename and rejects empty, 33-character, backtick and newline values.
-- [ ] Add `codename:` to the plan template and make /spec-write compose the title and codename without asking — STE-657
+- [x] Add `codename:` to the plan template and make /spec-write compose the title and codename without asking — STE-657
   verify: the template and spec-write prose tests pin the key, the composition rule and the absence of a name question.
-- [ ] Retire the codename prompt: flag, then plan key, then composed fallback, all through the validator — STE-658
+- [x] Retire the codename prompt: flag, then plan key, then composed fallback, all through the validator — STE-658
   verify: the ship-milestone shape and release-writer-door tests pin the new precedence and no longer find the prompt.
-- [ ] Refuse an invalid codename in the release writer through the shared validator — STE-658
+- [x] Refuse an invalid codename in the release writer through the shared validator — STE-658
   verify: release_config tests refuse each invalid shape with the NFR-10 envelope and write nothing.
-- [ ] Add the milestone-name probe over skill prose and active plans' codename keys — STE-659
+- [x] Add the milestone-name probe over skill prose and active plans' codename keys — STE-659
   verify: the probe goes red on a planted name prompt and on an invalid plan codename, green on the tree, and every probe-count pin moves with it.

@@ -129,7 +129,7 @@ flowchart TD
     classDef skill fill:#e1f5e1,stroke:#2e7d32,stroke-width:2px,color:#000
     classDef esc fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#000
 
-    gate{"Phase 2 gate-check (kill switch)<br/>typecheck + lint + tests + 85 probes"}:::eval
+    gate{"Phase 2 gate-check (kill switch)<br/>typecheck + lint + tests + 86 probes"}:::eval
     debug["/debug — root-cause loop"]:::skill
     stageA{"Stage A — spec compliance (in-process)"}:::eval
     stageB["Stage B — code-reviewer subagent (Agent call, not a context fork)<br/>Pass 1 spec → Pass 2 quality (fail-fast)"]:::fork
@@ -275,7 +275,7 @@ flowchart TD
 | Post-release verification 4d | /implement Release | assert status==done (+updatedAt advanced) | mismatch → NFR-10 |
 | Per-FR milestone iteration | /implement M(N) | N = active FR count | any FR fail → partial success |
 | Gate commands | /gate-check | any fail ⇒ GATE FAILED | kill switch; no LLM downgrade |
-| 85 conformance probes (NFR-15) | /gate-check | error⇒FAIL, warn⇒NOTES | file:line — reason |
+| 86 conformance probes (NFR-15) | /gate-check | error⇒FAIL, warn⇒NOTES | file:line — reason |
 | Inline code review (5-criterion) | /gate-check | critical CONCERN⇒FAIL | cannot downgrade failing command |
 | Drift check (audit) | /gate-check | implemented/not-found/no-AC | never FAILED; WITH NOTES |
 | spec-review missing-AC halt | spec-reviewer → orchestrator | one bounded retry | >=1 Missing ⇒ halt |
