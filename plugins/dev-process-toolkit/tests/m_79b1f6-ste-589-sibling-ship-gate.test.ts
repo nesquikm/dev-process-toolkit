@@ -787,13 +787,22 @@ describe("AC-STE-589.7 — skills/ship-milestone/SKILL.md carries refusal #4, th
     }
   });
 
-  test("tests/ship-milestone-shape.test.ts is unedited against main", () => {
-    const proc = spawnSync("git", ["diff", "main", "--", SHAPE_SUITE], {
+  // Amended by AC-STE-658.7 (operator ruling 2026-10-02, M_6c25dd): STE-658
+  // mandates swapping the retired codename-prompt pin in the shape suite, so the
+  // pin admits hunks that add a line marked `Amended by AC-STE-658.7`, and only those.
+  test("tests/ship-milestone-shape.test.ts is unedited against main beyond AC-STE-658.7's marked amendments", () => {
+    const proc = spawnSync("git", ["diff", "-U0", "main", "--", SHAPE_SUITE], {
       cwd: PLUGIN_ROOT,
       encoding: "utf-8",
     });
     expect(proc.status, proc.stderr).toBe(0);
-    expect(proc.stdout, "the shape suite was edited").toBe("");
+    // Amended by AC-STE-658.7: every remaining hunk must carry that marker.
+    const unmarked = proc.stdout
+      .split(/^(?=@@ )/m)
+      .filter((h) => h.startsWith("@@ "))
+      .filter((h) => !h.split("\n").some((l) => l.startsWith("+") && /Amended by AC-STE-658\.7\b/.test(l)))
+      .map((h) => h.split("\n")[0]!);
+    expect(unmarked, "the shape suite was edited outside AC-STE-658.7's amendments").toEqual([]);
   });
 
   test("tests/ship-milestone-shape.test.ts is green", () => {
