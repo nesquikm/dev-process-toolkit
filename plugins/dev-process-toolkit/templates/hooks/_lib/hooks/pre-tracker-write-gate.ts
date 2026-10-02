@@ -37,7 +37,7 @@ import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_own
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
 import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
-import { exemptsJoinConsent } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
+import { exemptsJoinConsent, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
@@ -1687,30 +1687,15 @@ function answerTo(p: ParsedLine, block: ContentBlock, question: string): string 
 }
 
 /**
- * STE-650 AC-8 — the ONE per-question consent matcher both consent checks
- * use: an answered AskUserQuestion consents to `label` only when a question
- * whose own text names the subject (`names`) and offers `label` as an option
- * was answered exactly `label`, and every such question was. Another
- * question's answer neither grants nor withholds it.
- * Twin: `consentedPerQuestion` in adapters/_shared/src/shared_tracker_live_grader.ts
+ * STE-655 AC-12 — the per-question verdict of one answered ask on `label`:
+ * `null` when no question in it names the subject and offers the label (the
+ * ask says nothing about it), else whether every such question was answered
+ * exactly `label` (the STE-650 AC-8 / FO-2 per-question rule). The rule is the
+ * shared `perQuestionConsent`; only the answer lookup is this hook's.
+ * Twin: `consentVerdict` in adapters/_shared/src/shared_tracker_live_grader.ts
  */
-function consentedPerQuestion(questions: unknown, p: ParsedLine, block: ContentBlock, label: string, names: (question: string) => boolean): boolean {
-  if (!Array.isArray(questions)) return false;
-  // The questions this ask put about the subject: each names it and offers
-  // the label. Consent needs at least one, and every one answered exactly the
-  // label — a "no" to one of them is never overridden by a "yes" to another
-  // (review FO-2). A question about something else neither grants nor
-  // withholds it.
-  const relevant = questions.filter((q) => {
-    const question = (q as { question?: unknown } | null)?.question;
-    if (typeof question !== "string" || !names(question)) return false;
-    const options = (q as { options?: unknown } | null)?.options;
-    return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
-  });
-  return (
-    relevant.length > 0 &&
-    relevant.every((q) => answerTo(p, block, (q as { question: string }).question) === label)
-  );
+function consentVerdict(questions: unknown, p: ParsedLine, block: ContentBlock, label: string, names: (question: string) => boolean): boolean | null {
+  return perQuestionConsent(questions, label, names, (question) => answerTo(p, block, question));
 }
 
 function operatorText(p: ParsedLine): string {
@@ -1722,19 +1707,27 @@ function operatorText(p: ParsedLine): string {
   return (content as ContentBlock[]).map((b) => (b?.type === "text" && typeof b.text === "string" ? b.text : "")).join("\n");
 }
 
-/** Line indices of an ANSWERED consent to `<verb> <key>` (§4), read per question (`consentedPerQuestion`, STE-650 AC-8). */
-function consentLines(parsed: Array<ParsedLine | null>, key: string, verb: "Import" | "Adopt"): number[] {
+/**
+ * Whether the operator's LATEST answer on `<verb> <key>` (§4) before line
+ * `before` consents to it, read per question (`consentVerdict`, STE-650 AC-8).
+ * STE-655 AC-13: among the answered asks that put the subject, the latest
+ * decides — an Import later answered Skip is withdrawn; an ask that does not
+ * name the subject changes nothing.
+ */
+function consentedBefore(parsed: Array<ParsedLine | null>, key: string, verb: "Import" | "Adopt", before: number): boolean {
   const label = `${verb} ${key}`;
   const asks = new Map<string, unknown>();
-  const out: number[] = [];
-  parsed.forEach((p, idx) => {
-    if (!p) return;
+  let latest = false;
+  for (let idx = 0; idx < before && idx < parsed.length; idx++) {
+    const p = parsed[idx];
+    if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string") {
         asks.set(b.id, (b.input as { questions?: unknown } | undefined)?.questions);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (b.is_error === true || !asks.has(b.tool_use_id)) continue;
-        if (consentedPerQuestion(asks.get(b.tool_use_id), p, b, label, (q) => namesKey(q, key))) out.push(idx);
+        const verdict = consentVerdict(asks.get(b.tool_use_id), p, b, label, (q) => namesKey(q, key));
+        if (verdict !== null) latest = verdict;
       }
     }
     const text = operatorText(p);
@@ -1742,11 +1735,13 @@ function consentLines(parsed: Array<ParsedLine | null>, key: string, verb: "Impo
       const v = resolveInterviewAnswer(text, "tracker_orphan_import");
       const values = Array.isArray(v) ? v : [v];
       // Exactly the ask's rule: the value is consent only when it IS the label
-      // (D-8 — a value merely naming the key read `Skip <KEY>` as consent).
-      if (values.some((x) => x === label)) out.push(idx);
+      // (D-8 — a value merely naming the key read `Skip <KEY>` as consent);
+      // a value naming the key otherwise withholds it.
+      if (values.some((x) => x === label)) latest = true;
+      else if (values.some((x) => typeof x === "string" && namesKey(x, key))) latest = false;
     }
-  });
-  return out;
+  }
+  return latest;
 }
 
 interface OwnershipContext {
@@ -1785,7 +1780,10 @@ function owns(ctx: OwnershipContext, root: string, key: string): boolean {
     const verb = r.kind === "import" ? "Import" : r.kind === "binding" && r.decision === "adopt" ? "Adopt" : null;
     if (r.kind === "binding" && verb === null) return true;
     if (verb === null) continue;
-    if (consentLines(ctx.parsed, key, verb).some((l) => l < a.line)) return true;
+    // Consented when the receipt was written, AND not withdrawn since: the
+    // latest answer before the gated call governs (STE-655 AC.13). The gated
+    // line may not have landed yet, so "before" is the transcript's end.
+    if (consentedBefore(ctx.parsed, key, verb, a.line) && consentedBefore(ctx.parsed, key, verb, ctx.parsed.length)) return true;
   }
   return false;
 }
@@ -1817,6 +1815,21 @@ function gateTicket(
   }
   const inScope = keys.map((k) => ({ key: k, targets: declared.filter((d) => bindsKey(call.adapter, d.binding, k)) }));
   if (inScope.every((k) => k.targets.length === 0)) return 0; // §3 — no declared target binds the container
+  // STE-655 AC.16 — a Linear relation target is a link side for resolution
+  // only: it must resolve to a key inside the team that binds the issue. It is
+  // never a subject, so owning it never permits writing an unowned `id`.
+  const binding = inScope.flatMap((k) => k.targets);
+  const outside = relationTargets(call.tool, call.input).filter((v) => {
+    const k = sideText(v).toUpperCase();
+    return !(TICKET_KEY.test(k) && binding.some((t) => bindsKey(call.adapter, t.binding, k)));
+  });
+  if (outside.length > 0) {
+    const named = outside.map((v) => `"${sideText(v)}"`).join(", ");
+    return refuse(
+      `${call.tool}: the relation target ${named} cannot be resolved inside the team bound by ${[...new Set(binding.map((t) => t.root))].join(", ")} — a relation target (relatedTo, blockedBy, blocks, duplicateOf) is a link side and resolves only from a key in that team — so the update is refused whatever its issue.${note}`,
+      `relate the issue only to tickets in its own team, passed by key, then retry.`,
+    );
+  }
 
   const parsed = parseLines(transcript);
   const ctx: OwnershipContext = {
@@ -1833,8 +1846,18 @@ function gateTicket(
   const bound = inScope.filter((k) => k.targets.length > 0);
   const unowned = inScope.filter((k) => !ownedKey(k));
   // A link needs one owned side; every other ticket call needs every subject owned.
-  const permitted = isLink ? bound.some(ownedKey) : unowned.length === 0;
+  // STE-655 AC.15 — a link carrying a comment needs every side owned.
+  const linkComment = isLink && linkNeedsEverySide(call.input);
+  const permitted = isLink && !linkComment ? bound.some(ownedKey) : unowned.length === 0;
   if (permitted) return 0;
+  if (linkComment) {
+    const named = unowned.map((k) => k.key);
+    const roots = [...new Set(inScope.flatMap((k) => k.targets.map((t) => t.root)))].join(", ");
+    return refuse(
+      `${call.tool} on ${inScope.map((k) => k.key).join(", ")} carries a non-empty comment, and its side ${named.join(", ")} is not owned by the declared target ${roots} — a link's comment lands on a ticket the link names, so every side must be owned.${note}`,
+      `drop the comment from the link and retry, or post the comment on your own ticket in a separate call.`,
+    );
+  }
   const named = (isLink ? bound : unowned).map((k) => k.key);
   const targetRoots = [...new Set(inScope.flatMap((k) => k.targets.map((t) => t.root)))].join(", ");
   // STE-641 — name the lag as a fact, not a retry: a lone call's own line is
@@ -1974,7 +1997,15 @@ function answeredAfter(parsed: Array<ParsedLine | null>, d: ConsentSubject, labe
   // carries the key or title, so reading the options too would let a
   // correctly-labelled option ride an unrelated question.
   const names = (q: string): boolean => (d.key !== "" && namesKey(q, d.key)) || (d.title !== null && d.title !== "" && q.includes(d.title));
+  // STE-655 AC-12: among the answered asks that put the subject, the LATEST
+  // decides — a Join later answered Skip is withdrawn; an ask that does not
+  // name the subject changes nothing.
+  // Scope (STE-650 AC-8, kept): an ask "puts the subject" when a question names
+  // it AND offers `label`; a re-ask offering only Skip/Cancel says nothing, so
+  // it neither grants nor withdraws. Join consent has no operator-text arm —
+  // the answers block carries only the import key (consentedBefore reads it).
   const asks = new Map<string, unknown>();
+  let latest = false;
   for (let idx = d.line + 1; idx < parsed.length; idx++) {
     const p = parsed[idx];
     if (!p) continue;
@@ -1983,11 +2014,12 @@ function answeredAfter(parsed: Array<ParsedLine | null>, d: ConsentSubject, labe
         asks.set(b.id, (b.input as { questions?: unknown } | undefined)?.questions);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (b.is_error === true || !asks.has(b.tool_use_id)) continue;
-        if (consentedPerQuestion(asks.get(b.tool_use_id), p, b, label, names)) return true;
+        const verdict = consentVerdict(asks.get(b.tool_use_id), p, b, label, names);
+        if (verdict !== null) latest = verdict;
       }
     }
   }
-  return false;
+  return latest;
 }
 
 /** STE-644 — the listing tool a container re-list is read from, per tracker. */
@@ -2335,14 +2367,11 @@ function gateJoinedLabels(
   transcript: string[] = [],
 ): ExitCode | null {
   if (call.adapter !== "jira" || call.tool !== "editJiraIssue") return null;
-  const fields = call.input.fields;
-  if (!fields || typeof fields !== "object" || !("labels" in (fields as Record<string, unknown>))) return null;
-  // Only a write whose SOLE effect is the labels set is a read-merge. Any other
-  // field, or any other top-level key (an `update` block), leaves the call to
-  // the ownership rule of §4 (M_685ff6 review: a superset must not carry a
-  // summary edit onto a sibling's Epic).
-  if (Object.keys(fields as Record<string, unknown>).some((k) => k !== "labels")) return null;
-  if (Object.keys(call.input).some((k) => k !== "cloudId" && k !== "issueIdOrKey" && k !== "fields")) return null;
+  // STE-655 AC.8 — the shared envelope decides what a labels write is; a
+  // top-level format key is not a field key and changes nothing (AC.9).
+  const envelope = labelsEnvelope(call.input);
+  if (envelope === null) return null;
+  const fields = (call.input.fields ?? {}) as Record<string, unknown>;
   const keys = subjectKeys(call);
   if (keys.length !== 1) return null;
   const key = keys[0]!;
@@ -2354,6 +2383,20 @@ function gateJoinedLabels(
   );
   const join = joins[joins.length - 1];
   if (!join) return null;
+  // STE-655 AC.10 — only a write whose SOLE effect is the labels set is a
+  // read-merge: any other field key on a joined Epic is refused, naming it,
+  // answered join or not (M_685ff6 review: a superset must not carry a
+  // summary edit onto a sibling's Epic).
+  // The shared envelope already counts a top-level `update` block as an extra
+  // key (M_685ff6 review), for the hook and the grader alike.
+  const extraKeys = envelope.extraKeys;
+  if (extraKeys.length > 0) {
+    const extra = extraKeys.join(", ");
+    return refuse(
+      `editJiraIssue on ${key}, an Epic joined by ${join.path}, writes ${extra} beside labels: a joined Epic's write may set only its labels.${note}`,
+      `drop ${extra} from the write and set only the labels (the read-merge the join printed).`,
+    );
+  }
   // Review TWR-4 (round 2): an Epic this session created needs no join
   // consent — it is its own — but its labels write is still a read-merge: the
   // listed labels and the milestone label below are checked for every joined

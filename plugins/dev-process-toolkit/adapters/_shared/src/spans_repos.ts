@@ -8,13 +8,15 @@
 //
 // STE-610 adds the one WRITER of the key: `declareSpan` (front door
 // `--declare`) verifies a sibling (`verifySpan`) and inserts the two-entry
-// block into both plans' frontmatter. The checks read every existing
-// declaration back through the reader above before anything is written; the
-// insert itself only adds lines before the closing fence, keeping every other
-// byte. A hand-written declaration is still read exactly the same way.
+// block into THIS repository's plan frontmatter only (STE-651): the sibling's
+// plan is graded read-only, and the sibling's own session declares its side.
+// The checks read every existing declaration back through the reader above
+// before anything is written; the insert itself only adds lines before the
+// closing fence, keeping every other byte. A hand-written declaration is still
+// read exactly the same way.
 
-import { readFileSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 // The import cycle with active_plan_ship_ready.ts predates STE-610 (it already
 // imports `resolveSpansRepos` from here); every name crossing it is a function
 // called at run time, never at module evaluation, so the cycle is inert.
@@ -261,7 +263,7 @@ function selfCountRefusal(
 }
 
 // ---------------------------------------------------------------------------
-// STE-610: declaring the span in both plans.
+// STE-610 (amended by STE-651): declaring this repository's side of the span.
 // ---------------------------------------------------------------------------
 
 export interface DeclareSpanInput {
@@ -293,10 +295,11 @@ export interface VerifiedSpan {
   readonly siblingTag: string;
   /** The invoking plan's text, as read. */
   readonly planBody: string;
-  /** The sibling's plan copy the checks graded: its main-worktree copy when it has one. */
+  /**
+   * The sibling's plan copy the checks graded (read-only): its main-worktree
+   * copy when it has one, else the first git source holding it.
+   */
   readonly siblingPlan: { readonly source: string; readonly body: string };
-  /** True when `siblingPlan` sits in the sibling's main worktree (writable there). */
-  readonly siblingPlanInMainWorktree: boolean;
 }
 
 /** A declare refused: the message is NFR-10 three-line, a reader's own when one refused. */
@@ -328,9 +331,8 @@ function readerOwnText<T>(read: () => T): T {
 /**
  * Verify a sibling before a span is declared (AC-STE-610.1). Every check
  * refuses with a `SpanDeclareError` naming it; nothing is written by any
- * check. With `dryRun` the sibling's plan may sit in any git source; without
- * it the plan must be in the sibling's main worktree, where the
- * back-reference is written.
+ * check. The sibling's plan may sit in any git source (STE-651): it is only
+ * read, never written, so a branch or linked worktree holding it suffices.
  */
 export async function verifySpan(input: DeclareSpanInput): Promise<VerifiedSpan> {
   const { invokingRepo, planFile, milestone } = input;
@@ -350,13 +352,41 @@ export async function verifySpan(input: DeclareSpanInput): Promise<VerifiedSpan>
     }
   } else {
     try {
-      planBody = readFileSync(planFile, "utf-8");
+      planBody = readFileSync(resolve(invokingRepo, planFile), "utf-8");
     } catch (e) {
       const code = (e as { code?: string }).code ?? "unknown";
       throw declareRefusal(
         `to declare spans_repos — the plan file ${shown(planFile)} cannot be read.`,
         `${DECLARE_USAGE} — pass a readable milestone plan file.`,
         `phase=plan-read, error=${code}`,
+      );
+    }
+    // The plan file must live in the invoking repository (STE-651): a declare
+    // writes this side only. Repository identity, not a path prefix — a
+    // separate clone nested inside the checkout is another repository — and of
+    // the FILE's real location: a symlink inside this checkout pointing at the
+    // sibling's plan would otherwise pass here and the write would follow it.
+    // A relative planFile resolves against invokingRepo for the read, this
+    // check and the write alike, so all three see the same file.
+    let realPlan: string;
+    try {
+      realPlan = realpathSync(resolve(invokingRepo, planFile));
+    } catch (e) {
+      const code = (e as { code?: string }).code ?? "unknown";
+      throw declareRefusal(
+        `to declare spans_repos — the plan file ${shown(planFile)} cannot be read.`,
+        `${DECLARE_USAGE} — pass a readable milestone plan file.`,
+        `phase=plan-read, error=${code}`,
+      );
+    }
+    // A hard link inside this checkout to the sibling's plan file still passes
+    // here (a hard link has no "real" path to resolve); accepted residual —
+    // creating one takes deliberate local action, unlike a symlink in a tree.
+    if (!sameRepository(dirname(realPlan), invokingRepo)) {
+      throw declareRefusal(
+        `to declare spans_repos — the plan file ${shown(planFile)} is not in the invoking repository ${shown(invokingRepo)}; a declare writes only its own side.`,
+        `${DECLARE_USAGE} — run it from the repository that holds the plan file, passing that repository's own plan.`,
+        "phase=plan-read, check=plan-in-invoking-repository",
       );
     }
     readerOwnText(() => readSpansReposDeclaration(planBody));
@@ -411,7 +441,7 @@ export async function verifySpan(input: DeclareSpanInput): Promise<VerifiedSpan>
   if (invokingMode !== "linear" && invokingMode !== "jira") {
     throw declareRefusal(
       `to declare spans_repos — mode \`${oneLine(invokingMode) || "(none declared)"}\` has no tracker to carry a \`repo_tag\`, so no entry name can be read.`,
-      "hand-write the spans_repos declaration in both plans, naming each repository yourself.",
+      "hand-write this plan's spans_repos declaration, naming each repository yourself; the sibling's own session hand-writes its side.",
       `phase=claude-md, check=tracker-mode, mode=${oneLine(invokingMode)}`,
     );
   }
@@ -435,7 +465,7 @@ export async function verifySpan(input: DeclareSpanInput): Promise<VerifiedSpan>
     if (binding.repoTag === undefined) {
       throw declareRefusal(
         `to declare spans_repos — the ${side} repository's CLAUDE.md ${shown(where)} declares no \`repo_tag\`, so its entry has no name to read.`,
-        "declare `repo_tag` (and `min_dpt_version`) in its tracker sub-section, or hand-write the spans_repos declaration in both plans — no name is invented.",
+        "declare `repo_tag` (and `min_dpt_version`) in its tracker sub-section, or hand-write this plan's spans_repos declaration (the sibling's own session hand-writes its side) — no name is invented.",
         `phase=claude-md, check=repo-tag, side=${side}`,
       );
     }
@@ -470,18 +500,8 @@ export async function verifySpan(input: DeclareSpanInput): Promise<VerifiedSpan>
     );
   }
   const mainSource = `worktree ${siblingRoot}`;
-  const inMain = plans.find((p) => p.source === mainSource);
-  const siblingPlan = inMain ?? plans[0]!;
+  const siblingPlan = plans.find((p) => p.source === mainSource) ?? plans[0]!;
   readerOwnText(() => readSpansReposDeclaration(siblingPlan.body));
-  if (inMain === undefined && input.dryRun !== true) {
-    const refs = [...new Set(plans.map((p) => oneLine(p.source)))].join(", ");
-    throw declareRefusal(
-      `to declare spans_repos — the sibling's plan for ${oneLine(milestone)} is not in its main worktree ${shown(siblingRoot)}; it is held by ${refs}, and the back-reference cannot be written into a branch that is not checked out.`,
-      `check out the branch holding the plan in the sibling's main worktree (or merge it there), then declare again.`,
-      `phase=sibling-plan, check=plan-in-main-worktree, milestone=${oneLine(milestone)}`,
-    );
-  }
-
   return {
     invokingRoot: mainWorktreeRoot(invokingRepo) ?? invokingRepo,
     siblingRoot,
@@ -489,15 +509,16 @@ export async function verifySpan(input: DeclareSpanInput): Promise<VerifiedSpan>
     siblingTag,
     planBody,
     siblingPlan,
-    siblingPlanInMainWorktree: inMain !== undefined,
   };
 }
 
-/** What a declare established and the plan files it wrote. */
+/** What a declare established and the plan file it wrote. */
 export interface DeclaredSpan extends VerifiedSpan {
-  /** The sibling's plan file in its main worktree (null on a dry run). */
-  readonly siblingPlanFile: string | null;
-  /** The plan files written, invoking first. */
+  /** The sibling's plan path relative to its root, for the command its own session runs. */
+  readonly siblingPlanRel: string;
+  /** True when the sibling's plan already names this repository back (null on a dry run). */
+  readonly siblingNamesBack: boolean | null;
+  /** The plan files written: the invoking plan, or none. */
   readonly written: readonly string[];
 }
 
@@ -572,114 +593,113 @@ function gradeExistingDeclaration(
 }
 
 /**
- * Declare a milestone's span in both plans (STE-610). Verifies first
- * (`verifySpan`) and refuses before anything is written; both new texts are
- * built before either write, and a failed second write restores the first.
+ * Declare this repository's side of a milestone's span (STE-610, amended by
+ * STE-651). Verifies first (`verifySpan`) and refuses before anything is
+ * written. Only the invoking plan is written; the sibling's plan is graded
+ * read-only, and its own session declares its side.
  */
 export async function declareSpan(input: DeclareSpanInput): Promise<DeclaredSpan> {
   const verified = await verifySpan(input);
-  if (input.dryRun === true) return { ...verified, siblingPlanFile: null, written: [] };
   const { invokingRoot, siblingRoot, invokingTag, siblingTag, planBody, siblingPlan } = verified;
-
-  // The sibling's plan FILE in its main worktree: the one whose text the checks graded.
-  const siblingPlanFile = planRelPaths(input.milestone)
-    .map((rel) => join(siblingRoot, rel))
-    .find((file) => {
+  const siblingPlanRel =
+    planRelPaths(input.milestone).find((rel) => {
       try {
-        return readFileSync(file, "utf-8") === siblingPlan.body;
+        return readFileSync(join(siblingRoot, rel), "utf-8") === siblingPlan.body;
       } catch {
         return false;
       }
-    });
-  if (siblingPlanFile === undefined) {
-    throw declareRefusal(
-      `to declare spans_repos — the sibling's plan for ${oneLine(input.milestone)} changed in its main worktree \`${oneLine(siblingRoot)}\` while it was being verified.`,
-      "declare again.",
-      "phase=sibling-plan, check=plan-file",
-    );
+    }) ?? planRelPaths(input.milestone)[0]!;
+  if (input.dryRun === true) {
+    return { ...verified, siblingPlanRel, siblingNamesBack: null, written: [] };
   }
 
   // Paths run between the two MAIN worktree roots (STE-609).
   const toSibling = relative(invokingRoot, siblingRoot);
   const toInvoking = relative(siblingRoot, invokingRoot);
-  const edits: Array<{ file: string; before: string; after: string }> = [];
-  // Every existing declaration is graded BEFORE any write: a side already
-  // carrying exactly the two computed entries is left untouched (idempotent),
-  // and any other declaration refuses — nothing is merged or overwritten.
-  const sides = [
-    [input.planFile!, planBody, invokingRoot, [[invokingTag, "."], [siblingTag, toSibling]]],
-    [siblingPlanFile, siblingPlan.body, siblingRoot, [[siblingTag, "."], [invokingTag, toInvoking]]],
-  ] as const;
-  const pending: Array<(typeof sides)[number]> = [];
-  for (const side of sides) {
-    const [file, before, root, entries] = side;
-    const existing = readSpansReposDeclaration(before);
-    if (!existing.declared) {
-      pending.push(side);
-      continue;
-    }
-    gradeExistingDeclaration(file, root, existing.entries, entries);
-  }
-  for (const [file, before, , entries] of pending) {
-    const after = insertSpanBlock(before, entries);
-    if (after === null) {
-      throw declareRefusal(
-        `to declare spans_repos — the plan \`${oneLine(file)}\` has no frontmatter block to insert the declaration into.`,
-        "give the plan its `---` frontmatter, then declare again.",
-        "phase=plan-write, check=frontmatter",
-      );
-    }
-    edits.push({ file, before, after });
+  const file = resolve(input.invokingRepo, input.planFile!);
+  const entries = [[invokingTag, "."], [siblingTag, toSibling]] as const;
+
+  // The sibling's existing declaration is graded READ-ONLY: a conflict still
+  // refuses, and an undeclared sibling is left for its own session.
+  const siblingExisting = readSpansReposDeclaration(siblingPlan.body);
+  let siblingNamesBack = false;
+  if (siblingExisting.declared) {
+    gradeExistingDeclaration(siblingPlan.source, siblingRoot, siblingExisting.entries, [
+      [siblingTag, "."],
+      [invokingTag, toInvoking],
+    ]);
+    siblingNamesBack = true;
   }
 
-  // Drift guard, as late as possible: each plan is re-read just before the
-  // writes and must still hold the bytes it was graded on — a concurrent edit
-  // (another declare, a hand edit) refuses rather than being clobbered.
-  for (const edit of edits) {
-    let now: string | null;
-    try {
-      now = readFileSync(edit.file, "utf-8");
-    } catch {
-      now = null;
-    }
-    if (now !== edit.before) {
-      throw declareRefusal(
-        `to declare spans_repos — the plan \`${oneLine(edit.file)}\` changed while it was being verified, so nothing was written.`,
-        "declare again.",
-        "phase=plan-write, check=drift",
-      );
-    }
+  const existing = readSpansReposDeclaration(planBody);
+  if (existing.declared) {
+    gradeExistingDeclaration(file, invokingRoot, existing.entries, entries);
+    return { ...verified, siblingPlanRel, siblingNamesBack, written: [] };
   }
-  const written: string[] = [];
-  for (const edit of edits) {
-    try {
-      writeFileSync(edit.file, edit.after, "utf-8");
-      written.push(edit.file);
-    } catch (e) {
-      const code = (e as { code?: string }).code ?? "unknown";
-      // Never leave one side half-declared: restore what was already written.
-      // A failed restore is reported, never lost: the refusal names the plan
-      // left declared so the operator can revert it by hand.
-      const unrestored: string[] = [];
-      for (const done of edits.filter((d) => written.includes(d.file))) {
-        try {
-          writeFileSync(done.file, done.before, "utf-8");
-        } catch {
-          unrestored.push(done.file);
-        }
-      }
-      throw declareRefusal(
-        unrestored.length === 0
-          ? `to declare spans_repos — the plan \`${oneLine(edit.file)}\` cannot be written; ${written.length > 0 ? "the plan already written was restored, so " : ""}neither plan is declared.`
-          : `to declare spans_repos — the plan \`${oneLine(edit.file)}\` cannot be written, and restoring ${unrestored.map((f) => `\`${oneLine(f)}\``).join(", ")} failed: that plan is left declared.`,
-        unrestored.length === 0
-          ? "make the plan file writable, then declare again."
-          : "remove the spans_repos: block from the plan left declared by hand, make both plan files writable, then declare again.",
-        `phase=plan-write, error=${code}`,
-      );
-    }
+  const after = insertSpanBlock(planBody, entries);
+  if (after === null) {
+    throw declareRefusal(
+      `to declare spans_repos — the plan \`${oneLine(file)}\` has no frontmatter block to insert the declaration into.`,
+      "give the plan its `---` frontmatter, then declare again.",
+      "phase=plan-write, check=frontmatter",
+    );
   }
-  return { ...verified, siblingPlanFile, written };
+
+  // Drift guard, as late as possible: the plan's real path is re-resolved and
+  // re-checked for containment (a symlink swapped in after verifySpan graded
+  // the file would otherwise be followed by the write), then re-read just
+  // before the write and must still hold the bytes it was graded on. The
+  // write goes to that resolved path, never back through a link.
+  let real: string | null;
+  try {
+    real = realpathSync(file);
+  } catch {
+    real = null;
+  }
+  if (real === null || !sameRepository(dirname(real), invokingRoot)) {
+    throw declareRefusal(
+      `to declare spans_repos — the plan \`${oneLine(file)}\` no longer resolves inside the invoking repository, so nothing was written.`,
+      "declare again with this repository's own plan file.",
+      "phase=plan-write, check=plan-in-invoking-repository",
+    );
+  }
+  let now: string | null;
+  try {
+    now = readFileSync(real, "utf-8");
+  } catch {
+    now = null;
+  }
+  if (now !== planBody) {
+    throw declareRefusal(
+      `to declare spans_repos — the plan \`${oneLine(file)}\` changed while it was being verified, so nothing was written.`,
+      "declare again.",
+      "phase=plan-write, check=drift",
+    );
+  }
+  try {
+    writeFileSync(real, after, "utf-8");
+  } catch (e) {
+    const code = (e as { code?: string }).code ?? "unknown";
+    throw declareRefusal(
+      `to declare spans_repos — the plan \`${oneLine(file)}\` cannot be written; it is not declared.`,
+      "make the plan file writable, then declare again.",
+      `phase=plan-write, error=${code}`,
+    );
+  }
+  return { ...verified, siblingPlanRel, siblingNamesBack, written: [file] };
+}
+
+/**
+ * One shell word for a printed command: bare when every character is
+ * shell-inert, otherwise single-quoted, so a path holding a space (or any
+ * other metacharacter) still runs verbatim. One-lined first, like every
+ * other printed path: a path carrying a control character or line break is
+ * printed rewritten and will NOT run verbatim — such a path cannot be pasted
+ * from a one-line message anyway, and it is shown rather than refused.
+ */
+function shellWord(s: string): string {
+  const one = oneLine(s);
+  return /^[A-Za-z0-9_\/.@%+=:,-]+$/.test(one) ? one : `'${one.replace(/'/g, "'\\''")}'`;
 }
 
 /** One stdout line for one resolved entry, fields whitespace-separated. */
@@ -711,10 +731,12 @@ function formatSiblingState(state: SiblingState): string {
 //
 //   bun run spans_repos.ts <planFile> <milestone> --declare <siblingPath>
 //
-// Declares the span from the invoking checkout (cwd): one stdout line per plan
-// written (or one "already declared" line when both already carry exactly the
-// two entries), plus a reminder to commit the sibling's plan there. A refusal
-// prints the NFR-10 message on stderr only, writes nothing, and exits 1.
+// Declares this repository's side of the span from the invoking checkout (cwd):
+// one stdout line for this plan (or one "already declared" line when it already
+// carries exactly the two entries), then one line saying whether the sibling's
+// plan names this repository back — and, when it does not, the command the
+// sibling's own session runs for its side. Nothing in the sibling is written. A
+// refusal prints the NFR-10 message on stderr only, writes nothing, and exits 1.
 if (import.meta.main && process.argv[4] === "--declare") {
   const [planFile, milestone, , siblingPath] = process.argv.slice(2);
   try {
@@ -732,12 +754,19 @@ if (import.meta.main && process.argv[4] === "--declare") {
       siblingPath,
     });
     if (declared.written.length === 0) {
-      console.log("spans_repos already declared in both plans — nothing written.");
+      console.log("spans_repos already declared in this plan — nothing written.");
     }
     for (const file of declared.written) console.log(`spans_repos declared in ${oneLine(file)}`);
-    if (declared.siblingPlanFile !== null && declared.written.includes(declared.siblingPlanFile)) {
+    const source = oneLine(declared.siblingPlan.source);
+    if (declared.siblingNamesBack === true) {
+      console.log(`The sibling's plan (${source}) already names this repository back.`);
+    } else {
+      const holding =
+        declared.siblingPlan.source === `worktree ${declared.siblingRoot}`
+          ? ""
+          : ` from the checkout holding ${source}`;
       console.log(
-        `The sibling's plan is left uncommitted in ${oneLine(declared.siblingRoot)} — commit ${oneLine(relative(declared.siblingRoot, declared.siblingPlanFile))} there.`,
+        `The sibling's plan (${source}) does not name this repository back yet — its own session declares that side: in ${oneLine(declared.siblingRoot)}${holding} run bun run "\${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/spans_repos.ts" ${shellWord(declared.siblingPlanRel)} ${shellWord(milestone!)} --declare ${shellWord(declared.invokingRoot)}`,
       );
     }
   } catch (e) {

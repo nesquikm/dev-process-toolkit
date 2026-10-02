@@ -39,7 +39,7 @@ Restated for the LLM running in this forked context — the parent skill consume
 
 ## Branch-gate exemption
 
-This skill writes nothing under VCS — it only reads `specs/frs/**` and emits the summary block to its parent's context. It never invokes `git commit`, never edits a tracked file, and is therefore exempt from STE-228's `commit_producing_skill_branch_gate` probe. The exemption is enforced by the `NON_COMMIT_PRODUCING_SKILLS` allowlist in `adapters/_shared/src/commit_producing_skill_branch_gate.ts` — `spec-research` is on that list alongside `report-issue`.
+This skill writes nothing under VCS — it only reads `specs/frs/**` and emits the summary block to its parent's context. It never invokes `git commit`, never edits a tracked file, and is therefore exempt from STE-228's `commit_producing_skill_branch_gate` check. The exemption is enforced by the `NON_COMMIT_PRODUCING_SKILLS` allowlist in `adapters/_shared/src/commit_producing_skill_branch_gate.ts` — `spec-research` is on that list alongside `report-issue`.
 
 ## Rules
 

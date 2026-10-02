@@ -338,6 +338,16 @@ export type MilestoneMintDecision =
       readonly labels?: readonly string[];
     };
 
+/**
+ * STE-651 AC-STE-651.14 — the fields a saved Jira Epic listing must carry for
+ * the decision to read every row: each listing refusal's remedy names this
+ * one list. Re-exported by resolve_milestone_identity.ts, the listing reader.
+ */
+export const JIRA_EPIC_LISTING_FIELDS = ["summary", "issuetype", "status", "labels", "project"] as const;
+
+/** The remedy clause naming JIRA_EPIC_LISTING_FIELDS. */
+export const JIRA_EPIC_LISTING_FIELDS_CLAUSE = `with fields [${JIRA_EPIC_LISTING_FIELDS.join(", ")}]`;
+
 function decisionRefusal(verdict: string, remedy: string, context: string): Error {
   return new Error([`Refusing: ${verdict}`, `Remedy: ${remedy}`, `Context: ${context}`].join("\n"));
 }
@@ -380,7 +390,7 @@ export function decideMilestoneMint(input: MilestoneMintDecisionInput): Mileston
     if (hit.labels === undefined) {
       throw decisionRefusal(
         `to join Epic ${hit.key} in project ${project} — its listed row carries no labels field, so the milestone label merge cannot be computed from an unread set.`,
-        "enumerate the project's Epics again with each row's labels field, then decide again.",
+        `enumerate the project's Epics again ${JIRA_EPIC_LISTING_FIELDS_CLAUSE}, then decide again.`,
         `${context}, via=${via}, key=${hit.key}, labels=absent`,
       );
     }

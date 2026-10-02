@@ -27,7 +27,7 @@
 //     whose tracker key's project prefix is not the bound project, and each
 //     active Epic-keyed plan outside the bound project's Epic-token prefix
 //     (`epicTokenPrefix`, the STE-611 forward-sanitization expression), is a
-//     violation naming the repoint command. Under Linear, or with no bound
+//     violation whose remedy routes are set by STE-647/STE-656. Under Linear, or with no bound
 //     project, the leg does not run and the report lists it in `skipped` —
 //     never counted as passed. The repoint command's row 7 applies the same
 //     two exported checks (`foreignJiraKeyProject`, `epicTokenOutside`).
@@ -35,12 +35,18 @@
 //     the file's ticket stays in its own project and is read by key, then
 //     gives each route with its condition: an untracked leftover (`git status`
 //     shows `??`) moves out of the checkout; a tracked file in a checkout
-//     that moved takes the repoint command, or is archived. The paragraph
+//     that moved takes the repoint command, or is archived (STE-656 puts
+//     the archive first). The paragraph
 //     remedy re-runs the writer without `--shared`, so following it never
 //     moves the floor. Commands are named through `${CLAUDE_PLUGIN_ROOT}`.
+//   STE-656 AC.6 — remedies only. Each remedy's first write command, run
+//     verbatim (filling only <projectRoot> / <project>), writes the fix: the
+//     missing-project remedy names the binding writer (the migration helper
+//     only previews a diff); the key-prefix remedy leads with the archive
+//     move, since the repoint command never re-keys an existing FR or plan.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { checkVersionFloor, nfr10Message, runningDptVersion } from "./dpt_version";
 import { parseFrontmatter } from "./frontmatter";
 import { oneLine } from "./tracker_receipts";
@@ -100,18 +106,24 @@ function adapterKeyForMode(mode: string): WorkspaceAdapterKey | null {
   return null;
 }
 
-function buildMessage(reason: string, file: string, mode: string): string {
+const WRITER = "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/setup/tracker_binding_write.ts";
+
+function buildMessage(reason: string, file: string, mode: string, needsTeam: boolean): string {
+  const adapter = mode === "linear" ? "linear" : "jira";
+  // STE-656 AC.6 — the remedy names the writer, which writes the missing keys
+  // in place; the migration helper only prints a diff.
+  const write = `bun run "${WRITER}" <projectRoot> ${adapter} --project <project>${needsTeam ? " --team <team>" : ""}`;
   return [
     `task_tracking_workspace_binding_present: ${reason}`,
-    `Remedy: under ## Task Tracking, add a \`### ${mode === "linear" ? "Linear" : "Jira"}\` sub-section ` +
-      `with required keys (Linear: team + project; Jira: project). Run the migration helper at ` +
-      `plugins/dev-process-toolkit/scripts/migrate-task-tracking-add-workspace.ts to generate a diff. ` +
+    `Remedy: under ## Task Tracking, the \`### ${adapter === "linear" ? "Linear" : "Jira"}\` sub-section ` +
+      `needs its required keys (Linear: team + project; Jira: project). Write them with \`${write}\` — ` +
+      `it adds the sub-section if absent and writes the keys in place. To preview a diff without writing, ` +
+      `the migration helper at plugins/dev-process-toolkit/scripts/migrate-task-tracking-add-workspace.ts prints one. ` +
       `See plugins/dev-process-toolkit/docs/patterns.md § Schema L Workspace binding sub-sections.`,
     `Context: file=${file}, mode=${mode}, probe=task_tracking_workspace_binding_present`,
   ].join("\n");
 }
 
-const WRITER = "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/setup/tracker_binding_write.ts";
 
 function buildSharedMessage(leg: string, reason: string, remedy: string, file: string, mode: string): string {
   return nfr10Message(
@@ -165,7 +177,7 @@ export async function runTaskTrackingWorkspaceBindingPresentProbe(
           line: resolved.sectionLine,
           reason,
           note: `${rel}:${resolved.sectionLine} — ${reason}`,
-          message: buildMessage(reason, rel, resolved.mode),
+          message: buildMessage(reason, rel, resolved.mode, adapterKey === "linear"),
         },
       ],
     };
@@ -202,7 +214,7 @@ export async function runTaskTrackingWorkspaceBindingPresentProbe(
   }
   if (missing.length > 0) {
     const reason = `${subTitle} sub-section is missing required key${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`;
-    violations.push(violation(reason, buildMessage(reason, rel, resolved.mode)));
+    violations.push(violation(reason, buildMessage(reason, rel, resolved.mode, missing.includes("team"))));
   }
 
   const paragraphs = stopParagraphs(locateSubsection(lines, adapterKey) ?? []);
@@ -350,6 +362,10 @@ function keyPrefixViolations(
     // A filename or key may carry a newline; nothing it supplies starts a line.
     const rel = oneLine(relative(projectRoot, abs));
     const reason = oneLine(rawReason);
+    // STE-656 AC.6 — the archive move is the route that clears this leg; the
+    // repoint never changes a file's tracker key.
+    const archiveDir = `${dirname(rel)}/archive`;
+    const archive = `mkdir -p <projectRoot>/${shellArg(archiveDir)} && git -C <projectRoot> mv ${shellArg(rel)} ${shellArg(`${archiveDir}/${basename(rel)}`)}`;
     out.push({
       file: abs,
       line,
@@ -357,7 +373,7 @@ function keyPrefixViolations(
       note: `${rel}:${line} — ${reason}`,
       message: nfr10Message(
         `task_tracking_workspace_binding_present: ${reason}`,
-        `the file's ticket stays in ${oneLine(home)} and is read by key — nothing here moves it. If \`git status\` shows \`??\` for the file, it is an untracked leftover: move it out of this checkout. If it is tracked and this checkout moved to ${project}, run \`bun run "${REPOINT}" <projectRoot> jira ${shellArg(project)} --projects <projects.json> --containers <containers.json>\` from a Claude Code session, or archive the FR / plan.`,
+        `the file's ticket stays in ${oneLine(home)} and is read by key — nothing here moves it. If \`git status\` shows \`??\` for the file, it is an untracked leftover: move it out of this checkout. If it is tracked, archive it: \`${archive}\`, then set \`status: archived\` in its frontmatter (\`/dev-process-toolkit:spec-archive\` does both). If this checkout moved to ${project}, \`bun run "${REPOINT}" <projectRoot> jira ${shellArg(project)} --projects <projects.json> --containers <containers.json>\`, run from a Claude Code session, repoints the binding — it does not re-key existing FRs or plans, so they still need archiving.`,
         `file=${rel}, mode=${mode}, leg=key-prefix, project=${project}, probe=task_tracking_workspace_binding_present`,
       ),
     });

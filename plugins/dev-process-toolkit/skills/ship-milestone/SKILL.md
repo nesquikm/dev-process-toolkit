@@ -257,7 +257,7 @@ M<N> shipped as v<X.Y.Z> "<Codename>".
 Next steps (not automated):
   1. git push  (when ready)
   2. /pr  (open release PR if this is a branch-based flow)
-  3. Update any external references (tracker milestone close, announcement)
+  3. Update any external references (tracker milestone close, announcement); for an Epic-keyed plan M_<P>_<N>, close the milestone Epic <P>-<N> in Jira (transition to Done) — when the plan declares spans_repos or the tracker container is shared, only after every sharing repository has shipped
 ```
 
 **Driven runs.** Omit this offer when the invocation body carries the driven-run marker: the step it offers was already fixed by the orchestrator that named it. In a run whose chain already holds the push, the `/pr` and the external updates, "not automated" is a false statement about that run, and a false line is worse than a redundant one. What is omitted is the notice, never the steps: the chain still runs each one under its own gate, and omitting this line authorizes no push and no PR.

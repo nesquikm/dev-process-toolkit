@@ -22,7 +22,7 @@ For one-off questions or trivial behaviour, just file a GitHub issue manually.
 
 ## Branch-gate exemption
 
-`/report-issue` writes nothing under VCS — the only outbound operation is `gh gist create` against the secret gist endpoint, and every working file lives under `mktemp -d` (deleted on every exit path via `trap … EXIT` / `finally`). The skill never invokes `git commit`, never edits a tracked file, and is therefore exempt from STE-228's `commit_producing_skill_branch_gate` probe. The exemption is enforced by the `NON_COMMIT_PRODUCING_SKILLS` allowlist in `adapters/_shared/src/commit_producing_skill_branch_gate.ts` — `report-issue` is on that list.
+`/report-issue` writes nothing under VCS — the only outbound operation is `gh gist create` against the secret gist endpoint, and every working file lives under `mktemp -d` (deleted on every exit path via `trap … EXIT` / `finally`). The skill never invokes `git commit`, never edits a tracked file, and is therefore exempt from STE-228's `commit_producing_skill_branch_gate` check. The exemption is enforced by the `NON_COMMIT_PRODUCING_SKILLS` allowlist in `adapters/_shared/src/commit_producing_skill_branch_gate.ts` — `report-issue` is on that list.
 
 ## Process
 

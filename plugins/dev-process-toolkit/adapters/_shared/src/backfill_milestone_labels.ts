@@ -28,6 +28,13 @@
 // only: the sweep never enumerates the tracker board — a ticket with no FR
 // can never be fetched or touched.
 //
+// Own-project only (STE-652): a Jira-bound FR (`tracker:` key `jira`)
+// whose ticket key does not start with `<project>-` (case-insensitive)
+// belongs to another project of a shared space — it makes ZERO provider
+// calls, whatever the adapter's milestoneBinding, and is reported in
+// `outOfProject` (always present; `[]` when nothing was skipped). Linear-bound
+// FRs carry the team key, not the project, so no key-level check applies.
+//
 // Vacuous (zero candidates, zero tracker calls) on:
 //   - `mode: "none"`
 //   - adapter `supports("project_milestone") === false`
@@ -63,6 +70,8 @@ export interface BackfillMilestoneLabelsReport {
   alreadyCorrect: BackfillEntry[];
   /** Attach did not land; recorded and the sweep continued. */
   failed: BackfillFailure[];
+  /** Jira-bound FR keyed outside `<project>-` — skipped, zero provider calls. */
+  outOfProject: BackfillEntry[];
 }
 
 export interface BackfillMilestoneLabelsOptions {
@@ -109,10 +118,20 @@ export async function backfillMilestoneLabels(
     backfilled: [],
     alreadyCorrect: [],
     failed: [],
+    outOfProject: [],
   };
   // Vacuity: no tracker at all, or the adapter lacks the capability.
   if (opts.mode === "none") return report;
   if (provider.supports && !provider.supports("project_milestone")) return report;
+  // An empty project would make the own-project prefix a bare "-", file every
+  // Jira FR under outOfProject and turn the sweep into a silent no-op.
+  if (project.trim() === "") {
+    throw new Error(
+      "backfillMilestoneLabels: refusing to sweep with an empty project — every Jira FR would be filed as out-of-project and nothing backfilled.\n" +
+        "Remedy: pass the bound tracker project (the `project:` of CLAUDE.md's tracker sub-section), then re-run /spec-archive --backfill-milestone-labels.\n" +
+        `Context: mode=${opts.mode}, phase=preflight, project=empty`,
+    );
+  }
 
   const apply = opts.apply === true;
   const binding = resolveMilestoneBinding(provider);
@@ -129,6 +148,14 @@ export async function backfillMilestoneLabels(
     if (!plan) continue;
     const { planFile, canonical } = plan;
     const ticketId = fm.trackerId;
+    // Own-project only: keyed on the FR's own binding, never the adapter's.
+    if (
+      fm.trackerKey === "jira" &&
+      !ticketId.toUpperCase().startsWith(`${project.toUpperCase()}-`)
+    ) {
+      report.outOfProject.push({ ticketId, milestone: canonical });
+      continue;
+    }
 
     try {
       const issue = await provider.getIssue(ticketId);
