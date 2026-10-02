@@ -21,6 +21,8 @@ import { renderClosingLine, type ClosingLineCount } from "./test_count_parser";
 // read a malformed `changelog_ci_owned: yes` as `false` and rewrite the file
 // the project told us not to touch.
 import { readDocsConfig, MalformedDocsConfigError } from "./docs_config";
+// STE-658 AC-STE-658.5: `--codename` passes the same rule set as a plan's codename.
+import { validateCodename, CODENAME_RULES } from "./milestone_codename";
 
 export type ReleaseKind = "json" | "toml" | "yaml" | "changelog" | "regex";
 
@@ -826,6 +828,23 @@ if (import.meta.main) {
       argvOk = false;
     } else {
       testCount = { total: nums[0]!, failures: nums[1]!, errors: nums[2]! };
+    }
+  }
+
+  // STE-658 AC-STE-658.5: the codename passes the one rule set before any
+  // release file is read or written, in --dry-run and real runs alike.
+  const rawCodename = flags.get("--codename");
+  if (argvOk && rawCodename !== undefined) {
+    const verdict = validateCodename(rawCodename);
+    if (!verdict.ok) {
+      refuse(
+        `Refusing: to rewrite any release file — invalid codename: ${verdict.reason}.`,
+        `pass \`--codename\` a value of ${CODENAME_RULES}`,
+        `argv=invalid, flag=--codename`,
+      );
+      argvOk = false;
+    } else {
+      flags.set("--codename", verdict.value);
     }
   }
 

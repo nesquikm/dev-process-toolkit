@@ -1,7 +1,7 @@
 ---
 name: ship-milestone
 description: Bundle the Release Checklist + /docs --commit and /docs --full into one atomic, human-approved release commit. Reads specs/plan/M<N>.md, bumps the four release files, regenerates docs, prompts once for approval, commits on `y`, does not push.
-argument-hint: '[M<N>] [--version X.Y.Z] [--codename "<name>"] [--summary "<text>"] [--partial]'
+argument-hint: '[M<N>] [--version X.Y.Z] [--codename "<override plan codename>"] [--summary "<text>"] [--partial]'
 ---
 
 # /ship-milestone
@@ -15,7 +15,7 @@ Detailed reference (CHANGELOG subsection policy, version-bump semver rules, stru
 - `/ship-milestone M<N>` — explicit milestone.
 - `/ship-milestone` — no-arg form picks the **most recent in-progress milestone**: the `specs/plan/M<N>.md` with `status: active` (or with `frozen_at: null`). If none qualifies, run the ship-debt offer below before refusing.
 - **Epic-keyed milestones** (Jira milestone-as-Epic): a `specs/plan/M_<epic-key>.md` plan ships exactly like an `M<N>` plan — same resolution, same pre-flights, same `shipped_in` stamp. Everywhere this skill says `M<N>`, the `M_<epic-key>` form is equally valid, including the CHANGELOG milestone-ref convention (`Refs: M_<epic-key>` is an accepted milestone token).
-- Optional flags: `--version X.Y.Z` (override inferred bump), `--codename "<name>"` (skip prompt), `--summary "<text>"` (commit one-liner, else prompted), `--partial` (ship this repository's half of a spanning milestone — see pre-flight refusal #4).
+- Optional flags: `--version X.Y.Z` (override inferred bump), `--codename "<name>"` (overrides the plan's `codename:` key), `--summary "<text>"` (commit one-liner, else prompted), `--partial` (ship this repository's half of a spanning milestone — see pre-flight refusal #4).
 
 ### Ship-debt offer
 
@@ -126,15 +126,17 @@ Call `inferBump({ currentVersion, frs, override })` from `adapters/_shared/src/v
 - `--version X.Y.Z` override wins and bypasses inference.
 - Each FR is handed to `inferBump` exactly as read: the value passed as its category is the FR's `changelog_category` frontmatter value (the camel `changelogCategory` spelling is accepted too), so no key rewriting happens at this call site.
 
-### 3. Prompt for codename
+### 3. Resolve codename
 
-If `--codename "<name>"` was passed, validate and use it. Otherwise prompt:
+Resolve the codename by precedence — the first source that yields a value wins:
 
-```
-Enter milestone codename (short, memorable — e.g., "Diátaxis"):
-```
+1. **`--codename "<name>"`** — when passed, check it with `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/milestone_codename.ts --check "<name>"` (prints `codename=<value>`, or exits 1 with an NFR-10 envelope) and use the printed value; `--codename` overrides the plan's `codename:` key.
+2. **The plan's `codename:` key** — read via the front door `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/milestone_codename.ts <planPath>`, which prints `codename=<value>` or `codename=absent` (an invalid value exits 1 with an NFR-10 envelope). A plan whose `codename:` reads valid ships with that value and no question.
+3. **Composed** — when the plan carries no key, compose a codename from the plan's Goal and its FR titles.
 
-Validate: non-empty, ≤ 32 chars, no backticks, no newlines. Re-prompt on invalid until the user provides a valid value or aborts.
+   The composed value is checked through the front door — `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/milestone_codename.ts --check "<composed>"`, the same rules a plan's key passes. On failure, recompose at most once and check again; a second failure refuses the ship in the NFR-10 shape (verdict, remedy, context naming the plan path and the broken rule). A composed codename is never prompted for and never written as a placeholder.
+
+Every source passes the one rule set `validateCodename` owns — non-empty, ≤ 32 chars, no backticks, no newlines — so this step never restates or re-derives it.
 
 ### 4. Construct release-file changes
 
@@ -180,13 +182,16 @@ Context: milestone=M<N>, version=<X.Y.Z>, step=<--commit|--full>, skill=ship-mil
 
 ### 6. Unified diff + approval
 
-Print a single unified diff covering every modified file (every `## Release Files` entry that produced a non-empty bump + any `docs/` files the step-5 `/docs` invocations touched). The release-file half of that diff is never assembled by hand here: it is the unified-diff hunks the step-4 `--dry-run` preview already printed, one per changed path, computed from the same two sides the step-7 write will use. The diff also renders the frontmatter stamp hunk — `shipped_in: v<X.Y.Z>` on the resolved plan file — alongside the release-file bumps; the stamp rides the existing single `Apply?` approval below, no extra prompt. Then:
+Print a single unified diff covering every modified file (every `## Release Files` entry that produced a non-empty bump + any `docs/` files the step-5 `/docs` invocations touched). The release-file half of that diff is never assembled by hand here: it is the unified-diff hunks the step-4 `--dry-run` preview already printed, one per changed path, computed from the same two sides the step-7 write will use. The diff also renders the frontmatter stamp hunk — `shipped_in: v<X.Y.Z>` on the resolved plan file, plus its `codename:` line when step 3's source was `composed` — alongside the release-file bumps; the stamp rides the existing single `Apply?` approval below, no extra prompt. Then:
 
 ```
 === Proposed diff (N files, M lines) ===
+Codename: <value> (source: flag|plan|composed)
 <diff>
 === Apply? [y/N] ===
 ```
+
+The `Codename:` line shows the resolved name and which step-3 source produced it; it is informational only — to change it, decline and re-run with `--codename "<name>"`.
 
 Accept case-insensitive `y` / `yes` as approval. The user can type `e` to open `$EDITOR` on the proposed CHANGELOG entry, then re-prompt (see reference § `e` edit-in-loop).
 
@@ -202,7 +207,7 @@ bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/release_config.ts <projectRoo
 
 Same arguments as the preview, with one exception: when the operator edited the proposed CHANGELOG entry at step 6, the edited body is what `--body` carries here — so what lands on disk is what the operator approved, not the entry they replaced. A refusal here aborts before the commit.
 
-**Stamp the resolved plan.** Before the commit is created, call `stampShippedIn(resolvedPlanPath, "v<X.Y.Z>")` from `adapters/_shared/src/plan_ship_stamp.ts` to write `shipped_in: v<X.Y.Z>` — the final version chosen for this release, after any `--version` override — into the resolved plan file's frontmatter. The stamp targets the resolved plan path from step 1, so it lands identically on the live path and the archive-fallback path, and the stamped plan file rides the same single atomic release commit. Under `--partial`, also call `stampShipPartial(resolvedPlanPath)` beside it to write the bare scalar `ship_partial: true` — unquoted, since probe #63 fails closed on a quoted value; a re-run writes nothing.
+**Stamp the resolved plan.** Before the commit is created, call `stampShippedIn(resolvedPlanPath, "v<X.Y.Z>")` from `adapters/_shared/src/plan_ship_stamp.ts` to write `shipped_in: v<X.Y.Z>` — the final version chosen for this release, after any `--version` override — into the resolved plan file's frontmatter, then `stampShipCodename(resolvedPlanPath, { value: "<Codename>", source })` from the same module. `source` is the step-3 source that produced the codename (`flag`, `plan` or `composed`); when it is `composed`, that call sets the plan's `codename:` key to that value, so the plan records the name it shipped under, while a `flag` or `plan` source leaves the key untouched. The stamp targets the resolved plan path from step 1, so it lands identically on the live path and the archive-fallback path, and the stamped plan file rides the same single atomic release commit. Under `--partial`, also call `stampShipPartial(resolvedPlanPath)` beside it to write the bare scalar `ship_partial: true` — unquoted, since probe #63 fails closed on a quoted value; a re-run writes nothing.
 
 **Stamp semantics.** `shipped_in` is written only by this skill or the one-shot backfill script (run once against the historical archive, never shipped, deleted after the backfill commit). Absence of `shipped_in` on an archived plan means unshipped debt: the plan reached the archive without a release carrying it. Absence on a live plan is normal — the milestone simply hasn't shipped yet.
 
@@ -290,7 +295,7 @@ Context: milestone=M<N>, chain=pr, skill=ship-milestone
 - **Single approval gate.** Merge both step-5 `/docs` diffs into the ship-milestone diff; the user sees one unified diff and answers `y` / `N` once.
 - **Stay within the expected-modified set.** Pre-flight refusal 2 is the contract; the set is whatever `## Release Files` declares (plus `docs/` if the step-5 `/docs` invocations ran). `git add -A` is forbidden — use explicit `git add <file>` per entry.
 - **Version bump is inferred, not invented.** Reach for `inferBump` before `--version`; `--version` is an escape hatch when inference is wrong, not a default.
-- **Codename validation is strict.** Backticks in commit messages break shell embeds downstream; newlines break the commit subject line. Re-prompt on invalid.
+- **Codename validation is strict.** Backticks in commit messages break shell embeds downstream; newlines break the commit subject line. An invalid value is refused, never asked for again.
 
 ## Red flags
 

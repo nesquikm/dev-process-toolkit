@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CODENAME_MAX, validateCodename } from "./milestone_codename";
 import {
   bumpChangelog,
   bumpFile,
@@ -496,4 +500,113 @@ describe("AC-STE-167.6 — round-trip (parse → bump → re-parse fixture stabi
       expect(out).toHaveLength(fx.kinds.length);
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// STE-658 AC-STE-658.5 — the front door validates `--codename` through
+// `validateCodename` before any write. Driven through the REAL command form on
+// a temp fixture project. The fixture declares a json entry and a regex entry
+// whose template renders `{codename}` — and deliberately NO changelog entry,
+// because the changelog guard already refuses a falsy codename on its own and
+// would let the empty leg pass for the wrong reason.
+// ---------------------------------------------------------------------------
+
+const DOOR = join(import.meta.dir, "release_config.ts");
+const DOOR_TIMEOUT_MS = 30_000;
+
+const CODENAME_CLAUDE_MD = [
+  "# Fixture",
+  "",
+  "## Release Files",
+  "",
+  "```yaml",
+  "files:",
+  "  - path: pkg.json",
+  "    kind: json",
+  "    field: version",
+  "  - path: README.md",
+  "    kind: regex",
+  `    pattern: 'Latest: \\*\\*v(?<version>\\d+\\.\\d+\\.\\d+) — "(?<codename>[^"]+)"'`,
+  `    replace: 'Latest: **v{version} — "{codename}"'`,
+  "```",
+  "",
+].join("\n");
+
+const RELEASE_FILES = ["pkg.json", "README.md"] as const;
+
+const codenameDirs: string[] = [];
+afterEach(() => {
+  for (const d of codenameDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+function codenameFixture(): string {
+  const dir = mkdtempSync(join(tmpdir(), "ste-658-door-"));
+  codenameDirs.push(dir);
+  writeFileSync(join(dir, "CLAUDE.md"), CODENAME_CLAUDE_MD);
+  writeFileSync(join(dir, "pkg.json"), JSON.stringify({ name: "fx", version: "1.0.0" }, null, 2) + "\n");
+  writeFileSync(join(dir, "README.md"), 'Latest: **v1.0.0 — "Prior"**\n');
+  return dir;
+}
+
+function snapshot(root: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const rel of [...RELEASE_FILES, "CLAUDE.md"]) out[rel] = readFileSync(join(root, rel), "utf-8");
+  return out;
+}
+
+function runCodenameDoor(root: string, ...args: string[]) {
+  const proc = Bun.spawnSync(["bun", "run", DOOR, root, "2.0.0", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: DOOR_TIMEOUT_MS,
+  });
+  return { stdout: proc.stdout.toString(), stderr: proc.stderr.toString(), exitCode: proc.exitCode };
+}
+
+const INVALID_CODENAMES: ReadonlyArray<{ rule: string; value: string }> = [
+  { rule: "empty", value: "" },
+  { rule: "whitespace-only", value: "   " },
+  { rule: `${CODENAME_MAX + 1} characters`, value: "A".repeat(CODENAME_MAX + 1) },
+  { rule: "backtick", value: "Zed`s" },
+  { rule: "line break", value: "Ze\nd" },
+];
+
+describe("AC-STE-658.5 — release_config.ts refuses an invalid --codename before any write", () => {
+  test("control: a valid codename on the same fixture DOES rewrite both release files", () => {
+    const root = codenameFixture();
+    const before = snapshot(root);
+    const run = runCodenameDoor(root, "--codename", "Lantern");
+    expect(run.exitCode, run.stderr).toBe(0);
+    const after = snapshot(root);
+    expect(after["pkg.json"]).not.toBe(before["pkg.json"]);
+    expect(after["README.md"]).toBe('Latest: **v2.0.0 — "Lantern"**\n');
+  }, DOOR_TIMEOUT_MS * 2);
+
+  for (const { rule, value } of INVALID_CODENAMES) {
+    test(`${rule}: NFR-10 envelope, exit 1, every release file byte-identical`, () => {
+      const verdict = validateCodename(value);
+      expect(verdict.ok).toBe(false); // control: the validator itself rejects this leg
+      const root = codenameFixture();
+      const before = snapshot(root);
+      const run = runCodenameDoor(root, "--codename", value);
+      expect(run.exitCode, `stdout=${run.stdout}\nstderr=${run.stderr}`).toBe(1);
+      expect(run.stderr).toMatch(/^Refusing: .*codename/im);
+      expect(run.stderr).toMatch(/^Remedy: \S/m);
+      expect(run.stderr).toMatch(/^Context: .*skill=ship-milestone/m);
+      if (!verdict.ok) expect(run.stderr).toContain(verdict.reason);
+      expect(run.stdout).not.toMatch(/rewrote/);
+      expect(snapshot(root)).toEqual(before);
+    }, DOOR_TIMEOUT_MS * 2);
+  }
+
+  test("--dry-run refuses an invalid codename with the same verdict as the real run", () => {
+    const root = codenameFixture();
+    const before = snapshot(root);
+    const dry = runCodenameDoor(root, "--codename", "Zed`s", "--dry-run");
+    const real = runCodenameDoor(root, "--codename", "Zed`s");
+    expect(dry.exitCode).toBe(1);
+    expect(dry.stdout).not.toMatch(/would rewrite/);
+    expect(dry.stderr.split("\n")[0]).toBe(real.stderr.split("\n")[0]);
+    expect(snapshot(root)).toEqual(before);
+  }, DOOR_TIMEOUT_MS * 3);
 });

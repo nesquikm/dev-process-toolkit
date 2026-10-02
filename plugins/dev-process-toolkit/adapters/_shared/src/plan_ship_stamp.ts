@@ -154,3 +154,59 @@ export async function stampShipPartial(planPath: string): Promise<void> {
 
   await writeFile(planPath, joinFrontmatter(split, [...fmLines, stampLine]), "utf-8");
 }
+
+/** The codename a release resolved, and where it came from (AC-STE-658.6). */
+export interface ShipCodename {
+  value: string;
+  source: "flag" | "plan" | "composed";
+}
+
+/**
+ * Record a COMPOSED release codename in the plan's frontmatter, beside the
+ * `shipped_in:` stamp (AC-STE-658.6). A `flag` or `plan` source writes nothing:
+ * the plan already says what it ships under, or the flag overrode it for this
+ * release only. Its own writer, not a `stampShippedIn` parameter, because
+ * AC-STE-589.8 keeps `stampShippedIn` byte-identical — the same reason
+ * `stampShipPartial` exists.
+ *
+ * An existing `codename:` line (including `codename: null`) is overwritten in
+ * place; with none, exactly one line is appended. The value is double-quoted
+ * when YAML would otherwise misread it (`: `, a leading indicator, a literal
+ * `null`/`true`/`false`, a ` #` comment marker), and read back by
+ * `readPlanCodename` as written. A value already recorded is a no-op.
+ */
+export async function stampShipCodename(planPath: string, codename: ShipCodename): Promise<void> {
+  if (codename.source !== "composed") return;
+  const value = codename.value.trim();
+  const stampLine = `codename: ${yamlScalar(value)}`;
+  const original = await readFile(planPath, "utf-8");
+  const split = splitFrontmatter(original);
+  if (split === null) {
+    throw new Error(
+      [
+        `Refusing: plan file has no closed YAML frontmatter block to stamp \`codename\` into.`,
+        `Remedy: ensure the plan starts with a closed \`---\` frontmatter block, then re-run.`,
+        `Context: mode=plan-ship-stamp, file=${planPath}, attempted=codename`,
+      ].join("\n"),
+    );
+  }
+
+  const fmLines = split.lines;
+  const i = fmLines.findIndex((l) => /^codename\s*:/.test(l));
+  if (i !== -1) {
+    if (fmLines[i] === stampLine) return; // idempotent no-op — no write
+    fmLines[i] = stampLine; // overwrite in place, keep key position
+    await writeFile(planPath, joinFrontmatter(split, fmLines), "utf-8");
+    return;
+  }
+  await writeFile(planPath, joinFrontmatter(split, [...fmLines, stampLine]), "utf-8");
+}
+
+/** A frontmatter scalar for `value`: bare when YAML reads it back unchanged, else JSON-quoted. */
+function yamlScalar(value: string): string {
+  const needsQuotes =
+    /^[\s\-?:,[\]{}#&*!|>'"%@]/.test(value) ||
+    /:\s|\s#/.test(value) ||
+    /^(?:null|true|false|~)$/i.test(value);
+  return needsQuotes ? JSON.stringify(value) : value;
+}
