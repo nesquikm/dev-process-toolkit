@@ -195,7 +195,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.93.0 — "Own Side Only"** (M_a85e46, each repository writes and grades only its own shared-container work. Declaring a spanning milestone writes only this repository's plan and prints the command the sibling runs; import, backfill, drift and the container listing leave archived, closed, legacy and sibling tickets alone; and FR titles and ticket bodies round-trip with their FR files. Every commit gate now waits out a lagging transcript alike, a joined Epic's labels write cannot carry any other edit past its consent check, and the latest answer to a consent question wins. D-2 stays open and D-4 stays narrowed)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.94.0 — "Unasked"** (M_6c25dd, milestone names are chosen, never asked. Plans carry a validated `codename:` composed at spec time, `/ship-milestone` reads it instead of prompting and refuses an invalid one before writing anything, and gate probe #86 keeps a name question from coming back. The live-proof freeze is re-based onto this milestone, and its suite no longer races a background `git gc`)
 
 ## Core Philosophy
 
