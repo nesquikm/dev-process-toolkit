@@ -6,6 +6,7 @@ kickoff_branch: null
 frozen_at: null
 migration: none
 codename: Unasked
+shipped_in: v2.94.0
 ---
 
 # Implementation Plan
@@ -50,3 +51,19 @@ STE-657 → STE-658 → STE-659. STE-657 ships the shared validator and plan rea
   verify: release_config tests refuse each invalid shape with the NFR-10 envelope and write nothing.
 - [x] Add the milestone-name probe over skill prose and active plans' codename keys — STE-659
   verify: the probe goes red on a planted name prompt and on an invalid plan codename, green on the tree, and every probe-count pin moves with it.
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| agent-toolkit:spawn-agent | claude-opus-5-5 | 74 | 20531 | 16687715 | 187125 |
+| dev-process-toolkit:gate-check | claude-opus-5-5 | 90 | 22956 | 15216088 | 454934 |
+| dev-process-toolkit:implement | claude-opus-5-5 | 88 | 16885 | 5113430 | 290398 |
+| dev-process-toolkit:ship-milestone | claude-opus-5-5 | 150 | 58691 | 37810875 | 121820 |
+| dev-process-toolkit:tdd | claude-opus-5-5 | 22 | 6322 | 2013055 | 22483 |
+| (main-loop) | claude-opus-5-5 | 942 | 267781 | 125425069 | 1544871 |
+| total |  | 1366 | 393166 | 202266232 | 2621631 |
+
+<!-- token-stats:end -->
