@@ -124,6 +124,12 @@ function git(cwd: string, args: string[]): string {
     "-c", "user.email=ste618@example.invalid",
     "-c", "core.hooksPath=/dev/null",
     "-c", "commit.gpgsign=false",
+    // A fresh `git init` of the whole plugin tree holds every object loose, and
+    // `gc --auto` estimates the loose count from ONE fan-out bucket, so content
+    // hashes alone decide whether a commit here detaches a background repack —
+    // which then races removeTree and reds AC-STE-618.5 ("Directory not empty").
+    "-c", "gc.auto=0",
+    "-c", "maintenance.auto=false",
     ...args,
   ]);
 }
