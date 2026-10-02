@@ -6712,6 +6712,78 @@ describe("STE-655 AC-STE-655.10 hardening (review r0) — hook: a labels write s
   }, 60_000);
 });
 
+/** FO-M3-1 (M_a85e46 pre-merge review) — top-level keys outside the envelope allowlist; each is an edit, not a format key. */
+const TOP_LEVEL_EDITS_FO1 = [["transition", { id: "31" }], ["properties", [{ key: "x", value: "y" }]]] as const;
+/** The envelope loop the FO-M3-1 fix adds; the sited mutation deletes it. */
+const ENVELOPE_LOOP_FO1 = "for (const k of Object.keys(input as object)) if (!ENVELOPE_KEYS.has(k)) extraKeys.push(k);";
+
+describe("FO-M3-1 (M_a85e46 review) — hook: any top-level key outside the envelope allowlist takes no joined Epic's labels write past the join gate", () => {
+  for (const [k, value] of TOP_LEVEL_EDITS_FO1) {
+    test(`FO-M3-1 (${k}) — forbidden title join answered Join, the exact read-merge plus top-level ${k} → exit 2 naming ${k}, both reads (cb6145c1: fell to the ticket gate → exit 2; 4758e29e: read-merge permit → exit 0)`, async () => {
+      const w = makeWorld();
+      const d = forbiddenTitleJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      askJoinGF85(s, { answer: JOIN_GF_85 });
+      await gradeBothReads([
+        { label: `answered join + ${k}`, tool: JIRA("editJiraIssue"), input: { ...MERGE_GF_85, [k]: value }, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, "GF-85", k) },
+      ]);
+    }, 60_000);
+
+    test(`FO-M3-1 (${k}) — allowed key join (default=allowed), the exact read-merge plus top-level ${k} → exit 2 naming ${k}, both reads`, async () => {
+      const w = makeWorld();
+      const d = allowedKeyJoin(w);
+      const s = new Session();
+      s.bash(d.command, d.out);
+      await gradeBothReads([
+        { label: `allowed join + ${k}`, tool: JIRA("editJiraIssue"), input: { ...MERGE_GF_85, [k]: value }, cwd: w.be, transcript: s.save(w.scratch), check: (r) => expectRefusal(r, "GF-85", k) },
+      ]);
+    }, 60_000);
+  }
+
+  test("CONTROL (FO-M3-1) — the same two joins with the bare read-merge (allowlisted keys only) → exit 0", async () => {
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askJoinGF85(s, { answer: JOIN_GF_85 });
+    expectPermit(await runHook(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s.save(w.scratch) }));
+    const a = allowedKeyJoin(w);
+    const s2 = new Session();
+    s2.bash(a.command, a.out);
+    expectPermit(await runHook(JIRA("editJiraIssue"), MERGE_GF_85, { cwd: w.be, transcript: s2.save(w.scratch) }));
+  }, 60_000);
+
+  test("FO-M3-1 — labelsEnvelope counts every top-level key outside {cloudId, issueIdOrKey, fields, update, contentFormat, responseContentFormat} as an extra key", async () => {
+    const m = (await import(OWNERSHIP_SRC)) as { labelsEnvelope: (input: unknown) => { extraKeys: string[] } | null };
+    expect({
+      transition: m.labelsEnvelope({ ...MERGE_GF_85, transition: { id: "31" } }),
+      properties: m.labelsEnvelope({ ...MERGE_GF_85, properties: [] }),
+      actionSource: m.labelsEnvelope({ ...MERGE_GF_85, actionSource: "x" }),
+      formatOnly: m.labelsEnvelope({ ...MERGE_GF_85, contentFormat: "markdown", responseContentFormat: "markdown" }),
+    }).toEqual({
+      transition: { extraKeys: ["transition"] },
+      properties: { extraKeys: ["properties"] },
+      actionSource: { extraKeys: ["actionSource"] },
+      formatOnly: { extraKeys: [] },
+    });
+  });
+
+  test("FO-M3-1 — sited mutant `envelope-loop-deleted` is killed by the answered-join transition leg: the mutant permits", async () => {
+    const mod = hookWithMutation655("fo1-loop", OWNERSHIP_REL_655, ENVELOPE_LOOP_FO1, "", "export function labelsEnvelope(");
+    const w = makeWorld();
+    const d = forbiddenTitleJoin(w);
+    const s = new Session();
+    s.bash(d.command, d.out);
+    askJoinGF85(s, { answer: JOIN_GF_85 });
+    const t = s.save(w.scratch);
+    const input = { ...MERGE_GF_85, transition: { id: "31" } };
+    expectRefusal(await runHook(JIRA("editJiraIssue"), input, { cwd: w.be, transcript: t }), "transition");
+    const r = await runHookModule(mod, JIRA("editJiraIssue"), input, { cwd: w.be, transcript: retarget655(mod, t) });
+    expect(r.exitCode, `the mutant must permit (the leg sees the mutation):\n${show(r)}`).toBe(0);
+  }, 60_000);
+});
+
 describe("STE-655 AC-STE-655.11 — hook: labels plus other fields on an owned key no join names grades as at HEAD", () => {
   test("CONTROL (AC-STE-655.11) — labels + summary on GF-111 (BE's FR binding, no join) → exit 0; the same on FE's GF-101 → exit 2 not owned", async () => {
     const w = makeWorld();
@@ -6832,6 +6904,33 @@ describe("STE-655 AC-STE-655.13 — hook: the latest answer governs Import / Ado
     test(`CONTROL (AC-STE-655.13, ${c.verb}) — \`${c.verb} ${c.key}\`, then a later ask that does not name ${c.key} answered Skip → exit 0`, async () => {
       const { w, transcript } = world([`${c.verb} ${c.key}`], true);
       expectPermit(await runHook(JIRA("transitionJiraIssue"), transition(c.key), { cwd: w.be, transcript }));
+    }, 60_000);
+  }
+
+  /** M3-AC-03 (M_a85e46 review) — the operator-answers-block withdrawal arm of consentedBefore. */
+  const WITHDRAW_ARM = "else if (values.some((x) => typeof x === \"string\" && namesKey(x, key))) latest = false;";
+  const skipBlock = (key: string) => `<dpt:auto-approve>v1</dpt:auto-approve>\n<dpt:answers>v1\ntracker_orphan_import: Skip ${key}\n</dpt:answers>`;
+  for (const c of cases) {
+    const blockWorld = () => {
+      const w = makeWorld();
+      const s = new Session();
+      s.ask(c.key, c.verb, { answer: `${c.verb} ${c.key}` });
+      s.announce(c.module, c.args(w.be, c.key), c.receipt(w.be, c.key), `{"decision":"${c.decision}"}`);
+      s.userText(skipBlock(c.key));
+      return { w, transcript: s.save(w.scratch) };
+    };
+    test(`M3-AC-03 (${c.verb}) — \`${c.verb} ${c.key}\` asked, the receipt, THEN an operator answers block \`Skip ${c.key}\` → a transition on ${c.key} exits 2, both reads`, async () => {
+      const { w, transcript } = blockWorld();
+      await gradeBothReads([
+        { label: `${c.verb}, receipt, then answers-block skip`, tool: JIRA("transitionJiraIssue"), input: transition(c.key), cwd: w.be, transcript, check: (r) => expectRefusal(r, c.key) },
+      ]);
+    }, 60_000);
+    test(`M3-AC-03 (${c.verb}) — sited mutant \`answers-block-withdrawal-deleted\` permits the same write (killed)`, async () => {
+      const mod = hookWithMutation655("m3ac03-withdraw", HOOK_REL_655, WITHDRAW_ARM, "", "function consentedBefore(");
+      const { w, transcript } = blockWorld();
+      expectRefusal(await runHook(JIRA("transitionJiraIssue"), transition(c.key), { cwd: w.be, transcript }), c.key);
+      const r = await runHookModule(mod, JIRA("transitionJiraIssue"), transition(c.key), { cwd: w.be, transcript: retarget655(mod, transcript) });
+      expect(r.exitCode, `the mutant must permit (the leg sees the mutation):\n${show(r)}`).toBe(0);
     }, 60_000);
   }
 

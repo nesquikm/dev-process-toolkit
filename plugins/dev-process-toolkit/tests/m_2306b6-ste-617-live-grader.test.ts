@@ -6171,6 +6171,36 @@ describe("STE-655 AC-STE-655.10 hardening (review r0) — grader: an update-only
   });
 });
 
+describe("FO-M3-1 (M_a85e46 review) — grader: a top-level key outside the envelope allowlist beside labels on a joined Epic is ungated-write, as the hook refuses it", () => {
+  for (const [k, value] of [["transition", { id: "31" }], ["properties", [{ key: "x", value: "y" }]]] as const) {
+    test(`FO-M3-1 (${k}) — answered Join, the exact read-merge plus top-level ${k} → ungated-write`, () => {
+      const { b, w } = labelsJoinFixture("title", null, "S13", {
+        arrange: (bb, s, epic) => frBound(epic)(bb, s),
+        ask: (epic, spanTitle, labels) => consentAsk(joinQ655(epic, spanTitle), labels, labels[0]!),
+      });
+      (w.input as Record<string, unknown>)[k] = value;
+      expect(ungatedAt(grade(b), w.ref)).toBe(true);
+    });
+  }
+  test("FO-M3-1 — sited mutant `envelope-loop-deleted` turns the transition leg clean (killed)", async () => {
+    const loop = "for (const k of Object.keys(input as object)) if (!ENVELOPE_KEYS.has(k)) extraKeys.push(k);";
+    const fixture = () => {
+      const { b, w } = labelsJoinFixture("title", null, "S13", {
+        arrange: (bb, s, epic) => frBound(epic)(bb, s),
+        ask: (epic, spanTitle, labels) => consentAsk(joinQ655(epic, spanTitle), labels, labels[0]!),
+      });
+      (w.input as Record<string, unknown>).transition = { id: "31" };
+      return { b, w };
+    };
+    const shipped = fixture();
+    expect(ungatedAt(grade(shipped.b), shipped.w.ref), "the shipped grader flags it").toBe(true);
+    await withOwnershipMutant655("fo1-loop", loop, "", (g) => {
+      const { b, w } = fixture();
+      expect(ungatedAt(gradeWith655(g, b), w.ref), "the mutant must grade it clean — the leg sees the mutation").toBe(false);
+    });
+  });
+});
+
 describe("STE-655 AC-STE-655.11 — grader: labels plus other fields on an owned key no join names grades as at HEAD", () => {
   for (const t of TRACKERS) {
     test(`CONTROL (AC-STE-655.11, ${t}) — labels + a title/summary on the key S13 imported → not ungated-write; on a key it does not own → ungated-write`, () => {
@@ -6280,6 +6310,33 @@ describe("STE-655 AC-STE-655.13 — grader: the latest answer governs Import / A
     test(`${t}: CONTROL (AC-STE-655.13, Adopt) — Skip then Adopt → not ungated-write`, () => {
       const { b, w } = adoptAsks(["Skip", "Adopt"]);
       expect(ungatedAt(grade(b), w.ref)).toBe(false);
+    });
+
+    /** M3-AC-02 (M_a85e46 review) — Adopt, the adopt binding receipt, THEN Skip before the write. */
+    const adoptReceiptThenSkip = () => {
+      const b = buildPassingBundle(t);
+      const s = session(b, "S13");
+      const key = oldClientKey(b);
+      const labels = [`Adopt ${key}`, `Skip ${key}`];
+      const yes = consentAsk(`Adopt ${key} into this repository?`, labels, `Adopt ${key}`);
+      appendCall(s, "AskUserQuestion", yes.input, yes.result, "m3ac02_adopt");
+      appendAnnounced(b, s, "binding", moduleCommand("ticket_ownership.ts", "confirm", `<B> ${key} <B>/.dpt/tmp/ticket.json --adopt`), { subject: key, decision: "adopt" }, "m3ac02");
+      const no = consentAsk(`Adopt ${key} into this repository?`, labels, `Skip ${key}`);
+      appendCall(s, "AskUserQuestion", no.input, no.result, "m3ac02_skip");
+      return { b, w: appendTicketWrite(b, s, key, "m3ac02") };
+    };
+    test(`${t}: M3-AC-02 — Adopt, the adopt binding receipt, THEN Skip before the write → ungated-write (the latest answer before the gated call governs)`, () => {
+      const { b, w } = adoptReceiptThenSkip();
+      expect(ungatedAt(grade(b), w.ref)).toBe(true);
+    });
+    test(`${t}: M3-AC-02 — mutant \`adopt-consent-at-receipt-only\` grades the receipt-then-Skip write clean (killed)`, async () => {
+      await withTmpAsync(`m3ac02-${t}-`, async (dir) => {
+        const find = "(answeredBefore(s, a.index, `Adopt ${k}`) && answeredBefore(s, i, `Adopt ${k}`))";
+        const { g } = await graderCopy(dir, `m3ac02-${t}`, (src) => mutateInRegion(src, 0, src.length, find, "answeredBefore(s, a.index, `Adopt ${k}`)", { label: "shared_tracker_live_grader.ts" }));
+        const { b, w } = adoptReceiptThenSkip();
+        expect(ungatedAt(grade(b), w.ref), "the shipped grader flags it").toBe(true);
+        expect(ungatedAt(gradeWith655(g, b), w.ref), "the mutant must grade it clean — the leg sees the mutation").toBe(false);
+      });
     });
   }
 

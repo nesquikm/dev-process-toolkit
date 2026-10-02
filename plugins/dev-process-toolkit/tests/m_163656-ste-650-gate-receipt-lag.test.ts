@@ -499,9 +499,17 @@ describe("STE-655 AC-STE-655.5 — the tdd gate's red-before door never waits on
       w.transcript,
       `${JSON.stringify({ type: "user", timestamp: new Date().toISOString(), message: { role: "user", content: `dpt-red-before-proof: repo=${w.repo} ${Object.keys(TDD_STAGED).join(" ")}` } })}\n`,
     );
-    const r = await runGate(gate, w.repo, w.transcript);
+    let best: Run | null = null;
+    for (let i = 0; i < 3; i++) {
+      const r = await runGate(gate, w.repo, w.transcript);
+      if (best === null || r.ms < best.ms) best = r;
+    }
+    const r = best!;
     if (r.exitCode !== 0) throw new Error(`expected exit 0 through the red-before door, got:\n${show(r)}`);
-  }, 30_000);
+    // M3-AC-04 (M_a85e46 review): "without waiting" is timed, not assumed — a
+    // covering proof is read before the bounded wait, so a pending run costs nothing.
+    expect(r.ms, `a covering proof must permit without waiting out the pending run (fastest ${Math.round(r.ms)} ms)`).toBeLessThan(WAIT_BOUND_MS * 0.75);
+  }, 60_000);
 });
 
 // ---------------------------------------------------------------------------
