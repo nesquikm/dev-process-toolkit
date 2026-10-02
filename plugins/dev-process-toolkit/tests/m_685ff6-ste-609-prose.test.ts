@@ -77,6 +77,53 @@ const cells = (row: string): string[] =>
     .slice(1, -1)
     .map((c) => c.trim());
 
+/** Every probe row (`<n>. **`) of a text as `[line, probe number]`, in order. */
+const probePositions = (text: string): Array<[number, string]> =>
+  text
+    .split("\n")
+    .map((l, i) => [i + 1, /^(\d+)\. \*\*/.exec(l)?.[1] ?? ""] as [number, string])
+    .filter(([, n]) => n !== "");
+
+/**
+ * Main's probe-row positions must hold unchanged in the working text; the only
+ * rows allowed beyond them are those whose probe number main lacks, at the
+ * lines the working text puts them.
+ */
+function compareProbePositions(
+  mainText: string,
+  nowText: string,
+): { ok: boolean; expected: Array<[number, string]>; actual: Array<[number, string]> } {
+  const main = probePositions(mainText);
+  const actual = probePositions(nowText);
+  const onMain = new Set(main.map(([, n]) => n));
+  const expected = [...main, ...actual.filter(([, n]) => !onMain.has(n))];
+  const ok = Bun.deepEquals(actual, expected);
+  return { ok, expected, actual };
+}
+
+/**
+ * The control's whole verdict, as violation lines (empty = holds). Positions
+ * go through `compareProbePositions`; the split-line count is held to main's
+ * only where the working text adds no row, since an added row adds its line.
+ */
+function probeControlViolations(mainText: string, nowText: string): string[] {
+  const r = compareProbePositions(mainText, nowText);
+  const violations: string[] = [];
+  if (!r.ok) {
+    // Name the first differing row only; the full lists run to ~86 pairs.
+    const i = r.expected.findIndex((e, k) => !Bun.deepEquals(e, r.actual[k]));
+    const at = i === -1 ? r.expected.length : i;
+    violations.push(
+      `probe-row ${at + 1}: expected ${JSON.stringify(r.expected[at] ?? null)}, got ${JSON.stringify(r.actual[at] ?? null)}`,
+    );
+  }
+  const added = r.expected.length - probePositions(mainText).length;
+  if (added === 0 && splitCount(nowText) !== splitCount(mainText)) {
+    violations.push(`split-line count ${splitCount(nowText)} != main's ${splitCount(mainText)} with no probe row added`);
+  }
+  return violations;
+}
+
 describe("AC-STE-609.9 — refusal #4 in skills/ship-milestone/SKILL.md", () => {
   test(`the "${OLD_UNLOCATABLE_SENTENCE}" sentence is gone (red on HEAD)`, () => {
     expect(readLf(SHIP_SKILL)).not.toContain(OLD_UNLOCATABLE_SENTENCE);
@@ -145,16 +192,168 @@ describe("AC-STE-609.9 — the probe #75 row in skills/gate-check/SKILL.md", () 
   test("(control) the skill's split-line count and every absolute probe-row position equal main's", () => {
     const onMain = git(REPO_ROOT, "show", `main:${GATE_SKILL_REL}`);
     const now = readFileSync(GATE_SKILL, "utf-8");
-    expect(splitCount(now)).toBe(splitCount(onMain));
-    const positions = (text: string): Array<[number, string]> =>
-      text
-        .split("\n")
-        .map((l, i) => [i + 1, /^(\d+)\. \*\*/.exec(l)?.[1] ?? ""] as [number, string])
-        .filter(([, n]) => n !== "");
-    const mainPositions = positions(onMain);
-    expect(mainPositions.length).toBeGreaterThan(0);
+    expect(probePositions(onMain).length).toBeGreaterThan(0);
     // Amended by AC-STE-659.3: probe #86 (`milestone_name_unasked`) registers on line 173; rows 1..85 hold main's positions.
-    expect(positions(now)).toEqual([...mainPositions, [173, "86"]]);
+    // Fixed by AC-STE-660.1: rows main lacks are derived from the two texts, so the control holds before and after the merge;
+    // the split-line count is held to main's only where no row is added.
+    // Positions are asserted directly for bun's row-level diff on failure; the verdict adds the split-line rule.
+    const r = compareProbePositions(onMain, now);
+    expect(r.actual).toEqual(r.expected);
+    expect(probeControlViolations(onMain, now)).toEqual([]);
+  });
+});
+
+// STE-660 — the control above derives the rows a branch adds from its
+// difference with main instead of hard-coding them. The comparison lives in a
+// pure helper in this file, `compareProbePositions(mainText, nowText)`, which
+// returns `{ ok, expected, actual }`: `actual` is the working text's probe-row
+// positions, `expected` is main's positions followed by the working rows whose
+// probe number main lacks (in working order), and `ok` is their deep equality.
+describe("AC-STE-660 — the AC-STE-609.9 control compares against main as it stands", () => {
+  const SELF = join(PLUGIN_ROOT, "tests", "m_685ff6-ste-609-prose.test.ts");
+  const CONTROL_TITLE = "(control) the skill's split-line count and every absolute probe-row position equal main's";
+
+  /** The body of the `(control)` test, from its title line through its own `  });` close. */
+  const controlBody = (): string => {
+    const ls = readLf(SELF).split("\n");
+    const start = ls.findIndex((l) => /^\s*test\(/.test(l) && l.includes(CONTROL_TITLE));
+    expect(start, `no control test titled ${CONTROL_TITLE}`).toBeGreaterThanOrEqual(0);
+    const indent = /^(\s*)/.exec(ls[start]!)![1]!;
+    const end = ls.findIndex((l, i) => i > start && l === `${indent}});`);
+    expect(end, "the control test has no closing line").toBeGreaterThan(start);
+    return ls.slice(start, end + 1).join("\n");
+  };
+
+  const MAIN_FIXTURE = [
+    "# Gate check",
+    "",
+    "1. **`alpha`** — first probe.",
+    "2. **`beta`** — second probe.",
+    "",
+    "Some prose between rows.",
+    "3. **`gamma`** — third probe.",
+    "",
+  ].join("\n");
+
+  test("AC-STE-660.1: the hard-coded `[173, \"86\"]` row is gone from this file", () => {
+    // Built by concatenation so this test's own source never contains the literal it forbids.
+    const literal = "[173, " + '"86"]';
+    expect(readLf(SELF)).not.toContain(literal);
+  });
+
+  test("AC-STE-660.1: the control asserts through the derived comparison helper against main's text", () => {
+    const body = controlBody();
+    expect(body).toMatch(/compareProbePositions\(\s*onMain\s*,\s*now\s*\)/);
+    expect(body).not.toMatch(/\[\s*\d+\s*,\s*"\d+"\s*\]/);
+  });
+
+  test("AC-STE-660.1 / AC-STE-660.2: on a tree equal to main the helper holds with no added rows", () => {
+    const r = compareProbePositions(MAIN_FIXTURE, MAIN_FIXTURE);
+    expect(r.ok).toBe(true);
+    expect(r.actual).toEqual([
+      [3, "1"],
+      [4, "2"],
+      [7, "3"],
+    ]);
+    expect(r.expected).toEqual(r.actual);
+  });
+
+  test("AC-STE-660.3: one extra probe row registered after main's last row passes the helper", () => {
+    const now = MAIN_FIXTURE.replace("3. **`gamma`** — third probe.\n", "3. **`gamma`** — third probe.\n4. **`delta`** — added probe.\n");
+    expect(now).not.toBe(MAIN_FIXTURE);
+    const r = compareProbePositions(MAIN_FIXTURE, now);
+    expect(r.ok).toBe(true);
+    expect(r.actual).toEqual([
+      [3, "1"],
+      [4, "2"],
+      [7, "3"],
+      [8, "4"],
+    ]);
+    expect(r.expected).toEqual(r.actual);
+  });
+
+  test("AC-STE-660.4: an existing probe row moved to a different line fails the helper", () => {
+    // Row 3 moves up one line (the prose line now follows it); no row is added.
+    const now = MAIN_FIXTURE.replace(
+      "Some prose between rows.\n3. **`gamma`** — third probe.\n",
+      "3. **`gamma`** — third probe.\nSome prose between rows.\n",
+    );
+    expect(now).not.toBe(MAIN_FIXTURE);
+    const r = compareProbePositions(MAIN_FIXTURE, now);
+    expect(r.ok).toBe(false);
+    expect(r.expected).toEqual([
+      [3, "1"],
+      [4, "2"],
+      [7, "3"],
+    ]);
+    expect(r.actual).toEqual([
+      [3, "1"],
+      [4, "2"],
+      [6, "3"],
+    ]);
+  });
+
+  test("AC-STE-660.4: a moved row is not excused by an added row alongside it", () => {
+    const now = MAIN_FIXTURE.replace(
+      "Some prose between rows.\n3. **`gamma`** — third probe.\n",
+      "3. **`gamma`** — third probe.\nSome prose between rows.\n4. **`delta`** — added probe.\n",
+    );
+    const r = compareProbePositions(MAIN_FIXTURE, now);
+    expect(r.ok).toBe(false);
+    expect(r.expected).toEqual([
+      [3, "1"],
+      [4, "2"],
+      [7, "3"],
+      [8, "4"],
+    ]);
+  });
+
+  test("AC-STE-660.5: the AC-STE-659.3 amendment comment stays and names AC-STE-660.1 as its fix", () => {
+    const commentLines = controlBody()
+      .split("\n")
+      .filter((l) => l.trim().startsWith("//"));
+    const marker = commentLines.find((l) => l.includes("AC-STE-659.3"));
+    expect(marker, "no AC-STE-659.3 amendment comment in the control").toBeDefined();
+    const comment = commentLines.join("\n");
+    expect(comment).toContain("AC-STE-659.3");
+    expect(comment).toContain("AC-STE-660.1");
+  });
+
+  // Requirement "Holds on a branch": the control's whole verdict, not only the
+  // helper, must pass on a tree that registers one new probe row — which adds a
+  // line, so the split-line count is held only where no row was added.
+  test("Holds on a branch: the control's verdict passes a tree that adds one probe row (and its line)", () => {
+    const now = MAIN_FIXTURE.replace("3. **`gamma`** — third probe.\n", "3. **`gamma`** — third probe.\n4. **`delta`** — added probe.\n");
+    expect(splitCount(now)).toBe(splitCount(MAIN_FIXTURE) + 1);
+    expect(probeControlViolations(MAIN_FIXTURE, now)).toEqual([]);
+  });
+
+  test("Holds on main: with no row added, the control's verdict still holds the split-line count", () => {
+    expect(probeControlViolations(MAIN_FIXTURE, MAIN_FIXTURE)).toEqual([]);
+    const now = `${MAIN_FIXTURE}A trailing note after the last row.\n`;
+    expect(probePositions(now)).toEqual(probePositions(MAIN_FIXTURE));
+    expect(splitCount(now)).toBe(splitCount(MAIN_FIXTURE) + 1);
+    expect(probeControlViolations(MAIN_FIXTURE, now)).toHaveLength(1);
+  });
+
+  test("Still a control: the control's verdict fails a moved row", () => {
+    const now = MAIN_FIXTURE.replace(
+      "Some prose between rows.\n3. **`gamma`** — third probe.\n",
+      "3. **`gamma`** — third probe.\nSome prose between rows.\n",
+    );
+    expect(probeControlViolations(MAIN_FIXTURE, now).length).toBeGreaterThan(0);
+  });
+
+  test("Still a control: the control's verdict fails a removed row, naming the first missing one", () => {
+    const now = MAIN_FIXTURE.replace("3. **`gamma`** — third probe.\n", "");
+    expect(probeControlViolations(MAIN_FIXTURE, now)).toEqual([
+      `probe-row 3: expected [7,"3"], got null`,
+      "split-line count 7 != main's 8 with no probe row added",
+    ]);
+  });
+
+  test("the control asserts through the control's verdict helper", () => {
+    expect(controlBody()).toMatch(/probeControlViolations\(\s*onMain\s*,\s*now\s*\)/);
   });
 });
 
