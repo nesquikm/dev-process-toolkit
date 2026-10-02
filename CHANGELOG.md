@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.94.0] — 2026-10-02 — "Unasked"
+
+### Added
+
+- Plans carry a validated codename composed at spec time (STE-657). One validator, `validateCodename` in `milestone_codename.ts`, owns the rules (non-empty after trimming, at most 32 characters, no backtick, no line break anywhere); one reader parses a plan's optional `codename:` key, reading an unquoted value without its ` # comment` tail and only a bare `null` as absent; its front door prints `codename=<value>` or `codename=absent` for a plan, and `--check <value>` validates a codename no plan holds yet. The plan template carries `codename: null`, and `/spec-write` composes the milestone title and codename from the approved design, checks the codename through the front door before the plan is written, and never asks for either.
+- A gate probe keeps milestone-name prompts out of the skills (STE-659). Probe #86 `milestone_name_unasked` reds a skill line that asks for a milestone name, title or codename (an `Enter milestone …` prompt, a request to the operator, or an `AskUserQuestion` instruction; a negation in the few words before the shape clears it) and an active plan whose `codename:` breaks the rules. Every probe-count pin moved to 86.
+
+### Changed
+
+- `/ship-milestone` reads the codename instead of asking (STE-658). Step 3 resolves it by precedence — `--codename`, then the plan's `codename:`, then a value composed from the plan, checked through the front door, recomposed at most once and refused rather than written as a placeholder. The approval preview shows `Codename: <value> (source: flag|plan|composed)`; `release_config.ts` refuses an invalid `--codename` before touching any file; a composed codename is recorded in the plan by its own writer, `stampShipCodename`, beside the frozen `stampShippedIn`.
+- The AC-STE-618.8 / AC-STE-648.8 kickoff freeze is re-based from 230148c9 onto this milestone's last implementation commit, and the AC-STE-589.7 / AC-STE-590 unedited-suite guards admit hunks marked `Amended by AC-STE-658.7` or `AC-STE-659.3` (operator rulings 2026-10-02). The live-proof suite's git helper pins `gc.auto=0`, so a detached repack can no longer race its cleanup.
+
+### Known defects
+
+- `release_config.ts` renders `{codename}` in a regex release-file entry with a string replacement, so a validator-legal `$&`, `$1` or `$$` in a codename is expanded rather than written literally.
+- Probe #86 reads one line at a time: a negation after the shape still flags, and a prompt wrapped across two lines is missed. Its plan arm skips a plan whose frontmatter fails to parse rather than reporting it, and its line lookups scan the whole file for `codename:`.
+- Probe #45 (`socratic_first_turn_post_hoc_drift`) cannot see an interactive `/spec-write` approval, which emits no marker, so it reds a legitimately approved spec commit while that commit is the branch's latest.
+- Still open from v2.93.0: a `transitionJiraIssue` carrying `fields` or `update` on a joined Epic is not read through the labels envelope; an earlier Join, Import or Adopt stays in force while a later ask is unanswered on disk; a hard-linked plan file passes the declare's containment check; the Linear closed-status vocabulary is unmeasured live; `/gate-check`'s probe #25 and #77 entries are still wrong under the freeze; and the v2.92.0 items carried there.
+
+Total test count at release: 18250 tests, 0 failures, 0 errors.
+
 ## [2.93.0] — 2026-10-02 — "Own Side Only"
 
 ### Changed

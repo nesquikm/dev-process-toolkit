@@ -236,16 +236,24 @@ function expectUneditedBeyondSte609(suite: string, ref: "main" | "HEAD"): void {
   expect(unmarked, `${suite} carries edits against ${ref} outside AC-STE-609 amendments`).toEqual([]);
 }
 
-/** The `@@` hunks of a unified diff that add no line carrying the STE-609 marker. */
+/**
+ * The `@@` hunks of a unified diff that add no line carrying an admitted marker.
+ * Amended by AC-STE-658.7 / AC-STE-659.3 (operator ruling 2026-10-02, M_6c25dd):
+ * the allowance widens from STE-609's markers to M_6c25dd's two mandated edits —
+ * the retired-prompt pin swap in ship-milestone-shape.test.ts (AC-STE-658.7) and
+ * the 85 -> 86 probe-count move (AC-STE-659.3). Any other unmarked hunk is still an edit.
+ */
 function unmarkedHunks(diff: string): string[] {
   const hunks = diff.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ "));
   return hunks.filter(
     (h) =>
       !h
         .split("\n")
-        .some((l) => l.startsWith("+") && /Amended by AC-STE-609\.\d+/.test(l)),
+        .some((l) => l.startsWith("+") && ADMITTED_MARKER.test(l)),
   ).map((h) => h.split("\n")[0]!);
 }
+
+const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3)\b/;
 
 /** The suite's working-tree bytes equal `ref`'s committed bytes. */
 function expectUnedited(suite: string, ref: "main" | "HEAD"): void {

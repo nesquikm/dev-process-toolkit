@@ -759,7 +759,7 @@ describe("AC-STE-545.7 — probe #81 stays put while the class flips", () => {
 //       merely get its CHANGELOG rewritten — it is REFUSED outright, where it
 //       previously skipped.
 //   D3  three wrong step references. The new step-4 prose sources the counts
-//       from "step 3" three times. `### 3` is "Prompt for codename", which
+//       from "step 3" three times. `### 3` is "Resolve codename", which
 //       measures nothing; the counts come from PRE-FLIGHT refusal #3.
 //
 // RED until: the door takes `--dry-run`, honours `changelog_ci_owned`, and the
@@ -1074,9 +1074,12 @@ describe("D3 — the counts are attributed to the pre-flight gate run, not to `#
     expect(preflight).toMatch(/test_count_parser/);
   });
 
-  test("the control: `### 3` measures nothing — it prompts for a codename", () => {
+  test("the control: `### 3` measures nothing — it resolves the codename", () => {
     const three = shipSkillSection(/^###\s+3\./);
     expect(three).toMatch(/codename/i);
+    // STE-658: the step resolves the codename by precedence; it no longer prompts.
+    expect(three).toMatch(/^###\s+3\.\s+Resolve codename\s*$/m);
+    expect(three).not.toContain("Enter milestone codename");
     expect(
       /TestCount|parseTestOutput|test count/i.test(three),
       "`### 3` does measure test counts after all — then the shipped pointers were right " +
@@ -1098,7 +1101,7 @@ describe("D3 — the counts are attributed to the pre-flight gate run, not to `#
     expect(
       hits,
       "step 4 sources the release counts from `step 3`, and the document's own " +
-        "convention resolves a bare `step N` to `### N` — which is \"Prompt for " +
+        "convention resolves a bare `step N` to `### N` — which is \"Resolve " +
         "codename\" and measures nothing. The counts come from pre-flight refusal #3:\n" +
         hits.map((l) => `  - ${l.trim().slice(0, 160)}`).join("\n"),
     ).toEqual([]);

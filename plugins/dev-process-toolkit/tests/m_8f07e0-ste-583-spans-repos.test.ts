@@ -798,9 +798,11 @@ describe("AC-STE-583.12 — plan.md.template documents spans_repos, never scaffo
 // ===========================================================================
 
 describe("AC-STE-583.13 — no new probe, and the reachability ratchet holds", () => {
-  test("skills/gate-check/SKILL.md still numbers 85 probes", () => {
+  // Amended by AC-STE-659.3: probe count 85 -> 86.
+  test("skills/gate-check/SKILL.md still numbers 86 probes", () => {
     const hits = read(GATE_CHECK_SKILL).match(/^[0-9]+\. \*\*/gm) ?? [];
-    expect(hits.length).toBe(85);
+    // Amended by AC-STE-659.3: probe count 85 -> 86.
+    expect(hits.length).toBe(86);
   });
 
   test("spans_repos.ts carries an `import.meta.main` front door", () => {

@@ -535,9 +535,11 @@ const isContiguousFromOne = (nums: readonly number[]): boolean =>
   nums.every((n, i) => n === i + 1);
 
 describe("AC-STE-587.8 — no new probe, leg or key", () => {
-  test("gate-check SKILL.md numbers 85 probes, contiguous 1..85", () => {
+  // Amended by AC-STE-659.3: probe count 85 -> 86.
+  test("gate-check SKILL.md numbers 86 probes, contiguous 1..86", () => {
     const nums = probeNumbers(read(GATE_CHECK_SKILL));
-    expect(nums.length).toBe(85);
+    // Amended by AC-STE-659.3: probe count 85 -> 86.
+    expect(nums.length).toBe(86);
     expect(isContiguousFromOne(nums)).toBe(true);
   });
 

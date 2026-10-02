@@ -7,7 +7,7 @@ import { join } from "node:path";
 // Prose assertions covering the 12 ACs of STE-73. The skill is
 // plugin-authored (no runtime binary), so these doc-conformance tests
 // are the long-term backstop — a future SKILL.md edit that drops the
-// `--version` override, silences the codename prompt, or skips the
+// `--version` override, drops the codename precedence, or skips the  (Amended by AC-STE-658.7)
 // CHANGELOG closing line would break a test instead of a release.
 
 const pluginRoot = join(import.meta.dir, "..");
@@ -166,10 +166,18 @@ describe("AC-STE-73.9 — refuse on uncommitted changes outside expected set", (
   });
 });
 
-describe("AC-STE-73.10 — codename prompt + validation", () => {
-  test("skill documents the codename prompt wording", () => {
+// Amended by AC-STE-658.7: the retired codename prompt pin becomes the resolution precedence.
+describe("AC-STE-73.10 (as amended by STE-658) — codename resolution + validation", () => {
+  test("skill documents the codename resolution precedence (flag > plan key > composed)", () => {
     const body = readSkill();
-    expect(body).toMatch(/Enter milestone codename/);
+    // Amended by AC-STE-658.7: pin the precedence wording, not the retired prompt.
+    expect(body).toMatch(/^###\s+3\.\s+Resolve codename\s*$/m);
+    expect(body).toContain("milestone_codename.ts");
+  });
+
+  test("control: the retired codename prompt is gone", () => {
+    const body = readSkill();
+    expect(body).not.toMatch(/Enter milestone codename/);
   });
 
   test("skill documents codename validation: non-empty, ≤32 chars, no backticks or newlines", () => {
