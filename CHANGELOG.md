@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.94.1] — 2026-10-03 — "Counted Once"
+
+### Fixed
+
+- The AC-STE-609.9 control counts a merged probe row once (STE-660). It hard-coded probe row #86 on top of main's positions, so once main carried the row it was expected twice and main went red. The control now derives the rows a branch adds from its difference with main through `compareProbePositions`, and its whole verdict lives in `probeControlViolations`, which holds the skill's split-line count to main's only when no probe row is added. Fixtures pin a main-equal tree, an added row, a moved row and a removed row.
+
+### Known defects
+
+- Probe #45 (`socratic_first_turn_post_hoc_drift`) still reds a legitimately approved interactive spec commit while that commit is the branch's latest.
+- Still open from v2.94.0: the `{codename}` regex replacement expands `$&`, `$1` and `$$`; probe #86's line-at-a-time reading; and the v2.93.0 items carried there.
+
+Total test count at release: 18262 tests, 0 failures, 0 errors.
+
 ## [2.94.0] — 2026-10-02 — "Unasked"
 
 ### Added
