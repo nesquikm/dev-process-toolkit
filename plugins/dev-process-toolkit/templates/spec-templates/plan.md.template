@@ -5,6 +5,7 @@ archived_at: null
 kickoff_branch: null
 frozen_at: null
 migration: none  # literal `none` (no consumer migration), or a migration-registry entry id
+codename: null  # replace with the codename composed from the approved design, never asked; non-empty after trimming, at most 32 characters, no backtick, no line break (front door: adapters/_shared/src/milestone_codename.ts)
 ---
 
 <!--
