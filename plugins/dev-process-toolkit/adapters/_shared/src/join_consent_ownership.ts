@@ -26,13 +26,23 @@ export function exemptsJoinConsent(route: OwnershipRoute | string): boolean {
 }
 
 /**
+ * The top-level keys of a labels write that are not edits: the addressing
+ * keys, the two edit blocks (graded separately below) and the two format keys
+ * AC-STE-655.9 exempts. Every other top-level key counts as an edit
+ * (FO-M3-1, M_a85e46 review): an allowlist, so a key the gate does not know
+ * is refused rather than permitted.
+ */
+const ENVELOPE_KEYS = new Set(["cloudId", "issueIdOrKey", "fields", "update", "contentFormat", "responseContentFormat"]);
+
+/**
  * STE-655 AC.8: the ONE labels-write envelope the hook (gateJoinedLabels) and
  * the live grader (gatedWrites) both read. Null when the write carries neither
  * `fields.labels` nor a top-level `update` block; otherwise `extraKeys` lists
  * the keys under `fields` other than `labels`, plus `update` when that block
- * is present. Other top-level keys (the format keys `contentFormat` /
- * `responseContentFormat`, `cloudId`, `issueIdOrKey`) are not edits and never
- * count.
+ * is present, plus every top-level key outside ENVELOPE_KEYS (a `transition`,
+ * `properties` or any key the gate does not know). Only the addressing keys
+ * (`cloudId`, `issueIdOrKey`) and the format keys (`contentFormat` /
+ * `responseContentFormat`) never count.
  */
 export function labelsEnvelope(input: unknown): { extraKeys: string[] } | null {
   if (input === null || typeof input !== "object") return null;
@@ -48,6 +58,7 @@ export function labelsEnvelope(input: unknown): { extraKeys: string[] } | null {
   // as an extra key, though it sits beside `fields` rather than under it.
   // Format keys (contentFormat, responseContentFormat) are not edits (AC.9).
   if (hasUpdate) extraKeys.push("update");
+  for (const k of Object.keys(input as object)) if (!ENVELOPE_KEYS.has(k)) extraKeys.push(k);
   return { extraKeys };
 }
 
