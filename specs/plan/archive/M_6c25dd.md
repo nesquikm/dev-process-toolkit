@@ -1,7 +1,7 @@
 ---
 milestone: M_6c25dd
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-10-02T16:53:23Z
 kickoff_branch: null
 frozen_at: null
 migration: none
