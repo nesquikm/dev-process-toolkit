@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.93.0] — 2026-10-02 — "Own Side Only"
+
+### Changed
+
+- Joining a spanning milestone writes only this repository's side (STE-651). This amends AC-STE-610.1/.2: `spans_repos.ts --declare` writes the invoking plan alone, refuses a plan file that resolves into another repository, grades the sibling read-only from any git source and prints the one command the sibling's own session runs. A `--sibling` join names where it found the sibling's plan in its gate line and receipt, and a Jira Epic listing row with no project field is refused naming that field.
+
+### Fixed
+
+- Import, backfill and drift leave archived, legacy and sibling work alone (STE-652). Import refuses a key any local FR binds, active or archived, before it reads the tracker or writes a file; a shared reconcile lists an unclaimed tracker milestone as a sibling's instead of a mismatch; the milestone-label backfill skips Jira FRs whose plan resolves and whose key lies outside the bound project, and reports them.
+- The container listing grades only this project's open tickets (STE-653). The toolkit's own `needs-technical-review` label is never read as a sibling's tag; closed and archive-bound tickets are neither offered nor consented to, and, when container pages are supplied, not reported as drift; in a shared binding a page from another project or Linear team is refused; probe #49 reports a still-open Epic whose milestone has shipped, and the post-ship checklist names closing it.
+- A tracker FR's title and ticket body round-trip with its FR file (STE-654). `/spec-write` re-syncs the ticket once after writing the FR file, so the ticket carries real AC ids and its back-link; titles YAML would misread (reserved words, colons, number-like strings, control characters) are quoted on write and read back exactly. The frontmatter reader now unescapes every double-quoted field that carries a backslash, not only titles; a value that must keep a literal backslash sequence belongs in single quotes.
+- Every gate waits out lag alike, and hook and grader read one envelope and the latest answer (STE-655). The tdd commit gate now shares the gate-check and spec-review gates' bounded wait, which never re-enters the fail-open leg. An `editJiraIssue` labels write on a joined Epic carrying any edit beside the labels (another `fields` key, an `update` block, or any other top-level key) is refused, naming it. A later ask that offers the Join, Import, Adopt or Create and is answered Skip withdraws an earlier yes. The grader applies the hook's container prior-create rule, and link comments and Linear relation fields grade every side they write.
+- Docs and archived specs say what the shipped code does (STE-656). No skill page or comment calls the branch-gate module a probe; the hooks reference names the receipt refusals in their shipped words; the CLAUDE.md template names both install shapes; probe #25's remedies name commands that actually write the fix; the Import/Adopt docs say the key must appear in the question text.
+
+### Known defects
+
+- A `transitionJiraIssue` carrying `fields` or `update` on a joined Epic the session owns is not read through the labels envelope; only `editJiraIssue` is.
+- An earlier Join, Import or Adopt stays in force while a later ask about the same subject is still unanswered on disk; and a re-ask offering only Skip neither grants nor withdraws consent.
+- A plan file that is a hard link into the sibling still passes the declare's containment check.
+- The Linear closed-status vocabulary (statusType completed/canceled, completedAt/canceledAt) is not yet measured live; Linear `parentId` and `remove*` relation fields are not read as relation sides.
+- `/gate-check`'s page is wrong in two places held by the AC-STE-618.8 freeze: probe #25's entry still names the migration helper as the missing-key remedy, and probe #77's entry still cites probe #66/#33. Probe #25's key-prefix remedy archives the file but leaves `status: active`.
+- `/ship-milestone`'s description says it bumps "the four release files"; this repository's Release Files block lists five (held by the same freeze).
+- Still open from v2.92.0: two calls of one message are graded without each other's lines, so a same-turn duplicate is refused only when its sibling's line has landed; a subagent's tracker call is graded with no wait; the grader re-derives a bundle's digest from its own file map; D-4 stays narrowed; and the sibling ship gate reads "archived on some ref" as "archived on every ref" (D-2).
+
+Total test count at release: 18148 tests, 0 failures, 0 errors.
+
 ## [2.92.0] — 2026-10-01 — "Checked Routes"
 
 ### Changed
