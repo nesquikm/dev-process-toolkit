@@ -23,6 +23,7 @@ The order is load-bearing. Trackers skip cancelled numbers, renumber across work
 2. **Create the tracker ticket.** Call `Provider.sync(spec)` → `upsertTicketMetadata(null, …)`. **Workspace binding.** Before invoking, call `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` from `adapters/_shared/src/workspace_binding.ts` and pass `team` + `project` + `defaultLabels` into the call so the new ticket lands on the correct project board with the configured labels. Linear adapter rejects creates that lack `project` per the silent-landing trap; Jira adapter rejects creates that lack `project` per the Jira API requirement. **Labels** are optional and forwarded only when `defaultLabels` is populated (Linear → `save_issue.labels`; Jira → `createJiraIssue.additional_fields.labels`). The tracker allocator returns the real ID (e.g., `<TKR>-NN`).
 3. **Substitute globally.** Replace every `<tracker-id>` with the returned ID in one pass.
 4. **Write the FR file.** Only after substitution completes — the file on disk never contains a placeholder.
+5. **Re-sync the ticket.** Call `Provider.sync(spec)` again. With its `tracker:` binding the FR is now an update of the returned key, which sends title and description — the substituted AC ids and the back-link rendered with the real key — and, since the re-sync passes no labels on the spec, leaves labels untouched. Without this step the ticket keeps the placeholder-era description written at create time.
 
 ### Worked example
 
@@ -68,7 +69,10 @@ After each AC-list save in `specs/frs/<tracker-id>.md`'s
 goes straight to `upsert_ticket_metadata(null, title, description)` to
 mint a new ticket; the returned ID becomes the FR filename
 (`specs/frs/<tracker-id>.md`) — the filename IS the binding (no
-separate traceability matrix is maintained).
+separate traceability matrix is maintained). Once the FR file is
+written, it re-syncs the ticket with one more `Provider.sync(spec)` —
+an update of the returned key that sends title and description (the
+substituted AC ids, the real back-link) and, carrying no labels on the spec, leaves labels untouched.
 
 ## Cancel semantics
 
@@ -91,29 +95,41 @@ bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/container_ownership.ts list <
 Page fields the listing needs:
 
 - **Jira** (`searchJiraIssuesUsingJql`, paginated to `isLast: true`): `key`,
-  `summary`, `issuetype`, `labels`, `description`, `creator`, `project`.
+  `summary`, `issuetype`, `labels`, `description`, `creator`, `project`,
+  `status` (its `statusCategory.key` `done` marks the ticket closed).
 - **Linear** (`list_issues`, cursor followed to `hasNextPage: false`):
   `id` / `identifier`, `title`, `labels`, `description`, `createdBy`,
-  `project`, `team`.
+  `project`, `team`, `statusType`, `completedAt`, `canceledAt` (a
+  `completed` / `canceled` status type, or either timestamp set, marks the
+  issue closed; the closed values are not yet measured live).
 
 A repository that declares a shared tracker refuses a page whose ticket lacks
 `labels` or `description`, naming the file or the key; a missing or non-JSON
 page file refuses too, and nothing is listed from a page that failed to parse.
+It also refuses a page carrying a ticket from another Jira project (or another
+Linear project or team), naming the ticket, its project and the bound one:
+nothing is listed, consented or imported from that read.
 
 The listing prints one table row per unbound ticket — `Key`, `Class`, `Owner`
 (the creator), `Toolkit-written` (the `Source: specs/frs/<key>.md` back-link,
 reported only; it is not ownership evidence) and `Title` — then a `summary:`
 line counting every class, the excluded ones included. Classes: `ours` (carries
 this repository's `repo_tag`), `unowned` (no owner label — hand-filed, or a
-client too old to tag), `sibling` (another repository's label) and `container`
-(a Jira Epic or any hierarchy level above the FR). `sibling` and `container`
-tickets are counted and never offered. Each offerable ticket gets one line
-carrying the two option labels to show verbatim:
+client too old to tag), `sibling` (another repository's label — a
+`milestone-` label, a label the toolkit itself writes such as
+`needs-technical-review`, and this repository's default labels are not) and
+`container` (a Jira Epic or any hierarchy level above the FR). `sibling` and
+`container` tickets are counted and never offered. A closed ticket keeps its
+class, is marked `(closed)` in the `Class` column, is counted as
+`closed=<n> (not offered)` on the summary line, and is never offered. A ticket
+an archived FR binds counts as `bound`, like an active binding. Each offerable
+ticket gets one line carrying the two option labels to show verbatim:
 
 ```
 options: Import <KEY> | Skip <KEY>
 ```
 
+The tracker-write hook counts an `Import <KEY>` answer only when the question's own text names the ticket key (options alone do not count), and the latest such answer before the write governs.
 On an explicit `Import <KEY>` answer, record consent before the import:
 
 ```bash
@@ -122,7 +138,8 @@ bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/container_ownership.ts consen
 
 `consent` re-classifies the same pages and, in a shared repository, writes an
 `import` receipt for an `ours` or `unowned` key only; it refuses a `sibling`,
-`container` or unlisted key with nothing written. An undeclared repository
+`container`, closed or unlisted key, or a foreign-project page, with nothing
+written. An undeclared repository
 writes no receipt.
 
 Then hand the same saved pages to the import as its ownership context,

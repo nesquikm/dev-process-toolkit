@@ -195,7 +195,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.92.0 — "Checked Routes"** (M_163656, bindings move only by checked routes and refusals name the real cause. A bound tracker project or key-shaped Linear team now changes only through the repoint's checked rows, the repoint declares, flips and verifies with one outcome or none, and a shared version floor moves only when you pass one. The tracker-write gate covers every link writer, and its receipt refusals name what actually happened: two checkouts of one repository, an unreadable receipt directory, another session's receipt. The live grader now mirrors the hook it grades, and the gate-check and spec-review gates call a lagging transcript lag instead of blaming the window. D-3, D-5 to D-7 and D-12 are closed; D-2 stays open and D-4 stays narrowed)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.93.0 — "Own Side Only"** (M_a85e46, each repository writes and grades only its own shared-container work. Declaring a spanning milestone writes only this repository's plan and prints the command the sibling runs; import, backfill, drift and the container listing leave archived, closed, legacy and sibling tickets alone; and FR titles and ticket bodies round-trip with their FR files. Every commit gate now waits out a lagging transcript alike, a joined Epic's labels write cannot carry any other edit past its consent check, and the latest answer to a consent question wins. D-2 stays open and D-4 stays narrowed)
 
 ## Core Philosophy
 

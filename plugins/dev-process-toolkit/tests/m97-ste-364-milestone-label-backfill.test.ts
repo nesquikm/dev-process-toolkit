@@ -94,11 +94,20 @@ describe("AC-STE-364.2 — dry-run default + --apply contract in prose", () => {
 });
 
 describe("AC-STE-364.3 — aggregate report shape in prose", () => {
-  test("the form names the three aggregate count buckets as literals", () => {
+  test("the form names the three original aggregate count buckets as literals (the fourth, outOfProject, has its own leg)", () => {
     const block = backfillBlock();
     expect(block).toContain("`backfilled`");
     expect(block).toContain("`already-correct`");
     expect(block).toContain("`failed`");
+  });
+
+  test("AC-STE-652.14: the form names the fourth, out-of-project bucket as a literal", () => {
+    // M_a85e46 / STE-652: a Jira-bound FR keyed outside the bound project is
+    // skipped with zero tracker calls and REPORTED, never silent.
+    const block = backfillBlock();
+    expect(block).toMatch(/`(out-of-project|outOfProject)`/);
+    // …and says what lands there: a key outside the bound project.
+    expect(block).toMatch(/outside[^.]{0,40}project/i);
   });
 
   test("the form states the report lists failed ticket ids and the plan file each maps to", () => {

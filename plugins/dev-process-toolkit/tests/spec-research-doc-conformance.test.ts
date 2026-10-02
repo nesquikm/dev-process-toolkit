@@ -133,6 +133,15 @@ describe("spec-research skill frontmatter (AC-STE-230.2)", () => {
     expect(body).toContain("NON_COMMIT_PRODUCING_SKILLS");
     expect(body).toMatch(/STE-228/);
   });
+
+  test("AC-STE-656.1: no sentence naming commit_producing_skill_branch_gate calls it a probe; the module is still named", () => {
+    const { body } = parseFrontmatter(SKILL_PATH);
+    const flat = body.replace(/\n[ \t]*/g, " ");
+    const naming = flat.split(/(?<=[.;!?])\s+(?=[A-Z`(*\[])/).filter((s) => s.includes("commit_producing_skill_branch_gate"));
+    expect(naming.length).toBeGreaterThan(0);
+    expect(naming.filter((s) => /\bprobes?\b/i.test(s))).toEqual([]);
+    expect(body).toContain("commit_producing_skill_branch_gate.ts");
+  });
 });
 
 // -----------------------------------------------------------------------------

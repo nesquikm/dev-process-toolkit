@@ -217,3 +217,93 @@ describe("AC-STE-610.6 — the offer surfaces run refusal #4 with --offer; the r
     expect(line!).toContain("--children");
   });
 });
+
+// ===========================================================================
+// STE-651 (M_a85e46) — the prose says the declare writes this plan only.
+// ===========================================================================
+
+/** The merge base on main (v2.92.0): line 177's module paths before the fix. A main commit, so a rebase or squash of this branch cannot orphan it. */
+const STE_651_BASE = "cb6145c1";
+
+/** An instruction to write, hand-write or declare into BOTH plans / sides. */
+const BOTH_PLANS_RE = /\b(?:hand-writes?|writes?|declares?)\b[^|\n.;]{0,80}\bboth (?:plans|sides)\b/i;
+
+describe("AC-STE-651.7 — the spec-write --declare line writes this repository's plan only", () => {
+  test("AC-STE-651.7 the --declare line states the declare writes this plan only, and no longer declares 'in both plans'", () => {
+    const l = line177();
+    expect(l, "line 177 is no longer the --declare line").toContain("--declare");
+    expect(l).toMatch(/this (?:repository's )?plan only/i);
+    expect(l).not.toContain("in both plans");
+    expect(l).not.toMatch(BOTH_PLANS_RE);
+  });
+
+  test("AC-STE-651.7 (order) --declare stays after 'write the plan file'", () => {
+    const l = line177();
+    const write = l.search(/write the plan file/i);
+    expect(write).toBeGreaterThan(-1);
+    expect(l.indexOf("--declare")).toBeGreaterThan(write);
+  });
+
+  test("AC-STE-651.7 the file keeps 358 split-lines and 54 STE tokens", () => {
+    const body = read(SPEC_WRITE);
+    expect(body.split("\n").length).toBe(358);
+    expect((body.match(/STE-\d+/g) ?? []).length).toBe(54);
+  });
+
+  test("AC-STE-651.7 the --declare line gains no module path", () => {
+    const base = git(REPO_ROOT, "show", `${STE_651_BASE}:plugins/dev-process-toolkit/skills/spec-write/SKILL.md`)
+      .replace(/\r\n?/g, "\n")
+      .split("\n")[176]!;
+    const before = new Set(base.match(MODULE_PATH_RE) ?? []);
+    const added = [...new Set(line177().match(MODULE_PATH_RE) ?? [])].filter((p) => !before.has(p));
+    expect(added).toEqual([]);
+  });
+});
+
+describe("AC-STE-651.8 — no remedy or doc tells a session to write both plans", () => {
+  const SHIP_REF = join(PLUGIN_ROOT, "docs", "ship-milestone-reference.md");
+  const SPANS_SRC = join(PLUGIN_ROOT, "adapters", "_shared", "src", "spans_repos.ts");
+
+  for (const [label, file] of [
+    ["docs/ship-milestone-reference.md", SHIP_REF],
+    ["templates/spec-templates/plan.md.template", PLAN_TEMPLATE],
+  ] as const) {
+    test(`AC-STE-651.8 ${label} carries no instruction to write or hand-write both plans`, () => {
+      const hits = read(file)
+        .split("\n")
+        .map((l, i) => [i + 1, l] as const)
+        .filter(([, l]) => BOTH_PLANS_RE.test(l));
+      expect(hits.map(([n, l]) => `${n}: ${l.slice(0, 200)}`)).toEqual([]);
+    });
+  }
+
+  test("AC-STE-651.8 spans_repos.ts's remedies (its code lines) carry no instruction to write or hand-write both plans", () => {
+    const hits = read(SPANS_SRC)
+      .split("\n")
+      .map((l, i) => [i + 1, l] as const)
+      .filter(([, l]) => !/^\s*(?:\/\/|\*|\/\*)/.test(l))
+      .filter(([, l]) => BOTH_PLANS_RE.test(l));
+    expect(hits.map(([n, l]) => `${n}: ${l.trim().slice(0, 200)}`)).toEqual([]);
+  });
+
+  test("(control) the pattern catches the wording it forbids", () => {
+    expect(BOTH_PLANS_RE.test("hand-write the spans_repos declaration in both plans")).toBe(true);
+    expect(BOTH_PLANS_RE.test("which writes both sides")).toBe(true);
+    expect(BOTH_PLANS_RE.test("which declares the span in both plans:")).toBe(true);
+    expect(BOTH_PLANS_RE.test("it writes this plan only; the sibling's own session declares its side")).toBe(false);
+  });
+});
+
+describe("AC-STE-651.10 — the FR's Notes record the residual one-sided window", () => {
+  test("AC-STE-651.10 STE-651's Notes name the window (joined and declared, no tagged child, minter undeclared) and gradeChildren as the guard", () => {
+    const live = join(REPO_ROOT, "specs", "frs", "STE-651.md");
+    const fr = read(existsSync(live) ? live : join(REPO_ROOT, "specs", "frs", "archive", "STE-651.md"));
+    const notes = fr.slice(fr.indexOf("## Notes"));
+    expect(notes.startsWith("## Notes")).toBe(true);
+    expect(notes).toMatch(/residual one-sided window/i);
+    expect(notes).toMatch(/joined and declared/i);
+    expect(notes).toMatch(/no tagged child/i);
+    expect(notes).toMatch(/minter is undeclared/i);
+    expect(notes).toMatch(/gradeChildren is the undeclared side's guard/);
+  });
+});

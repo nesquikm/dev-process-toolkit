@@ -15,7 +15,7 @@
 // Real git roots (GIT_ENV); the listing is a raw Jira Epic search page.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -252,5 +252,88 @@ describe("AC-STE-610.4 — a shared title join with --sibling keeps default=forb
       const receipt = JSON.parse(readFileSync(join(receiptsDir(t.a, SESSION), receipts(t.a)[0]!), "utf-8")) as { evidence: Record<string, unknown> };
       expect("options" in receipt.evidence).toBe(false);
     });
+  }, 30_000);
+});
+
+// ===========================================================================
+// STE-651 (M_a85e46) — the join names WHERE it found the sibling's plan:
+// in its gate= line and in the receipt's evidence.sibling.planSource.
+// ===========================================================================
+
+/** The one milestone-decision receipt the join wrote, parsed. */
+function onlyReceipt(root: string): { evidence: Record<string, unknown> } {
+  const files = receipts(root);
+  expect(files.length, "the join wrote no single receipt").toBe(1);
+  return JSON.parse(readFileSync(join(receiptsDir(root, SESSION), files[0]!), "utf-8")) as { evidence: Record<string, unknown> };
+}
+
+/** Which of `spellings` the gate line names; fails when none. */
+function namedSource(gate: string, spellings: string[]): string {
+  const hit = spellings.find((s) => gate.includes(s));
+  expect(hit, `gate= names none of ${JSON.stringify(spellings)}: ${gate}`).toBeDefined();
+  return hit!;
+}
+
+describe("AC-STE-651.11 / AC-STE-651.12 — a shared --sibling join names the sibling plan's source", () => {
+  test("AC-STE-651.11 AC-STE-651.12 plan only in a linked worktree of the sibling: gate= names `worktree <wt>`, and the receipt's evidence.sibling.planSource equals it", async () => {
+    await withJoin((t) => {
+      git(t.b, "rm", "-q", join("specs", "plan", `${MILESTONE}.md`));
+      commitAll(t.b, "fixture: main holds no plan");
+      const parent = mkdtempSync(join(tmpdir(), "dpt-651-wt-"));
+      t.extra.push(parent);
+      const wt = join(parent, "b-wt");
+      git(t.b, "worktree", "add", "-q", "-b", "plan-wt-651", wt);
+      mkdirSync(join(wt, "specs", "plan"), { recursive: true });
+      writeFileSync(
+        join(wt, "specs", "plan", `${MILESTONE}.md`),
+        ["---", `milestone: ${MILESTONE}`, "status: active", "archived_at: null", "shipped_in: null", "---", "", `# ${MILESTONE}`, ""].join("\n"),
+      );
+      const f = fields(door(t, "--join-key", KEY, "--sibling", t.b));
+      expect(f.get("act")).toBe("join");
+      const gate = f.get("gate") ?? "";
+      const source = namedSource(gate, [`worktree ${wt}`, `worktree ${realpathSync(wt)}`]);
+      const sibling = onlyReceipt(t.a).evidence.sibling as Record<string, unknown> | undefined;
+      expect(sibling?.planSource).toBe(source);
+    });
+  }, 30_000);
+
+  test("AC-STE-651.11 AC-STE-651.12 plan in the sibling's main checkout (and also on a branch): the main-worktree copy is named, `worktree <main>`", async () => {
+    await withJoin((t) => {
+      git(t.b, "branch", "also-holds-plan-651");
+      const f = fields(door(t, "--join-key", KEY, "--sibling", t.b));
+      const gate = f.get("gate") ?? "";
+      const source = namedSource(gate, [`worktree ${t.b}`, `worktree ${realpathSync(t.b)}`]);
+      expect(gate).not.toContain("branch also-holds-plan-651");
+      expect((onlyReceipt(t.a).evidence.sibling as Record<string, unknown> | undefined)?.planSource).toBe(source);
+    });
+  }, 30_000);
+
+  test("AC-STE-651.11 AC-STE-651.12 plan only on a local branch: gate= names `branch <name>`, and the receipt carries it", async () => {
+    await withJoin((t) => {
+      git(t.b, "checkout", "-q", "-b", "plan-only-651");
+      commitAll(t.b, "fixture: plan on a branch");
+      git(t.b, "checkout", "-q", "main");
+      git(t.b, "rm", "-q", join("specs", "plan", `${MILESTONE}.md`));
+      commitAll(t.b, "fixture: main holds no plan");
+      const f = fields(door(t, "--join-key", KEY, "--sibling", t.b));
+      const gate = f.get("gate") ?? "";
+      const source = namedSource(gate, ["branch plan-only-651"]);
+      expect((onlyReceipt(t.a).evidence.sibling as Record<string, unknown> | undefined)?.planSource).toBe(source);
+    });
+  }, 30_000);
+});
+
+describe("AC-STE-651.13 — an unshared join without --sibling keeps its gate= line byte-identical", () => {
+  test("AC-STE-651.13 (control) the unshared join gate is byte-identical to HEAD", async () => {
+    await withJoin(
+      (t) => {
+        const f = fields(door(t, "--join-key", KEY));
+        expect(f.get("gate")).toBe(
+          `join the existing Epic ${KEY} "${TITLE}" (status In Progress) in project ${PROJECT} via key; nothing is created.`,
+        );
+        expect("sibling" in onlyReceipt(t.a).evidence).toBe(false);
+      },
+      { shared: false },
+    );
   }, 30_000);
 });

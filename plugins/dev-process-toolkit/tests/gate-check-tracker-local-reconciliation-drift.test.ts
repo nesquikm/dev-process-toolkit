@@ -13,7 +13,7 @@
 // adapters/_shared/src/ path matching 55 sibling probes); we import it from there.
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runTrackerLocalReconciliationDriftProbe } from "../adapters/_shared/src/tracker_local_reconciliation_drift";
@@ -22,12 +22,17 @@ import type { FRMetadata, FRSpec, LockResult, Provider, SyncResult } from "../ad
 // front-door legs. Output framing: see `tests/_orphan_pages.ts`.
 import { afterAll, beforeAll } from "bun:test";
 import {
+  archivedBoundFr,
   BE_TAG,
   boundFr,
   declareJira,
   DRIFT_MODULE,
   FE_TAG,
+  jiraIssue,
   jiraPage,
+  jiraRow,
+  milestonePlan,
+  PLUGIN_ROOT,
   probeRowKeys,
   probeRows,
   type Run,
@@ -452,4 +457,218 @@ describe("AC-STE-605.12: numeric-label collision (LJ-1)", () => {
       });
     });
   }
+});
+
+// ===========================================================================
+// STE-653 (M_a85e46) — probe #49 grades only this project's open tickets, and
+// reports an open Epic whose milestone shipped here.
+// Filter by AC with `bun test -t "AC-STE-653.N"`.
+// ===========================================================================
+
+const jiraRowsPage = (rows: Record<string, unknown>[]) => ({ issues: rows, isLast: true });
+const T_CLOSED: Ticket = { key: "GF-301", title: "Shipped and closed", labels: [], creator: "Pat Manager" };
+const T_ARCHIVED_OPEN: Ticket = { key: "GF-303", title: "Archived here, still open", labels: [FE_TAG], creator: "Fe Dev", backLink: true };
+
+describe("STE-653 — closed and archived-bound tickets are not drift", () => {
+  test("AC-STE-653.11 (e) — a Done, unbound, untagged ticket raises no tracker-orphan and no unowned-container-ticket row", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const rows = [...TWO_REPO.map((t) => jiraIssue(t)), jiraRow(T_CLOSED, { statusCategory: "done" })];
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(jiraRowsPage(rows))]));
+      expect(probeRowKeys(out, TRACKER_ORPHAN)).not.toContain("GF-301");
+      expect(probeRowKeys(out, UNOWNED_ROW)).not.toContain("GF-301");
+      // CONTROL: the open hand-filed ticket on the same page still raises both rows.
+      expect(probeRowKeys(out, TRACKER_ORPHAN)).toContain("GF-121");
+      expect(probeRowKeys(out, UNOWNED_ROW)).toContain("GF-121");
+    });
+  });
+
+  test("AC-STE-653.11 (f) — an OPEN ticket bound only by an archived FR raises no tracker-orphan row", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      archivedBoundFr(fe, "GF-303");
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(jiraPage([...TWO_REPO, T_ARCHIVED_OPEN]))]));
+      expect(probeRowKeys(out, TRACKER_ORPHAN)).not.toContain("GF-303");
+      // CONTROL: an unbound ours ticket is still a tracker orphan.
+      expect(probeRowKeys(out, TRACKER_ORPHAN)).toContain("GF-102");
+    });
+  });
+
+  test("AC-STE-653.11 CONTROL — without the archived FR the same open ticket IS a tracker-orphan", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(jiraPage([...TWO_REPO, T_ARCHIVED_OPEN]))]));
+      expect(probeRowKeys(out, TRACKER_ORPHAN)).toContain("GF-303");
+    });
+  });
+
+  test("AC-STE-653.11 — local-orphan rows are unchanged: a local FR bound to the closed ticket is not dangling; a dangling FR still is", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      boundFr(fe, "GF-301"); // closed, on the page
+      boundFr(fe, "GF-999"); // on no page: dangling
+      const rows = [...TWO_REPO.map((t) => jiraIssue(t)), jiraRow({ ...T_CLOSED, labels: [FE_TAG] }, { statusCategory: "done" })];
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(jiraRowsPage(rows))]));
+      expect(probeRowKeys(out, "local-orphan")).toEqual(["GF-999"]);
+    });
+  });
+});
+
+describe("STE-653 — probe #49 refuses a foreign-project page in a shared binding", () => {
+  const gbPage = () =>
+    jiraRowsPage([...TWO_REPO.map((t) => jiraIssue(t)), jiraRow({ key: "GB-12", title: "Another project's bug", labels: [], creator: "Gb Person" }, { project: "GB" })]);
+
+  test("AC-STE-653.16 (c) — shared: an `error container-foreign-project` line, exit 1, nothing graded, nothing written", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      const before = snapshotTree(fe);
+      const run = runProbeFrontDoor(fe, [ste605Page(gbPage())]);
+      expect(run.code, `${run.stdout}${run.stderr}`).toBe(1);
+      expect(run.stdout).toMatch(/^error container-foreign-project: .*GB-12/m);
+      expect(run.stdout).not.toMatch(/excluded/);
+      expect(probeRows(run.stdout, TRACKER_ORPHAN)).toEqual([]);
+      expect(snapshotTree(fe)).toEqual(before);
+    });
+  });
+
+  test("AC-STE-653.19 CONTROL — unshared: the same page is graded (exit 0), GB-12 a tracker-orphan, no foreign-project row", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, null);
+      const run = runProbeFrontDoor(fe, [ste605Page(gbPage())]);
+      expect(run.code, run.stderr).toBe(0);
+      const out = ranOverPages(run);
+      expect(out).not.toContain("container-foreign-project");
+      expect(probeRowKeys(out, TRACKER_ORPHAN)).toContain("GB-12");
+    });
+  });
+});
+
+describe("STE-653 — probe #49 reports an open Epic whose milestone shipped here", () => {
+  const EPIC: Ticket = { key: "GF-89", title: "M_GF_89 Streaks", labels: [], type: "Epic", creator: "Lead" };
+  const HAND: Ticket = { key: "GF-121", title: "Crash on login", labels: [], creator: "Pat Manager" };
+  const epicPage = (status?: string) => jiraRowsPage([jiraRow(EPIC, status === undefined ? {} : { statusCategory: status }), jiraIssue(HAND)]);
+  const linesNaming = (out: string, prefix: "warning" | "info") =>
+    out.split("\n").filter((l) => l.startsWith(`${prefix} `) && l.includes("GF-89") && l.includes("M_GF_89"));
+  const anyNaming = (out: string) => out.split("\n").filter((l) => l.includes("M_GF_89"));
+
+  for (const status of [undefined, "indeterminate"]) {
+    test(`AC-STE-653.20 (a) — unshared: an open Epic (${status ?? "no status field"}) whose archived plan declares no spans_repos is a warning naming GF-89 and M_GF_89`, async () => {
+      await withTwoRoots((fe) => {
+        declareJira(fe, null);
+        milestonePlan(fe, "M_GF_89", "archive");
+        const before = snapshotTree(fe);
+        const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(epicPage(status))]));
+        expect(linesNaming(out, "warning").length, out).toBe(1);
+        expect(snapshotTree(fe)).toEqual(before);
+      });
+    });
+  }
+
+  test("AC-STE-653.21 (b) — a closed Epic (status category done) gives no row", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, null);
+      milestonePlan(fe, "M_GF_89", "archive");
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(epicPage("done"))]));
+      expect(anyNaming(out)).toEqual([]);
+    });
+  });
+
+  test("AC-STE-653.21 (c) — an open Epic whose plan is still ACTIVE gives no row", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, null);
+      milestonePlan(fe, "M_GF_89", "active");
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(epicPage())]));
+      expect(anyNaming(out)).toEqual([]);
+    });
+  });
+
+  test("AC-STE-653.21 CONTROL — an open Epic with no plan at all gives no row", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, null);
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(epicPage())]));
+      expect(anyNaming(out)).toEqual([]);
+    });
+  });
+
+  test("AC-STE-653.22 (d) — shared: the same open Epic with an archived plan is an info row, never a warning", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      milestonePlan(fe, "M_GF_89", "archive");
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(epicPage())]));
+      expect(linesNaming(out, "info").length, out).toBe(1);
+      expect(linesNaming(out, "warning")).toEqual([]);
+    });
+  });
+
+  test("AC-STE-653.22 (e) — unshared: an archived plan declaring spans_repos gives an info row, never a warning", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, null);
+      milestonePlan(fe, "M_GF_89", "archive", { "glacy-be": "../glacy-be" });
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(epicPage())]));
+      expect(linesNaming(out, "info").length, out).toBe(1);
+      expect(linesNaming(out, "warning")).toEqual([]);
+    });
+  });
+
+  // Hardening (review r0): a malformed archived plan is a row, never a crash.
+  test("AC-STE-653.25 (shared) the same malformed archived plan in a shared binding is an info row naming the plan, never a warning", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, FE_TAG);
+      milestonePlan(fe, "M_GF_89", "archive");
+      const plan = join(fe, "specs", "plan", "archive", "M_GF_89.md");
+      writeFileSync(plan, readFileSync(plan, "utf-8").replace(/^---\n/, "---\nspans_repos: not-a-mapping\n"));
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(epicPage())]));
+      const info = linesNaming(out, "info").filter((l) => l.includes("M_GF_89") && l.includes("could not be read"));
+      expect(info.length, out).toBe(1);
+      expect(linesNaming(out, "warning").filter((l) => l.includes("M_GF_89"))).toEqual([]);
+    });
+  });
+
+  test("AC-STE-653.25 (unshared) an archived M_GF_89 plan with a malformed spans_repos: the probe exits with a warning naming the plan, no uncaught error", async () => {
+    await withTwoRoots((fe) => {
+      declareJira(fe, null);
+      milestonePlan(fe, "M_GF_89", "archive");
+      const plan = join(fe, "specs", "plan", "archive", "M_GF_89.md");
+      const body = readFileSync(plan, "utf-8");
+      // A spans_repos key whose value is a scalar, not a mapping — the reader refuses it.
+      writeFileSync(plan, body.replace(/^---\n/, "---\nspans_repos: not-a-mapping\n"));
+      const out = ranOverPages(runProbeFrontDoor(fe, [ste605Page(epicPage())]));
+      const warnings = linesNaming(out, "warning").filter((l) => l.includes("M_GF_89"));
+      expect(warnings.length, out).toBe(1);
+      expect(warnings[0]).toContain("GF-89");
+      expect(out).not.toMatch(/^\s+at .*\(.*\.ts:\d+/m);
+    });
+  });
+});
+
+describe("AC-STE-653.23 — the ship checklist names closing the milestone Epic", () => {
+  const SHIP = join(PLUGIN_ROOT, "skills", "ship-milestone", "SKILL.md");
+  const ANCHOR = "Next steps (not automated):";
+
+  /** The printed block that follows the pinned anchor, up to its closing fence. */
+  function nextStepsBlock(): string {
+    const body = readFileSync(SHIP, "utf-8");
+    const at = body.indexOf(ANCHOR);
+    expect(at, "the pinned 'Next steps (not automated):' anchor is gone").toBeGreaterThan(-1);
+    const rest = body.slice(at);
+    const end = rest.indexOf("```");
+    return end === -1 ? rest : rest.slice(0, end);
+  }
+
+  test("AC-STE-653.23 — the post-ship checklist names closing the milestone Epic by its key, and the sharing condition", () => {
+    const block = nextStepsBlock();
+    expect(block).toMatch(/close the milestone Epic/i);
+    // By its key: the Epic key derived from the Epic-keyed plan token.
+    expect(block).toContain("<P>-<N>");
+    expect(block).toContain("M_<P>_<N>");
+    // The sharing condition: spans_repos, or a shared tracker container.
+    expect(block).toContain("spans_repos");
+    expect(block).toMatch(/\bshared\b/);
+  });
+
+  test("AC-STE-653.23 CONTROL — the anchor stays once and the skill stays under the 358-line cap", () => {
+    const body = readFileSync(SHIP, "utf-8");
+    expect(body.split(ANCHOR).length - 1).toBe(1);
+    expect(body.split("\n").length).toBeLessThanOrEqual(358);
+  });
 });

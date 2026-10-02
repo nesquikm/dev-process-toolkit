@@ -551,7 +551,16 @@ describe("AC-STE-603.6 — every pre-existing fixture yields byte-identical viol
           const now = await runTaskTrackingWorkspaceBindingPresentProbe(ctx.root);
           // Amended by AC-STE-612.8: the report gains an additive `skipped` list
           // (the Jira-only key-prefix leg); the violations stay identical.
-          expect(now.violations, name).toEqual(before.violations);
+          // Amended by AC-STE-656.6 (M_a85e46): the missing-key remedy now names
+          // the binding writer instead of the print-only migration helper, so
+          // the message's `Remedy:` line moved. Every verdict field (file, line,
+          // reason, note) and every other message line stay byte-identical.
+          const withoutRemedy = (v: { message?: string }) => ({
+            ...v,
+            message: (v.message ?? "").split("\n").filter((l) => !l.startsWith("Remedy:")).join("\n"),
+          });
+          expect(now.violations.map(withoutRemedy), name).toEqual(before.violations.map(withoutRemedy));
+          expect(now.violations.length, name).toBe(before.violations.length);
         } finally {
           ctx.cleanup();
         }

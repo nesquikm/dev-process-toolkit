@@ -30,9 +30,11 @@
 // a meaningless warning. The filter keys on the structural `side`
 // discriminator, never on the `details` prose.
 
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   adapterOf,
+  assertListingProject,
   type ContainerTicket,
   classifyTicket,
   foreignLabels,
@@ -41,6 +43,7 @@ import {
   readContainerListing,
   readPages,
 } from "./container_ownership";
+import { milestoneIdFromEpicKey } from "./milestone_token";
 import { evaluatePlanOnlyEligibility } from "./plan_only_archival";
 import type { Provider } from "./provider";
 import {
@@ -48,6 +51,7 @@ import {
   readLocalFRBindings,
   reconcileTrackerLocal,
 } from "./reconcile_tracker_local";
+import { readSpansReposDeclaration } from "./spans_repos";
 import { readWorkspaceBinding, type WorkspaceBinding } from "./workspace_binding";
 
 export type DriftSeverity = "info" | "warning" | "error";
@@ -60,14 +64,15 @@ export interface DriftViolation {
     | "duplicate-local-binding"
     | "unowned-container-ticket"
     | "bound-ticket-untagged"
-    | "numeric-milestone-shared";
+    | "numeric-milestone-shared"
+    | "open-milestone-epic";
   severity: "warning" | "error";
   note: string;
 }
 
 /** STE-605 — non-violation rows, reported only when container pages were supplied. */
 export interface DriftInfo {
-  kind: "container-not-read" | "container-empty" | "container-excluded";
+  kind: "container-not-read" | "container-empty" | "container-excluded" | "open-milestone-epic-shared";
   note: string;
 }
 
@@ -114,12 +119,15 @@ function readContainerView(projectRoot: string, pages: unknown[]): ContainerView
   if (!last) {
     throw new Error(`container page ${pages.length} of ${pages.length} is not the last page of its listing; the listing is incomplete and was not graded.`);
   }
+  // STE-653 AC-STE-653.16 — listOrphans runs assertListingProject over these
+  // same pages: a shared binding refuses a page carrying another project's
+  // (or Linear team's) ticket; unshared bindings are unchanged.
   const listing = listOrphans(projectRoot, pages);
   const bound = new Set(readLocalFRBindings(join(projectRoot, "specs")).flatMap((b) => b.trackerIds));
 
   const tickets: ClassifiedTrackerTicket[] = all.map((t) => ({
     key: t.key,
-    ownerClass: classifyTicket(t, binding),
+    ownerClass: t.closed === true ? "closed" : classifyTicket(t, binding),
     owner: t.creator ?? "unknown",
   }));
 
@@ -127,7 +135,7 @@ function readContainerView(projectRoot: string, pages: unknown[]): ContainerView
   const info: DriftInfo[] = [];
   if (binding.shared && binding.repoTag !== undefined) {
     for (const t of listing.orphans) {
-      if (t.cls !== "unowned") continue;
+      if (t.cls !== "unowned" || t.closed === true) continue;
       violations.push({
         kind: "unowned-container-ticket",
         severity: "warning",
@@ -144,6 +152,11 @@ function readContainerView(projectRoot: string, pages: unknown[]): ContainerView
     }
     violations.push(...numericMilestoneShared(all, binding, bound));
   }
+  if (adapter === "jira") {
+    const epics = openMilestoneEpics(projectRoot, all, binding);
+    violations.push(...epics.violations);
+    info.push(...epics.info);
+  }
   const c = listing.counts;
   info.push({
     kind: "container-excluded",
@@ -153,6 +166,59 @@ function readContainerView(projectRoot: string, pages: unknown[]): ContainerView
     info.push({ kind: "container-empty", note: "The container page is empty and complete; no tracker tickets to reconcile." });
   }
   return { tickets, violations, info };
+}
+
+/**
+ * STE-653 AC-STE-653.20 — an open Jira Epic whose `M_<key>` plan is archived
+ * here: the milestone shipped but its Epic was never closed. A warning only
+ * when the binding is unshared and the archived plan declares no
+ * `spans_repos` (no other repository can still be working under it).
+ */
+function openMilestoneEpics(
+  projectRoot: string,
+  tickets: ContainerTicket[],
+  binding: WorkspaceBinding,
+): { violations: DriftViolation[]; info: DriftInfo[] } {
+  const out: DriftViolation[] = [];
+  const info: DriftInfo[] = [];
+  for (const t of tickets) {
+    if (!t.isContainer || t.closed === true) continue;
+    let token: string;
+    try {
+      token = milestoneIdFromEpicKey(t.key);
+    } catch {
+      // Intentional: a key that will not sanitize into an `M_<key>` token names
+      // no milestone this repository could have planned, so it is not graded.
+      continue;
+    }
+    const plan = join(projectRoot, "specs", "plan", "archive", `${token}.md`);
+    if (!existsSync(plan)) continue;
+    let spans: boolean;
+    try {
+      spans = readSpansReposDeclaration(readFileSync(plan, "utf8")).declared;
+    } catch (e) {
+      // A plan that cannot be read is a row, never a crash (AC-STE-653.25):
+      // a warning in an unshared binding, an info row in a shared one, as the
+      // readable case grades (AC-STE-653.22).
+      const note = `Epic ${t.key} is open but its archived plan specs/plan/archive/${token}.md could not be read: ${(e as Error).message}`;
+      if (binding.shared) info.push({ kind: "open-milestone-epic-shared", note });
+      else out.push({ kind: "open-milestone-epic", severity: "warning", note });
+      continue;
+    }
+    if (binding.shared || spans) {
+      info.push({
+        kind: "open-milestone-epic-shared",
+        note: `Epic ${t.key} is open and its milestone ${token} is archived here, but ${binding.shared ? "the tracker container is shared" : "the plan declares spans_repos"}; another repository may still be working under it — close the Epic ${t.key} once every repository has shipped.`,
+      });
+      continue;
+    }
+    out.push({
+      kind: "open-milestone-epic",
+      severity: "warning",
+      note: `Epic ${t.key} is open but its milestone ${token} is archived here (specs/plan/archive/${token}.md); close the Epic ${t.key}.`,
+    });
+  }
+  return { violations: out, info };
 }
 
 const NUMERIC_MILESTONE_RE = /^milestone-M\d+$/;
@@ -271,7 +337,12 @@ export async function runTrackerLocalReconciliationDriftProbe(
   const report = await reconcileTrackerLocal(
     deps.provider,
     specsDir,
-    view === undefined ? {} : { tickets: view.tickets },
+    view === undefined
+      ? {}
+      : {
+          tickets: view.tickets,
+          archiveBoundIds: readLocalFRBindings(specsDir, { includeArchive: true }).flatMap((b) => b.trackerIds),
+        },
   );
 
   for (const item of report.trackerOrphans) {
@@ -400,7 +471,7 @@ if (import.meta.main) {
         }
       });
       const last = containerPages.length - 1;
-      let listing: { last: boolean };
+      let listing: { tickets: ContainerTicket[]; last: boolean };
       try {
         listing = readContainerListing(containerPages, adapter, binding.shared);
       } catch (e) {
@@ -411,6 +482,14 @@ if (import.meta.main) {
       }
       if (!listing.last) {
         console.log(`error container-partial: ${pagePaths[last]} is not the last page of its listing; the listing is incomplete and was not graded.`);
+        process.exit(1);
+      }
+      // STE-653 AC-STE-653.16 — shared: a ticket from another project (or
+      // Linear team) is a named refusal; nothing is graded.
+      try {
+        assertListingProject(listing.tickets, adapter, binding);
+      } catch (e) {
+        console.log(`error container-foreign-project: ${(e as Error).message}; the listing was not graded.`);
         process.exit(1);
       }
     }

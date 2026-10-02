@@ -60,12 +60,39 @@ export class FRFrontmatterShapeError extends Error {
   }
 }
 
-// YAML scalars that contain `:`, `#`, `"`, `\`, or start with whitespace
-// require quoting. Em-dash (U+2014) and other non-ASCII printables do not.
-function escapeYamlScalar(s: string): string {
-  if (s.length === 0) return JSON.stringify(s);
-  if (/^\s/.test(s)) return JSON.stringify(s);
-  if (/["\\:#]/.test(s)) return JSON.stringify(s);
+// A title is emitted plain only when a YAML reader would hand back the same
+// string. It is double-quoted when it is empty; has leading or trailing
+// whitespace; contains a control character (C0, DEL, C1), U+2028/U+2029, the
+// BOM, or one of `"`, `\`, `:`, `#`; starts with a YAML indicator character;
+// is a YAML 1.1 null/boolean keyword; or reads as a number (incl. `.inf`,
+// `.nan`). Em-dash (U+2014) and other non-ASCII printables stay plain, so
+// ordinary titles are byte-identical to before (AC-STE-654.8).
+//
+// The quoted form is JSON.stringify plus `\uXXXX` escapes for the characters
+// JSON leaves raw but YAML does not accept literally inside a double-quoted
+// scalar (DEL, C1, U+2028/U+2029, BOM). Both forms are valid YAML escapes,
+// and frontmatter.ts's reader JSON-parses a double-quoted value carrying a
+// backslash, so both readers round-trip the title (AC-STE-654.6). A lone
+// surrogate is quoted too and JSON.stringify writes it as `\udXXX`: the
+// toolkit reader restores it, but a strict YAML reader may reject that
+// escape — the only title shape not guaranteed to round-trip under both.
+export function escapeYamlScalar(s: string): string {
+  if (
+    s.length === 0 ||
+    /^\s|\s$/.test(s) ||
+    /[\x00-\x1f\x7f-\x9f\u2028\u2029\ufeff"\\:#]/.test(s) ||
+    /^[-?:,\[\]{}&*!|>'%@`]/.test(s) ||
+    /^(?:null|~|true|false|yes|no|on|off|y|n)$/i.test(s) ||
+    /^[-+]?(?:\d|\.\d|\.(?:inf|nan)$)/i.test(s) ||
+    // A LONE surrogate: written raw it becomes U+FFFD on disk. A valid pair
+    // (an emoji) is a printable character and stays plain (AC-STE-654.8).
+    /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(s)
+  ) {
+    return JSON.stringify(s).replace(
+      /[\x7f-\x9f\u2028\u2029\ufeff]/g,
+      (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    );
+  }
   return s;
 }
 
