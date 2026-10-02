@@ -195,7 +195,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.94.0 — "Unasked"** (M_6c25dd, milestone names are chosen, never asked. Plans carry a validated `codename:` composed at spec time, `/ship-milestone` reads it instead of prompting and refuses an invalid one before writing anything, and gate probe #86 keeps a name question from coming back. The live-proof freeze is re-based onto this milestone, and its suite no longer races a background `git gc`)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.94.1 — "Counted Once"** (M_30177d, a merged probe row is counted once. The AC-STE-609.9 gate-check control derives the probe rows a branch adds from its difference with main instead of hard-coding row #86, so main is green again and the next probe can register without the same double count)
 
 ## Core Philosophy
 
