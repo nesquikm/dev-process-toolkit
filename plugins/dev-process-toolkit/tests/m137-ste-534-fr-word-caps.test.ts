@@ -290,8 +290,17 @@ describe("AC-STE-534.1 — `word_cap` joins the closed union and names its secti
     }
   });
 
-  test("the union stays CLOSED at five members, and every violation carries a section", () => {
-    const closed = new Set(["line_cap", "backtick", "ac_id", "path_token", "word_cap"]);
+  test("the union stays CLOSED at six members, and every violation carries a section", () => {
+    // STE-661 grew the union by `sentence_cap` (AC-STE-661.8: pins updated in
+    // the same commit).
+    const closed = new Set([
+      "line_cap",
+      "backtick",
+      "ac_id",
+      "path_token",
+      "word_cap",
+      "sentence_cap",
+    ]);
     const content = frFile("STE-944", [
       ["Summary", [DIRTY_LINE, ...bodyOfWords(SUMMARY_WORD_CAP + 40, "s")]],
       ["Technical Design", bodyOfWords(TECHNICAL_DESIGN_WORD_CAP + 5, "d")],
@@ -491,11 +500,11 @@ describe("AC-STE-534.3 — the four existing rules stay scoped to Summary ALONE"
     }
   });
 
-  test("the shipped table carries the asymmetry as DATA — Summary owns all four prose rules, the other two own none", () => {
+  test("the shipped table carries the asymmetry as DATA — Summary owns all five prose rules, the other two own none", () => {
     const table = SECTION_RULES as unknown as RuleSpec[];
     const rulesOf = (section: string) =>
       [...(table.find((s) => s.section === section)?.rules ?? [])].sort();
-    expect(rulesOf("Summary")).toEqual(["ac_id", "backtick", "line_cap", "path_token"]);
+    expect(rulesOf("Summary")).toEqual(["ac_id", "backtick", "line_cap", "path_token", "sentence_cap"]);
     expect(rulesOf("Technical Design")).toEqual([]);
     expect(rulesOf("Notes")).toEqual([]);
   });
@@ -630,8 +639,10 @@ describe("AC-STE-534.5 — probe id, severity and the README's probe count agree
 
 describe("AC-STE-534.6 — an absent section yields no violation and no note", () => {
   test("vacuity is PER SECTION — a Summary with no Notes is measured for one, silent on the other", () => {
+    // STE-661: each 20-word line ends its sentence, so the plain-sentence rule
+    // (sentence_cap, > 20 words) stays silent and the one violation is word_cap.
     const content = frFile("STE-957", [
-      ["Summary", bodyOfWords(SUMMARY_WORD_CAP + 1, "s")],
+      ["Summary", bodyOfWords(SUMMARY_WORD_CAP + 1, "s").map((l) => `${l}.`)],
       ["Requirement", ["Plain prose, uncapped."]],
     ]);
     const fx = makeTree({ "specs/frs/STE-957.md": content });
@@ -639,6 +650,7 @@ describe("AC-STE-534.6 — an absent section yields no violation and no note", (
       const violations = scan(fx.root);
       expect(violations).toHaveLength(1);
       expect(violations[0]!.section).toBe("Summary");
+      expect(violations[0]!.rule).toBe("word_cap"); // STE-661: the measured section's word rule, nothing else
       expect(bySection(violations, "Notes")).toEqual([]);
       expect(bySection(violations, "Technical Design")).toEqual([]);
       // ...and no NOTE either: only the present section is measured.

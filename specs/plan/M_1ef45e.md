@@ -30,15 +30,15 @@ codename: Plainspoken
 
 ### Tasks
 
-- [ ] Add the plain-sentence splitter module with unit tests
+- [x] Add the plain-sentence splitter module with unit tests
   verify: splitter tests green, terminator and dotted-token cases covered
-- [ ] Add sentence_cap to the Summary row of the altitude scanner, with its own epoch grandfathering
+- [x] Add sentence_cap to the Summary row of the altitude scanner, with its own epoch grandfathering
   verify: scanner and provenance fixtures green
-- [ ] Add the lead-in sentence check to the stage report verifier
+- [x] Add the lead-in sentence check to the stage report verifier
   verify: verifier fixtures green; captured fixtures re-checked
-- [ ] Write the Plain sentences section and the four surface pointers; update probe #67 and stage-block rule text and their pins
+- [x] Write the Plain sentences section and the four surface pointers; update probe #67 and stage-block rule text and their pins
   verify: text-assertion tests green, no stale count pin
-- [ ] Run the mutation battery and the dogfood measurement
+- [x] Run the mutation battery and the dogfood measurement
   verify: each mutation applied and reddened its test; dogfood zero rows
 
 ### Gate
