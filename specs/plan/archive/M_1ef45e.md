@@ -1,7 +1,7 @@
 ---
 milestone: M_1ef45e
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-10-05T13:29:58Z
 kickoff_branch: feat/m_1ef45e-summaries-in-plain-words
 frozen_at: null
 migration: none
