@@ -35,9 +35,22 @@
 import { resolve } from "node:path";
 
 import { detectGate } from "./capture_skip_baseline";
-import type { CapturedRun } from "./deliver_stage_evidence";
+import { deriveRunCounts, type CapturedRun } from "./deliver_stage_evidence";
 import { runGateNamingSkips } from "./gate_identity_run";
 import type { Stack } from "./test_count_parser";
+
+/**
+ * The one totals line the front door prints, read from the SAME run's output
+ * through `deriveRunCounts` — the derivation the evidence fence rows use, so
+ * the two surfaces cannot disagree about what `pass` means on a stack. An
+ * unparseable output states the parser's reason and never a number — a
+ * guessed count is worse than none.
+ */
+export function renderTotalsLine(run: Pick<CapturedRun, "output" | "stack">): string {
+  const counts = deriveRunCounts(run);
+  if (!counts.ok) return `gate_capture: totals unreadable — ${counts.reason}`;
+  return `gate_capture: pass ${counts.pass}, fail ${counts.fail}, skip ${counts.skip}`;
+}
 
 /**
  * Run `command` in `projectRoot` and return the capture the evidence renderer
@@ -78,6 +91,10 @@ export function captureGateRun(
 //
 //   bun run gate_capture.ts [projectRoot]
 //
+// It prints ONE totals line first (`renderTotalsLine`, AC-STE-662.6), then the
+// skip-identity verdict. The totals never move the exit code — only the
+// identity report does (AC-STE-662.7).
+//
 // WHY IT EXISTS. Without it nothing in the tree could execute this module: it
 // carries no entry point and nothing carrying one imports it, which is exactly
 // the unreachable-order class /gate-check probe #81 exists to catch — the gap
@@ -99,6 +116,9 @@ if (import.meta.main) {
   } else {
     const captured = captureGateRun(projectRoot, gate.stack, gate.command);
     const names = captured.skipNames;
+    // Totals first, from this run's own bytes — the count and the names are
+    // separate facts, so it prints whatever happened to the report.
+    console.log(renderTotalsLine(captured));
     if (names === undefined) {
       // ABSENT, and said out loud: this runner writes no machine-readable
       // report, so the run says nothing about identities. Silence here would be

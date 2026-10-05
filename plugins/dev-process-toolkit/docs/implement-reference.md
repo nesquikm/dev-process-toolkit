@@ -235,7 +235,7 @@ Then call `Provider.releaseLock(id)` for each released FR.
 
 **Obligation.** Step 14 MUST render the section headed `## Verification evidence` through `renderImplementReportEvidence` from `adapters/_shared/src/implement_report_evidence.ts`. That function takes exactly one argument — the captured runs — and no stage, milestone or fence context; a second parameter would make the guarantee conditional on the orchestrated path all over again.
 
-**Obtaining the skip identities — the copyable order.** The READ side of the ratchet is a runnable front door, not only a function name. Run it against the project being evidenced and it prints the identities of the skips THAT run reported, so a reader told the `gate:` capture must carry `skipNames` is also told how to obtain them:
+**Obtaining the skip identities — the copyable order.** The READ side of the ratchet is a runnable front door, not only a function name. Run it against the project being evidenced and it prints one totals line first — `gate_capture: pass <P>, fail <F>, skip <S>`, or `gate_capture: totals unreadable — <reason>` when the output carries no readable count — and then the identities of the skips THAT run reported, both from the one run, so a reader told the `gate:` capture must carry `skipNames` is also told how to obtain them:
 
 ```sh
 bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_capture.ts <projectRoot>
