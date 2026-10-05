@@ -33,7 +33,11 @@
 //   6. capability tokens ride INSIDE the block — `locateCapabilityTokens`
 //      splits the tokens it finds into `inBlock` and `outsideBlock`, and a
 //      token left loose in the prose is a reason of its own. It is a REFUSAL,
-//      not a presence check: a report carrying no token at all grades clean.
+//      not a presence check: a report carrying no token at all grades clean;
+//   7. no lead-in sentence runs past `PLAIN_SENTENCE_WORD_CAP` (20) words —
+//      split by `longSentences`, the FR Summary scanner's own splitter, with
+//      headings, blank lines and cap-exempt sections excluded; the refusal
+//      names the crossing line and the word count.
 //
 // Everything else is delegated. The fence walk is `closedStatusFences`, taken
 // from the module that owns the adopting banner rather than rebuilt here; the
@@ -79,6 +83,7 @@ import {
   type StageEvidenceInput,
 } from "./deliver_stage_evidence";
 import { renderMaxAdvisoryNotes } from "./implement_advisory_notes";
+import { longSentences, PLAIN_SENTENCE_WORD_CAP } from "./plain_sentences";
 import {
   closedStatusFences,
   STAGE_BLOCK_FENCE_BANNER,
@@ -549,6 +554,29 @@ function narrationLines(
 }
 
 /**
+ * The same region `narrationLines` walks, with every line it would NOT count
+ * — headings, exempt-section body lines, blank lines — blanked IN PLACE rather
+ * than dropped. The array keeps the region's length, so index `i` is still
+ * report line `i + 1`, and a removed line still ends a sentence the way a blank
+ * line does: a sentence never runs across a heading or an exempt section.
+ */
+function narrationSentenceInput(
+  region: readonly string[],
+  exempt: readonly CapExemptSection[],
+): string[] {
+  let current: CapExemptSection | null = null;
+  return region.map((line) => {
+    if (line.trim().length === 0) return "";
+    if (HEADING_RE.test(line)) {
+      current = exempt.find((entry) => entry.heading === line.trim()) ?? null;
+      return "";
+    }
+    if (current !== null && isRenderedBodyLine(line, current)) return "";
+    return line;
+  });
+}
+
+/**
  * The 0-based line indexes an exempt section OWNS — its heading, and the body
  * lines its own renderer emits — outside the fence.
  *
@@ -841,12 +869,27 @@ export function verifyStageReportAdoption(
   // (1) THE PROSE LEAD-IN CAP, over NARRATION alone. The structured sections
   // earlier milestones mandate are exempt (AC-STE-533.2a) — and still required,
   // which the presence check below grades from the other direction.
-  const prose = narrationLines(lines.slice(0, fence.startLine - 1), exempt);
+  const leadInRegion = lines.slice(0, fence.startLine - 1);
+  const prose = narrationLines(leadInRegion, exempt);
   if (prose.length > PROSE_LEAD_IN_LINE_CAP) {
     reasons.push(
       `the report carries ${prose.length} lines of prose before the status ` +
         `block, over the ${PROSE_LEAD_IN_LINE_CAP}-line prose lead-in cap: ` +
         `the block REPLACES the narration rather than riding beneath it`,
+    );
+  }
+
+  // (7) THE PLAIN-SENTENCE CAP, over the same narration (AC-STE-661.7) —
+  // graded here, beside (1), because it reads (1)'s region. The splitter is
+  // `longSentences` — the one the FR Summary scanner uses — so the two graders
+  // cannot disagree on where a sentence ends. The region starts at report
+  // line 1, so the row's `line` is already the report line.
+  const leadIn = narrationSentenceInput(leadInRegion, exempt);
+  for (const { line, words } of longSentences(leadIn)) {
+    reasons.push(
+      `the lead-in sentence reaching line ${line} carries ${words} words, ` +
+        `over the ${PLAIN_SENTENCE_WORD_CAP}-word plain-sentence cap: split ` +
+        `it, so the operator reads one claim at a time`,
     );
   }
 
