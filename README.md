@@ -195,7 +195,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.94.1 — "Counted Once"** (M_30177d, a merged probe row is counted once. The AC-STE-609.9 gate-check control derives the probe rows a branch adds from its difference with main instead of hard-coding row #86, so main is green again and the next probe can register without the same double count)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.95.0 — "Plainspoken"** (M_1ef45e, summaries in plain words. One shared splitter caps human-facing summary sentences at twenty words: probe #67 grades FR Summaries with a new `sentence_cap` rule, and the stage-report verifier refuses a long lead-in sentence)
 
 ## Core Philosophy
 

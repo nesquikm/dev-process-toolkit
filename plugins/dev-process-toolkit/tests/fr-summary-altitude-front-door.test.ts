@@ -185,7 +185,11 @@ const CLEAN_FR = [
  * be printed by a front door wired to half the scanner.
  */
 function violatingFr(): string {
-  const long = new Array(SUMMARY_WORD_CAP + 40).fill("altitude").join(" ");
+  // STE-661: a period after every 20th word keeps each sentence plain, so the
+  // word_cap breach stays the accumulating rule under test and no sentence_cap
+  // row (graded against its own, later epoch) joins the fixture's verdict.
+  const long = Array.from({ length: SUMMARY_WORD_CAP + 40 }, (_, i) =>
+    (i + 1) % 20 === 0 ? "altitude." : "altitude").join(" ");
   return [
     "# STE-001: a violating fixture",
     "",

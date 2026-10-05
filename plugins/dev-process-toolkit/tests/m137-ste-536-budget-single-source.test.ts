@@ -1515,7 +1515,15 @@ function statedSectionRules(text: string): SectionRuleSpec[] {
           "so the FRs it governs cannot be measured against what it promises",
       );
     }
-    return { section: r.section, wordCap: stated, rules: r.rules };
+    // STE-661: the subject here is the WORD/LINE budgets this surface states.
+    // `sentence_cap` is no stated budget, and the M137 FRs this suite dogfoods
+    // predate FR_SENTENCE_CAP_EPOCH (the probe spares them as legacy), so the
+    // raw scanner's sentence rows are dropped from the rebuilt table.
+    return {
+      section: r.section,
+      wordCap: stated,
+      rules: r.rules.filter((rule) => rule !== "sentence_cap"),
+    };
   });
 }
 

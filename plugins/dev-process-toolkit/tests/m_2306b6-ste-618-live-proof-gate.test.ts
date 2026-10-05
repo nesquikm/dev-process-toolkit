@@ -1128,8 +1128,12 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   // probe #41's entry, whose last sentence called the unregistered
   // `commit_producing_skill_branch_gate` module a colocated probe — admitted
   // by name under operator ruling R2 (STE-648, AC-STE-648.8), corrected
-  // without registering the probe. A third permitted line needs a fresh ruling.
-  const PERMITTED_LINES: readonly number[] = [120, 128];
+  // without registering the probe.
+  // RULING (STE-661, M_1ef45e, operator 2026-10-05): line 154 is probe #67
+  // `fr_summary_altitude`'s entry, rewritten in place by AC-STE-661.8 to name
+  // the sentence_cap rule. It is the THIRD line, admitted by this named ruling;
+  // a fourth permitted line needs a fresh one. KICKOFF stays c3d58347.
+  const PERMITTED_LINES: readonly number[] = [120, 128, 154];
 
   /** The guard: same line count, and every differing line is a permitted one. */
   function driftBeyond(before: string, after: string, permitted: readonly number[]): string[] {
@@ -1204,10 +1208,14 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     expect(byteDrift(then, `${then}\n`), "a trailing byte is a difference too").not.toEqual([]);
   });
 
-  test("AC-STE-648.8: skills/gate-check/SKILL.md differs from the kickoff only on lines 120 and 128, probe #41's and probe #49's entries, rewritten in place", () => {
+  // STE-661: title + pin follow the 2026-10-05 ruling admitting line 154 (probe #67).
+  test("AC-STE-648.8 + AC-STE-661.8: skills/gate-check/SKILL.md differs from the kickoff only on lines 120, 128 and 154, probe #41's, #49's and #67's entries, rewritten in place", () => {
     const now = readFileSync(join(REPO, GATE_CHECK), "utf-8");
     const then = kickoff(GATE_CHECK);
-    expect(PERMITTED_LINES).toEqual([120, 128]);
+    expect(PERMITTED_LINES).toEqual([120, 128, 154]);
+    // STE-661: line 154 is probe #67's entry at BOTH the kickoff and now — rewritten in place, not moved.
+    expect(now.split("\n")[154 - 1]).toMatch(/^67\. \*\*`fr_summary_altitude`\*\*/);
+    expect(then.split("\n")[154 - 1]).toMatch(/^67\. \*\*`fr_summary_altitude`\*\*/);
     expect(driftBeyond(then, now, PERMITTED_LINES)).toEqual([]);
     expect(now.split("\n")[128 - 1]).toMatch(/^49\. \*\*`tracker_local_reconciliation_drift`\*\*/);
     expect(then.split("\n")[128 - 1]).toMatch(/^49\. \*\*`tracker_local_reconciliation_drift`\*\*/);
@@ -1232,6 +1240,10 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     const neighbour = [...lines];
     neighbour[120] = `${neighbour[120]} (edited)`;
     expect(driftBeyond(then, neighbour.join("\n"), PERMITTED_LINES)).toEqual(["line 121"]);
+    // STE-661: the newly admitted 154 does not widen to its neighbour — a changed 155 still fails.
+    const next = [...lines];
+    next[154] = `${next[154]} (edited)`;
+    expect(driftBeyond(then, next.join("\n"), PERMITTED_LINES)).toEqual(["line 155"]);
   });
 
   test("negative controls: a second changed line, or an added line, fails the guard", () => {

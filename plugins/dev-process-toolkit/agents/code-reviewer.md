@@ -52,7 +52,7 @@ Report one line per criterion in this exact shape so callers can parse the resul
 ```
 
 - `OK` — no issues found for this criterion
-- `CONCERN: file:line — <one-sentence explanation>` — concrete, actionable finding with a file reference. Multiple concerns under the same criterion get separate lines.
+- `CONCERN: file:line — <one-sentence explanation>` — concrete, actionable finding with a file reference. Multiple concerns under the same criterion get separate lines. Write the explanation as `docs/prose-altitude.md` § Plain sentences says.
 
 End with a short overall verdict: `OVERALL: OK` or `OVERALL: CONCERNS (N)` where N is the total number of concern lines.
 

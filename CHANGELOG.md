@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.95.0] — 2026-10-05 — "Plainspoken"
+
+### Added
+
+- Summary sentences stay short and plain (STE-661). A plain-sentences rule, adapted from ASD-STE100, lives once in `docs/prose-altitude.md` and binds four human-facing surfaces: the FR Summary, the stage-report lead-in, the PR body Summary and the code-reviewer `CONCERN` explanation. One shared splitter, `plain_sentences.ts`, caps a sentence at `PLAIN_SENTENCE_WORD_CAP` = 20 words; a sentence ends at `.`, `!`, `?` or `;` before whitespace, at a blank line, at a heading or fence, and where a list item starts. Probe #67 gains `sentence_cap` on the Summary row, grandfathered by `FR_SENTENCE_CAP_EPOCH` the way `word_cap` is; `verifyStageReportAdoption` refuses a lead-in sentence over the cap, naming the line and the word count (adoption rule 7).
+
+### Known defects
+
+- Probe #45 (`socratic_first_turn_post_hoc_drift`) still reds a legitimately approved interactive spec commit while that commit is the branch's latest; it cleared here on the next commit, as before.
+- A closing quote or bracket after a terminator (`"stop."`) does not end a sentence; this follows the AC's literal rule and is pinned by a test.
+- Still open from v2.94.0: the `{codename}` regex replacement expands `$&`, `$1` and `$$`; probe #86's line-at-a-time reading; and the v2.93.0 items carried there.
+
+Total test count at release: 18343 tests, 0 failures, 0 errors.
+
 ## [2.94.1] — 2026-10-03 — "Counted Once"
 
 ### Fixed

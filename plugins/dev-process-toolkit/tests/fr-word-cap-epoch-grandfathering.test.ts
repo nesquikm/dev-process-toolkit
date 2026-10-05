@@ -184,6 +184,15 @@ interface FrFixture {
 }
 
 /** An FR whose `## Summary` body blows the shipped 80-word cap and nothing else. */
+/**
+ * `n` words `<prefix><i>`, a period after every 20th. STE-661: the fixtures here
+ * grade `word_cap`; terminated 20-word sentences keep the plain-sentence rule
+ * (`sentence_cap`, > 20 words) silent, so every row they yield is the word rule's.
+ */
+function plainWords(prefix: string, n: number): string {
+  return Array.from({ length: n }, (_, i) => `${prefix}${i}${(i + 1) % 20 === 0 ? "." : ""}`).join(" ");
+}
+
 function overCapFr(stem: string, words = SUMMARY_WORD_CAP + 40): string {
   return [
     "---",
@@ -195,7 +204,7 @@ function overCapFr(stem: string, words = SUMMARY_WORD_CAP + 40): string {
     "",
     "## Summary",
     "",
-    Array.from({ length: words }, (_, i) => `word${i}`).join(" "),
+    plainWords("word", words), // STE-661: plain sentences — word_cap only
     "",
   ].join("\n");
 }
@@ -870,12 +879,17 @@ describe("F11.5 — the grandfathering spares a MEASURED population, not an empt
     try {
       const report = runFrSummaryAltitudeProbe(fx.root);
       expect(wordCapRows(report.violations)).toEqual([]);
+      // STE-661 (AC-STE-661.6): legacy sentence_cap rows are dropped too, so
+      // the pre-epoch population is GREEN outright — no row of any rule.
+      expect(report.violations).toEqual([]);
       // …and it is grandfathered, not merely unmeasured: every file the raw
-      // scanner flagged is named in the report.
+      // scanner flagged is named in the report. STE-661: AC-STE-661.6 names a
+      // legacy sentence_cap file in `grandfathered` as well, so the expected
+      // set is every file the raw scanner flags on EITHER grandfathered rule.
       const rawFiles = new Set(
-        wordCapRows(scanFrSummaryAltitude(fx.root)).map(
-          (r) => (r as { file: string }).file,
-        ),
+        scanFrSummaryAltitude(fx.root)
+          .filter((r) => r.rule === "word_cap" || r.rule === "sentence_cap")
+          .map((r) => (r as { file: string }).file),
       );
       expect([...report.grandfathered].sort()).toEqual([...rawFiles].sort());
       expect(report.grandfathered.length).toBeGreaterThanOrEqual(319);
@@ -908,8 +922,12 @@ describe("F11.5 — the grandfathering spares a MEASURED population, not an empt
     ]) {
       const fx = measuredPopulation(committedAt);
       try {
+        // STE-661: the subject is the four PRE-EXISTING rules, so the new
+        // grandfathered sentence_cap is excluded exactly as word_cap is.
         expect(
-          scanFrSummaryAltitude(fx.root).filter((v) => v.rule !== "word_cap"),
+          scanFrSummaryAltitude(fx.root).filter(
+            (v) => v.rule !== "word_cap" && v.rule !== "sentence_cap",
+          ),
         ).toEqual([]);
       } finally {
         fx.cleanup();
@@ -1041,7 +1059,7 @@ describe("the probe reports the spared count in the SAME unit as the flagged cou
       "",
       "## Summary",
       "",
-      Array.from({ length: SUMMARY_WORD_CAP + 40 }, (_, i) => `word${i}`).join(" "),
+      plainWords("word", SUMMARY_WORD_CAP + 40), // STE-661: plain sentences — word_cap only
       "",
       "## Notes",
       "",
