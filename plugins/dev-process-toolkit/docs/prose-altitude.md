@@ -24,6 +24,26 @@ Archive first — the gate only ever measures what is already in place.
 
 Two sentences, one fact. Keep the first, delete the second. This also covers a section that re-explains, in its own words, what the section above it already established. If a reader must be reminded, link the place that owns the claim rather than paraphrasing it into a second owner.
 
+## Plain sentences
+
+A summary is read by a person deciding whether to read further. Its sentences follow a controlled-English subset, adapted from ASD-STE100 at roughly 80% strictness:
+
+1. One idea per sentence.
+2. At most 20 words per sentence.
+3. Active voice — name who or what acts.
+4. One term for one thing — keep the term the body uses, and do not swap in a synonym.
+5. No idioms — say the literal fact.
+6. No claim absent from the body being summarized.
+
+The rule binds these surfaces:
+
+- the FR `## Summary`;
+- the prose lead-in above a `stage-status-block`;
+- the PR body `## Summary`;
+- the one-sentence explanation on a code-reviewer `CONCERN` line.
+
+The rule is human-facing only. The Requirement, the ACs, Technical Design, Testing, Notes, plan prose, and skill or agent instruction prose stay as they are.
+
 ## Counting a rule set
 
 A numbered claim about a rule set — "the four altitude rules", "three clauses per stage" — is true on the day it is written and wrong the moment the set grows, because nothing ties the numeral to the set. M137 corrected four of them: probe #67's "four altitude rules", the header of its colocated test, `docs/stage-status-block.md`'s "The four adoption rules" (`verifyStageReportAdoption` grades six), and the header of `adapters/_shared/src/stage_block_adoption.ts`, which said "four REPORT-LEVEL rules" over a list of six — the same file the third correction was about, one surface over, found only because a test compared the two lists item for item instead of reading either numeral.
@@ -189,7 +209,7 @@ because nothing about them prompts a check.
 
 ## Why nothing enforces this
 
-No scanner can tell an aphorism from a load-bearing sentence, and one that tried would fire on the specifications it was written to improve. The word budgets are the deterministic half — they bound how much prose there is; this rule is the judgment half and bounds what the prose is made of. It is the part of the altitude contract most likely to drift, and it drifts quietly, so it is worth re-reading at review time rather than at gate time.
+No scanner can tell an aphorism from a load-bearing sentence, and one that tried would fire on the specifications it was written to improve. The word budgets and the 20-word sentence cap of § Plain sentences are the deterministic half — they bound how much prose there is and how long one sentence runs; this rule and the other plain-sentence items are the judgment half and bound what the prose is made of. It is the part of the altitude contract most likely to drift, and it drifts quietly, so it is worth re-reading at review time rather than at gate time.
 
 ## Where the budgets themselves live
 

@@ -7,7 +7,7 @@
 // at the next LEVEL-2 `## ` heading or EOF — an h3 subheading inside the body
 // does not end it, so content after it stays scanned.
 //
-// The rule union is CLOSED at five members. Four of them are prose rules the
+// The rule union is CLOSED at six members. Five of them are prose rules the
 // table binds to `## Summary` alone — Technical Design and Notes legitimately
 // carry backticks, AC-IDs and paths, and that asymmetry lives in the TABLE as
 // data, not in control flow:
@@ -23,8 +23,16 @@
 //   path_token — a whitespace-delimited token containing BOTH a slash and a
 //                dot-extension. "and/or", "read/write", "v2.46.0", and the
 //                sentence-final "request/response." all stay clean.
+//   sentence_cap — a sentence of more than `PLAIN_SENTENCE_WORD_CAP` words
+//                (STE-661). Sentences are split by `plain_sentences.ts` — the
+//                ONE splitter every plain-sentence grader shares, so this file
+//                owns no sentence boundary of its own. Fenced lines and headings
+//                are BLANKED before splitting — code is not prose, and a
+//                sentence never runs across either. One row
+//                per long sentence, anchored at the line holding the word that
+//                crossed the cap.
 //
-// The fifth, `word_cap`, is driven by the section's own `wordCap` number
+// The sixth, `word_cap`, is driven by the section's own `wordCap` number
 // rather than by the rule list, and applies wherever the table sets one:
 // Summary, Technical Design and Notes each carry a different cap. Requirement,
 // Acceptance Criteria and Testing are absent from the table and are therefore
@@ -37,7 +45,8 @@
 // and the class decides the scope:
 //
 //   * A rule that carries STATE ACROSS LINES — `line_cap`'s running non-empty
-//     count, `word_cap`'s running word total — is graded against an
+//     count, `word_cap`'s running word total, `sentence_cap`'s sentence that
+//     wraps onto the next line — is graded against an
 //     ACCUMULATOR. An accumulator scoped to ONE OCCURRENCE of a heading is
 //     defeated by a second occurrence of the same heading: measured on the
 //     shipped scanner, three `## Summary` sections of 70 words each — well over
@@ -69,8 +78,9 @@
 // Detection-only + deterministic: `file` is repo-root-relative with POSIX
 // separators; `line` is 1-indexed; every violation names the `section` it was
 // measured over, because a rule id alone cannot say which of three caps broke.
-// A flagged accumulating rule reports ONCE PER NAME PER FILE — at the crossing
-// line, wherever in the file that lands.
+// A flagged cap rule (`line_cap`, `word_cap`) reports ONCE PER NAME PER FILE —
+// at the crossing line, wherever in the file that lands. `sentence_cap` reports
+// once per long SENTENCE over the same pooled per-name text.
 // Vacuous paths (no capped/ruled section present, empty or absent
 // `specs/frs/`) yield zero violations and zero measurements — the probe caller
 // renders zero violations as a bare GATE PASSED row.
@@ -96,11 +106,18 @@ import {
   walkSections,
   type SectionWalkSpec,
 } from "./markdown_section_walk";
+import { longSentences } from "./plain_sentences";
 
 export const PROBE_ID = "fr_summary_altitude";
 
 /** The closed rule union. */
-export type RuleName = "line_cap" | "backtick" | "ac_id" | "path_token" | "word_cap";
+export type RuleName =
+  | "line_cap"
+  | "backtick"
+  | "ac_id"
+  | "path_token"
+  | "word_cap"
+  | "sentence_cap";
 
 /** Word cap for `## Summary` bodies. */
 export const SUMMARY_WORD_CAP = 80;
@@ -119,14 +136,14 @@ export interface SectionRuleSpec {
 }
 
 /**
- * The shipped section table. Summary owns all four prose rules; the two other
+ * The shipped section table. Summary owns all five prose rules; the two other
  * narrative sections own none — they are word-capped only.
  */
 export const SECTION_RULES: readonly SectionRuleSpec[] = [
   {
     section: "Summary",
     wordCap: SUMMARY_WORD_CAP,
-    rules: ["line_cap", "backtick", "ac_id", "path_token"],
+    rules: ["line_cap", "backtick", "ac_id", "path_token", "sentence_cap"],
   },
   { section: "Technical Design", wordCap: TECHNICAL_DESIGN_WORD_CAP, rules: [] },
   { section: "Notes", wordCap: NOTES_WORD_CAP, rules: [] },
@@ -159,6 +176,9 @@ const LINE_CAP = 6;
 // scan_design_references.ts: only a level-2 heading ends a section, so an h3
 // subheading inside the body cannot mask later violations.
 const HEADING_RE = /^##\s+(.*?)\s*$/;
+// Any ATX heading, any level — the report verifier's heading shape. Used only
+// to break `sentence_cap`'s pooled prose at a subheading (see the pooling).
+const SUBHEADING_RE = /^\s{0,3}#{1,6}\s+\S/;
 /**
  * This scanner's row in the shared walk's config (`markdown_section_walk.ts`),
  * which `scan_plan_narrative_altitude.ts` runs on too.
@@ -208,9 +228,10 @@ function isPathToken(token: string): boolean {
  * `rules: []` on Technical Design and Notes is what keeps all three bound to
  * `## Summary` alone. Adding a row here does NOT widen a rule's scope.
  *
- * `line_cap` and `word_cap` are deliberately absent: both are stateful over
- * the running section (a non-empty-line count and a running word total), so
- * neither can be decided from a line in isolation.
+ * `line_cap`, `word_cap` and `sentence_cap` are deliberately absent: all three
+ * are stateful over the running section (a non-empty-line count, a running
+ * word total, and a sentence that wraps across lines), so none can be decided
+ * from a line in isolation.
  */
 const LINE_PREDICATES: readonly (readonly [RuleName, (line: string) => boolean])[] = [
   ["backtick", (line) => line.includes("`")],
@@ -255,6 +276,13 @@ interface SectionAccumulator {
   /** Once per name per file, not once per occurrence. */
   lineCapFlagged: boolean;
   wordCapFlagged: boolean;
+  /**
+   * The unfenced body lines seen under this NAME so far, for `sentence_cap`,
+   * and the 1-indexed FILE line of each. Split once at end of file, so a
+   * sentence wrapped across a repeated heading is still one sentence.
+   */
+  proseLines: string[];
+  proseAt: number[];
 }
 
 function scanFile(
@@ -283,7 +311,14 @@ function scanFile(
   const accumulatorFor = (section: string): SectionAccumulator => {
     let acc = accumulators.get(section);
     if (acc === undefined) {
-      acc = { words: 0, nonEmpty: 0, lineCapFlagged: false, wordCapFlagged: false };
+      acc = {
+        words: 0,
+        nonEmpty: 0,
+        lineCapFlagged: false,
+        wordCapFlagged: false,
+        proseLines: [],
+        proseAt: [],
+      };
       accumulators.set(section, acc);
     }
     return acc;
@@ -302,6 +337,12 @@ function scanFile(
     const { section, rules, wordCap } = spec;
     const acc = accumulatorFor(section);
     let occurrenceWords = 0;
+    // A repeated heading pools WORDS into one budget, never one SENTENCE across
+    // two sections: the heading ends a sentence, exactly as a subheading does.
+    if (rules.includes("sentence_cap")) {
+      acc.proseLines.push("");
+      acc.proseAt.push(entered.line);
+    }
     // FENCED CONTENT IS NOT PROSE. The word caps bound NARRATION; a Technical
     // Design legitimately carries a worked example, and counting its code
     // toward a prose budget flags the section for doing the thing it is for.
@@ -337,6 +378,19 @@ function scanFile(
         if (rules.includes(rule) && matches(line)) flag(at, rule, section);
       }
 
+      // `sentence_cap` pools every body line; it is split after the walk. A
+      // fenced line or a heading is pooled as a BLANK line — kept in place,
+      // never dropped — so a sentence never runs across either. That is the
+      // rule `stage_block_adoption.ts` applies to a report lead-in, where an
+      // excluded line is blanked the same way; dropping instead would join
+      // the prose either side into one sentence and the graders would split
+      // the same text differently.
+      if (rules.includes("sentence_cap")) {
+        const blank = bodyFenced[i] === true || SUBHEADING_RE.test(line);
+        acc.proseLines.push(blank ? "" : line);
+        acc.proseAt.push(at);
+      }
+
       const n = bodyFenced[i] === true ? 0 : countWords(line);
       if (n > 0) {
         acc.words += n;
@@ -353,6 +407,14 @@ function scanFile(
     // run can still prove it was non-vacuous. GRADING is what accumulates.
     if (wordCap !== null) {
       measured.push({ file: rel, section, words: occurrenceWords });
+    }
+  }
+
+  // `sentence_cap` — one split per section NAME over its pooled prose. The
+  // splitter's `line` is 1-indexed into `proseLines`; map it back to the file.
+  for (const [section, acc] of accumulators) {
+    for (const long of longSentences(acc.proseLines)) {
+      flag(acc.proseAt[long.line - 1]!, "sentence_cap", section);
     }
   }
   return { violations, measured };
@@ -392,7 +454,7 @@ export function measureFrSections(
 }
 
 // ---------------------------------------------------------------------------
-// The probe layer — word_cap grandfathering by git provenance
+// The probe layer — cap grandfathering by git provenance (word_cap, sentence_cap)
 // ---------------------------------------------------------------------------
 //
 // THE DEFECT THIS CLOSES (PR #76 finding F11). The word caps are RETROACTIVE:
@@ -416,12 +478,14 @@ export function measureFrSections(
 //
 // TWO PROPERTIES PULL IN OPPOSITE DIRECTIONS AND BOTH ARE LOAD-BEARING:
 //
-//   1. The grandfathering covers `word_cap` ALONE. `line_cap`, `backtick`,
-//      `ac_id` and `path_token` shipped in M105 and every consumer already
-//      passes them, so an epoch that silenced them would retire four working
-//      checks under cover of fixing one. Their severity stays `error` under
-//      every provenance class.
-//   2. `scanFrSummaryAltitude` is UNCHANGED. It stays the pure content scanner
+//   1. The grandfathering covers the two RETROACTIVE caps and nothing else:
+//      `word_cap` against `FR_WORD_CAP_EPOCH` and `sentence_cap` against its
+//      own `FR_SENTENCE_CAP_EPOCH` (STE-661), each rule against ITS epoch.
+//      `line_cap`, `backtick`, `ac_id` and `path_token` shipped in M105 and
+//      every consumer already passes them, so an epoch that silenced them would
+//      retire four working checks under cover of fixing the two caps. Their
+//      severity stays `error` under every provenance class.
+//   2. `scanFrSummaryAltitude` stays UNGRADED — the pure content scanner
 //      three sibling suites pin on non-git temp fixtures — where grandfathering
 //      in place would classify every fixture legacy and silence them. The epoch
 //      arm is a LAYER over it, exactly as probe #73 layers
@@ -440,6 +504,17 @@ export function measureFrSections(
  * window, not zero, and it is accepted rather than designed away.
  */
 export const FR_WORD_CAP_EPOCH = "2026-09-01T00:00:00Z";
+
+/**
+ * Midnight UTC on the ship date of the release that added `sentence_cap`
+ * (STE-661). Its OWN epoch rather than `FR_WORD_CAP_EPOCH`: an FR written
+ * between the two dates was authored under the word caps but before the
+ * sentence cap existed, so it is graded for one and spared the other.
+ *
+ * Written down ONCE, here; the probe reads it through `GRANDFATHER_EPOCHS`.
+ * Carries the same several-hour same-day residual as `FR_WORD_CAP_EPOCH`.
+ */
+export const FR_SENTENCE_CAP_EPOCH = "2026-10-05T00:00:00Z";
 
 /** The complete provenance vocabulary — exactly three labels, nothing else. */
 export type FrProvenanceClass = "fresh" | "legacy" | "undecidable";
@@ -665,10 +740,14 @@ export interface FrAltitudeViolationRow extends FrSummaryAltitudeViolation {
 
 export interface FrSummaryAltitudeReport {
   violations: FrAltitudeViolationRow[];
-  /** Repo-relative FR paths whose `word_cap` rows were spared. Visible, never silent. */
+  /**
+   * Repo-relative FR paths whose `word_cap` or `sentence_cap` rows were spared,
+   * each named once whichever rule spared it. Visible, never silent.
+   */
   grandfathered: string[];
   /**
-   * How many `word_cap` ROWS those files spared — the same unit `violations`
+   * How many grandfathered-rule ROWS (`word_cap` and `sentence_cap` together)
+   * those files spared — the same unit `violations`
    * counts in. `grandfathered` counts FILES and `violations` counts ROWS, so a
    * reader comparing the two numbers side by side was comparing units: one
    * pre-epoch FR breaching two caps is one file and two rows. Always a number,
@@ -680,7 +759,17 @@ export interface FrSummaryAltitudeReport {
 }
 
 /**
- * The provenance classes that spare `word_cap` outright — no row, at any
+ * The rules the epoch arm grandfathers, each against ITS OWN epoch. Every rule
+ * absent from this map is never grandfathered and reports at `error` under
+ * every provenance class.
+ */
+const GRANDFATHER_EPOCHS: Readonly<Partial<Record<RuleName, string>>> = {
+  word_cap: FR_WORD_CAP_EPOCH,
+  sentence_cap: FR_SENTENCE_CAP_EPOCH,
+};
+
+/**
+ * The provenance classes that spare a grandfathered row outright — no row, at any
  * severity. Declared as a list rather than an `=== "legacy"` comparison so the
  * disposition is data a reader can enumerate.
  */
@@ -689,9 +778,10 @@ const SILENT_PROVENANCE: readonly FrProvenanceClass[] = ["legacy"];
 /**
  * `/gate-check` probe #67's FR half — the raw scanner plus the epoch arm.
  *
- * Every non-`word_cap` row passes through byte for byte, at `error`, under
- * every provenance class. A `word_cap` row is disposed of by its file's
- * provenance: `legacy` (including a non-git tree) is dropped, the file is named
+ * Every row whose rule is not in `GRANDFATHER_EPOCHS` passes through byte for
+ * byte, at `error`, under every provenance class. A `word_cap` or
+ * `sentence_cap` row is disposed of by its file's provenance AGAINST THAT
+ * RULE'S EPOCH: `legacy` (including a non-git tree) is dropped, the file is named
  * in `grandfathered` (FILES) and the row is tallied into `grandfatheredRows`
  * (ROWS) — both units reported, because the spared count and the flagged count
  * have to be in the same unit before a reader can compare them;
@@ -699,9 +789,9 @@ const SILENT_PROVENANCE: readonly FrProvenanceClass[] = ["legacy"];
  * an operator whose object store is severed cannot fix that by rewriting a
  * summary; `fresh` is reported at `error` exactly as before.
  *
- * Provenance is asked ONCE PER FILE and only for files that actually carry a
- * `word_cap` row — a clean pre-epoch FR was never grandfathered, because it
- * never violated anything.
+ * Provenance is asked ONCE PER (FILE, EPOCH) and only for files that actually
+ * carry a grandfathered-rule row — a clean pre-epoch FR was never
+ * grandfathered, because it never violated anything.
  */
 export function runFrSummaryAltitudeProbe(
   projectRoot: string,
@@ -712,13 +802,16 @@ export function runFrSummaryAltitudeProbe(
   // The repository facts, read once for the whole active-FR directory, then the
   // same decision function every single-file caller goes through.
   let facts: FrGitFacts | null = null;
+  // Keyed by (epoch, file): the same FR can be `legacy` against one epoch and
+  // `fresh` against the other.
   const provenanceOf = new Map<string, FrProvenanceClass>();
-  const classify = (rel: string): FrProvenanceClass => {
-    const cached = provenanceOf.get(rel);
+  const classify = (rel: string, epoch: string): FrProvenanceClass => {
+    const key = `${epoch}\0${rel}`;
+    const cached = provenanceOf.get(key);
     if (cached !== undefined) return cached;
     facts ??= readFrGitFacts(projectRoot, ["specs/frs"]);
-    const answer = classifyAgainstFacts(projectRoot, rel, FR_WORD_CAP_EPOCH, facts);
-    provenanceOf.set(rel, answer);
+    const answer = classifyAgainstFacts(projectRoot, rel, epoch, facts);
+    provenanceOf.set(key, answer);
     return answer;
   };
 
@@ -726,11 +819,12 @@ export function runFrSummaryAltitudeProbe(
   const grandfathered: string[] = [];
   let grandfatheredRows = 0;
   for (const v of raw) {
-    if (v.rule !== "word_cap") {
+    const epoch = GRANDFATHER_EPOCHS[v.rule];
+    if (epoch === undefined) {
       violations.push({ ...v, severity: "error" });
       continue;
     }
-    const provenance = classify(v.file);
+    const provenance = classify(v.file, epoch);
     if (SILENT_PROVENANCE.includes(provenance)) {
       if (!grandfathered.includes(v.file)) grandfathered.push(v.file);
       grandfatheredRows += 1;
@@ -757,15 +851,14 @@ export function runFrSummaryAltitudeProbe(
 // probe and by tests, `import.meta.main` is false and this block never runs, so
 // the module stays side-effect-free at import.
 //
-// IT SPEAKS FOR THE RAW SCANNER, NOT FOR THE GRADED PROBE, and that is a
-// decision rather than an oversight. `runFrSummaryAltitudeProbe` grandfathers
-// `word_cap` on any file it classifies `legacy`, and a tree that is not a git
-// repository classifies EVERY file that way — so a front door wired to the
-// graded probe would print nothing on a violating scratch directory and read as
-// a clean pass. A door that is silent for the wrong reason is worse than no
-// door. Prints `file:line — rule — section` per violation, both rule classes
-// alike (the accumulating `word_cap` and the per-line predicates); empty stdout
-// means the ACTIVE FRs are clean.
+// IT SPEAKS FOR THE GRADED PROBE, the same verdict `/gate-check` renders: one
+// `file:line — rule — section — severity` line per graded violation, every
+// rule class alike (the accumulating `line_cap`, `word_cap` and `sentence_cap`,
+// and the per-line predicates), then one `grandfathered:` line naming what the
+// epochs spared — visibly, never silently. Empty stdout means the ACTIVE FRs
+// are clean under the probe. NOTE the consequence: a tree that is not a git
+// repository classifies every file `legacy`, so its capped rows are spared and
+// reported on that `grandfathered:` line rather than as violations.
 if (import.meta.main) {
   // THE GRADED ENTRY, never the raw scanner. This front door called
   // `scanFrSummaryAltitude` directly, so it printed every pre-epoch FR as a
