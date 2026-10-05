@@ -63,7 +63,10 @@
 //      (line_cap / backtick / ac_id / path_token) are NOT new — they shipped in
 //      M105 and every consumer already passes them — so an epoch that silenced
 //      them would retire four working rules under cover of fixing one. Their
-//      severity stays `error` under every provenance class.
+//      severity stays `error` under every provenance class. (STE-661 later
+//      grew the union to six rules — the four above plus `sentence_cap` and
+//      `word_cap` — and grandfathers `sentence_cap` exactly as `word_cap` is;
+//      the four pre-existing rules stay ungrandfathered in the six-rule union.)
 //
 //   2. `scanFrSummaryAltitude` is UNCHANGED. It is the pure content scanner
 //      three sibling suites already pin on non-git temp fixtures; the

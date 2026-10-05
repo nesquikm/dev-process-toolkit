@@ -565,8 +565,15 @@ function captureRefusal(verdict: string, remedy: string): Error {
 /**
  * Refuse unless BOTH preconditions hold. Returns normally, or throws; there is
  * no third answer, and no caller may capture without passing through here.
+ *
+ * Exported (AC-STE-662.1) so the capture front door can run the SAME check
+ * before its gate: `runCapture` calls it pre-flight, so an off-trunk HEAD or a
+ * dirty tree refuses before a minutes-long gate run is spent, and
+ * `captureSkipBaseline` calls it again after the gate, immediately before the
+ * write. One function, two call sites — the refusal text cannot drift between
+ * the early and the late answer.
  */
-function assertCapturable(projectRoot: string, sha: string): void {
+export function assertCapturable(projectRoot: string, sha: string): void {
   const head = gitOut(projectRoot, ["rev-parse", "HEAD"]);
   if (head !== sha) {
     throw captureRefusal(
@@ -617,7 +624,10 @@ function assertCapturable(projectRoot: string, sha: string): void {
  *
  * AC-STE-527.2 — BOTH PRECONDITIONS FIRST. HEAD must be `sha` and the tree
  * must be clean, checked before an id is minted or a byte is written, so every
- * refusing path leaves the project exactly as it found it.
+ * refusing path leaves the project exactly as it found it. The command-line
+ * front door (`runCapture`) has already run this same check before its gate
+ * (AC-STE-662.1); this is the LATE check, and it stays because the tree can go
+ * dirty between the two (AC-STE-662.5).
  *
  * Returns the record now in force together with whether this call is what put
  * it there.

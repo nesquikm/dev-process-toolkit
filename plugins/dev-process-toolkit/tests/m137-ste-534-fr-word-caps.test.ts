@@ -500,7 +500,7 @@ describe("AC-STE-534.3 — the four existing rules stay scoped to Summary ALONE"
     }
   });
 
-  test("the shipped table carries the asymmetry as DATA — Summary owns all five prose rules, the other two own none", () => {
+  test("the shipped table carries the asymmetry as DATA — of the six-rule union, Summary owns all five prose rules, the other two own none", () => {
     const table = SECTION_RULES as unknown as RuleSpec[];
     const rulesOf = (section: string) =>
       [...(table.find((s) => s.section === section)?.rules ?? [])].sort();

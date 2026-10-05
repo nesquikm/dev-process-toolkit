@@ -11,23 +11,27 @@
 // every narrative section named by the shipped section table, located by exact
 // level-2 heading text (matched by /^##\s+<text>\s*$/; the section ends at the
 // next LEVEL-2 `## ` heading or EOF — an h3 subheading inside the body does not
-// end it). Since STE-534 (M137) the closed rule union is FIVE members, not
-// four, and the table measures THREE sections rather than `## Summary` alone:
+// end it). The closed rule union has grown twice: STE-534 (M137) made it five
+// by adding `word_cap`, and STE-661 made it six by adding `sentence_cap`. It is
+// now a six-member union — `line_cap`, `backtick`, `ac_id`, `path_token`,
+// `sentence_cap` (the five prose rules, Summary only) plus `word_cap`. Since
+// STE-534 the table measures THREE sections rather than `## Summary` alone:
 //
-//   Summary          — word cap 80,  plus the four prose rules below
+//   Summary          — word cap 80,  plus the five prose rules below
 //   Technical Design — word cap 120, prose rules NOT applied
 //   Notes            — word cap 60,  prose rules NOT applied
 //
 //   word_cap   — the section's running whitespace-delimited word count
 //                exceeding its own cap; flags once per section, anchored at
-//                the CROSSING line. This is the fifth union member and the
-//                ONLY rule that applies outside `## Summary`.
+//                the CROSSING line. It joined the union fifth (STE-534) and
+//                is the ONLY rule that applies outside `## Summary`.
 //
-// The four prose rules below stay bound to `## Summary` ALONE — Technical
-// Design and Notes legitimately carry backticks, AC-IDs and paths. This file's
-// fixtures therefore exercise the four over the SUMMARY SECTION BODY ONLY;
-// `word_cap` and the two other measured sections are covered by the sibling
-// suite `tests/m137-ste-534-fr-word-caps.test.ts`.
+// The five prose rules stay bound to `## Summary` ALONE — Technical Design and
+// Notes legitimately carry backticks, AC-IDs and paths. This file's fixtures
+// exercise the four original prose rules below over the SUMMARY SECTION BODY
+// ONLY; `word_cap` and the two other measured sections are covered by the
+// sibling suite `tests/m137-ste-534-fr-word-caps.test.ts`, and `sentence_cap`
+// (STE-661, the sixth member) by the STE-661 suites.
 //
 //   line_cap   — more than 6 non-empty lines fails; the violation anchors at
 //                the first non-empty line beyond the cap (the 7th). The
