@@ -6,6 +6,7 @@ kickoff_branch: feat/m_1ef45e-summaries-in-plain-words
 frozen_at: null
 migration: none
 codename: Plainspoken
+shipped_in: v2.95.0
 ---
 
 # Implementation Plan
@@ -45,3 +46,20 @@ codename: Plainspoken
 
 - `bun test` from `plugins/dev-process-toolkit`: 0 fail, skip identities equal to main
 - `/gate-check` clean
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| STE-661 | claude-opus-5-5 | 44 | 7233 | 1957751 | 32512 |
+| agent-toolkit:spawn-agent | claude-opus-5-5 | 70 | 22285 | 13284973 | 204201 |
+| dev-process-toolkit:gate-check | claude-opus-5-5 | 140 | 44276 | 25479800 | 387816 |
+| dev-process-toolkit:implement | claude-opus-5-5 | 74 | 19049 | 4021958 | 364581 |
+| dev-process-toolkit:ship-milestone | claude-opus-5-5 | 26 | 11324 | 5482907 | 57180 |
+| dev-process-toolkit:tdd | claude-opus-5-5 | 10 | 5148 | 844333 | 10449 |
+| (main-loop) | claude-opus-5-5 | 566 | 146283 | 57471440 | 1118785 |
+| total |  | 930 | 255598 | 108543162 | 2175524 |
+
+<!-- token-stats:end -->
