@@ -195,7 +195,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.95.0 — "Plainspoken"** (M_1ef45e, summaries in plain words. One shared splitter caps human-facing summary sentences at twenty words: probe #67 grades FR Summaries with a new `sentence_cap` rule, and the stage-report verifier refuses a long lead-in sentence)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.95.1 — "Look Before You Run"** (M_2b0382, front doors check first. The skip-baseline capture refuses an off-trunk or dirty tree before it runs the suite, and the gate-capture front door prints pass, fail and skip totals from its one run)
 
 ## Core Philosophy
 
