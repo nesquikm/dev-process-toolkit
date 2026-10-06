@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.95.1] — 2026-10-06 — "Look Before You Run"
+
+### Fixed
+
+- Front doors check first and print their counts (STE-662). `runCapture` now calls the exported `assertCapturable` before it runs the gate, so an off-trunk or dirty capture refuses at once (measured: 0.038 s against a ~15-minute suite) with the same STE-527 refusal text; `captureSkipBaseline` keeps its late check because the tree can change during a long run. The `gate_capture.ts` front door prints one `gate_capture: pass <P>, fail <F>, skip <S>` line — or `totals unreadable — <reason>` — from the run it already makes, through `deriveRunCounts`, the one per-stack derivation the evidence fence uses; exit codes are unchanged. Three stale five-rule comments now describe the six-rule union, and a test names the splitter's list-item rule, completing AC-STE-661.3. A mutation battery proves the pre-flight call and the totals line are each load-bearing.
+
+### Known defects
+
+- Probe #45 (`socratic_first_turn_post_hoc_drift`) still reds a legitimately approved interactive spec commit while that commit is the branch's latest; it cleared here on the next commit, as before.
+- The bun totals line would undercount `pass` on output lacking the `Ran N tests` summary line, through the existing `parseTestOutput` fallback; real bun runs always print it.
+- No skip baseline is recorded for trunk 12de8145, so this release's skip comparison rests on names, not the ratchet.
+- Still open from v2.94.0: the `{codename}` regex replacement expands `$&`, `$1` and `$$`; probe #86's line-at-a-time reading; and the v2.93.0 items carried there.
+
+Total test count at release: 18380 tests, 0 failures, 0 errors.
+
 ## [2.95.0] — 2026-10-05 — "Plainspoken"
 
 ### Added

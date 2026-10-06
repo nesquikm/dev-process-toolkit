@@ -27,7 +27,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { runGateNamingSkips } from "./gate_identity_run";
-import { captureSkipBaseline, resolveTrunkSha, type CaptureResult } from "./skip_baseline";
+import { assertCapturable, captureSkipBaseline, resolveTrunkSha, type CaptureResult } from "./skip_baseline";
 import { skipNamesSource } from "./skip_identities";
 import { STACK_LAYOUTS, type GateInvocation } from "./stack_layout";
 import { parseTestOutput, type Stack } from "./test_count_parser";
@@ -79,8 +79,11 @@ export interface CaptureRun {
  * Measure `projectRoot`'s skip count and record it as the branch's baseline.
  *
  * Throws on every precondition that cannot be met — a missing root, a tree git
- * cannot name a branch for, an unrecognised runner, or output no counter could
- * be read out of. Nothing is written on any of those paths.
+ * cannot name a branch for, a HEAD that is not the trunk commit or a dirty tree
+ * (both refused BEFORE the gate runs, AC-STE-662.1), an unrecognised runner, or
+ * output no counter could be read out of. Nothing is written on any of those
+ * paths. The HEAD/clean-tree check runs again inside `captureSkipBaseline`
+ * after the gate, since the run itself could have dirtied the tree.
  */
 export function runCapture(projectRoot: string): CaptureRun {
   if (!existsSync(projectRoot)) {
@@ -99,6 +102,10 @@ export function runCapture(projectRoot: string): CaptureRun {
   if (sha === null) {
     throw new Error(`${projectRoot} carries no protected trunk to measure a baseline against`);
   }
+
+  // Refuse an off-trunk HEAD or a dirty tree BEFORE the gate runs (AC-STE-662.1):
+  // the same check `captureSkipBaseline` repeats after it, never a second copy.
+  assertCapturable(projectRoot, sha);
 
   const gate = detectGate(projectRoot);
   if (gate === null) {

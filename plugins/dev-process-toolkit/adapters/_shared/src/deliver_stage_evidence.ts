@@ -142,22 +142,35 @@ export interface RenderedStageEvidence {
 /** The literal an evidenced-but-absent section carries. Sections never vanish. */
 const NONE_FOUND = "  - (none found)";
 
+/** A run's pass / fail / skip, or the parser's own reason it has none. */
+export type RunCounts =
+  | { readonly ok: true; readonly pass: number; readonly fail: number; readonly skip: number }
+  | { readonly ok: false; readonly reason: string };
+
 /**
- * Counts for one captured run, or `null` when the bytes cannot be parsed.
+ * Counts for one captured run, read from its own bytes by `parseTestOutput`.
+ * The one place pass / fail / skip are derived: the fence rows below and the
+ * `gate_capture.ts` front door's totals line both read them from here.
  *
  * STACK-CORRECT BY CONSTRUCTION: the runners disagree about what their total
  * includes. bun's `Ran N tests` COUNTS skipped tests; pytest's `N passed` does
  * not. A single-stack formula silently mis-derives `pass` on the other, which
  * is exactly the kind of wrong number that looks plausible in a green run.
  */
-function deriveCounts(run: CapturedRun): { pass: number; fail: number; skip: number } | null {
+export function deriveRunCounts(run: Pick<CapturedRun, "output" | "stack">): RunCounts {
   const parsed = parseTestOutput(run.output, run.stack);
-  if (!parsed.ok) return null;
+  if (!parsed.ok) return { ok: false, reason: parsed.reason };
 
   const { total, failures, errors, skipped } = parsed.count;
   const fail = failures + errors;
   const pass = run.stack === "bun" ? total - fail - skipped : total - fail;
-  return { pass, fail, skip: skipped };
+  return { ok: true, pass, fail, skip: skipped };
+}
+
+/** Counts for one captured run, or `null` when the bytes cannot be parsed. */
+function deriveCounts(run: CapturedRun): { pass: number; fail: number; skip: number } | null {
+  const counts = deriveRunCounts(run);
+  return counts.ok ? { pass: counts.pass, fail: counts.fail, skip: counts.skip } : null;
 }
 
 /**
