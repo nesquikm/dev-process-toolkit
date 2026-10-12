@@ -293,11 +293,11 @@ export const GATE_REGISTRY: readonly GateDescriptor[] = [
   // word for word — one correct answer, already determined upstream by the
   // chain that named the step. The operator still decides WHAT gets built at
   // `implement_commit_approval` and WHICH chain runs at `deliver_chain_confirm`;
-  // these three only ask whether the step the chain already names starts now.
+  // these four only ask whether the step the chain already names starts now.
   //
   // Each summary deliberately names NO guarded action. A guard hit OVERRIDES
   // the declared class, so a summary that named one would silently make its
-  // gate irreversible rather than mechanical — which is also why the seventh
+  // gate irreversible rather than mechanical — which is also why one
   // ask-shaped offer, the ceremony-PR prompt, is absent from this list
   // altogether: its ask names an action the `open_pr` guard catches, and
   // registering it mechanical would be a mis-registration the guards exist to
@@ -307,7 +307,7 @@ export const GATE_REGISTRY: readonly GateDescriptor[] = [
   // argument: nothing at all without a delegation on the record.
   // `relayRequired(gate, null)` is `true` for EVERY gate — registered or not,
   // whatever its class — so an undelegated run asks exactly the questions it
-  // asked before these three lines existed. Registration widens what an
+  // asked before these four lines existed. Registration widens what an
   // operator CAN delegate; it delegates nothing by itself.
   gate(
     "brainstorm_start_now",
@@ -323,6 +323,11 @@ export const GATE_REGISTRY: readonly GateDescriptor[] = [
     "implement_phase5_close",
     "mechanical",
     "confirm the close ceremony runs now that the final FR is complete",
+  ),
+  gate(
+    "ship_milestone_video",
+    "mechanical",
+    "confirm an explainer video is made now for the milestone just released",
   ),
 
   // IRREVERSIBLE — the operator alone, per action.

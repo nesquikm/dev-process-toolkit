@@ -175,6 +175,15 @@ export const CONTINUATION_OFFERS: readonly ContinuationOffer[] = [
     asks: "what is left for a human to do by hand",
   },
   {
+    id: "ship_milestone_video",
+    skill: "ship-milestone",
+    file: skillFile("ship-milestone"),
+    anchor: "Make an explainer video for M<N>? [y/N]",
+    runsWhenAccepted: ["/video"],
+    runsWhenDriven: [],
+    asks: "whether to make an explainer video for the shipped milestone",
+  },
+  {
     id: "ship_milestone_ceremony_pr",
     skill: "ship-milestone",
     file: skillFile("ship-milestone"),

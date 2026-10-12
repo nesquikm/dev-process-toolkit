@@ -36,9 +36,12 @@ import { dptRoot } from "../dpt_paths";
  * baseline (STE-509), which is a LOCAL measurement of one working tree at its
  * branch point — a committed copy from another machine or branch would silently
  * change the ratchet's verdict. Locks are absent on purpose — they are a
- * coordination signal and must stay tracked.
+ * coordination signal and must stay tracked. `.env` holds machine-local keys and
+ * `video/work/` is the disposable video build tree (STE-663); the rest of
+ * `video/` (config, style, scenarios) stays tracked.
  */
-export const DPT_GITIGNORE_BODY = "ledger/\nscratch/\nskip-baseline.json\n";
+export const DPT_GITIGNORE_BODY =
+  "ledger/\nscratch/\nskip-baseline.json\n.env\nvideo/work/\n";
 
 export type DptGitignoreOutcome = "written" | "unchanged";
 

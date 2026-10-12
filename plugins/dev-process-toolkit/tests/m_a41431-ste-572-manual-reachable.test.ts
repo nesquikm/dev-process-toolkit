@@ -592,15 +592,15 @@ describe("AC-STE-572.7 — the public-surface counts are untouched", () => {
     const readmeL3 = readme().split("\n")[2]!;
     const l3 = /(\d+)\s+commands?,\s+(\d+)\s+agents?/.exec(readmeL3);
     expect(l3, "README line 3 no longer carries the count token").not.toBeNull();
-    expect(l3![1]).toBe("18");
+    expect(l3![1]).toBe("19");
     expect(l3![2]).toBe("8");
 
     const claude = rootClaude();
-    expect(/(\d+)\s+slash commands?/.exec(claude)![1]).toBe("27");
+    expect(/(\d+)\s+slash commands?/.exec(claude)![1]).toBe("28");
     expect(/(\d+)\s+subagent templates?/.exec(claude)![1]).toBe("8");
     const split = /\((\d+)\s+user-invocable\s*\+\s*(\d+)\s+dispatch/.exec(claude);
     expect(split, "the CLAUDE.md user-invocable/dispatch split token is gone").not.toBeNull();
-    expect(split![1]).toBe("18");
+    expect(split![1]).toBe("19");
     expect(split![2]).toBe("9");
   });
 

@@ -1,0 +1,7 @@
+== Device Types ==
+== Devices ==
+-- iOS 18.0 --
+    iPhone 16 (5B1E7F2A-3C4D-4E5F-8A9B-0C1D2E3F4A5B) (Booted) 
+    iPhone 16 Pro (6C2F8A3B-4D5E-4F60-9B0C-1D2E3F4A5B6C) (Shutdown) 
+-- iOS 17.5 --
+    iPad Air (7D3A9B4C-5E6F-4071-8C1D-2E3F4A5B6C7D) (Shutdown) 

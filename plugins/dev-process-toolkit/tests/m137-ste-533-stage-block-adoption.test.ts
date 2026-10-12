@@ -514,12 +514,15 @@ const EXPECTED_ELEVEN = [
   "spec-review",
   "spec-write",
   "upgrade",
+  // M_1e0717 STE-669 (AC-STE-669.8): `/video` closes with one stage-status-block
+  // when standalone, so it joins the adopting stages — eleven become twelve.
+  "video",
 ] as const;
 
-describe("AC-STE-533.1 — the closed list of eleven adopting stages", () => {
+describe("AC-STE-533.1 — the closed list of eleven adopting stages (twelve since M_1e0717)", () => {
   test("ADOPTING_STAGES is exactly the operator-resolved eleven, in order", () => {
     expect([...ADOPTING_STAGES]).toEqual([...EXPECTED_ELEVEN]);
-    expect(ADOPTING_STAGES.length).toBe(11);
+    expect(ADOPTING_STAGES.length).toBe(12);
   });
 
   test("every adopting stage names a real shipped skill — ENUMERATED, not sampled", () => {
@@ -1579,7 +1582,7 @@ describe("AC-STE-533.1a — the adopting stages own their banner", () => {
       });
       checked += 1;
     }
-    expect(checked).toBe(11);
+    expect(checked).toBe(12);
   });
 
   test("the adoption grader REFUSES a /deliver-only stage value", () => {
@@ -1603,7 +1606,7 @@ describe("AC-STE-533.1a — the adopting stages own their banner", () => {
     const outside = (ADOPTING_STAGES as readonly string[]).filter(
       (s) => !(DELIVER_STAGE_IDS as readonly string[]).includes(s),
     );
-    expect(outside.length).toBe(9);
+    expect(outside.length).toBe(10); // M_1e0717: + video
     // …and the two survivors are exactly the two /deliver already knows.
     const inside = (ADOPTING_STAGES as readonly string[]).filter((s) =>
       (DELIVER_STAGE_IDS as readonly string[]).includes(s),
@@ -2644,10 +2647,22 @@ describe("M137 audit leftovers — no surface claims what its neighbour denies",
     // would make the eleven-name check below trivially true against `""`, so
     // the source is pinned before the body is read.
     expect(["active", "archive"]).toContain(self.source);
-    expect([self.rel, ADOPTING_STAGES.every((s) => self.body.includes(s))]).toEqual([
-      self.rel,
-      true,
-    ]);
+    // Keyed to the ORIGINAL eleven — the stages STE-533 itself adopted. The
+    // archived FR is a historical record and is never edited, so a stage added
+    // by a LATER milestone cannot appear in it: `video` joined ADOPTING_STAGES
+    // in M_1e0717 / STE-669 (AC-STE-669.8). The later additions are listed
+    // explicitly, and the original eleven are DERIVED as the current list minus
+    // them, so a stage silently dropped from ADOPTING_STAGES still reddens here.
+    const ADDED_AFTER_STE_533 = ["video"] as const; // M_1e0717 / STE-669
+    for (const later of ADDED_AFTER_STE_533) {
+      expect(ADOPTING_STAGES as readonly string[]).toContain(later);
+    }
+    const originalEleven = ADOPTING_STAGES.filter(
+      (s) => !(ADDED_AFTER_STE_533 as readonly string[]).includes(s),
+    );
+    expect(originalEleven.length).toBe(11);
+    const missingFromFr = originalEleven.filter((s) => !self.body.includes(s));
+    expect([self.rel, missingFromFr]).toEqual([self.rel, []]);
     expect(/only here/i.test(doc)).toBe(false);
 
     // What the doc must still say — dropping the claim is the fix, deleting

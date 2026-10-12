@@ -103,9 +103,11 @@ const PLAIN_BODY = [
 const DRIVEN_BODY = `${DRIVEN_MARKER}\n${PLAIN_BODY}`;
 
 /**
- * The seven shipped offers, by id, restated here rather than imported: a leg
+ * Amended by AC-STE-670.4: the count left this sentence (seven at STE-551, eight after STE-670).
+ * The shipped offers, by id, restated here rather than imported: a leg
  * that read the ids off the registry it is grading would pass for a registry
- * with six entries, or eight, or entirely different ones.
+ * with six entries, or eight, or entirely different ones. Seven at STE-551;
+ * Amended by AC-STE-670.4 (M_1e0717): STE-670 added the eighth, `ship_milestone_video`.
  */
 const BRAINSTORM_START_NOW = "brainstorm_start_now";
 const SPEC_WRITE_NEXT = "spec_write_next_implement";
@@ -113,6 +115,7 @@ const IMPLEMENT_SHIP_READY = "implement_ship_ready_close";
 const IMPLEMENT_PHASE5 = "implement_phase5_close";
 const SHIP_NOT_AUTOMATED = "ship_milestone_not_automated";
 const SHIP_CEREMONY_PR = "ship_milestone_ceremony_pr";
+const SHIP_VIDEO = "ship_milestone_video"; // Amended by AC-STE-670.4
 const ARCHIVE_NEXT = "spec_archive_next";
 
 const ALL_OFFER_IDS = [
@@ -122,6 +125,7 @@ const ALL_OFFER_IDS = [
   IMPLEMENT_PHASE5,
   SHIP_NOT_AUTOMATED,
   SHIP_CEREMONY_PR,
+  SHIP_VIDEO, // Amended by AC-STE-670.4
   ARCHIVE_NEXT,
 ] as const;
 
@@ -150,6 +154,11 @@ const SHIPPED_ANCHORS: Record<string, { skill: string; anchor: string }> = {
   [SHIP_CEREMONY_PR]: {
     skill: "ship-milestone",
     anchor: "Open ceremony PR via /pr now? (y/n):",
+  },
+  // Amended by AC-STE-670.4: the explainer-video offer.
+  [SHIP_VIDEO]: {
+    skill: "ship-milestone",
+    anchor: "Make an explainer video for M<N>? [y/N]",
   },
   [ARCHIVE_NEXT]: {
     skill: "spec-archive",
@@ -200,8 +209,10 @@ const fullChain = () => [
 // ===========================================================================
 
 describe("the registry names the surfaces it claims to describe", () => {
-  test("exactly the seven shipped offers are registered, across five skills", () => {
-    expect(CONTINUATION_OFFERS.length).toBe(7);
+  test("exactly the eight shipped offers are registered, across five skills", () => {
+    // Amended by AC-STE-670.4 (M_1e0717): the eighth entry is the explainer-video
+    // offer — skill ship-milestone, runsWhenDriven: [].
+    expect(CONTINUATION_OFFERS.length).toBe(8);
     expect([...CONTINUATION_OFFERS].map((o) => o.id).sort()).toEqual(
       [...ALL_OFFER_IDS].sort(),
     );
@@ -231,7 +242,10 @@ describe("the registry names the surfaces it claims to describe", () => {
     );
     expect(offersForSkill("brainstorm").length).toBe(1);
     expect(offersForSkill("spec-write").length).toBe(1);
-    expect(offersForSkill("ship-milestone").length).toBe(2);
+    // Amended by AC-STE-670.4: ship-milestone owns three offers (was two at STE-551).
+    expect(offersForSkill("ship-milestone").map((o) => o.id).sort()).toEqual(
+      [SHIP_NOT_AUTOMATED, SHIP_CEREMONY_PR, SHIP_VIDEO].sort(),
+    );
     expect(offersForSkill("spec-archive").length).toBe(1);
   });
 
@@ -476,8 +490,9 @@ describe("every offer's SKILL.md documents its driven branch", () => {
       expect(documentsDrivenOmission(body, owed), `${skill} adoption`).toBe(true);
     }
     // Two offers in one file is the case a file-level check cannot see.
+    // Amended by AC-STE-670.4: ship-milestone owns three (the explainer-video offer joined).
     expect(offersForSkill("implement").length).toBe(2);
-    expect(offersForSkill("ship-milestone").length).toBe(2);
+    expect(offersForSkill("ship-milestone").length).toBe(3); // Amended by AC-STE-670.4
   });
 
   test("the scanner is clean on the shipped tree", () => {
@@ -578,7 +593,8 @@ describe("AC-STE-551.7 — the standalone paths are unchanged", () => {
     expect(Object.keys(PRE_FR_EXPECTATION_COUNTS).length).toBe(6);
   });
 
-  test("all seven offers fire on an unsignalled body, whatever else it carries", () => {
+  // Amended by AC-STE-670.4: seven offers at STE-551, eight after STE-670.
+  test("all eight offers fire on an unsignalled body, whatever else it carries", () => {
     for (const body of [
       "",
       PLAIN_BODY,
@@ -638,7 +654,7 @@ describe("AC-STE-551.8 — restoring ONE offer costs exactly one operator turn",
       expect(mutant.operatorTurns).not.toEqual(baseline.operatorTurns);
       expect(mutant.operatorTurns.length - baseline.operatorTurns.length).toBe(1);
       expect(mutant.operatorTurns).toEqual([id]);
-      // The other six stay suppressed — no offer hides behind another.
+      // The other seven stay suppressed (six before STE-670; Amended by AC-STE-670.4) — no offer hides behind another.
       for (const other of ALL_OFFER_IDS) {
         if (other === id) continue;
         expect(mutant.operatorTurns, `${other} leaked`).not.toContain(other);
@@ -646,14 +662,16 @@ describe("AC-STE-551.8 — restoring ONE offer costs exactly one operator turn",
     });
   }
 
-  test("restoring all seven costs seven turns — the aggregate the per-offer legs replace", () => {
+  // Amended by AC-STE-670.4: seven at STE-551; the explainer-video offer is the eighth.
+  test("restoring all eight costs eight turns — the aggregate the per-offer legs replace", () => {
     const run = modelRun({
       chain: fullChain(),
       promptBody: DRIVEN_BODY,
       reachedOffers: [...ALL_OFFER_IDS],
       restoredOffers: [...ALL_OFFER_IDS],
     });
-    expect(run.operatorTurns.length).toBe(7);
+    expect(run.operatorTurns.length).toBe(8); // Amended by AC-STE-670.4
+    expect([...run.operatorTurns].sort()).toEqual([...ALL_OFFER_IDS].sort());
     // And the ceremony doubles, which is the aggregate's correctness half.
     expect(closeCeremonyExecutions(run)).toBeGreaterThan(1);
   });
