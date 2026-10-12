@@ -267,6 +267,20 @@ Next steps (not automated):
 
 **Driven runs.** Omit this offer when the invocation body carries the driven-run marker: the step it offers was already fixed by the orchestrator that named it. In a run whose chain already holds the push, the `/pr` and the external updates, "not automated" is a false statement about that run, and a false line is worse than a redundant one. What is omitted is the notice, never the steps: the chain still runs each one under its own gate, and omitting this line authorizes no push and no PR.
 
+### 9b. Explainer video offer
+
+Fires only after a **successful release commit**. Run the read-only probe `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/video_offer.ts <projectRoot> M<N>`. Empty stdout means no prompt and no decline line — the project is not video-ready, so continue to step 10. On non-empty output (`slug=<slug>` then `fr=` lines), list the `fr=` lines and ask exactly once:
+
+```
+Make an explainer video for M<N>? [y/N]
+```
+
+- **Accept** — `y` / `yes`: start `/video <slug>` with its own gates intact. When it returns — or fails or aborts — the run continues to step 10.
+- **Decline** — `n`, no answer, or non-interactive stdin: print `Run: /video <slug>` and continue.
+- **Driven runs** — Omit this offer when the invocation body carries the driven-run marker: the step it offers was already fixed by the orchestrator that named it. Print no prompt and no `Run:` line; continue to step 10.
+
+At most one video offer per run; it never skips or reorders another ship gate.
+
 ### 10. Opt-in /pr chain
 
 Fires only after a **successful release commit** lands **off-trunk** (the step-7 branch gate created `release/v<X.Y.Z>`, or the run was already on a feature branch). On-trunk landings and every refusal/abort path skip this step silently. After the step-9 checklist prints, prompt (exact format, mirroring /implement Phase 5's milestone-close prompt):

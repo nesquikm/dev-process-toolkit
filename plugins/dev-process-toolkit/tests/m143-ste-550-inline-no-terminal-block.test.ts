@@ -523,6 +523,10 @@ const BASELINE_LINES: Readonly<Record<string, number>> = {
   "spec-review": 109,
   "spec-write": 358,
   upgrade: 240,
+  // Added by M_1e0717 / STE-669 (AC-STE-669.8): `video` joined ADOPTING_STAGES
+  // after STE-550's 2026-09-04 measurement (the skill did not exist then).
+  // Measured 2026-10-12 with this suite's `split("\n")` count (`wc -l` = 94).
+  video: 95,
 };
 
 /** The zero-headroom three: their edits must not add a line. */

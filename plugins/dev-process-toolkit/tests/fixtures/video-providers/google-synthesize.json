@@ -1,0 +1,29 @@
+{
+  "audioContent": "SUQzBABnb29nbGUtcmVjb3JkZWQtYXVkaW8=",
+  "timepoints": [
+    {
+      "markName": "w0",
+      "timeSeconds": 0.05
+    },
+    {
+      "markName": "w1",
+      "timeSeconds": 0.42
+    },
+    {
+      "markName": "w2",
+      "timeSeconds": 0.81
+    },
+    {
+      "markName": "end",
+      "timeSeconds": 1.2
+    }
+  ],
+  "audioConfig": {
+    "audioEncoding": "MP3",
+    "speakingRate": 1,
+    "pitch": 0,
+    "volumeGainDb": 0,
+    "sampleRateHertz": 24000,
+    "effectsProfileId": []
+  }
+}
