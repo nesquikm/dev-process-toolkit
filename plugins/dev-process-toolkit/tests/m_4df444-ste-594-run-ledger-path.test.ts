@@ -63,9 +63,9 @@ describe("AC-STE-594.2 — dpt_paths.ts composes the run ledger's path", () => {
 });
 
 describe("AC-STE-594.2 — the ledger is git-ignored by the CLOSED .dpt/.gitignore, with no new rule", () => {
-  test("CONTROL: the canonical rule set is still exactly ledger/, scratch/, skip-baseline.json", () => {
+  test("CONTROL: the canonical rule set is still exactly ledger/, scratch/, skip-baseline.json, .env, video/work/ (STE-663)", () => {
     const rules = DPT_GITIGNORE_BODY.split("\n").map((l) => l.trim()).filter((l) => l !== "" && !l.startsWith("#"));
-    expect(rules).toEqual(["ledger/", "scratch/", "skip-baseline.json"]);
+    expect(rules).toEqual(["ledger/", "scratch/", "skip-baseline.json", ".env", "video/work/"]);
   });
 
   test("`git check-ignore` ignores the run ledger under the canonical body, and does not ignore a .dpt/ sibling outside ledger/", () => {

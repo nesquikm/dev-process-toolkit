@@ -1,3 +1,5 @@
 ledger/
 scratch/
 skip-baseline.json
+.env
+video/work/

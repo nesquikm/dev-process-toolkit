@@ -38,7 +38,12 @@ describe("migration linear-team-key", () => {
   test("the registry carries it at the shipping version, and it keeps the registry ordered", () => {
     const e = MIGRATIONS.find((m) => m.id === "linear-team-key");
     expect(e?.introduced_in).toBe("2.90.0");
-    expect(MIGRATIONS.at(-1)?.id).toBe("linear-team-key");
+    // It was last when it shipped (2.90.0); STE-663 (M_1e0717) appended
+    // `dpt-gitignore-video` (2.96.0) after it, so its ORDER is the property.
+    const ids = MIGRATIONS.map((m) => m.id);
+    expect(ids.indexOf("linear-team-key")).toBeGreaterThan(ids.indexOf("verification-run-keys"));
+    expect(ids.slice(ids.indexOf("linear-team-key") + 1)).toEqual(["dpt-gitignore-video"]);
+    expect(MIGRATIONS.find((m) => m.id === "dpt-gitignore-video")?.introduced_in).toBe("2.96.0");
   });
   test("PERMIT — a key-shaped team is not detected", () => {
     withProject("STE", [{ dir: "", name: "a.md", linear: "STE-618" }], (root) => {

@@ -677,7 +677,7 @@ describe("AC-STE-602.7 — the receipt store", () => {
     }
   });
 
-  test("a written receipt lands under the ignored ledger, with the three-rule .dpt/.gitignore untouched", async () => {
+  test("a written receipt lands under the ignored ledger, with the five-rule .dpt/.gitignore untouched", async () => {
     const { writeReceipt, readSessionReceipts } = await loadReceipts();
     withFixture(({ a }) => {
       git(a, "init", "-q");
@@ -699,9 +699,11 @@ describe("AC-STE-602.7 — the receipt store", () => {
       expect(typeof receipt.createdAt).toBe("string");
       // ignored
       expect(git(a, "check-ignore", relative(a, path)).trim()).toBe(relative(a, path));
-      // the CLOSED three-rule file
+      // the CLOSED toolkit-owned file — five rules since STE-663 (AC-STE-663.2
+      // appended `.env` and `video/work/`); the receipt adds none.
       expect(readFileSync(join(a, ".dpt", ".gitignore"), "utf-8")).toBe(DPT_GITIGNORE_BODY);
-      expect(DPT_GITIGNORE_BODY.trim().split("\n").length).toBe(3);
+      expect(DPT_GITIGNORE_BODY.trim().split("\n").length).toBe(5);
+      expect(DPT_GITIGNORE_BODY.trim().split("\n").slice(-2)).toEqual([".env", "video/work/"]);
       // no nested ignore file
       const ignores = Object.keys(snapshotTree(join(a, ".dpt"))).filter((k) =>
         k.endsWith(".gitignore"),

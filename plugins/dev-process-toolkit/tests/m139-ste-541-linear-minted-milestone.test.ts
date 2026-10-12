@@ -847,6 +847,8 @@ describe("AC-STE-541.4 — the adoption notice is registered and owned by /spec-
       "verification-run-keys",
       // M_2306b6 (2.90.0) — not this milestone's entry; M139 still ships none.
       "linear-team-key",
+      // M_1e0717 (2.96.0) — not this milestone's entry either.
+      "dpt-gitignore-video",
     ]);
   });
 

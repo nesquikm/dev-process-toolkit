@@ -235,6 +235,12 @@ function plantLinearDisplayNameTeam(root: string): void {
   );
 }
 
+/** Plant a pre-2.96.0 toolkit-owned ignore file: no `.env`, no `video/work/` (STE-663). */
+function plantPreVideoDptGitignore(root: string): void {
+  mkdirSync(join(root, ".dpt"), { recursive: true });
+  writeFileSync(join(root, ".dpt", ".gitignore"), "ledger/\nscratch/\nskip-baseline.json\n", "utf-8");
+}
+
 function plantVerificationBlockWithoutRunCmd(root: string): void {
   const path = join(root, "CLAUDE.md");
   writeFileSync(
@@ -620,6 +626,7 @@ describe("AC-STE-394.9 — each live legacy state renders exactly its own row", 
     ["mode-none-sequential-milestone", plantModeNoneSequentialPlan],
     ["verification-run-keys", plantVerificationBlockWithoutRunCmd],
     ["linear-team-key", plantLinearDisplayNameTeam],
+    ["dpt-gitignore-video", plantPreVideoDptGitignore],
   ];
 
   // Completeness guard. Without it the table above is a hand-maintained list

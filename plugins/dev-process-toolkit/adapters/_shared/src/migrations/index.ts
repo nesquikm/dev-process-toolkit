@@ -9,6 +9,7 @@
 // invariants at module load. Retired path literals live exclusively in
 // `./legacy_paths` — the entries import them, never compose them.
 
+import { dptGitignoreVideo } from "./entries/dpt_gitignore_video";
 import { linearTeamKey } from "./entries/linear_team_key";
 import { m104LegacyState } from "./entries/m104_legacy_state";
 import { modeNoneSequentialMilestone } from "./entries/mode_none_sequential_milestone";
@@ -108,6 +109,7 @@ export const MIGRATIONS: MigrationEntry[] = [
   modeNoneSequentialMilestone, // 2.59.0
   verificationRunKeys, // 2.70.0
   linearTeamKey, // 2.90.0
+  dptGitignoreVideo, // 2.96.0
 ];
 
 validateRegistry(MIGRATIONS);
