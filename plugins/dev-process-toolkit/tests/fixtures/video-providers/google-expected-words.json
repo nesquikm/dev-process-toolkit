@@ -1,0 +1,17 @@
+[
+  {
+    "word": "Hello",
+    "start": 0.05,
+    "end": 0.42
+  },
+  {
+    "word": "brave",
+    "start": 0.42,
+    "end": 0.81
+  },
+  {
+    "word": "world",
+    "start": 0.81,
+    "end": 1.2
+  }
+]
