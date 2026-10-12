@@ -6,6 +6,7 @@ kickoff_branch: feat/m_102cfa-stored-video-style
 frozen_at: null
 migration: none
 codename: House Style
+shipped_in: v2.97.0
 ---
 
 # Implementation Plan
@@ -53,3 +54,18 @@ codename: House Style
 
 - `bun test` from `plugins/dev-process-toolkit`: 0 fail, skip identities equal to main's baseline
 - `/gate-check` clean
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| dev-process-toolkit:gate-check | claude-opus-5-5 | 128 | 33794 | 23196253 | 263240 |
+| dev-process-toolkit:implement | claude-opus-5-5 | 70 | 11644 | 3887126 | 198342 |
+| dev-process-toolkit:ship-milestone | claude-opus-5-5 | 26 | 8756 | 5564651 | 54931 |
+| dev-process-toolkit:tdd | claude-opus-5-5 | 20 | 9766 | 1533503 | 25300 |
+| (main-loop) | claude-opus-5-5 | 428 | 90901 | 39954536 | 238810 |
+| total |  | 672 | 154861 | 74136069 | 780623 |
+
+<!-- token-stats:end -->
