@@ -125,6 +125,7 @@ export const ADOPTING_STAGES = [
   "spec-review",
   "spec-write",
   "upgrade",
+  "video",
 ] as const;
 
 /** One of the eleven. Derived from the list, never re-listed. */
