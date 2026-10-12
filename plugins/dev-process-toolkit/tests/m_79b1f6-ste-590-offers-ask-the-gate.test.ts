@@ -242,6 +242,12 @@ function expectUneditedBeyondSte609(suite: string, ref: "main" | "HEAD"): void {
  * the allowance widens from STE-609's markers to M_6c25dd's two mandated edits —
  * the retired-prompt pin swap in ship-milestone-shape.test.ts (AC-STE-658.7) and
  * the 85 -> 86 probe-count move (AC-STE-659.3). Any other unmarked hunk is still an edit.
+ *
+ * Amended by AC-STE-670.4 (operator ruling 2026-10-12, M_1e0717): admitted exactly as
+ * the M_6c25dd ruling did — STE-670 registers an eighth continuation offer
+ * (`ship_milestone_video`), so tests/m143-ste-551-continuation-offers.test.ts carries
+ * marked count re-keys, each hunk adding a line marked `Amended by AC-STE-670.4`.
+ * An unmarked hunk in that suite is still an edit and still goes red.
  */
 function unmarkedHunks(diff: string): string[] {
   const hunks = diff.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ "));
@@ -253,7 +259,7 @@ function unmarkedHunks(diff: string): string[] {
   ).map((h) => h.split("\n")[0]!);
 }
 
-const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3)\b/;
+const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4)\b/;
 
 /** The suite's working-tree bytes equal `ref`'s committed bytes. */
 function expectUnedited(suite: string, ref: "main" | "HEAD"): void {
@@ -492,8 +498,34 @@ describe("AC-STE-590.4 — skills/spec-archive/SKILL.md gains a refused-spanning
     );
   });
 
-  test("tests/m143-ste-551-continuation-offers.test.ts is unedited against main", () => {
-    expectUnedited("tests/m143-ste-551-continuation-offers.test.ts", "main");
+  // Amended by AC-STE-670.4 (operator ruling 2026-10-12, M_1e0717): the suite admits
+  // STE-670's marked amendments; an unmarked hunk still goes red.
+  test("tests/m143-ste-551-continuation-offers.test.ts is unedited against main beyond marked amendments", () => {
+    expectUneditedBeyondSte609("tests/m143-ste-551-continuation-offers.test.ts", "main");
+  });
+
+  // Amended by AC-STE-670.4: the admission stays falsifiable — the real diff,
+  // with the marker stripped from ONE hunk (or an unmarked edit appended), reds.
+  test("MUTATION: an unmarked hunk in the m143-551 diff is still reported as an edit", () => {
+    const diff = spawnSync(
+      "git",
+      ["diff", "-U0", "main", "--", "tests/m143-ste-551-continuation-offers.test.ts"],
+      { cwd: PLUGIN_ROOT, encoding: "utf-8" },
+    );
+    expect(diff.status, diff.stderr).toBe(0);
+    expect(diff.stdout, "the suite carries no diff against main to grade").toContain("@@ ");
+    expect(unmarkedHunks(diff.stdout)).toEqual([]);
+    // Strip the marker from the first hunk that carries it.
+    const stripped = diff.stdout.replace(/Amended by AC-STE-670\.4/, "Amended by nobody");
+    const firstHunk = diff.stdout.split(/^(?=@@ )/m).find((h) => h.startsWith("@@ "))!;
+    const firstHasOne = (firstHunk.match(/Amended by AC-STE-670\.4/g) ?? []).length === 1;
+    expect(firstHasOne, "the first hunk must carry exactly one marker").toBe(true);
+    expect(unmarkedHunks(stripped)).toEqual([firstHunk.split("\n")[0]!]);
+    // An appended unmarked edit is reported.
+    const extra = `${diff.stdout}@@ -999 +999 @@ ctx\n-old line\n+new line\n`;
+    expect(unmarkedHunks(extra)).toEqual(["@@ -999 +999 @@ ctx"]);
+    // A marker from an un-ruled AC is not admitted.
+    expect(unmarkedHunks("@@ -1 +1 @@\n-a\n+b // Amended by AC-STE-670.5\n")).toEqual(["@@ -1 +1 @@"]);
   });
 
   test("tests/m143-ste-551-continuation-offers.test.ts is green", () => {
