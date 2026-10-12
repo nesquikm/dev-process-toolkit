@@ -1,7 +1,7 @@
 ---
 milestone: M_102cfa
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-10-12T20:31:50Z
 kickoff_branch: feat/m_102cfa-stored-video-style
 frozen_at: null
 migration: none
@@ -31,18 +31,23 @@ codename: House Style
 
 ### Tasks
 
-- [ ] Add music.prompt and narration.tone to the style schema, defaults and video_init
+- [x] Add music.prompt and narration.tone to the style schema, defaults and video_init
   verify: parser accepts, caps and refuses fixtures; absent file yields the new defaults
-- [ ] Pass the stored music prompt through the pipeline's music stage
+- [x] Pass the stored music prompt through the pipeline's music stage
   verify: recorded request body carries the stored prompt, or the upbeat default
-- [ ] Pass bracket audio tags through ElevenLabs and strip them for Google
+- [x] Pass bracket audio tags through ElevenLabs and strip them for Google
   verify: request fixtures for both adapters
-- [ ] Teach the /video skill to read narration.tone and stop re-asking tone
+- [x] Teach the /video skill to read narration.tone and stop re-asking tone
   verify: skill-text pins for the tone read and the trimmed brief
-- [ ] Pin the 590 guard's suite diff to d7af0428 and sweep for moving-main twins
+- [x] Pin the 590 guard's suite diff to d7af0428 and sweep for moving-main twins
   verify: guard passes on the branch and on a simulated merged main
-- [ ] Run the mutation battery
+- [x] Run the mutation battery
   verify: each mutation applied and reddened its test
+
+### Recorded runs
+
+- 2026-10-12, AC-STE-672.2: the fixed `tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts` in a detached worktree of merged trunk `67bdf452` (outside temp, node_modules linked): 52 pass, 0 fail. Control, the unfixed suite in the same worktree: 51 pass, 1 fail (the m143-551 MUTATION test). On this branch: 52 pass, 0 fail.
+- 2026-10-12, mutation battery: AC-STE-671.9 and AC-STE-672.3 run in-suite (each mutation asserted applied, each with an unmutated control); the music-stage lazy style read was mutation-checked by hand (unconditional read → its test red, source restored by hash).
 
 ### Gate
 
