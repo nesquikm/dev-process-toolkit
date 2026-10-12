@@ -39,6 +39,8 @@ Ask each brief question as its own `AskUserQuestion` call, one question at a tim
 4. Demo or technical depth.
 5. Tone and humor.
 
+When `narration.tone` in `style.yaml` is non-empty, it is the house style: skip the tone half of question 5 and ask about humor only.
+
 Never bundle two questions into one `AskUserQuestion` call.
 
 ### 3. Research
@@ -48,6 +50,8 @@ Read the code behind the feature. Record each technical claim the video will mak
 ### 4. Script
 
 Write `script.md` in the work dir (`videoWorkDir(slug)`) with the narration and a shot list, each claim carrying its source location, then run the `script` stage to confirm it is in place.
+
+Read `narration.tone` from `style.yaml` as the house style and write the narration in that tone. Audio tags such as `[excited]` or `[laughs]` set the delivery: ElevenLabs passes square-bracket tags through untouched, and Google strips them before synthesis, so never rely on a tag to carry meaning.
 
 ### 5. Script approval
 
