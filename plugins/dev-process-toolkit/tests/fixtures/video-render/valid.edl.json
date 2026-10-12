@@ -1,0 +1,20 @@
+{
+  "edl_version": 1,
+  "clips": [
+    { "src": "clips/intro.mp4", "in": 0, "out": 2.5 },
+    { "src": "clips/demo.mp4", "in": 1, "out": 4, "at": { "segment": 2, "word": 5 }, "effects": [] }
+  ],
+  "voice": [
+    { "segment": 1, "audio": "segments/1.mp3", "offset": 0 },
+    { "segment": 2, "audio": "segments/2.mp3", "offset": 2.5 }
+  ],
+  "captions": [
+    { "text": "Shipping", "start": 0, "end": 1.2 },
+    { "text": "Tomorrow", "start": 2.5, "end": 3.4 }
+  ],
+  "music": { "src": "music/track.mp3", "level_db": -18 },
+  "anchors": [
+    { "name": "punchline", "at": { "segment": 2, "word": 5 } },
+    { "name": "outro", "at": 5 }
+  ]
+}
