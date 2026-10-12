@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.97.0] — 2026-10-13 — "House Style"
+
+### Added
+
+- Stored video style: music prompt and narration tone (STE-671). `style.yaml` gains `music.prompt` and `narration.tone`, each free text capped at 500 characters, counted as characters rather than UTF-16 units; the schema stays closed. The music stage sends the stored prompt exactly, and falls back to a new upbeat tech-explainer default that replaces the old calm one; it reads `style.yaml` only when the track is generated. `/video` reads the tone as house style and asks only about humor when it is set. Audio tags such as `[excited]` or `[laughs]` pass through ElevenLabs untouched and are stripped for Google, while `[short pause]` keeps its existing handling. `video_init` writes both keys, and a style refusal names its file through `videoStylePath`.
+
+### Fixed
+
+- Suite-edit guards measure against a pinned commit (STE-672). The 590 suite's m143-551 admission and mutation tests diffed against `main`, so the diff vanished once v2.96.0 merged and trunk went red. They now diff against `d7af0428`, held in one named constant. A new scanner over `tests/` fences any test that requires a non-empty diff against `main` or `HEAD`, with planted fixtures proving it finds one.
+
+### Known defects
+
+- The moving-ref scanner works by shape: a ref passed through a variable, a range spelling, or an `expect` chain split across lines goes unseen. The limits are documented in the module header.
+- Google synthesis drops any bracketed text, not just audio tags, so narration such as `[beta]` loses that word. The FR specifies tag stripping for Google.
+
+Total test count at release: 18756 tests, 0 failures, 0 errors.
+
 ## [2.96.0] — 2026-10-12 — "Lights, Camera"
 
 ### Added
