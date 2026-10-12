@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.96.0] — 2026-10-12 — "Lights, Camera"
+
+### Added
+
+- Video workspace, keys and ignore rules (STE-663). Video settings live in a committed `.dpt/video/` folder whose paths all come from `dpt_paths.ts`; `.dpt/.env` and `.dpt/video/work/` are ignored by two new lines in the toolkit-owned `.dpt/.gitignore`, and the `dpt-gitignore-video` migration adds them to existing projects. `config.yaml` and `style.yaml` parse strictly, refusing an unknown key by its path; `.dpt/.env` is read without touching `process.env`; and one readiness check, with a `video_readiness.ts` front door, says whether a project can make a video and why not. A planted sentinel key never reaches output, errors or written files.
+- Voice and music providers (STE-664). ElevenLabs and Google text to speech sit behind one interface that returns word timings; pause markup is rewritten per provider, failures retry 1s + 2s + 4s and refuse naming the provider and key variable, and every key travels in a header, never a URL. Music is generated, a committed track, or none.
+- Stage cache, edit list and renderer (STE-665). An `edl.json` edit list with word-anchored cuts placed on the spoken word, a pure ffmpeg argument builder that refuses banned effects before ffmpeg starts, a SHA-256 stage cache so fixing one sentence re-voices only that sentence, and a QA pass that checks streams and duration and saves a still at every punchline.
+- Recorder contract with footage and command recorders (STE-666). Every recorder yields `clips/<id>.mp4` plus `markers/<id>.json`, checked by `validateRecording`; footage and command recorders ship with a per-shot override and stale-output clearing, documented in `docs/video-recorders.md`.
+- Web recorder (STE-667). Drives the project's own Playwright through a CDP screencast, always with `--use-mock-keychain` and `--password-store=basic`, encoding frames on their own clock at the style's viewport; a missing or broken scenario never launches Chromium.
+- Simulator and emulator recorders (STE-668). `ios-sim` and `android-emu` record while the shot's driver runs, stop cleanly even when it fails, refuse before recording when a tool or booted device is missing, and respect Android's 180-second limit with a bounded stop.
+- The `/video` skill (STE-669). `/video init` writes the settings and names every key it will need without asking for one; a run asks the brief one question at a time, cites every technical claim, and voices or records nothing until the script's hash is approved; the final cut is always reviewed. Skill counts move to 28 skills, 19 user-invocable.
+- Video offer at `/ship-milestone` (STE-670). After the release commit, a video-ready project with Added or Changed FRs is asked once whether to make an explainer; declining or a non-interactive run prints `Run: /video <slug>`, and driven runs skip it.
+
+### Known defects
+
+- Sixteen advisory findings stayed open after three review rounds, among them no timeout on the command recorder, a footage path that can escape its folder, and an unchecked `adb pull` exit code; the full list is in each archived FR's implementation notes.
+- Captions need ffmpeg's `drawtext` filter, which the stock Homebrew build lacks; the render now refuses up front naming the filter, but no captioned render has run end-to-end on the gate machine.
+- The probe #73 dogfood test runs about 4.5 s against a 5 s timeout and timed out once under full-suite load.
+
+Total test count at release: 18703 tests, 0 failures, 0 errors.
+
 ## [2.95.1] — 2026-10-06 — "Look Before You Run"
 
 ### Fixed
