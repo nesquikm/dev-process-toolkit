@@ -1,0 +1,8 @@
+{
+  "edl_version": 1,
+  "clips": [
+    { "src": "clips/intro.mp4", "in": 0, "out": 2.5 },
+    { "src": "clips/demo.mp4", "in": 1, "out": 4 }
+  ],
+  "music": { "src": "music/track.mp3", "level_db": -18 }
+}
