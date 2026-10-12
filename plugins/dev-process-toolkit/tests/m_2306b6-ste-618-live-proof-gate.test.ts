@@ -69,6 +69,13 @@ const RUN_DATE = "2026-09-21";
 // implementation commit, whose step-3 rewrite (+5 lines) and probe row #86
 // were drift against the old base. The epic-close line moved 260 -> 265 with it.
 const KICKOFF = "4abf5ec2";
+// RE-BASED (operator ruling 2026-10-12, M_1e0717 / STE-670): the ship-milestone
+// half of the freeze moved its base to 134fe2e6 (the v2.95.1 merge, parent of
+// the M_1e0717 spec commit), where lines 91 and 265 hold the same text as at
+// 4abf5ec2. The new `### 9b. Explainer video offer` section (AC-STE-670.2) is
+// admitted as ONE NAMED hunk — the only new region; every other line stays
+// frozen. The gate-check half is NOT part of this ruling and stays on KICKOFF.
+const SHIP_KICKOFF = "134fe2e6";
 const REAL_PLAN = "specs/plan/M_2306b6.md";
 const REAL_PLAN_SUITE = `${PLUGIN_REL}/tests/m_2306b6-ste-618-live-proof-real-plan.test.ts`;
 /**
@@ -1121,6 +1128,7 @@ describe("AC-STE-618.8 — the closing guard", () => {
 
 describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   const kickoff = (rel: string) => sh(REPO, "git", ["show", `${KICKOFF}:${rel}`]);
+  const shipKickoff = (rel: string) => sh(REPO, "git", ["show", `${SHIP_KICKOFF}:${rel}`]);
   const SHIP = `${PLUGIN_REL}/skills/ship-milestone/SKILL.md`;
   const GATE_CHECK = `${PLUGIN_REL}/skills/gate-check/SKILL.md`;
   // The gate-check SKILL's permitted lines: a CLOSED, ENUMERATED set, never a
@@ -1171,10 +1179,46 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   const SHIP_EPIC_CLOSE_LINE = 265;
   const SHIP_PERMITTED = [SHIP_PERMITTED_LINE, SHIP_EPIC_CLOSE_LINE];
 
-  test("skills/ship-milestone/SKILL.md differs from the kickoff only on lines 91 and 265, each rewritten in place", () => {
+  // RULING (STE-670, M_1e0717, operator 2026-10-12): the ONE admitted new
+  // region is the `### 9b. Explainer video offer` section, from its heading up
+  // to (not including) the `### 10. Opt-in /pr chain` heading that must follow
+  // it directly. It is a NAMED hunk, not a criterion: it is stripped whole and
+  // the rest of the file must line up with SHIP_KICKOFF on {91, 265}. A second
+  // heading inside the region, or a region that does not end at step 10, is
+  // not this hunk and is refused.
+  const SHIP_9B_HEADING = "### 9b. Explainer video offer";
+  const SHIP_10_HEADING = "### 10. Opt-in /pr chain";
+
+  /** Strip the admitted 9b hunk; `error` names why the region is not the admitted one. */
+  function stripAdmitted9b(text: string): { text: string; region: string[]; error: string | null } {
+    const lines = text.split("\n");
+    const start = lines.indexOf(SHIP_9B_HEADING);
+    if (start === -1) return { text, region: [], error: null };
+    if (lines.indexOf(SHIP_9B_HEADING, start + 1) !== -1) return { text, region: [], error: "9b heading occurs twice" };
+    let end = start + 1;
+    while (end < lines.length && !/^#{1,3} /.test(lines[end]!)) end++;
+    if (lines[end] !== SHIP_10_HEADING) return { text, region: [], error: `9b region ends at ${JSON.stringify(lines[end] ?? "<eof>")}, not step 10` };
+    return { text: [...lines.slice(0, start), ...lines.slice(end)].join("\n"), region: lines.slice(start, end), error: null };
+  }
+
+  /** The ship guard: the admitted hunk stripped, then line-for-line on {91, 265}. */
+  function shipDrift(before: string, after: string): string[] {
+    const s = stripAdmitted9b(after);
+    if (s.error) return [s.error];
+    return driftBeyond(before, s.text, SHIP_PERMITTED);
+  }
+
+  test("skills/ship-milestone/SKILL.md differs from the 134fe2e6 base only on lines 91 and 265, each rewritten in place, plus the admitted 9b section", () => {
     const now = readFileSync(join(REPO, SHIP), "utf-8");
-    const then = kickoff(SHIP);
-    expect(driftBeyond(then, now, SHIP_PERMITTED)).toEqual([]);
+    const then = shipKickoff(SHIP);
+    expect(shipDrift(then, now)).toEqual([]);
+    // The admitted hunk is the 9b section itself, carrying the AC-STE-670.2 literals.
+    const { region, error } = stripAdmitted9b(now);
+    expect(error).toBeNull();
+    expect(region[0]).toBe(SHIP_9B_HEADING);
+    expect(region.join("\n")).toContain("Make an explainer video for M<N>? [y/N]");
+    expect(region.join("\n")).toContain("Run: /video <slug>");
+    expect(then.includes(SHIP_9B_HEADING), "the base has no 9b section").toBe(false);
     const epic = now.split("\n")[SHIP_EPIC_CLOSE_LINE - 1]!;
     expect(then.split("\n")[SHIP_EPIC_CLOSE_LINE - 1], "line 265 was the checklist's item 3 at the kickoff").toMatch(/^  3\. Update any external references/);
     expect(epic).toMatch(/^  3\. Update any external references/);
@@ -1187,19 +1231,38 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     expect(line, "and no longer tells a Linear child to follow `endCursor` at top level").not.toMatch(/previous page's `endCursor`/);
   });
 
-  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91 and 265), or an added line, fails the guard", () => {
+  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91 and 265), or an added line outside the 9b region, fails the guard", () => {
     const now = readFileSync(join(REPO, SHIP), "utf-8");
-    const then = kickoff(SHIP);
+    const then = shipKickoff(SHIP);
     const lines = now.split("\n");
     const third = [...lines];
     third[39] = `${third[39]} (edited)`;
-    expect(driftBeyond(then, third.join("\n"), SHIP_PERMITTED)).toEqual(["line 40"]);
+    expect(shipDrift(then, third.join("\n"))).toEqual(["line 40"]);
     const added = [...lines.slice(0, 50), "an added line", ...lines.slice(50)];
-    expect(driftBeyond(then, added.join("\n"), SHIP_PERMITTED)).toHaveLength(1);
+    expect(shipDrift(then, added.join("\n"))).toHaveLength(1);
+    // Just past the region: an added line inside step 10 is not part of 9b.
+    const ten = lines.indexOf(SHIP_10_HEADING);
+    expect(ten, "control: step 10's heading is present").toBeGreaterThan(0);
+    const afterRegion = [...lines.slice(0, ten + 1), "an added line", ...lines.slice(ten + 1)];
+    expect(shipDrift(then, afterRegion.join("\n"))).toHaveLength(1);
+    // A changed line right after the region (step 10 body) is drift too.
+    const tenBody = [...lines];
+    tenBody[ten + 2] = `${tenBody[ten + 2]} (edited)`;
+    expect(shipDrift(then, tenBody.join("\n"))).toHaveLength(1);
+    // A second heading smuggled into the region is not the admitted hunk.
+    const nine = lines.indexOf(SHIP_9B_HEADING);
+    if (nine !== -1) {
+      const smuggled = [...lines.slice(0, nine + 1), "### 9c. Another section", ...lines.slice(nine + 1)];
+      expect(shipDrift(then, smuggled.join("\n"))).toHaveLength(1);
+    }
+    // The admitted region does not admit a stray edit before it: line 268 (step 9 body) stays frozen.
+    const before9b = [...lines];
+    before9b[267] = `${before9b[267]} (edited)`;
+    expect(shipDrift(then, before9b.join("\n"))).toEqual(["line 268"]);
   });
 
   test("NEGATIVE CONTROL — a ship-milestone sibling with one changed line fails the byte-identity guard", () => {
-    const then = kickoff(SHIP);
+    const then = shipKickoff(SHIP);
     const lines = then.split("\n");
     expect(lines.length, "control: the kickoff file has a line 40").toBeGreaterThan(40);
     const sibling = [...lines];

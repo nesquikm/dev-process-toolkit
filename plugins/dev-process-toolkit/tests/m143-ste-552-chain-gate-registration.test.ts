@@ -124,12 +124,18 @@ const EXPECTED_NEW_GATE_IDS = [
   "brainstorm_start_now",
   "implement_ship_ready_close",
   "implement_phase5_close",
+  // PIN MOVED by M_1e0717 STE-670 (AC-STE-670.4): the ask-shaped explainer-video
+  // offer after a release, registered mechanical in GATE_REGISTRY.
+  "ship_milestone_video",
 ] as const;
 
 /** The class every newly registered prompt declares. */
 const EXPECTED_NEW_CLASS: GateClass = "mechanical";
 
-/** AC.6 — an absolute pin, not a "grew by" check. 9 shipped + 3 new. */
+/**
+ * AC.6 — an absolute pin, not a "grew by" check. 9 shipped + 3 new from this
+ * FR + 1 from M_1e0717 STE-670 (AC-STE-670.4) = 13.
+ */
 const PRE_FR_REGISTRY_SIZE = 9;
 const EXPECTED_REGISTRY_SIZE = PRE_FR_REGISTRY_SIZE + EXPECTED_NEW_GATE_IDS.length;
 

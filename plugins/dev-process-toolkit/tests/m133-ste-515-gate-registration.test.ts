@@ -177,6 +177,9 @@ const POST_FR_ADDED_IDS: readonly string[] = [
   "brainstorm_start_now",
   "implement_ship_ready_close",
   "implement_phase5_close",
+  // PIN MOVED by M_1e0717 STE-670 (AC-STE-670.4): the ask-shaped explainer-video
+  // offer after a release, registered mechanical.
+  "ship_milestone_video",
 ];
 
 const row = (g: GateDescriptor): RegistryRow => ({
