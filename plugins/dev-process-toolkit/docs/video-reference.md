@@ -45,6 +45,15 @@ The shots the `record` stage captures, one object per shot:
 - `driver` — the argv that drives the app while `ios-sim` or `android-emu` records; those recorders refuse a shot without one.
 - `footage` — optional `{ file, markers? }` for the `footage` recorder: `file` is relative to the footage dir `.dpt/video/footage/`, and `markers` is an optional `[{ name, t }]` list.
 
+## Stored style
+
+`style.yaml` carries the feel of every video, so the next one matches the last. The schema is closed: these two keys are free text, each capped at 500 characters, and any other unknown key still refuses.
+
+- `music.prompt` — sent as the ElevenLabs music request's prompt, exactly as stored. Capped at 500 characters. Default: "Upbeat, modern instrumental track for a tech product explainer: punchy drums, bright synths, positive energy, steady driving tempo, no vocals."
+- `narration.tone` — how the narrator should sound; `/video` reads it as house style for the script and skips the tone question when it is set. Capped at 500 characters. Default: empty.
+
+Audio tags: the script may carry square-bracket tags such as `[excited]` or `[laughs]`. The ElevenLabs adapter sends them untouched; the Google adapter strips them before synthesis. `[short pause]` keeps its existing handling on both.
+
 ## Approval stops
 
 Two: the script (before any voice, recording or music) and the final cut (approve, or send back to the script or the edit).

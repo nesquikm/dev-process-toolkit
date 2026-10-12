@@ -6,6 +6,7 @@
 
 import { join } from "node:path";
 import type { VideoMusicConfig } from "./config";
+import { VIDEO_STYLE_DEFAULTS } from "./style";
 import { ELEVENLABS, type FetchFn, postJson, type WaitFn, writeWorkFile } from "./tts";
 
 export interface ResolveMusicOpts {
@@ -13,20 +14,19 @@ export interface ResolveMusicOpts {
   projectRoot: string;
   slug: string;
   plannedSeconds: number;
-  style?: string;
+  /** The stored `music.prompt`; sent exactly. Absent → the style default. */
+  prompt?: string;
   apiKey?: string;
   fetch: FetchFn;
   wait: WaitFn;
 }
-
-const DEFAULT_PROMPT = "Calm, unobtrusive instrumental background music for a product explainer video.";
 
 export async function resolveMusicTrack(opts: ResolveMusicOpts): Promise<string | null> {
   const { music } = opts;
   if (music.source === "none") return null;
   if (music.source === "file") return join(opts.projectRoot, music.file);
 
-  const prompt = opts.style?.trim() ? `${DEFAULT_PROMPT} Style: ${opts.style.trim()}` : DEFAULT_PROMPT;
+  const prompt = opts.prompt ?? VIDEO_STYLE_DEFAULTS.music.prompt;
   const res = await postJson(
     opts.fetch,
     opts.wait,
