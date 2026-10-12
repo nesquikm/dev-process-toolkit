@@ -175,17 +175,17 @@ describe("AC-STE-469.1 — /setup dispatches --template to the setup-template ch
   });
 });
 
-describe("AC-STE-469.1 — on-disk ground truth: 27 skill dirs, 18 user-invocable, 9 internal", () => {
-  test("27 skill directories, setup-template among them", () => {
+describe("AC-STE-469.1 — on-disk ground truth: 28 skill dirs, 19 user-invocable, 9 internal", () => {
+  test("28 skill directories, setup-template among them", () => {
     const dirs = skillDirs();
-    expect(dirs.length).toBe(27);
+    expect(dirs.length).toBe(28);
     expect(dirs).toContain("setup-template");
   });
 
-  test("exactly 18 user-invocable and 9 non-user-invocable, setup-template among the 9", () => {
+  test("exactly 19 user-invocable and 9 non-user-invocable, setup-template among the 9", () => {
     const dirs = skillDirs();
     const userInvocable = dirs.filter((dir) => !declaresNonUserInvocable(skillBody(dir)));
-    expect(userInvocable.length).toBe(18);
+    expect(userInvocable.length).toBe(19);
     expect(dirs.length - userInvocable.length).toBe(9);
     expect(userInvocable).not.toContain("setup-template");
   });
@@ -204,7 +204,7 @@ describe("AC-STE-469.1 — on-disk ground truth: 27 skill dirs, 18 user-invocabl
   });
 });
 
-describe("AC-STE-469.1 — count surfaces re-key to the 27 (18 + 9) forms", () => {
+describe("AC-STE-469.1 — count surfaces re-key to the 28 (19 + 9) forms", () => {
   test("README: `Nine additional skills`, its enumeration naming setup-template", () => {
     const body = mustRead(README);
     expect(body).toMatch(/Nine additional skills/);
@@ -212,17 +212,17 @@ describe("AC-STE-469.1 — count surfaces re-key to the 27 (18 + 9) forms", () =
     expect(line).toContain("setup-template");
   });
 
-  test("README repo-tree skills row reads `27 (18 + 9)` with `(18 user-invocable + 9 internal forks)`", () => {
+  test("README repo-tree skills row reads `28 (19 + 9)` with `(19 user-invocable + 9 internal forks)`", () => {
     const rows = mustRead(README)
       .split("\n")
       .filter((l) => l.includes("── skills/"));
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
-    expect(row).toMatch(/27\s*\(18\s*\+\s*9\)/);
-    expect(row).toMatch(/\(18 user-invocable \+ 9 internal forks\)/);
+    expect(row).toMatch(/28\s*\(19\s*\+\s*9\)/);
+    expect(row).toMatch(/\(19 user-invocable \+ 9 internal forks\)/);
   });
 
-  test("CLAUDE.md skills row: 27 slash commands (18 user-invocable + 9 dispatch …)", () => {
+  test("CLAUDE.md skills row: 28 slash commands (19 user-invocable + 9 dispatch …)", () => {
     // Content-anchored, not `split("\\n")[14]`. Probe #57 read this row off a
     // fixed index until STE-567 de-anchored it; a pin on the index outlived
     // the coupling it recorded.
@@ -232,25 +232,25 @@ describe("AC-STE-469.1 — count surfaces re-key to the 27 (18 + 9) forms", () =
     expect(rows).toHaveLength(1);
     const line15 = rows[0]!;
     expect(line15).toMatch(/^├── skills\//);
-    expect(line15).toMatch(/27\s+slash commands?/);
-    expect(line15).toMatch(/\(18\s+user-invocable\s*\+\s*9\s+dispatch/);
+    expect(line15).toMatch(/28\s+slash commands?/);
+    expect(line15).toMatch(/\(19\s+user-invocable\s*\+\s*9\s+dispatch/);
   });
 
-  test("specs/testing-spec.md v2-minimal row: all 27 skills", () => {
-    expect(mustRead(TESTING_SPEC)).toMatch(/all 27 skills/);
+  test("specs/testing-spec.md v2-minimal row: all 28 skills", () => {
+    expect(mustRead(TESTING_SPEC)).toMatch(/all 28 skills/);
   });
 
-  test("docs/skill-anatomy.md canonical-example line: the other 26 skills", () => {
-    expect(mustRead(SKILL_ANATOMY)).toMatch(/the other 26 skills/);
+  test("docs/skill-anatomy.md canonical-example line: the other 27 skills", () => {
+    expect(mustRead(SKILL_ANATOMY)).toMatch(/the other 27 skills/);
   });
 
   // Meta-meta tripwire (house M108→M109→M124 pattern): the shipped
-  // ground-truth suite must be RE-KEYED to 27, not left green on 26. The full
+  // ground-truth suite must be RE-KEYED to 28 (M_1e0717), not left green on 27. The full
   // suite run is the real gate; this names the stalest pin so the implementer
   // cannot forget the legacy suites.
-  test("m109-ste-395-delist-upgrade.test.ts re-keys its dir count to 27", () => {
+  test("m109-ste-395-delist-upgrade.test.ts re-keys its dir count to 28", () => {
     const src = mustRead(join(import.meta.dir, "m109-ste-395-delist-upgrade.test.ts"));
-    expect(src).toContain("expect(dirs.length).toBe(27)");
+    expect(src).toContain("expect(dirs.length).toBe(28)");
   });
 });
 

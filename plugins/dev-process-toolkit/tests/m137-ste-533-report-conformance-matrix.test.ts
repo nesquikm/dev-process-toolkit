@@ -408,6 +408,24 @@ const PLANS: Partial<Record<AdoptingStage, StageReportPlan>> = {
     cite: "skills/upgrade/SKILL.md § Step 6 — closing summary",
     driving: "fixed-size migration registry",
   },
+
+  // § Closing report (added by M_1e0717 / STE-669): one `stages run: <K>
+  // (<D> done, <R> refused)` row plus at most the first 3 stages, total
+  // stated. A full `/video <slug>` run walks twelve pipeline stages, so the
+  // bound is load-bearing on every complete run.
+  video: {
+    prose: [
+      "/video onboarding-tour — final cut approved; the stage roll-up is below.",
+    ],
+    summary: [
+      "  - stages run: 12 (12 done, 0 refused) — first 3 of 12 listed below",
+      "  - readiness — done",
+      "  - brief — done",
+      "  - research — done",
+    ],
+    cite: "skills/video/SKILL.md § Closing report",
+    driving: "12 pipeline stages — bounded to first 3, total stated",
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -664,6 +682,7 @@ describe("THE CONFORMANCE MATRIX — every adopting stage's own report must conf
       "spec-review": "bounded:3",
       "spec-write": "bounded:6",
       upgrade: "bounded:3",
+      video: "bounded:3", // M_1e0717 / STE-669
     };
     for (const stage of ADOPTING_STAGES) {
       const derived = derivedFor(stage);
@@ -689,7 +708,7 @@ describe("THE CONFORMANCE MATRIX — every adopting stage's own report must conf
     const analysable = ADOPTING_STAGES.filter(
       (s) => derivedFor(s).unanalysable.length === 0,
     );
-    expect(analysable.length).toBe(11);
+    expect(analysable.length).toBe(12);
     expect(analysable.length).toBe(ADOPTING_STAGES.length);
     // Every stage's budget comes from one of the three dispositions the
     // derivation admits, and from nothing else.

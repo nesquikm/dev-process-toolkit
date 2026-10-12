@@ -345,9 +345,9 @@ describe("TRIPWIRE — the surfaces and budgets this FR's edits ride against", (
     expect(count).toBeLessThanOrEqual(SKILLS_STE_TOKEN_CEILING);
   });
 
-  test("the roster is unchanged — 27 skills, 8 agents", () => {
+  test("the roster is unchanged — 28 skills, 8 agents", () => {
     // Draft support is a `/pr` capability, not a new surface.
-    expect(readdirSync(SKILLS_DIR).length).toBe(27);
+    expect(readdirSync(SKILLS_DIR).length).toBe(28);
     expect(readdirSync(AGENTS_DIR).length).toBe(8);
   });
 

@@ -228,19 +228,23 @@ describe("AC.1 — the skill document and its frontmatter", () => {
       rmSync(scratch, { recursive: true, force: true });
     }
   });
-  test("the root CLAUDE.md skill count reads 30, derived from both roots", () => {
+  // Re-keyed for STE-669 (M_1e0717): /video joined the plugin root, so 28 plugin +
+  // 3 maintainer skills = 31 ship across the two roots.
+  test("the root CLAUDE.md skill count reads 31, derived from both roots", () => {
     docText();
     const claude = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
-    expect(shippedSkillCount(), "the two roots hold 30 SKILL.md files").toBe(30);
+    expect(shippedSkillCount(), "the two roots hold 31 SKILL.md files").toBe(31);
     expect(skillCountViolations(claude, shippedSkillCount())).toEqual([]);
-    expect(claude).not.toContain("29 skills ship across the two roots");
+    expect(claude).toContain(`${shippedSkillCount()} skills ship across the two roots`);
+    expect(claude).not.toContain("30 skills ship across the two roots");
   });
-  test("MUTATION — a CLAUDE.md copy saying 31, or 29, skills ship across the two roots is red", () => {
+  test("MUTATION — a CLAUDE.md copy saying 32, or 30, skills ship across the two roots is red", () => {
     const claude = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
-    for (const n of ["31", "29"]) {
-      const m = claude.replace("30 skills ship across the two roots", `${n} skills ship across the two roots`);
+    const held = shippedSkillCount();
+    for (const n of [String(held + 1), String(held - 1)]) {
+      const m = claude.replace(`${held} skills ship across the two roots`, `${n} skills ship across the two roots`);
       expect(m, "control: the edit landed").not.toBe(claude);
-      expect(skillCountViolations(m, shippedSkillCount())).toEqual([`the root CLAUDE.md says ${n} skills ship across the two roots; the roots hold 30`]);
+      expect(skillCountViolations(m, held)).toEqual([`the root CLAUDE.md says ${n} skills ship across the two roots; the roots hold ${held}`]);
     }
   });
 });
