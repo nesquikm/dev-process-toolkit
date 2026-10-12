@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.95.1 — "Look Before You Run"** (M_2b0382, front doors check first. The skip-baseline capture refuses an off-trunk or dirty tree before it runs the suite, and the gate-capture front door prints pass, fail and skip totals from its one run)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.96.0 — "Lights, Camera"** (M_1e0717, feature explainer videos. A new /video skill turns a shipped feature into a short explainer video with the same voice, cuts and checks every time, and /ship-milestone offers one after each release)
 
 ## Core Philosophy
 
