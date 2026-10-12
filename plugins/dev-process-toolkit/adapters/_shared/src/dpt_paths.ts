@@ -152,3 +152,48 @@ export function receiptsDir(projectRoot: string, sessionId: string): string {
 export function receiptsRoot(projectRoot: string): string {
   return join(dptRoot(projectRoot), "ledger", "receipts");
 }
+
+/**
+ * Feature-video workspace root: `<projectRoot>/.dpt/video` (STE-663).
+ *
+ * The only composer of the video subtree (AC-STE-663.1). `config.yaml`,
+ * `style.yaml` and `scenarios/` are tracked; `work/` is machine-local.
+ */
+export function videoRoot(projectRoot: string): string {
+  return join(dptRoot(projectRoot), "video");
+}
+
+/** Video config: `<projectRoot>/.dpt/video/config.yaml`. */
+export function videoConfigPath(projectRoot: string): string {
+  return join(videoRoot(projectRoot), "config.yaml");
+}
+
+/** Video style: `<projectRoot>/.dpt/video/style.yaml`. */
+export function videoStylePath(projectRoot: string): string {
+  return join(videoRoot(projectRoot), "style.yaml");
+}
+
+/** Video scenarios: `<projectRoot>/.dpt/video/scenarios`. */
+export function videoScenariosDir(projectRoot: string): string {
+  return join(videoRoot(projectRoot), "scenarios");
+}
+
+/** Video work root: `<projectRoot>/.dpt/video/work` (machine-local, ignored). */
+export function videoWorkRoot(projectRoot: string): string {
+  return join(videoRoot(projectRoot), "work");
+}
+
+/** Per-video work dir: `<projectRoot>/.dpt/video/work/<slug>`. */
+export function videoWorkDir(projectRoot: string, slug: string): string {
+  return join(videoWorkRoot(projectRoot), slug);
+}
+
+/** Video footage: `<projectRoot>/.dpt/video/footage` (the footage recorder's sources). */
+export function videoFootageDir(projectRoot: string): string {
+  return join(videoRoot(projectRoot), "footage");
+}
+
+/** Toolkit key file: `<projectRoot>/.dpt/.env` (machine-local, ignored). */
+export function dptEnvPath(projectRoot: string): string {
+  return join(dptRoot(projectRoot), ".env");
+}

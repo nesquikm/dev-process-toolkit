@@ -49,11 +49,11 @@ Design-reference images (mockups, screenshots, design-system artifacts) live und
 
 ## The `.dpt/` tree
 
-Toolkit-owned state lives in one folder at the project root. Every path under it is composed by `adapters/_shared/src/dpt_paths.ts` (`dptRoot`, `locksDir`, `ledgerPath`, `scratchRoot`, `scratchDir`, `skipBaselinePath`, `checkoutIdPath`, `advisoryNotesPath`, `smokeRunLedgerPath`, `receiptsRoot`, `receiptsDir`) — no other module composes a `.dpt` literal.
+Toolkit-owned state lives in one folder at the project root. Every path under it is composed by `adapters/_shared/src/dpt_paths.ts` (`dptRoot`, `locksDir`, `ledgerPath`, `scratchRoot`, `scratchDir`, `skipBaselinePath`, `checkoutIdPath`, `advisoryNotesPath`, `smokeRunLedgerPath`, `receiptsRoot`, `receiptsDir`, `videoRoot`, `videoConfigPath`, `videoStylePath`, `videoScenariosDir`, `videoWorkRoot`, `videoWorkDir`, `videoFootageDir`, `dptEnvPath`) — no other module composes a `.dpt` literal.
 
 ```
 .dpt/
-├── .gitignore          ← tracked — ships the rules itself ("ledger/" + "scratch/" + "skip-baseline.json")
+├── .gitignore          ← tracked — ships the rules itself ("ledger/" + "scratch/" + "skip-baseline.json" + ".env" + "video/work/")
 ├── locks/<id>          ← TRACKED — cross-branch coordination signal
 ├── ledger/…jsonl       ← ignored — token-ledger capture
 ├── scratch/<ulid>/     ← ignored — spec/deps research results
@@ -64,7 +64,7 @@ Toolkit-owned state lives in one folder at the project root. Every path under it
 └── skip-baseline.json  ← ignored — per-trunk-commit skip baseline (STE-527)
 ```
 
-The tracked-vs-ignored split is governed by `.dpt/.gitignore`, a toolkit-owned file `/setup` writes on every run (idempotent by byte-compare; a drifted baseline is restored). It carries exactly three relative rules — `ledger/`, `scratch/` and `skip-baseline.json` — so `.dpt/ledger/token-ledger.jsonl`, `.dpt/scratch/<ulid>/` and `.dpt/skip-baseline.json` are **ignored** while `.dpt/locks/<id>` stays **tracked**. Locks are tracked because they are a cross-branch coordination signal: a lock git cannot see cannot coordinate anything. The rules are relative rather than rooted, so the file is position-independent — it resolves against its own directory and behaves identically when `.dpt/` sits in a subdirectory instead of the repo root. The consumer's root `.gitignore` needs no toolkit entry at all, and this repo's own root `.gitignore` deliberately carries no `.dpt` line.
+The tracked-vs-ignored split is governed by `.dpt/.gitignore`, a toolkit-owned file `/setup` writes on every run (idempotent by byte-compare; a drifted baseline is restored). It carries exactly five relative rules — `ledger/`, `scratch/`, `skip-baseline.json`, `.env` and `video/work/` — so `.dpt/ledger/token-ledger.jsonl`, `.dpt/scratch/<ulid>/`, `.dpt/skip-baseline.json`, `.dpt/.env` and `.dpt/video/work/<slug>/` are **ignored** while `.dpt/locks/<id>` and `.dpt/video/config.yaml`, `style.yaml` and `scenarios/` stay **tracked**. Locks are tracked because they are a cross-branch coordination signal: a lock git cannot see cannot coordinate anything. The rules are relative rather than rooted, so the file is position-independent — it resolves against its own directory and behaves identically when `.dpt/` sits in a subdirectory instead of the repo root. The consumer's root `.gitignore` needs no toolkit entry at all, and this repo's own root `.gitignore` deliberately carries no `.dpt` line.
 
 **The polarity is tracked-by-default, deliberately.** The inverse — blanket-ignore `.dpt/` and re-include locks via `!.dpt/locks/` — silently unversions every lock, because git never descends into an excluded directory to read the negation. The failure modes are asymmetric: a forgotten rule under this polarity leaks scratch into a commit (loud, visible, harmless); a forgotten rule under the negate form stops tracking a coordination signal (silent, invisible, correctness-breaking).
 
