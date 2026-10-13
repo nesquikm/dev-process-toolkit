@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.97.0 — "House Style"** (M_102cfa, stored video style and merge-proof guards. Videos now keep the same music and narrator tone every time from the project's style file, and a test that went red on trunk after a merge now measures against a pinned commit)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.98.0 — "Final Mix"** (M_866092, video render fixes and a house-style commit nudge. Re-recorded footage now re-renders, the picture stays in sync with the voice and the mix hits a loudness target. A missing caption filter is caught before any paid call, and /video offers to commit the house style)
 
 ## Core Philosophy
 
