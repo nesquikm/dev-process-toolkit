@@ -370,21 +370,26 @@ describe("AC-STE-434.5 — vacuous without the shared adapter layer", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Amended by AC-STE-659.3: probe count 85 -> 86.
-describe("AC-STE-434.6 — README documents 86 probes", () => {
+// Amended by AC-STE-673.6: probe count 86 -> 87.
+describe("AC-STE-434.6 — README documents 87 probes", () => {
   // Recalibrated 82 → 83: M140 added #83 external_link_verdicts on top
   // of M137's #82 stage_block_adoption.
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("the Features bullet documents 86 numbered /gate-check probes (README.md:14)", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("the Features bullet documents 87 numbered /gate-check probes (README.md:14)", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b86\b.*numbered/);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b87\b.*numbered/);
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("the /implement-invokes-/tdd aside documents 86 probes (README.md:109)", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("the /implement-invokes-/tdd aside documents 87 probes (README.md:109)", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b86\b\s+probes/);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b87\b\s+probes/);
   });
 
   test("runPublicSurfaceCountDriftProbe returns zero violations on this repo", async () => {

@@ -227,10 +227,12 @@ describe("AC-STE-612.8 — no probe id is added (no-regression pins)", () => {
     expect(skill().split("\n")[79]).toMatch(/^25\. \*\*`task-tracking-workspace-binding-present`\*\*/);
   });
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("(control) the numbered probe list is contiguous 1..86", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("(control) the numbered probe list is contiguous 1..87", () => {
     const numbers = [...skill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 86 }, (_, i) => i + 1));
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 87 }, (_, i) => i + 1));
   });
   test("(control) gate-check SKILL.md gains no STE token (87, measured at HEAD a1f0722c)", () => {
     expect(skill().match(STE_TOKEN_RE)?.length ?? 0).toBe(87);

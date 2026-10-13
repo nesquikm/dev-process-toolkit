@@ -1596,19 +1596,23 @@ describe("STE-535 wiring — probe id, severity and NFR-1 cap are UNMOVED", () =
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("STE-535 minted no probe id of its own — the list ends where #86 left it", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("STE-535 minted no probe id of its own — the list ends where #87 left it", () => {
     const skill = readFileSync(GATE_CHECK_SKILL, "utf-8");
     const numbers = [...skill.matchAll(/^(\d+)\. \*\*`/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(Math.max(...numbers)).toBe(86);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(Math.max(...numbers)).toBe(87);
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("README advertises the live count — 86 since STE-659 landed probe #86", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("README advertises the live count — 87 since STE-673 landed probe #87", () => {
     const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(readme).toContain("86 numbered `/gate-check` probes");
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(readme).toContain("87 numbered `/gate-check` probes");
     expect(readme).not.toMatch(/\b81\b numbered `\/gate-check` probes/);
   });
 

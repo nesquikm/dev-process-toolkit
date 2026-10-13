@@ -1095,7 +1095,8 @@ describe("AC-STE-410.6 — gate-check SKILL #69 documents the carve-out; M111 sp
     const numbers = [...body.matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(Math.max(...numbers)).toBe(86);
-    expect(numbers.length).toBe(86);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(Math.max(...numbers)).toBe(87);
+    expect(numbers.length).toBe(87);
   });
 });

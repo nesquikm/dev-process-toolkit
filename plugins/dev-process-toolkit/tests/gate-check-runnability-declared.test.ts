@@ -28,7 +28,7 @@
 // through `readVerificationConfig` and never re-parsed privately; the module
 // routes managed-ness through `./toolkit_managed` and is vacuous on a tree the
 // toolkit does not own; and the gate-check SKILL.md registration is itself
-// falsifiable (contiguous 1..86). (Amended by AC-STE-659.3: probe count 85 -> 86.)
+// falsifiable (contiguous 1..87). (Amended by AC-STE-659.3: probe count 85 -> 86.) (Amended by AC-STE-673.6: probe count 86 -> 87.)
 
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -481,17 +481,21 @@ describe("gate-check SKILL.md registers probe #80 runnability_declared", () => {
   // The registration sweep is itself falsifiable: a probe added to the prose
   // without renumbering, or renumbered without being added, fails here.
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("the numbered probe list is contiguous 1..86", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("the numbered probe list is contiguous 1..87", () => {
     // Recalibrated 82 → 83: M140 adds #83 external_link_verdicts.
     const numbers = [...gateCheckSkill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(numbers.length).toBe(86);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(numbers.length).toBe(87);
     expect([...numbers].sort((a, b) => a - b)).toEqual(
       // Amended by AC-STE-659.3: probe count 85 -> 86.
-      Array.from({ length: 86 }, (_, i) => i + 1),
+      // Amended by AC-STE-673.6: probe count 86 -> 87.
+      Array.from({ length: 87 }, (_, i) => i + 1),
     );
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(Math.max(...numbers)).toBe(86);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(Math.max(...numbers)).toBe(87);
   });
 });
 

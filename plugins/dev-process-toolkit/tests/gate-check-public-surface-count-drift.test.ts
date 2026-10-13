@@ -418,10 +418,12 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     // 83 numbered probes (M140 added #83 external_link_verdicts on top of
     // M137's #82 stage_block_adoption) — the Features bullet.
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b86\b.*numbered/);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b87\b.*numbered/);
     // "83 probes" — the /implement-invokes-/tdd paragraph's aside.
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b86\b\s+probes/);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b87\b\s+probes/);
     // "Nine additional skills" — M125: `setup-template` joined `/upgrade` as
     // the second non-user-invocable non-fork member, eight → nine.
     // Neither is a fork child, which is why the paragraph's `context: fork`
