@@ -829,10 +829,12 @@ describe("HARDEN-B — the default `qa` handler resolves word anchors through th
     async () => {
       const { root, workDir } = await approvedProject("ste669-harden-b-");
       mkdirSync(workDir, { recursive: true });
-      // A real two-second final.mp4 (one video + one audio stream).
+      // A real two-second final.mp4 (one video + one audio stream). The sine is
+      // raised to the default -16 LUFS target, since QA now checks loudness (STE-674).
       ffmpegFixture(workDir, [
         "-f", "lavfi", "-i", "testsrc=duration=2:size=320x240:rate=25",
         "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+        "-af", "volume=5.8dB",
         "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "final.mp4",
       ]);
       writeFile(

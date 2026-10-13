@@ -30,6 +30,7 @@ export interface VideoStyle {
   banned_effects: string[];
   humor: VideoHumor;
   layout: { viewport: { width: number; height: number } };
+  loudness: { target_lufs: number };
 }
 
 const HUMOR_VALUES: readonly VideoHumor[] = ["none", "light", "playful"];
@@ -47,7 +48,12 @@ export const VIDEO_STYLE_DEFAULTS: VideoStyle = {
   banned_effects: ["slow_zoom", "ken_burns"],
   humor: "light",
   layout: { viewport: { width: 1280, height: 720 } },
+  loudness: { target_lufs: -16 },
 };
+
+/** Accepted `loudness.target_lufs` range, inclusive (AC-STE-674.5). */
+const TARGET_LUFS_MIN = -30;
+const TARGET_LUFS_MAX = -5;
 
 /** NFR-10 refusal for a malformed video style. Never echoes key values. */
 export class VideoStyleShapeError extends VideoShapeError {
@@ -113,7 +119,7 @@ export function parseVideoStyle(raw: string): VideoStyle {
   if (!isObj(parsed)) {
     throw new VideoStyleShapeError("(root)", "is not a mapping", "write the style as a YAML mapping.");
   }
-  rejectUnknownKeys(parsed, "", ["pacing", "captions", "music", "narration", "banned_effects", "humor", "layout"]);
+  rejectUnknownKeys(parsed, "", ["pacing", "captions", "music", "narration", "banned_effects", "humor", "layout", "loudness"]);
   const d = VIDEO_STYLE_DEFAULTS;
 
   const pacing = optionalBlock(parsed, "", "pacing") ?? {};
@@ -175,6 +181,21 @@ export function parseVideoStyle(raw: string): VideoStyle {
   const width = numberAt(viewport, "layout.viewport.width", "width", d.layout.viewport.width, true);
   const height = numberAt(viewport, "layout.viewport.height", "height", d.layout.viewport.height, true);
 
+  const loudness = optionalBlock(parsed, "", "loudness") ?? {};
+  rejectUnknownKeys(loudness, "loudness", ["target_lufs"]);
+  let target_lufs = d.loudness.target_lufs;
+  if (has(loudness, "target_lufs")) {
+    const v = loudness.target_lufs;
+    if (typeof v !== "number" || !Number.isFinite(v) || v < TARGET_LUFS_MIN || v > TARGET_LUFS_MAX) {
+      throw new VideoStyleShapeError(
+        "loudness.target_lufs",
+        `must be a number from ${TARGET_LUFS_MIN} to ${TARGET_LUFS_MAX}`,
+        `set \`loudness.target_lufs\` to a number from ${TARGET_LUFS_MIN} to ${TARGET_LUFS_MAX}, e.g. -16.`,
+      );
+    }
+    target_lufs = v;
+  }
+
   return {
     pacing: { words_per_minute },
     captions: { enabled, position },
@@ -183,6 +204,7 @@ export function parseVideoStyle(raw: string): VideoStyle {
     banned_effects,
     humor,
     layout: { viewport: { width, height } },
+    loudness: { target_lufs },
   };
 }
 
