@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_motion.css">
+<style>
+ .wrap { position: absolute; inset: 60px 70px; display: flex; gap: 40px; align-items: center; }
+ .c1 { flex: 1.5; animation: slideL .55s .2s both cubic-bezier(.2,.9,.25,1.1); }
+ .c2 { flex: 1; animation: slideR .55s 6.8s both cubic-bezier(.2,.9,.25,1.1); text-align: center; }
+ .file { font-size: 34px; color: var(--teal); margin-bottom: 8px; }
+ .git { background: var(--teal); color: #052e2a; animation: pop .4s 1.4s both; margin-bottom: 22px; }
+ .line { font-size: 30px; margin: 14px 0; animation: wipe .6s both ease-out; white-space: nowrap; }
+ .k { color: var(--pink); } .v { color: var(--ink); }
+ .l1 { animation-delay: 2.35s; } .l2 { animation-delay: 3.55s; } .l3 { animation-delay: 5.05s; }
+ .ban { position: relative; display: inline-block; color: var(--bad); }
+ .ban::after { content: ""; position: absolute; left: 0; top: 52%; height: 4px; background: var(--bad); animation: strike .4s 5.8s both; }
+ .lock { font-size: 110px; animation: pop .5s 7.5s both cubic-bezier(.2,.9,.25,1.4); }
+ .env { font-size: 40px; color: var(--hot); margin: 10px 0 18px; }
+ .ign { background: var(--bad); color: #2b0606; animation: pop .4s 8.6s both; font-size: 26px; }
+</style></head><body>
+<div class="wrap">
+ <div class="card c1 mono">
+  <div class="file">.dpt/video/style.yaml</div><span class="badge git">✓ tracked in git</span>
+  <div class="line l1"><span class="k">music:</span> <span class="v">"high-energy, never elevator"</span></div>
+  <div class="line l2"><span class="k">tone:</span> <span class="v">"positive, dynamic, funny"</span></div>
+  <div class="line l3"><span class="k">banned:</span> <span class="ban">slow_zoom</span> <span class="ban">ken_burns</span></div>
+ </div>
+ <div class="card c2 mono"><div class="lock">🔒</div><div class="env">.dpt/.env</div><span class="badge ign">git-ignored</span></div>
+</div>
+<script>window.SCENE={duration:10.6,marks:[{name:"banned",t:5.8},{name:"key",t:7.52}]};</script></body></html>
