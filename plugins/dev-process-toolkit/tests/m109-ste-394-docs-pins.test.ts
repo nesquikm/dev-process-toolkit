@@ -125,15 +125,18 @@ describe("AC-STE-394.7 — README probe-count pins move 68 → 69", () => {
   const readme = (): string => read(readmePath);
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("the Features bullet counts 86 numbered probes", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("the Features bullet counts 87 numbered probes", () => {
     // Recalibrated 82 → 83: M140 added #83 external_link_verdicts.
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(readme()).toMatch(/\b86\b\s+numbered `\/gate-check` probes/);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(readme()).toMatch(/\b87\b\s+numbered `\/gate-check` probes/);
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("the /implement-invokes-/tdd aside counts 86 probes", () => {
-    expect(readme()).toMatch(/layers 86 probes/);
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("the /implement-invokes-/tdd aside counts 87 probes", () => {
+    expect(readme()).toMatch(/layers 87 probes/);
   });
 
   test("no stale `68 numbered` / `layers 68 probes` token survives in README", () => {
@@ -154,11 +157,13 @@ describe("AC-STE-394.7 — gate-check SKILL.md gains the #69 entry", () => {
   const skill = (): string => read(gateCheckSkillPath);
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("the highest numbered probe is now 86", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("the highest numbered probe is now 87", () => {
     const numbers = [...skill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(Math.max(...numbers)).toBe(86);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(Math.max(...numbers)).toBe(87);
   });
 
   test("#69 is `upgrade_staleness` and sits directly after #68 `migration_coverage`", () => {
@@ -197,22 +202,25 @@ describe("AC-STE-394.7 — the three pinned test files carry the live-count pin"
   test("tests/gate-check-spec-write-next-line-doc.test.ts pins the live count", () => {
     const body = testFile("gate-check-spec-write-next-line-doc.test.ts");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(body).toContain('"86 numbered"');
-    expect(body).toContain("layers 86 probes");
-    expect(body).toContain("toBe(86)");
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(body).toContain('"87 numbered"');
+    expect(body).toContain("layers 87 probes");
+    expect(body).toContain("toBe(87)");
   });
 
   test("tests/gate-check-public-surface-count-drift.test.ts pins the live count", () => {
     const body = testFile("gate-check-public-surface-count-drift.test.ts");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(body).toContain("\\b86\\b.*numbered");
-    expect(body).toContain("\\b86\\b\\s+probes");
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(body).toContain("\\b87\\b.*numbered");
+    expect(body).toContain("\\b87\\b\\s+probes");
   });
 
   test("tests/m108-ste-393-docs-pins.test.ts pins the live count", () => {
     const body = testFile("m108-ste-393-docs-pins.test.ts");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(body).toContain("\\b86\\b\\s+numbered");
-    expect(body).toContain("layers 86 probes");
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(body).toContain("\\b87\\b\\s+numbered");
+    expect(body).toContain("layers 87 probes");
   });
 });

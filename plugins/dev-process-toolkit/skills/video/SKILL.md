@@ -85,6 +85,8 @@ Run the `qa` stage and fix what it reports before the review.
 
 This step always runs, driven-run marker or not. Show the developer the final cut. They either approve it, or send it back to the script (return to step 4; the changed script needs a fresh approval) or to the edit (return to step 9).
 
+After they approve the final cut, run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/video_commit_nudge.ts <projectRoot>`. It lists the uncommitted house-style and tooling paths, or prints `nothing to commit`. When it lists paths, ask once, default No, naming every listed path. On yes, run the same command with `--commit`. On no, move on. Never push.
+
 Stage inputs, cache layout and worked examples live in `docs/video-reference.md`.
 
 ## Closing report

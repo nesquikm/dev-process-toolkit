@@ -1134,8 +1134,9 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
     // Recalibrated 82 → 83: M140 added #83 external_link_verdicts.
     const numbers = probeNumbers();
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(Math.max(...numbers)).toBe(86);
-    expect(numbers.length).toBe(86);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(Math.max(...numbers)).toBe(87);
+    expect(numbers.length).toBe(87);
   });
 
   test("GUARD — README's two probe-count pins still read the live count", () => {
@@ -1143,11 +1144,13 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
     const featureLine = body.split("\n").filter((l) => /numbered `\/gate-check` probes/.test(l));
     expect(featureLine.length).toBe(1);
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(featureLine[0]!).toMatch(/\b86\b.*numbered/);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(featureLine[0]!).toMatch(/\b87\b.*numbered/);
     const asideLine = body.split("\n").filter((l) => /which layers \d+ probes on top/.test(l));
     expect(asideLine.length).toBe(1);
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(asideLine[0]!).toMatch(/\b86\b\s+probes/);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(asideLine[0]!).toMatch(/\b87\b\s+probes/);
   });
 
   test("GUARD — the module still exports exactly one probe runner", () => {

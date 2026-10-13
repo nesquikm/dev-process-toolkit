@@ -379,15 +379,18 @@ describe("AC-STE-380.5 — probe #66 registered in gate-check SKILL.md", () => {
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("README probe count is current (86 after M_6c25dd added #86)", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("README probe count is current (87 after M_866092 added #87)", () => {
     // Recalibrated 82 → 83: M140 added #83 external_link_verdicts on top
     // of M137's #82 stage_block_adoption.
     const readme = readFileSync(readmePath, "utf-8");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(readme).toContain("86 numbered");
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(readme).toContain("87 numbered");
     expect(readme).not.toContain("68 numbered");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(readme).toMatch(/layers 86 probes/);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(readme).toMatch(/layers 87 probes/);
     expect(readme).not.toMatch(/layers 68 probes/);
   });
 });
@@ -398,7 +401,8 @@ describe("AC-STE-380.5 — probe #66 registered in gate-check SKILL.md", () => {
 
 describe("AC-STE-380.7 — probe-count calibration stays coherent across surfaces", () => {
   // Amended by AC-STE-659.3: probe count 85 -> 86.
-  test("highest numbered gate-check probe is 86 and README agrees", () => {
+  // Amended by AC-STE-673.6: probe count 86 -> 87.
+  test("highest numbered gate-check probe is 87 and README agrees", () => {
     // Recalibrated 82 → 83: M140 added #83 external_link_verdicts.
     const b = readFileSync(gateCheckSkill, "utf-8");
     const numbers = [...b.matchAll(/^(\d+)\. \*\*/gm)].map((m) =>
@@ -406,12 +410,14 @@ describe("AC-STE-380.7 — probe-count calibration stays coherent across surface
     );
     expect(numbers.length).toBeGreaterThan(0);
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(Math.max(...numbers)).toBe(86);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(Math.max(...numbers)).toBe(87);
 
     const readme = readFileSync(readmePath, "utf-8");
     const counted = readme.match(/(\d+) numbered `\/gate-check` probes/);
     expect(counted).not.toBeNull();
     // Amended by AC-STE-659.3: probe count 85 -> 86.
-    expect(Number(counted![1])).toBe(86);
+    // Amended by AC-STE-673.6: probe count 86 -> 87.
+    expect(Number(counted![1])).toBe(87);
   });
 });
