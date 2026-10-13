@@ -19,7 +19,11 @@ export function createGoogleTts(opts: ProviderOpts): TtsProvider {
   return {
     async synthesize(segment): Promise<SynthesisResult> {
       // `[short pause]` is a pause cue, not a word: it becomes an SSML break.
-      const tokens = segment.text.split(/\s+/).filter((w) => w !== "");
+      // Any other square-bracket audio tag (`[laughs]`) is ElevenLabs-only: drop it.
+      const tokens = segment.text
+        .replace(/\[(?!short pause\])[^\]]*\]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w !== "");
       const words: string[] = [];
       const parts: string[] = [];
       for (let t = 0; t < tokens.length; t++) {

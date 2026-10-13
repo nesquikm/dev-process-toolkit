@@ -25,7 +25,8 @@ export type VideoHumor = "none" | "light" | "playful";
 export interface VideoStyle {
   pacing: { words_per_minute: number };
   captions: { enabled: boolean; position: string };
-  music: { level_db: number };
+  music: { level_db: number; prompt: string };
+  narration: { tone: string };
   banned_effects: string[];
   humor: VideoHumor;
   layout: { viewport: { width: number; height: number } };
@@ -37,7 +38,12 @@ const HUMOR_VALUES: readonly VideoHumor[] = ["none", "light", "playful"];
 export const VIDEO_STYLE_DEFAULTS: VideoStyle = {
   pacing: { words_per_minute: 150 },
   captions: { enabled: true, position: "bottom" },
-  music: { level_db: -20 },
+  music: {
+    level_db: -20,
+    prompt:
+      "Upbeat, modern instrumental track for a tech product explainer: punchy drums, bright synths, positive energy, steady driving tempo, no vocals.",
+  },
+  narration: { tone: "" },
   banned_effects: ["slow_zoom", "ken_burns"],
   humor: "light",
   layout: { viewport: { width: 1280, height: 720 } },
@@ -46,7 +52,7 @@ export const VIDEO_STYLE_DEFAULTS: VideoStyle = {
 /** NFR-10 refusal for a malformed video style. Never echoes key values. */
 export class VideoStyleShapeError extends VideoShapeError {
   constructor(keyPath: string, reason: string, remedy: string) {
-    super("style", "video/style.yaml", keyPath, reason, remedy);
+    super("style", videoStylePath("."), keyPath, reason, remedy);
     this.name = "VideoStyleShapeError";
   }
 }
@@ -80,6 +86,26 @@ function numberAt(block: Obj, path: string, key: string, fallback: number, posit
   return v;
 }
 
+/** Longest accepted `music.prompt` / `narration.tone` (AC-STE-671.1). */
+const STYLE_TEXT_MAX = 500;
+
+function cappedStringAt(block: Obj, path: string, key: string, fallback: string): string {
+  if (!has(block, key)) return fallback;
+  const v = block[key];
+  if (typeof v !== "string") {
+    throw new VideoStyleShapeError(path, "must be a string", `set \`${path}\` to a string of at most ${STYLE_TEXT_MAX} characters.`);
+  }
+  // Count code points, not UTF-16 units, so emoji and CJK meet the stated cap.
+  if ([...v].length > STYLE_TEXT_MAX) {
+    throw new VideoStyleShapeError(
+      path,
+      `must be at most ${STYLE_TEXT_MAX} characters`,
+      `shorten \`${path}\` to at most ${STYLE_TEXT_MAX} characters.`,
+    );
+  }
+  return v;
+}
+
 /** Parse and validate the raw text of the video `style.yaml`; absent keys take the defaults. */
 export function parseVideoStyle(raw: string): VideoStyle {
   const parsed = parseYamlOrRefuse(raw, "style", refuse);
@@ -87,7 +113,7 @@ export function parseVideoStyle(raw: string): VideoStyle {
   if (!isObj(parsed)) {
     throw new VideoStyleShapeError("(root)", "is not a mapping", "write the style as a YAML mapping.");
   }
-  rejectUnknownKeys(parsed, "", ["pacing", "captions", "music", "banned_effects", "humor", "layout"]);
+  rejectUnknownKeys(parsed, "", ["pacing", "captions", "music", "narration", "banned_effects", "humor", "layout"]);
   const d = VIDEO_STYLE_DEFAULTS;
 
   const pacing = optionalBlock(parsed, "", "pacing") ?? {};
@@ -112,8 +138,13 @@ export function parseVideoStyle(raw: string): VideoStyle {
   }
 
   const music = optionalBlock(parsed, "", "music") ?? {};
-  rejectUnknownKeys(music, "music", ["level_db"]);
+  rejectUnknownKeys(music, "music", ["level_db", "prompt"]);
   const level_db = numberAt(music, "music.level_db", "level_db", d.music.level_db);
+  const prompt = cappedStringAt(music, "music.prompt", "prompt", d.music.prompt);
+
+  const narration = optionalBlock(parsed, "", "narration") ?? {};
+  rejectUnknownKeys(narration, "narration", ["tone"]);
+  const tone = cappedStringAt(narration, "narration.tone", "tone", d.narration.tone);
 
   let banned_effects = [...d.banned_effects];
   if (has(parsed, "banned_effects")) {
@@ -147,7 +178,8 @@ export function parseVideoStyle(raw: string): VideoStyle {
   return {
     pacing: { words_per_minute },
     captions: { enabled, position },
-    music: { level_db },
+    music: { level_db, prompt },
+    narration: { tone },
     banned_effects,
     humor,
     layout: { viewport: { width, height } },

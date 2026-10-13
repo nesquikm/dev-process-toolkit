@@ -232,6 +232,8 @@ const DEFAULT_HANDLERS: Record<string, StageHandler> = {
       projectRoot: ctx.projectRoot,
       slug: ctx.slug,
       plannedSeconds: voicedSeconds(ctx, "music"),
+      // Only a generated track uses the prompt; `file` / `none` never read style.yaml.
+      prompt: config.music.source === "elevenlabs" ? readVideoStyle(ctx.projectRoot).music.prompt : undefined,
       apiKey: readVideoKeys(ctx.projectRoot)[PROVIDER_KEY.elevenlabs],
       fetch: ctx.deps.fetch ?? liveFetch,
       wait,

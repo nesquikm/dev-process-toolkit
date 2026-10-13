@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.96.0 — "Lights, Camera"** (M_1e0717, feature explainer videos. A new /video skill turns a shipped feature into a short explainer video with the same voice, cuts and checks every time, and /ship-milestone offers one after each release)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.97.0 — "House Style"** (M_102cfa, stored video style and merge-proof guards. Videos now keep the same music and narrator tone every time from the project's style file, and a test that went red on trunk after a merge now measures against a pinned commit)
 
 ## Core Philosophy
 
