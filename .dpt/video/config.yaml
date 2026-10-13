@@ -1,0 +1,9 @@
+tts:
+  provider: elevenlabs
+  voice: hpp4J3VqNfWAUOO0d1Us
+  model: eleven_v4
+recorder:
+  kind: command
+  command: [bash, .dpt/video/scripts/record-shot.sh]
+music:
+  source: elevenlabs

@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_motion.css">
+<style>
+ .stamp { font-size: 132px; font-weight: 900; color: var(--good); border: 12px solid var(--good); border-radius: 26px; padding: 4px 40px; letter-spacing: 4px; animation: slam .55s .3s both cubic-bezier(.2,.9,.25,1.1); }
+ .ask { font-size: 54px; font-weight: 800; animation: slideR .5s 1.75s both cubic-bezier(.2,.9,.25,1.2), wobble .7s 2.7s both ease-in-out; }
+ .ask span { color: var(--hot); }
+ .bit { position: absolute; left: 640px; top: 300px; width: 18px; height: 18px; border-radius: 4px; animation: burst 1.2s .45s both ease-out; }
+</style></head><body>
+<div class="center"><div class="stamp">SHIPPED ✓</div><div class="ask">now… a <span>demo video?</span> 🎬</div></div>
+<script>
+const colors=["#ff8a3d","#2dd4bf","#f472b6","#facc15","#a78bfa"];
+for(let i=0;i<26;i++){const b=document.createElement("div");b.className="bit";const a=i/26*Math.PI*2;b.style.background=colors[i%5];
+b.style.setProperty("--dx",Math.cos(a)*(260+(i%4)*60)+"px");b.style.setProperty("--dy",Math.sin(a)*(200+(i%3)*50)+"px");b.style.setProperty("--rot",(i*47)+"deg");document.body.appendChild(b);}
+window.SCENE={duration:4.4,marks:[{name:"shipped",t:0.32},{name:"demo",t:2.72}]};
+</script></body></html>
