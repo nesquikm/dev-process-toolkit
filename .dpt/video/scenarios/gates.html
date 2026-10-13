@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_motion.css">
+<style>
+ .track { position: absolute; left: 110px; right: 110px; top: 300px; height: 10px; border-radius: 6px; background: rgba(255,255,255,.12); animation: wipe .7s .1s both ease-out; }
+ .dot { position: absolute; top: -10px; width: 30px; height: 30px; border-radius: 50%; background: var(--dim); }
+ .gate { position: absolute; top: 180px; width: 300px; text-align: center; }
+ .g1 { left: 210px; animation: rise .45s .5s both; } .g2 { right: 210px; animation: rise .45s 3.0s both; }
+ .box { font-size: 40px; font-weight: 800; padding: 22px; border-radius: 20px; border: 2px solid rgba(255,255,255,.25); }
+ .b1 { animation: flipOk .5s 2.2s both ease-in-out; } .b2 { animation: flipOk .5s 5.4s both ease-in-out; }
+ .lbl { font-size: 26px; color: var(--dim); margin-top: 14px; }
+ .stage { position: absolute; top: 290px; font-size: 20px; color: var(--dim); }
+ .bot { position: absolute; left: 0; right: 0; bottom: 120px; text-align: center; font-size: 46px; font-weight: 800; animation: rise .5s 7.0s both; }
+ .bot span { display: inline-block; animation: wobble .8s 6.2s both; }
+</style></head><body>
+<div class="track"></div>
+<div class="gate g1"><div class="box b1">Script ✓</div><div class="lbl">before any voice</div></div>
+<div class="gate g2"><div class="box b2">Final cut ✓</div><div class="lbl">before it counts</div></div>
+<div class="bot"><span>🤖</span> even I need permission</div>
+<script>window.SCENE={duration:9.2,marks:[{name:"script-ok",t:2.24},{name:"cut-ok",t:5.6},{name:"permission",t:7.76}]};</script></body></html>
