@@ -44,7 +44,7 @@ import {
   VIDEO_STYLE_DEFAULTS,
 } from "../adapters/_shared/src/video/style";
 import { readVideoKeys } from "../adapters/_shared/src/video/keys";
-import { videoReadiness } from "../adapters/_shared/src/video/readiness";
+import { type SyncRunner, videoReadiness } from "../adapters/_shared/src/video/readiness";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const ADAPTERS_DIR = join(PLUGIN_ROOT, "adapters");
@@ -183,6 +183,12 @@ function makeVideoProject(opts: {
   config?: string | null;
   env?: string | null;
   gitignore?: "current" | "old" | "none";
+  /**
+   * Store `captions.enabled: false`. For spawned front doors only: readiness
+   * probes the host ffmpeg for `drawtext` while captions are on (AC-STE-675.3),
+   * and a subprocess cannot be handed a stub runner.
+   */
+  captionsOff?: boolean;
 }): string {
   const root = makeTmpRoot("ste663-proj-");
   gitInit(root);
@@ -197,6 +203,7 @@ function makeVideoProject(opts: {
     writeFile(root, ".dpt/.env", opts.env);
     sentinelRoots.push(root);
   }
+  if (opts.captionsOff === true) writeFile(root, ".dpt/video/style.yaml", "captions:\n  enabled: false\n");
   return root;
 }
 
@@ -703,8 +710,19 @@ describe("AC-STE-663.6 — readVideoKeys parses .dpt/.env without touching proce
 // AC-STE-663.7 — videoReadiness + front door
 // ---------------------------------------------------------------------------
 
+/**
+ * Readiness also checks `ffmpeg -filters` for `drawtext` while captions are on
+ * (AC-STE-675.3). None of these tests is about captions, so the probe is
+ * answered with a filter list that HAS drawtext — independent of the host build.
+ */
+const FFMPEG_WITH_DRAWTEXT: SyncRunner = () => ({
+  code: 0,
+  stdout: " T.C drawtext          V->V       Draw text on top of video frames using libfreetype library.\n",
+  stderr: "",
+});
+
 function readiness(root: string): { ready: boolean; reasons: string[] } {
-  const r = withoutKeyVarsInProcessEnv(() => videoReadiness(root));
+  const r = withoutKeyVarsInProcessEnv(() => videoReadiness(root, { ffmpegRunner: FFMPEG_WITH_DRAWTEXT }));
   capturedOutputs.push(JSON.stringify(r));
   return r;
 }
@@ -825,7 +843,7 @@ describe("AC-STE-663.7 — videoReadiness", () => {
 
 describe("AC-STE-663.7 — the video_readiness.ts front door", () => {
   test("prints `ready` and exits 0 on a ready project", () => {
-    const root = makeVideoProject({ config: VALID_CONFIG, env: `ELEVENLABS_API_KEY=${SENTINEL}\n` });
+    const root = makeVideoProject({ config: VALID_CONFIG, env: `ELEVENLABS_API_KEY=${SENTINEL}\n`, captionsOff: true });
     const r = runFrontDoor(root);
     expect(r.exitCode).toBe(0);
     expect(r.stdout.trim()).toBe("ready");
@@ -836,6 +854,7 @@ describe("AC-STE-663.7 — the video_readiness.ts front door", () => {
       config: configWith("  provider: google\n  voice: v", "  kind: web", "  source: elevenlabs"),
       env: `OTHER=${SENTINEL}\n`,
       gitignore: "old",
+      captionsOff: true,
     });
     const expected = readiness(root);
     expect(expected.ready).toBe(false);

@@ -41,6 +41,17 @@ export interface Edl {
   anchors: EdlAnchor[];
 }
 
+/** Every key `parseEdl` accepts, per object kind; docs/video-reference.md's `edl.json` section is pinned to these. */
+export const EDL_ACCEPTED_KEYS = {
+  root: ["edl_version", "clips", "voice", "captions", "music", "anchors"],
+  clips: ["src", "in", "out", "at", "effects"],
+  voice: ["segment", "audio", "offset"],
+  captions: ["text", "start", "end"],
+  music: ["src", "level_db"],
+  anchors: ["name", "at"],
+  anchor_ref: ["segment", "word"],
+} as const satisfies Record<string, readonly string[]>;
+
 const refuse: ShapeErrorFactory = (path, reason, remedy) =>
   new Error(
     [
@@ -83,8 +94,8 @@ function list(o: Obj, key: string, required: boolean): unknown[] {
 function parseAt(v: unknown, path: string): number | EdlAnchorRef {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (isObj(v)) {
-    rejectUnknownKeys(v, path, ["segment", "word"], refuse);
-    for (const k of ["segment", "word"]) {
+    rejectUnknownKeys(v, path, EDL_ACCEPTED_KEYS.anchor_ref, refuse);
+    for (const k of EDL_ACCEPTED_KEYS.anchor_ref) {
       const n = v[k];
       if (typeof n !== "number" || !Number.isInteger(n) || n < 1) {
         const p = keyPath(path, k);
@@ -98,7 +109,7 @@ function parseAt(v: unknown, path: string): number | EdlAnchorRef {
 
 function parseClip(v: unknown, path: string): EdlClip {
   const c = obj(v, path);
-  rejectUnknownKeys(c, path, ["src", "in", "out", "at", "effects"], refuse);
+  rejectUnknownKeys(c, path, EDL_ACCEPTED_KEYS.clips, refuse);
   const clip: EdlClip = { src: str(c, "src", path), in: num(c, "in", path), out: num(c, "out", path) };
   if (clip.out < clip.in) {
     const p = keyPath(path, "out");
@@ -123,7 +134,7 @@ export function parseEdl(raw: string): Edl {
     throw refuse("(root)", "is not valid JSON", "fix the JSON syntax of the EDL.");
   }
   const root = obj(doc, "(root)");
-  rejectUnknownKeys(root, "", ["edl_version", "clips", "voice", "captions", "music", "anchors"], refuse);
+  rejectUnknownKeys(root, "", EDL_ACCEPTED_KEYS.root, refuse);
   if (root.edl_version !== 1) {
     throw refuse("edl_version", "must be 1", "set `edl_version` to the number 1.");
   }
@@ -133,28 +144,28 @@ export function parseEdl(raw: string): Edl {
   const voice = list(root, "voice", false).map((v, i) => {
     const p = `voice.${i}`;
     const o = obj(v, p);
-    rejectUnknownKeys(o, p, ["segment", "audio", "offset"], refuse);
+    rejectUnknownKeys(o, p, EDL_ACCEPTED_KEYS.voice, refuse);
     return { segment: num(o, "segment", p), audio: str(o, "audio", p), offset: num(o, "offset", p) };
   });
 
   const captions = list(root, "captions", false).map((v, i) => {
     const p = `captions.${i}`;
     const o = obj(v, p);
-    rejectUnknownKeys(o, p, ["text", "start", "end"], refuse);
+    rejectUnknownKeys(o, p, EDL_ACCEPTED_KEYS.captions, refuse);
     return { text: str(o, "text", p), start: num(o, "start", p), end: num(o, "end", p) };
   });
 
   let music: EdlMusic | null = null;
   if (root.music !== undefined && root.music !== null) {
     const o = obj(root.music, "music");
-    rejectUnknownKeys(o, "music", ["src", "level_db"], refuse);
+    rejectUnknownKeys(o, "music", EDL_ACCEPTED_KEYS.music, refuse);
     music = { src: str(o, "src", "music"), level_db: num(o, "level_db", "music") };
   }
 
   const anchors = list(root, "anchors", false).map((v, i) => {
     const p = `anchors.${i}`;
     const o = obj(v, p);
-    rejectUnknownKeys(o, p, ["name", "at"], refuse);
+    rejectUnknownKeys(o, p, EDL_ACCEPTED_KEYS.anchors, refuse);
     return { name: str(o, "name", p), at: parseAt(o.at, keyPath(p, "at")) };
   });
 
