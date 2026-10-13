@@ -1,0 +1,25 @@
+/* Shared look for motion scenes: 1280x720, dark gradient, warm accents. */
+:root { --bg1:#0e0f1f; --bg2:#231a44; --ink:#f5f3ff; --dim:#a7a3c9; --hot:#ff8a3d; --teal:#2dd4bf; --pink:#f472b6; --good:#4ade80; --bad:#f87171; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1280px; height: 720px; overflow: hidden; }
+body { background: radial-gradient(1200px 700px at 20% 10%, #3b2a7a 0%, transparent 60%), linear-gradient(135deg, var(--bg1), var(--bg2));
+  color: var(--ink); font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif; position: relative; }
+.mono { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; }
+.center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; }
+.anim { animation-fill-mode: both; animation-timing-function: cubic-bezier(.2,.9,.25,1.2); }
+@keyframes pop { 0% { opacity: 0; transform: scale(.4) rotate(-6deg); } 100% { opacity: 1; transform: scale(1) rotate(0); } }
+@keyframes slam { 0% { opacity: 0; transform: scale(2.4) rotate(-12deg); } 60% { opacity: 1; transform: scale(.94) rotate(-6deg); } 100% { opacity: 1; transform: scale(1) rotate(-6deg); } }
+@keyframes slideL { 0% { opacity: 0; transform: translateX(-120px); } 100% { opacity: 1; transform: translateX(0); } }
+@keyframes slideR { 0% { opacity: 0; transform: translateX(160px); } 100% { opacity: 1; transform: translateX(0); } }
+@keyframes rise { 0% { opacity: 0; transform: translateY(40px); } 100% { opacity: 1; transform: translateY(0); } }
+@keyframes fade { 0% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes wobble { 0%,100% { transform: rotate(0); } 20% { transform: rotate(-7deg); } 40% { transform: rotate(6deg); } 60% { transform: rotate(-4deg); } 80% { transform: rotate(2deg); } }
+@keyframes glow { 0% { background: rgba(255,255,255,.06); color: var(--dim); box-shadow: none; } 100% { background: var(--hot); color: #1b1030; box-shadow: 0 0 40px rgba(255,138,61,.7); } }
+@keyframes wipe { 0% { clip-path: inset(0 100% 0 0); } 100% { clip-path: inset(0 0 0 0); } }
+@keyframes strike { 0% { width: 0; } 100% { width: 100%; } }
+@keyframes flipOk { 0% { transform: rotateY(0); background: rgba(255,255,255,.08); } 49% { transform: rotateY(90deg); background: rgba(255,255,255,.08); } 51% { transform: rotateY(90deg); background: var(--good); } 100% { transform: rotateY(0); background: var(--good); color: #062b14; } }
+@keyframes burst { 0% { opacity: 1; transform: translate(0,0) scale(1); } 100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.6) rotate(var(--rot)); } }
+@keyframes outWipe { 0% { clip-path: inset(0 0 0 0); } 100% { clip-path: inset(0 0 0 100%); } }
+.card { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14); border-radius: 22px; padding: 26px 32px; backdrop-filter: blur(6px); box-shadow: 0 30px 80px rgba(0,0,0,.35); }
+.pill { padding: 14px 30px; border-radius: 999px; font-size: 34px; font-weight: 700; }
+.badge { display: inline-block; padding: 6px 16px; border-radius: 999px; font-size: 22px; font-weight: 700; }

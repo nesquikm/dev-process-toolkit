@@ -1,0 +1,16 @@
+pacing:
+  words_per_minute: 165
+captions:
+  enabled: true
+  position: bottom
+music:
+  level_db: -18
+  prompt: "High-energy modern electronic track for a playful developer-tool explainer: punchy drums, funky bass line, bright synth stabs, confident and fun, steady driving tempo, no vocals, never sleepy or elevator-like."
+narration:
+  tone: "Positive, dynamic and funny: quick upbeat delivery, playful jokes about dev workflows and approval gates, genuine excitement at each reveal. Use [excited] and [laughs] sparingly, at punchlines only."
+banned_effects: [slow_zoom, ken_burns]
+humor: playful
+layout:
+  viewport:
+    width: 1280
+    height: 720
