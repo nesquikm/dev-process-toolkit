@@ -49,7 +49,7 @@ import {
 import { DPT_GITIGNORE_BODY, dptGitignorePath, writeDptGitignore } from "../adapters/_shared/src/setup/dpt_gitignore";
 import { parseVideoConfig } from "../adapters/_shared/src/video/config";
 import { parseVideoStyle, VIDEO_STYLE_DEFAULTS } from "../adapters/_shared/src/video/style";
-import { videoReadiness } from "../adapters/_shared/src/video/readiness";
+import { type SyncRunner, videoReadiness } from "../adapters/_shared/src/video/readiness";
 import { runPublicSurfaceCountDriftProbe } from "../adapters/_shared/src/public_surface_count_drift";
 import {
   checkReadmeSurfaceReachability,
@@ -136,14 +136,38 @@ const READY_CONFIG = [
   "",
 ].join("\n");
 
-/** A temp git project that `videoReadiness` reports ready. */
-function readyProject(prefix: string): string {
+/**
+ * Readiness checks `ffmpeg -filters` for `drawtext` whenever captions are on
+ * (AC-STE-675.3). None of these tests is about captions, so every in-process
+ * readiness / stage call answers that probe with a filter list that HAS
+ * drawtext — the suite never depends on the host's ffmpeg build.
+ */
+const FFMPEG_WITH_DRAWTEXT: SyncRunner = () => ({
+  code: 0,
+  stdout: " T.C drawtext          V->V       Draw text on top of video frames using libfreetype library.\n",
+  stderr: "",
+});
+
+function readinessOf(root: string): ReturnType<typeof videoReadiness> {
+  return videoReadiness(root, { ffmpegRunner: FFMPEG_WITH_DRAWTEXT });
+}
+
+/**
+ * A temp git project that `videoReadiness` reports ready. `captionsOff` is for
+ * spawned front doors, where no ffmpeg runner can be injected: turning captions
+ * off in the stored style removes the host-ffmpeg drawtext probe from readiness.
+ */
+function readyProject(prefix: string, opts: { captionsOff?: boolean } = {}): string {
   const root = makeTmpRoot(prefix);
   expect(git(root, ["init", "-q"])).toBe(0);
   writeDptGitignore(root);
   writeFile(videoConfigPath(root), READY_CONFIG);
   writeFile(dptEnvPath(root), `ELEVENLABS_API_KEY=${FAKE_KEY}\n`);
-  expect(videoReadiness(root)).toEqual({ ready: true, reasons: [] });
+  if (opts.captionsOff === true) {
+    writeFile(videoStylePath(root), "captions:\n  enabled: false\n");
+    expect(videoReadiness(root)).toEqual({ ready: true, reasons: [] });
+  }
+  expect(readinessOf(root)).toEqual({ ready: true, reasons: [] });
   return root;
 }
 
@@ -151,7 +175,7 @@ function readyProject(prefix: string): string {
 function notReadyProject(prefix: string): string {
   const root = makeTmpRoot(prefix);
   expect(git(root, ["init", "-q"])).toBe(0);
-  expect(videoReadiness(root).ready).toBe(false);
+  expect(readinessOf(root).ready).toBe(false);
   return root;
 }
 
@@ -211,6 +235,7 @@ async function loadPipeline(): Promise<{
     slug: string;
     stage: string;
     handlers?: Record<string, Handler>;
+    deps?: { ffmpegRunner?: SyncRunner };
   }) => Promise<unknown>;
 }> {
   const mod = await import(PIPELINE_DOOR);
@@ -227,7 +252,7 @@ async function stageRefusal(
 ): Promise<string | null> {
   const { runVideoStage } = await loadPipeline();
   try {
-    await runVideoStage({ projectRoot: root, slug, stage, handlers });
+    await runVideoStage({ projectRoot: root, slug, stage, handlers, deps: { ffmpegRunner: FFMPEG_WITH_DRAWTEXT } });
     return null;
   } catch (err) {
     return err instanceof Error ? err.message : String(err);
@@ -364,7 +389,7 @@ describe("AC-STE-669.2 — the video_init.ts front door", () => {
     const root = initProject("ste669-init-ready-");
     expect(runDoor(INIT_DOOR, [root, "elevenlabs", "web", "none"]).exitCode).toBe(0);
     writeFile(dptEnvPath(root), `ELEVENLABS_API_KEY=${FAKE_KEY}\n`);
-    expect(videoReadiness(root)).toEqual({ ready: true, reasons: [] });
+    expect(readinessOf(root)).toEqual({ ready: true, reasons: [] });
   });
 
   test("refuses to overwrite an existing config.yaml, byte-for-byte, writing nothing else", () => {
@@ -441,7 +466,7 @@ describe("AC-STE-669.3 — stages after `script` refuse without a matching appro
   }
 
   test("CLI: a ready project with no approval refuses `voice` with a non-zero exit", () => {
-    const root = readyProject("ste669-gate-cli-");
+    const root = readyProject("ste669-gate-cli-", { captionsOff: true });
     writeScript(root, "# Script\n\nShot 1.\n");
     const r = runDoor(PIPELINE_DOOR, [root, SLUG, "voice"]);
     expect(r.exitCode).not.toBe(0);
@@ -496,7 +521,7 @@ describe("AC-STE-669.4 — approve-script", () => {
   });
 
   test("CLI: approve-script exits 0 and writes the record; an edit then makes `voice` refuse", () => {
-    const root = readyProject("ste669-approve-cli-");
+    const root = readyProject("ste669-approve-cli-", { captionsOff: true });
     const script = writeScript(root, "# Script\n\nShot 1: the CLI path.\n");
     const ok = runDoor(PIPELINE_DOOR, [root, SLUG, "approve-script"]);
     expect(ok.exitCode).toBe(0);
@@ -518,7 +543,7 @@ describe("AC-STE-669.5 — a not-ready project refuses every stage with the read
     test(`\`${stage}\` refuses, naming every readiness reason, and calls no handler`, async () => {
       const root = notReadyProject(`ste669-notready-${stage}-`);
       writeScript(root, "# Script\n\nShot 1.\n");
-      const reasons = videoReadiness(root).reasons;
+      const reasons = readinessOf(root).reasons;
       expect(reasons.length).toBeGreaterThan(0);
       const { handlers, calls } = spyHandlers();
       const refusal = await stageRefusal(root, stage, handlers);
@@ -534,7 +559,7 @@ describe("AC-STE-669.5 — a not-ready project refuses every stage with the read
     writeScript(root, "# Script\n\nShot 1.\n");
     expect(await stageRefusal(root, "approve-script")).toBeNull();
     rmSync(dptEnvPath(root)); // the key goes away
-    const reasons = videoReadiness(root).reasons;
+    const reasons = readinessOf(root).reasons;
     expect(reasons.length).toBeGreaterThan(0);
     const { handlers, calls } = spyHandlers();
     const refusal = await stageRefusal(root, "voice", handlers);
@@ -574,7 +599,7 @@ describe("AC-STE-669.5 — a not-ready project refuses every stage with the read
 
   test("CLI: a not-ready project refuses `record` with a non-zero exit and the readiness reasons", () => {
     const root = notReadyProject("ste669-notready-cli-");
-    const reasons = videoReadiness(root).reasons;
+    const reasons = readinessOf(root).reasons;
     const r = runDoor(PIPELINE_DOOR, [root, SLUG, "record"]);
     expect(r.exitCode).not.toBe(0);
     expect(r.out).toMatch(/^Refusing: /m);
@@ -782,7 +807,7 @@ async function approvedProject(prefix: string, config?: string): Promise<{ root:
   const root = readyProject(prefix);
   if (config !== undefined) {
     writeFile(videoConfigPath(root), config);
-    expect(videoReadiness(root)).toEqual({ ready: true, reasons: [] });
+    expect(readinessOf(root)).toEqual({ ready: true, reasons: [] });
   }
   writeScript(root, "# Script\n\nShot 1: open the dashboard.\n");
   expect(await stageRefusal(root, "approve-script")).toBeNull();
@@ -981,7 +1006,7 @@ async function runStageWithDeps(
 ): Promise<string | null> {
   const mod: any = await import(PIPELINE_DOOR);
   try {
-    await mod.runVideoStage({ projectRoot: root, slug, stage, deps });
+    await mod.runVideoStage({ projectRoot: root, slug, stage, deps: { ffmpegRunner: FFMPEG_WITH_DRAWTEXT, ...deps } });
     return null;
   } catch (err) {
     return err instanceof Error ? err.message : String(err);

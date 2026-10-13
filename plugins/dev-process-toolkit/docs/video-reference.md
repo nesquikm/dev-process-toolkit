@@ -45,6 +45,37 @@ The shots the `record` stage captures, one object per shot:
 - `driver` — the argv that drives the app while `ios-sim` or `android-emu` records; those recorders refuse a shot without one.
 - `footage` — optional `{ file, markers? }` for the `footage` recorder: `file` is relative to the footage dir `.dpt/video/footage/`, and `markers` is an optional `[{ name, t }]` list.
 
+### `edl.json`
+
+The edit decision list the `render` stage turns into one ffmpeg call. The schema is closed: an unknown key at any level refuses, naming the field path. Times are in seconds.
+
+- `edl_version` — must be the number `1`.
+- `clips` — required; the clips in play order, each an object:
+  - `src` — the clip file.
+  - `in` — where the clip starts in its source.
+  - `out` — where the clip ends in its source; must not precede `in`.
+  - `at` — optional; when the clip starts in the video, as seconds or an anchor reference.
+  - `effects` — optional list of effect names (e.g. `zoompan`); the style's `banned_effects` refuse a match.
+- `voice` — optional; the narration track, one object per segment:
+  - `segment` — the segment number from `segments.json`.
+  - `audio` — the segment's audio file.
+  - `offset` — when the segment starts in the video.
+- `captions` — optional; the on-screen text, each an object:
+  - `text` — the caption shown.
+  - `start` — when it appears.
+  - `end` — when it disappears.
+- `music` — optional object, or `null` for none:
+  - `src` — the music file.
+  - `level_db` — the music volume in dB.
+- `anchors` — optional; the punchline moments the `qa` stage leaves one still for, each an object:
+  - `name` — the anchor name; it names the still.
+  - `at` — the anchor's time, as seconds or an anchor reference.
+
+An anchor reference `{ segment, word }` pins a time to a spoken word: the word's start in that segment's `alignment/<segment>.json` plus the segment's `voice` offset. Both are 1-based integers.
+
+- `segment` — the voice segment number.
+- `word` — the word's position in that segment.
+
 ## Stored style
 
 `style.yaml` carries the feel of every video, so the next one matches the last. The schema is closed: these two keys are free text, each capped at 500 characters, and any other unknown key still refuses.

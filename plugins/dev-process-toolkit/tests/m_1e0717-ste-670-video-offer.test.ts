@@ -162,6 +162,10 @@ function makeProject(opts: {
   if (opts.ready) {
     writeFile(root, ".dpt/video/config.yaml", VALID_CONFIG);
     writeFile(root, ".dpt/.env", "ELEVENLABS_API_KEY=sk-ste670-test\n");
+    // Captions off: readiness probes the host ffmpeg for `drawtext` while
+    // captions are on (AC-STE-675.3), and the spawned front door cannot be
+    // handed a stub runner. These tests are about the offer, not captions.
+    writeFile(root, ".dpt/video/style.yaml", "captions:\n  enabled: false\n");
   }
   const planDir = opts.planArchived ? "specs/plan/archive" : "specs/plan";
   writeFile(root, `${planDir}/${opts.milestone}.md`, planBody(opts.milestone, opts.title, !!opts.planArchived));
@@ -489,10 +493,10 @@ describe("AC-STE-670.6 — ignoring readiness is mutation-verified", () => {
       const marker = "/* MUTATION:STE-670.6:ignore-readiness */";
       const run = runOverlay(NOT_READY_TARGET, {
         moduleRel: "adapters/_shared/src/video/readiness.ts",
-        find: "export function videoReadiness(projectRoot: string): VideoReadiness {",
+        find: "export function videoReadiness(projectRoot: string, opts: { ffmpegRunner?: SyncRunner } = {}): VideoReadiness {",
         repl:
-          `export function videoReadiness(_projectRoot: string): VideoReadiness { ${marker} return { ready: true, reasons: [] }; }\n` +
-          "function __unmutated_videoReadiness(projectRoot: string): VideoReadiness {",
+          `export function videoReadiness(_projectRoot: string, _opts: { ffmpegRunner?: SyncRunner } = {}): VideoReadiness { ${marker} return { ready: true, reasons: [] }; }\n` +
+          "function __unmutated_videoReadiness(projectRoot: string, opts: { ffmpegRunner?: SyncRunner } = {}): VideoReadiness {",
         marker,
       });
       expect(run.mutatedSource).toContain(marker);

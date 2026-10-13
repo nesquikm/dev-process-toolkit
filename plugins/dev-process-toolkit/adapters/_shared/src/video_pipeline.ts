@@ -31,7 +31,7 @@ import { defaultRunner, type Runner, type Which } from "./video/render";
 import type { FetchFn, TtsProvider, TtsSegment, WordTiming } from "./video/tts";
 import { createElevenLabsTts } from "./video/tts_elevenlabs";
 import { createGoogleTts } from "./video/tts_google";
-import { PROVIDER_KEY, videoReadiness } from "./video/readiness";
+import { PROVIDER_KEY, type SyncRunner, videoReadiness } from "./video/readiness";
 
 export const VIDEO_STAGES = ["script", "approve-script", "voice", "record", "music", "edl", "render", "qa"] as const;
 export type VideoStage = (typeof VIDEO_STAGES)[number];
@@ -50,6 +50,8 @@ export interface VideoStageDeps {
   fetch?: FetchFn;
   runner?: Runner;
   which?: Which;
+  /** Answers the readiness check's `ffmpeg -filters` probe (AC-STE-675.3). */
+  ffmpegRunner?: SyncRunner;
 }
 
 export interface StageContext {
@@ -294,7 +296,7 @@ export async function runVideoStage(opts: {
   }
   // Readiness first (AC-STE-669.5): a not-ready project refuses every stage
   // before any approval check, provider call or recording.
-  const readiness = videoReadiness(projectRoot);
+  const readiness = videoReadiness(projectRoot, { ffmpegRunner: ctx.deps.ffmpegRunner });
   if (!readiness.ready) {
     throw refusal(
       `the project is not ready to make videos:\n${readiness.reasons.map((r) => `  - ${r}`).join("\n")}`,
