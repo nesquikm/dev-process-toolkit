@@ -45,6 +45,12 @@ const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
 const RESUME_MODULE = join(PLUGIN_ROOT, "adapters", "_shared", "src", "resume_classifier.ts");
 /** The front door, spelled exactly as every skill must name it. */
 const FRONT_DOOR = "adapters/_shared/src/sibling_release.ts";
+/**
+ * Amended by AC-STE-672.1: the m143-551 admission and its MUTATION diff against
+ * this pinned commit (the AC-STE-618.8 freeze base), never against `main` — once
+ * the branch merges, `main` holds the edits and a diff against it reads empty.
+ */
+const M143_551_BASE = "134fe2e6";
 const skillPath = (name: string): string => join(PLUGIN_ROOT, "skills", name, "SKILL.md");
 const IMPLEMENT_SKILL = skillPath("implement");
 const ARCHIVE_SKILL = skillPath("spec-archive");
@@ -221,7 +227,7 @@ function expectSuiteGreen(suite: string): void {
  * pin now admits exactly those: every hunk of the diff against `ref` must add a
  * line carrying the marker, and a hunk that does not is still an edit.
  */
-function expectUneditedBeyondSte609(suite: string, ref: "main" | "HEAD"): void {
+function expectUneditedBeyondSte609(suite: string, ref: string): void {
   const tracked = spawnSync("git", ["cat-file", "-e", `${ref}:./${suite}`], {
     cwd: PLUGIN_ROOT,
     encoding: "utf-8",
@@ -500,8 +506,9 @@ describe("AC-STE-590.4 — skills/spec-archive/SKILL.md gains a refused-spanning
 
   // Amended by AC-STE-670.4 (operator ruling 2026-10-12, M_1e0717): the suite admits
   // STE-670's marked amendments; an unmarked hunk still goes red.
-  test("tests/m143-ste-551-continuation-offers.test.ts is unedited against main beyond marked amendments", () => {
-    expectUneditedBeyondSte609("tests/m143-ste-551-continuation-offers.test.ts", "main");
+  // Amended by AC-STE-672.1: graded against the pinned base, not `main`.
+  test("tests/m143-ste-551-continuation-offers.test.ts is unedited against the pinned base beyond marked amendments", () => {
+    expectUneditedBeyondSte609("tests/m143-ste-551-continuation-offers.test.ts", M143_551_BASE);
   });
 
   // Amended by AC-STE-670.4: the admission stays falsifiable — the real diff,
@@ -509,11 +516,11 @@ describe("AC-STE-590.4 — skills/spec-archive/SKILL.md gains a refused-spanning
   test("MUTATION: an unmarked hunk in the m143-551 diff is still reported as an edit", () => {
     const diff = spawnSync(
       "git",
-      ["diff", "-U0", "main", "--", "tests/m143-ste-551-continuation-offers.test.ts"],
+      ["diff", "-U0", M143_551_BASE, "--", "tests/m143-ste-551-continuation-offers.test.ts"],
       { cwd: PLUGIN_ROOT, encoding: "utf-8" },
     );
     expect(diff.status, diff.stderr).toBe(0);
-    expect(diff.stdout, "the suite carries no diff against main to grade").toContain("@@ ");
+    expect(diff.stdout, "the suite carries no diff against the pinned base to grade").toContain("@@ ");
     expect(unmarkedHunks(diff.stdout)).toEqual([]);
     // Strip the marker from the first hunk that carries it.
     const stripped = diff.stdout.replace(/Amended by AC-STE-670\.4/, "Amended by nobody");
