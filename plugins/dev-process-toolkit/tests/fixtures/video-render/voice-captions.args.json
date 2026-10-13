@@ -10,7 +10,7 @@
   "-i",
   "segments/2.mp3",
   "-filter_complex",
-  "[0:v]trim=start=0:end=2.5,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v0];[1:v]trim=start=1:end=4,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v1];[v0][v1]concat=n=2:v=1:a=0[vcat];[vcat]drawtext=text='Shipping':fontsize=h/14:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h-text_h-h*0.08:enable='between(t,0,1.2)',drawtext=text='Tomorrow':fontsize=h/14:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h-text_h-h*0.08:enable='between(t,2.5,3.4)'[vout];[2:a]adelay=0:all=1[a2];[3:a]adelay=2500:all=1[a3];[a2][a3]amix=inputs=2:duration=longest:normalize=0,apad,atrim=end=5.5[aout]",
+  "[0:v]trim=start=0:end=2.5,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,trim=end=2.5[v0];[1:v]trim=start=1:end=4,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,trim=end=3[v1];[v0][v1]concat=n=2:v=1:a=0[vcat];[vcat]drawtext=text='Shipping':fontsize=h/14:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h-text_h-h*0.08:enable='between(t,0,1.2)',drawtext=text='Tomorrow':fontsize=h/14:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h-text_h-h*0.08:enable='between(t,2.5,3.4)'[vout];[2:a]adelay=0:all=1[a2];[3:a]adelay=2500:all=1[a3];[a2][a3]amix=inputs=2:duration=longest:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,apad,atrim=end=5.5[aout]",
   "-map",
   "[vout]",
   "-map",

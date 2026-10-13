@@ -1,0 +1,9 @@
+{
+  "edl_version": 1,
+  "clips": [
+    { "src": "clips/intro.mp4", "in": 0, "out": 3 }
+  ],
+  "voice": [
+    { "segment": 1, "audio": "segments/1.mp3", "offset": 0.5 }
+  ]
+}

@@ -13,7 +13,6 @@
 // keeps the real handlers but swaps their I/O: `fetch` for every provider call,
 // `runner` + `which` for ffmpeg/ffprobe.
 
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { videoConfigPath, videoWorkDir } from "./dpt_paths";
@@ -27,6 +26,7 @@ import { qaRender } from "./video/qa";
 import { readVideoStyle } from "./video/style";
 import { type FootageMapping, recordShot, type Shot } from "./video/recorder";
 import { nfr10Refusal as refusal } from "./video/shape";
+import { sha256File } from "./video/stage_cache";
 import { defaultRunner, type Runner, type Which } from "./video/render";
 import type { FetchFn, TtsProvider, TtsSegment, WordTiming } from "./video/tts";
 import { createElevenLabsTts } from "./video/tts_elevenlabs";
@@ -68,10 +68,6 @@ function stageLine(stage: string, slug: string): string {
   return `stage=${stage}, slug=${slug}`;
 }
 
-function sha256Hex(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
 function scriptPath(workDir: string): string {
   return join(workDir, SCRIPT_FILE);
 }
@@ -103,7 +99,7 @@ function approveScript(ctx: StageContext): void {
     `write the script to ${SCRIPT_FILE} in the work dir, then re-run approve-script.`,
   );
   mkdirSync(ctx.workDir, { recursive: true });
-  const record = { sha256: sha256Hex(script), approvedAt: new Date().toISOString() };
+  const record = { sha256: sha256File(script), approvedAt: new Date().toISOString() };
   writeFileSync(join(ctx.workDir, APPROVAL_RECORD_FILE), `${JSON.stringify(record, null, 2)}\n`);
 }
 
@@ -118,7 +114,7 @@ function requireApproval(ctx: StageContext, stage: string): void {
       ctxLine,
     );
   }
-  if (!existsSync(script) || sha256Hex(script) !== recorded) {
+  if (!existsSync(script) || sha256File(script) !== recorded) {
     throw refusal(
       `script.md changed since it was approved; stage "${stage}" would run on an unapproved script.`,
       "review the edited script.md, then re-run the approve-script stage.",
@@ -264,6 +260,7 @@ const DEFAULT_HANDLERS: Record<string, StageHandler> = {
       workDir: ctx.workDir,
       edl,
       alignments: readAlignments(ctx.workDir, edl),
+      targetLufs: readVideoStyle(ctx.projectRoot).loudness.target_lufs,
       runner: ctx.deps.runner,
       which: ctx.deps.which,
     });

@@ -6,7 +6,7 @@
   "-i",
   "clips/demo.mp4",
   "-filter_complex",
-  "[0:v]trim=start=0:end=2.5,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v0];[1:v]trim=start=1:end=4,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v1];[v0][v1]concat=n=2:v=1:a=0[vcat];anullsrc=r=48000:cl=stereo,atrim=end=5.5[aout]",
+  "[0:v]trim=start=0:end=2.5,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,trim=end=2.5[v0];[1:v]trim=start=1:end=4,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,trim=end=3[v1];[v0][v1]concat=n=2:v=1:a=0[vcat];anullsrc=r=48000:cl=stereo,atrim=end=5.5[aout]",
   "-map",
   "[vcat]",
   "-map",

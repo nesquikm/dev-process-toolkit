@@ -80,10 +80,13 @@ export function buildFfmpegArgs(edl: Edl, style: VideoStyle, alignments: Record<
       : "";
     const lead = at.lead > 0 ? `,tpad=start_mode=clone:start_duration=${n(at.lead)}` : "";
     const hold = at.hold > 0 ? `,tpad=stop_mode=clone:stop_duration=${n(at.hold)}` : "";
+    // `trim` keeps the last in-window frame with its full source duration, and `fps` then fills
+    // frames up to the NEXT source frame — on a variable-frame-rate clip that overruns the cut and
+    // shifts every later clip. The second `trim` after `fps` cuts the segment back to out - in.
     graph.push(
       `[${input}:v]trim=start=${n(at.in)}:end=${n(at.out)},setpts=PTS-STARTPTS,` +
         `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${FPS}${zoom}${lead}${hold}[${label}]`,
+        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${FPS},trim=end=${n(at.out - at.in)}${zoom}${lead}${hold}[${label}]`,
     );
     clipLabels.push(`[${label}]`);
     input++;
@@ -103,7 +106,8 @@ export function buildFfmpegArgs(edl: Edl, style: VideoStyle, alignments: Record<
     videoOut = "vout";
   }
 
-  // Audio: voice segments delayed to their offsets, plus music at the edit list's level.
+  // Audio: voice segments delayed to their offsets, plus music at the edit list's level, then
+  // the mix normalised to the style's loudness target.
   const audioLabels: string[] = [];
   for (const v of edl.voice) {
     args.push("-i", v.audio);
@@ -128,7 +132,10 @@ export function buildFfmpegArgs(edl: Edl, style: VideoStyle, alignments: Record<
         ? audioLabels[0]!
         : `${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest:normalize=0`;
     const sep = audioLabels.length === 1 ? "" : ",";
-    graph.push(`${mixed}${sep}apad,atrim=end=${duration}[aout]`);
+    // AC-STE-674.6: one loudness normalisation on the final mix (the voice alone without music);
+    // loudnorm upsamples internally, so resample back to 48 kHz after it.
+    const loudnorm = `loudnorm=I=${n(style.loudness.target_lufs)}:TP=-1.5:LRA=11,aresample=48000`;
+    graph.push(`${mixed}${sep}${loudnorm},apad,atrim=end=${duration}[aout]`);
   }
 
   args.push(
