@@ -8,7 +8,7 @@
   "-i",
   "music/track.mp3",
   "-filter_complex",
-  "[0:v]trim=start=0:end=2.5,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v0];[1:v]trim=start=1:end=4,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v1];[v0][v1]concat=n=2:v=1:a=0[vcat];[2:a]volume=-18dB[m2];[m2]apad,atrim=end=5.5[aout]",
+  "[0:v]trim=start=0:end=2.5,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,trim=end=2.5[v0];[1:v]trim=start=1:end=4,setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,trim=end=3[v1];[v0][v1]concat=n=2:v=1:a=0[vcat];[2:a]volume=-18dB[m2];[m2]loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,apad,atrim=end=5.5[aout]",
   "-map",
   "[vcat]",
   "-map",

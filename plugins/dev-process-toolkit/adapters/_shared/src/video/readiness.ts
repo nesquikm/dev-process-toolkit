@@ -13,6 +13,8 @@ import { relative } from "node:path";
 import { dptEnvPath, videoConfigPath } from "../dpt_paths";
 import { parseVideoConfig, type VideoConfig } from "./config";
 import { readVideoKeys } from "./keys";
+import { CAPTION_FILTER_MISSING, CAPTION_FILTER_REMEDY, ffmpegFiltersArgv, listsDrawtext } from "./render";
+import { readVideoStyle } from "./style";
 
 export interface VideoReadiness {
   ready: boolean;
@@ -71,7 +73,37 @@ function envIgnored(projectRoot: string): "ignored" | "not-ignored" | "not-a-rep
   return proc.exitCode === 128 ? "not-a-repo" : "not-ignored";
 }
 
-export function videoReadiness(projectRoot: string): VideoReadiness {
+export type SyncRunner = (argv: string[]) => { code: number; stdout: string; stderr: string };
+
+export const defaultSyncRunner: SyncRunner = (argv) => {
+  try {
+    const proc = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe", timeout: 10_000 });
+    return { code: proc.exitCode ?? -1, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+  } catch (err) {
+    return { code: -1, stdout: "", stderr: err instanceof Error ? err.message : String(err) };
+  }
+};
+
+/** Captions on ⇒ ask `ffmpeg -filters`; a reason when `drawtext` is not listed, else null. */
+function captionFilterReason(projectRoot: string, runner: SyncRunner): string | null {
+  let enabled: boolean;
+  try {
+    enabled = readVideoStyle(projectRoot).captions.enabled;
+  } catch {
+    return null;
+  }
+  if (!enabled) return null;
+  const ffmpeg = Bun.which("ffmpeg") ?? "ffmpeg";
+  const res = runner(ffmpegFiltersArgv(ffmpeg));
+  if (listsDrawtext(res)) return null;
+  if (res.code !== 0) {
+    const why = res.stderr.trim().split("\n")[0] || `exit ${res.code}`;
+    return `video captions need ffmpeg's \`drawtext\` filter, but \`${ffmpeg} -filters\` could not run (${why}) — remedy: ${CAPTION_FILTER_REMEDY}`;
+  }
+  return `${CAPTION_FILTER_MISSING} — remedy: ${CAPTION_FILTER_REMEDY}`;
+}
+
+export function videoReadiness(projectRoot: string, opts: { ffmpegRunner?: SyncRunner } = {}): VideoReadiness {
   const reasons: string[] = [];
   const { config, reason } = readConfig(projectRoot);
   if (reason !== null) reasons.push(reason);
@@ -94,6 +126,9 @@ export function videoReadiness(projectRoot: string): VideoReadiness {
       `${ENV_DISPLAY} is not ignored by git — remedy: run /dev-process-toolkit:upgrade to refresh .dpt/.gitignore (or add \`.env\` to .dpt/.gitignore).`,
     );
   }
+
+  const captionReason = captionFilterReason(projectRoot, opts.ffmpegRunner ?? defaultSyncRunner);
+  if (captionReason !== null) reasons.push(captionReason);
 
   return { ready: reasons.length === 0, reasons };
 }

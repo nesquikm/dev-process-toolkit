@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.98.0] — 2026-10-13 — "Final Mix"
+
+### Added
+
+- Offer to commit the house video style and tooling (STE-673). After the final cut is approved, `/video` lists the uncommitted style and tooling under `.dpt/video/` and asks once, default No. Yes stages exactly those paths and makes one commit. Nothing ever pushes, and `.dpt/video/work/` and `.dpt/.env` are never listed. The front door refuses when other changes are already staged, and it unstages its own paths if the commit fails. New gate-check probe #87 `video_tooling_uncommitted` reports the same paths as warnings and never fails the gate.
+
+### Fixed
+
+- Renders follow new footage, stay in sync and hit a loudness target (STE-674). The render stage now keys on the bytes of every clip, voice segment and music file the edit list names, so re-recorded footage re-renders. A variable-frame-rate clip no longer overruns its cut: each clip is trimmed again after `fps`, so later clips land on their placed times. Measured on the unfixed renderer, clips two and three started 0.5 s late. The final mix runs through one `loudnorm` pass at the new `loudness.target_lufs` style key, default −16. QA fails a cut more than 1 LU from the target, and a clips-only cut with a silent track is exempt.
+- Readiness checks the caption filter; the edit list is documented (STE-675). With captions on, readiness asks ffmpeg for its filters. A build without `drawtext` now refuses before any paid voice or music call, instead of at the final render. Readiness and render share one remedy: `brew install ffmpeg-full` with that keg's `bin` first on `PATH`, or captions off. The video reference gains an `edl.json` section, pinned to the parser's accepted keys in both directions.
+
+### Known defects
+
+- The commit front door compares toplevel-relative git paths against `.dpt/video/`, so a project root below the git toplevel would list nothing. Toolkit project roots are the checkout root, so the case does not arise today.
+- The front door commits the whole index. A pre-check refuses when anything outside the list is staged, but a writer that stages between the check and the commit is not caught.
+
+Total test count at release: 18858 tests, 0 failures, 0 errors.
+
 ## [2.97.0] — 2026-10-13 — "House Style"
 
 ### Added
