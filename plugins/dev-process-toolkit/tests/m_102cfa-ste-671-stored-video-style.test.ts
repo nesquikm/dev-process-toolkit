@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { dptEnvPath, videoConfigPath, videoStylePath, videoWorkDir } from "../adapters/_shared/src/dpt_paths";
 import { writeDptGitignore } from "../adapters/_shared/src/setup/dpt_gitignore";
-import { videoReadiness } from "../adapters/_shared/src/video/readiness";
+import { type SyncRunner, videoReadiness } from "../adapters/_shared/src/video/readiness";
 import { parseVideoStyle, readVideoStyle, VIDEO_STYLE_DEFAULTS } from "../adapters/_shared/src/video/style";
 import { createElevenLabsTts } from "../adapters/_shared/src/video/tts_elevenlabs";
 import { createGoogleTts } from "../adapters/_shared/src/video/tts_google";
@@ -122,6 +122,18 @@ const MUSIC_CONFIG = [
   "",
 ].join("\n");
 
+/**
+ * Readiness checks `ffmpeg -filters` for `drawtext` while captions are on
+ * (AC-STE-675.3). These tests are about the music prompt, not captions, so every
+ * readiness / stage call answers that probe with a filter list that HAS
+ * drawtext — the suite never depends on the host's ffmpeg build.
+ */
+const FFMPEG_WITH_DRAWTEXT: SyncRunner = () => ({
+  code: 0,
+  stdout: " T.C drawtext          V->V       Draw text on top of video frames using libfreetype library.\n",
+  stderr: "",
+});
+
 /** A ready git project with music.source elevenlabs, an approved script and the music stage's inputs. */
 async function musicReadyProject(prefix: string, styleYaml: string | null): Promise<{ root: string; workDir: string }> {
   const root = makeTmpRoot(prefix);
@@ -130,11 +142,11 @@ async function musicReadyProject(prefix: string, styleYaml: string | null): Prom
   writeFile(videoConfigPath(root), MUSIC_CONFIG);
   writeFile(dptEnvPath(root), `ELEVENLABS_API_KEY=${FAKE_KEY}\n`);
   if (styleYaml !== null) writeFile(videoStylePath(root), styleYaml);
-  expect(videoReadiness(root)).toEqual({ ready: true, reasons: [] });
+  expect(videoReadiness(root, { ffmpegRunner: FFMPEG_WITH_DRAWTEXT })).toEqual({ ready: true, reasons: [] });
 
   const workDir = videoWorkDir(root, SLUG);
   writeFile(join(workDir, "script.md"), "# Script\n\nShot 1: open the dashboard.\n");
-  await runVideoStage({ projectRoot: root, slug: SLUG, stage: "approve-script" });
+  await runVideoStage({ projectRoot: root, slug: SLUG, stage: "approve-script", deps: { ffmpegRunner: FFMPEG_WITH_DRAWTEXT } });
   writeFile(join(workDir, "segments.json"), JSON.stringify([{ index: 1, text: "Meet the pipeline." }]));
   writeFile(
     join(workDir, "alignment", "1.json"),
@@ -151,7 +163,7 @@ async function runMusicStage(root: string): Promise<RecordedRequest[]> {
   const { fetch, calls } = recordingFetch(
     () => new Response(new Uint8Array([0x49, 0x44, 0x33]), { status: 200, headers: { "content-type": "audio/mpeg" } }),
   );
-  await runVideoStage({ projectRoot: root, slug: SLUG, stage: "music", deps: { fetch } });
+  await runVideoStage({ projectRoot: root, slug: SLUG, stage: "music", deps: { fetch, ffmpegRunner: FFMPEG_WITH_DRAWTEXT } });
   return calls;
 }
 

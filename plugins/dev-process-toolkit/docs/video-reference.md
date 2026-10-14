@@ -7,7 +7,7 @@ Overflow for `skills/video/SKILL.md`: the details the skill points at instead of
 ### `adapters/_shared/src/video_init.ts <projectRoot> <provider> <recorder> <music>`
 
 - Writes `config.yaml` with the three chosen values plus the placeholders a fresh config needs to parse: `tts.voice` (`21m00Tcm4TlvDq8ikWAM` for `elevenlabs`, `en-US-Neural2-D` for `google`), `recorder.device: booted` for `ios-sim`, `recorder.command: [bash, scripts/record.sh]` for `command`, and `music.file: music.mp3` for `music: file`. Tune them by hand afterwards.
-- Writes `style.yaml` with the documented defaults spelled out (pacing, captions, music level, banned effects, humor, layout viewport), only when no `style.yaml` exists yet.
+- Writes `style.yaml` with the documented defaults spelled out (pacing, captions, music level, banned effects, humor, layout viewport, loudness target), only when no `style.yaml` exists yet.
 - Creates `scenarios/`, runs `writeDptGitignore`, and prints the key variable name the chosen provider reads from `.dpt/.env`. It never asks for, reads or writes a key.
 - Refuses (NFR-10 shape, exit 1) to overwrite an existing `config.yaml`, and refuses an unknown provider, recorder or music source; both refusals happen before anything is written.
 
@@ -27,8 +27,8 @@ Runs one stage against the work dir `.dpt/video/work/<slug>/`. Stages, in pipeli
   | `record` | `shots.json` — records each shot with the configured recorder |
   | `music` | `segments.json`, `alignment/<n>.json` — resolves a track for the planned length (the sum of each segment's last word end) |
   | `edl` | `edl.json` — validates it |
-  | `render` | `segments.json`, `edl.json`, `style.yaml` — renders `final.mp4` |
-  | `qa` | `edl.json`, `final.mp4` — refuses listing every problem found |
+  | `render` | `segments.json`, `edl.json`, `style.yaml` — renders `final.mp4`, normalised to `loudness.target_lufs` (default −16); re-runs when the bytes of any clip, voice or music file the edit list names change |
+  | `qa` | `edl.json`, `final.mp4` — refuses listing every problem found, including integrated loudness more than 1 LU from the target |
 
 ### `segments.json`
 
@@ -44,6 +44,37 @@ The shots the `record` stage captures, one object per shot:
 - `recorder` — optional; overrides the configured recorder for this shot.
 - `driver` — the argv that drives the app while `ios-sim` or `android-emu` records; those recorders refuse a shot without one.
 - `footage` — optional `{ file, markers? }` for the `footage` recorder: `file` is relative to the footage dir `.dpt/video/footage/`, and `markers` is an optional `[{ name, t }]` list.
+
+### `edl.json`
+
+The edit decision list the `render` stage turns into one ffmpeg call. The schema is closed: an unknown key at any level refuses, naming the field path. Times are in seconds.
+
+- `edl_version` — must be the number `1`.
+- `clips` — required; the clips in play order, each an object:
+  - `src` — the clip file.
+  - `in` — where the clip starts in its source.
+  - `out` — where the clip ends in its source; must not precede `in`.
+  - `at` — optional; when the clip starts in the video, as seconds or an anchor reference.
+  - `effects` — optional list of effect names (e.g. `zoompan`); the style's `banned_effects` refuse a match.
+- `voice` — optional; the narration track, one object per segment:
+  - `segment` — the segment number from `segments.json`.
+  - `audio` — the segment's audio file.
+  - `offset` — when the segment starts in the video.
+- `captions` — optional; the on-screen text, each an object:
+  - `text` — the caption shown.
+  - `start` — when it appears.
+  - `end` — when it disappears.
+- `music` — optional object, or `null` for none:
+  - `src` — the music file.
+  - `level_db` — the music volume in dB.
+- `anchors` — optional; the punchline moments the `qa` stage leaves one still for, each an object:
+  - `name` — the anchor name; it names the still.
+  - `at` — the anchor's time, as seconds or an anchor reference.
+
+An anchor reference `{ segment, word }` pins a time to a spoken word: the word's start in that segment's `alignment/<segment>.json` plus the segment's `voice` offset. Both are 1-based integers.
+
+- `segment` — the voice segment number.
+- `word` — the word's position in that segment.
 
 ## Stored style
 

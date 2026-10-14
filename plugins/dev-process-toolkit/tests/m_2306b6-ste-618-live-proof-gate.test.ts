@@ -68,7 +68,11 @@ const RUN_DATE = "2026-09-21";
 // sets and moved its base from 230148c9 to c3d58347, the last M_6c25dd
 // implementation commit, whose step-3 rewrite (+5 lines) and probe row #86
 // were drift against the old base. The epic-close line moved 260 -> 265 with it.
-const KICKOFF = "c3d58347";
+// RE-BASED (operator ruling 2026-10-13, M_866092 / STE-673): the gate-check half
+// moved its base from c3d58347 to fb8a2846, the STE-673 implementation commit,
+// whose probe row #87 and "#88" next-probe sentence were drift against the old
+// base. The line sets are unchanged.
+const KICKOFF = "fb8a2846";
 // RE-BASED (operator ruling 2026-10-12, M_1e0717 / STE-670): the ship-milestone
 // half of the freeze moved its base to d7af0428 (the v2.95.1 merge, parent of
 // the M_1e0717 spec commit), where lines 91 and 265 hold the same text as at
@@ -1140,7 +1144,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   // RULING (STE-661, M_1ef45e, operator 2026-10-05): line 154 is probe #67
   // `fr_summary_altitude`'s entry, rewritten in place by AC-STE-661.8 to name
   // the sentence_cap rule. It is the THIRD line, admitted by this named ruling;
-  // a fourth permitted line needs a fresh one. KICKOFF stays c3d58347.
+  // a fourth permitted line needs a fresh one. KICKOFF moved to fb8a2846 (M_866092 ruling above).
   const PERMITTED_LINES: readonly number[] = [120, 128, 154];
 
   /** The guard: same line count, and every differing line is a permitted one. */

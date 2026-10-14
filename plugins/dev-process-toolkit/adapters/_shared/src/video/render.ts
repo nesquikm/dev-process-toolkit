@@ -46,6 +46,23 @@ export function requireRenderBinaries(which: Which = defaultWhich): { ffmpeg: st
   return { ffmpeg: requireBinary("ffmpeg", which), ffprobe: requireBinary("ffprobe", which) };
 }
 
+/** The one remedy for an ffmpeg that lacks `drawtext` (Homebrew's plain `ffmpeg` is built without libfreetype). */
+export const CAPTION_FILTER_REMEDY =
+  "install an ffmpeg built with libfreetype — `brew install ffmpeg-full`, then put that keg's `bin` first on `PATH` (e.g. `export PATH=\"$(brew --prefix ffmpeg-full)/bin:$PATH\"`) — or turn captions off (`captions.enabled: false` in the video style).";
+
+/** The argv that asks an ffmpeg which filters it was built with. */
+export function ffmpegFiltersArgv(ffmpeg: string): string[] {
+  return [ffmpeg, "-hide_banner", "-filters"];
+}
+
+/** True when an `ffmpeg -filters` answer lists `drawtext`. Shared by render and readiness. */
+export function listsDrawtext(res: { stdout: string; stderr: string }): boolean {
+  return /^\s*\S+\s+drawtext\s/m.test(`${res.stdout}\n${res.stderr}`);
+}
+
+/** What is missing when `listsDrawtext` is false; render and readiness both lead with it. */
+export const CAPTION_FILTER_MISSING = "video captions need ffmpeg's `drawtext` filter, which this ffmpeg does not list";
+
 /**
  * HARDEN-K: captions render through ffmpeg's `drawtext` filter, which an ffmpeg built
  * without libfreetype lacks. When captions are on and the edit list has any, ask
@@ -59,12 +76,11 @@ export async function requireCaptionFilter(
   cwd: string,
 ): Promise<void> {
   if (!style.captions.enabled || edl.captions.length === 0) return;
-  const res = await runner([ffmpeg, "-hide_banner", "-filters"], { cwd });
-  if (/^\s*\S+\s+drawtext\s/m.test(`${res.stdout}\n${res.stderr}`)) return;
+  if (listsDrawtext(await runner(ffmpegFiltersArgv(ffmpeg), { cwd }))) return;
   throw new Error(
     [
-      "Refusing: video captions need ffmpeg's `drawtext` filter, which this ffmpeg does not list",
-      "Remedy: install an ffmpeg built with libfreetype (e.g. `brew install ffmpeg` or `apt-get install ffmpeg`), or turn captions off in the video style.",
+      `Refusing: ${CAPTION_FILTER_MISSING}`,
+      `Remedy: ${CAPTION_FILTER_REMEDY}`,
       `Context: mode=video-render, filter=drawtext, ffmpeg=${ffmpeg}, captions=${edl.captions.length}`,
     ].join("\n"),
   );

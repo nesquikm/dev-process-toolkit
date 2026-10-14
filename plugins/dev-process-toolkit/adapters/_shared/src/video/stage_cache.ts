@@ -7,7 +7,7 @@
 // skipped only when its key matches AND every output exists.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const STAGE_MANIFEST_FILE = "stages.json";
@@ -25,6 +25,19 @@ export interface CachedStage {
 }
 
 const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
+
+/** SHA-256 hex of a file's bytes, read in chunks so a long clip never sits in memory whole. */
+export function sha256File(path: string): string {
+  const hash = createHash("sha256");
+  const buf = Buffer.allocUnsafe(1 << 20);
+  const fd = openSync(path, "r");
+  try {
+    for (let n = readSync(fd, buf); n > 0; n = readSync(fd, buf)) hash.update(buf.subarray(0, n));
+  } finally {
+    closeSync(fd);
+  }
+  return hash.digest("hex");
+}
 
 /** JSON with object keys sorted, so equal values always serialise to equal bytes. */
 function canonicalJson(value: unknown): string {

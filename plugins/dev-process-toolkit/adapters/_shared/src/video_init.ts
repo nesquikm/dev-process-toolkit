@@ -65,6 +65,8 @@ export function renderVideoStyle(): string {
     "  viewport:",
     `    width: ${d.layout.viewport.width}`,
     `    height: ${d.layout.viewport.height}`,
+    "loudness:",
+    `  target_lufs: ${d.loudness.target_lufs}`,
     "",
   ].join("\n");
 }
