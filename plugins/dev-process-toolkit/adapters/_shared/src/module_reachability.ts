@@ -448,7 +448,7 @@ export interface UnreachablePinMove {
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
     value: 119,
-    commit: "uncommitted",
+    commit: "d2c9423",
     rationale:
       "M_8b09e6/STE-677: the live grader `shared_tracker_live_grader.ts` " +
       "(which has a front door) now imports `cwdToSlug` from " +
