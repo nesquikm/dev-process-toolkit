@@ -447,6 +447,21 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 119,
+    commit: "uncommitted",
+    rationale:
+      "M_8b09e6/STE-677: the live grader `shared_tracker_live_grader.ts` " +
+      "(which has a front door) now imports `cwdToSlug` from " +
+      "`find_current_session.ts` instead of keeping its own slug rule, so " +
+      "that module became reachable and its one ordered reference " +
+      "(`skills/report-issue/SKILL.md:75` at 177c92c9) stopped naming a " +
+      "module nothing runnable reaches. Exactly that reference left the set " +
+      "and none entered it; the same line gained one descriptive reference. " +
+      "Measured by the awaited `runModuleReachabilityProbe` (120 -> 119, " +
+      "diffed record by record against a checkout of 177c92c9), not carried " +
+      "from the FR.",
+  },
+  {
     value: 120,
     commit: "049ce5f",
     rationale:

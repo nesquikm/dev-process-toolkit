@@ -1,7 +1,7 @@
 // Tests for find_current_session — STE-229 AC-STE-229.4.
 //
-// Slug + mtime heuristic: derive `<cwd-slug>` from the cwd by replacing
-// every `/` with `-`, list `*.jsonl` files in
+// Slug + mtime heuristic: derive `<cwd-slug>` from the cwd with `cwdToSlug`
+// (every character outside `[A-Za-z0-9]` becomes `-`; STE-677), list `*.jsonl` files in
 // `~/.claude/projects/<cwd-slug>/`, return the most-recent-mtime path or
 // `null` if no candidate exists.
 //

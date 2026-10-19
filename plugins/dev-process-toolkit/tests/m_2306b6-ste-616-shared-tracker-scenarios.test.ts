@@ -856,7 +856,8 @@ describe("AC-STE-616.16 — no new probe, capability key or smoke leg", () => {
       const src = join(PLUGIN_ROOT, "adapters", "_shared", "src");
       const p = spawnSync("bun", ["run", script, join(src, "closing_summary_capability_keys.ts"), join(src, "smoke_fixture_groups.ts"), join(src, "module_reachability.ts")], { encoding: "utf-8" });
       expect(p.status, p.stderr).toBe(0);
-      expect(JSON.parse(p.stdout.trim())).toEqual({ keys: 47, legs: ["linear", "jira", "none"], head: { value: 120, commit: "049ce5f" } });
+      // Amended by AC-STE-677.5: the ledger head moved 120 -> 119.
+      expect(JSON.parse(p.stdout.trim())).toEqual({ keys: 47, legs: ["linear", "jira", "none"], head: { value: 119, commit: "uncommitted" } });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
