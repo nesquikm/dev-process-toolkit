@@ -1232,6 +1232,7 @@ export function requireTddEvidence(
   payload: HookPayload,
   requiredPaths: string[],
   target?: EvidenceTarget,
+  remedyNote?: string,
 ): { found: boolean } {
   // Door one first, and via the NON-emitting check: `requireSkillToolUse`
   // would write its own refusal before door two had been asked.
@@ -1310,7 +1311,8 @@ export function requireTddEvidence(
     `run /${skill}; or, for an audit-driven fix with no FR, run those ` +
       `tests against the pre-change bytes and record the red result in this ` +
       `session as a line reading \`${proofForm}\` ` +
-      `naming every staged test path it covers.${chainedCallNote(payload.tool_input?.command)}`,
+      `naming every staged test path it covers.${remedyNote ? ` ${remedyNote}` : ""}` +
+      chainedCallNote(payload.tool_input?.command),
     skill,
     hook,
   );

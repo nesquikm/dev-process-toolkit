@@ -49,6 +49,7 @@ import {
   checkoutRootOf,
   gateEvidenceTarget,
 } from "../../../../adapters/_shared/src/gate_receipt.ts";
+import { uncoveredOperation, waivedMergePaths } from "../../../../adapters/_shared/src/merge_provenance.ts";
 
 // ---------------------------------------------------------------------------
 // Pure classifier — exported for unit tests (AC-STE-295.1).
@@ -360,7 +361,7 @@ if (import.meta.main) {
   }
 
   // Collect staged files via filesystem call (no $CLAUDE_STAGED_FILES env var).
-  const stagedResult = await gitOut(["diff", "--cached", "--name-only"], repoRoot);
+  const stagedResult = await gitOut(["diff", "--cached", "--name-only", "-z"], repoRoot);
   if (stagedResult.spawnFailed) {
     // AC-STE-597.4 (FINDING B) — ADVISORY, never a refusal, and it NAMES what
     // could not be done. A toolchain the guard cannot run is the toolkit's
@@ -374,7 +375,7 @@ if (import.meta.main) {
         "/dev-process-toolkit:tdd yourself when this commit carries an FR.",
     );
   }
-  const staged = stagedResult.stdout.split("\n").filter((l) => l.length > 0);
+  const staged = stagedResult.stdout.split("\0").filter((l) => l.length > 0);
 
   // ONE resolution, reused below: the verdict and the STE-360 subtraction must
   // read the same stack, or a placeholder could be exempted under one layout
@@ -419,6 +420,24 @@ if (import.meta.main) {
     process.exit(0);
   }
 
+  // STE-676 — a merge commit is graded on its own changes. A required path whose
+  // staged entry equals that path at a MERGE_HEAD commit was shipped by the
+  // incoming side and is waived; a commit left with nothing else passes with a
+  // visible Reminder, because a hand-made merge can forge the waiver.
+  const unexempt = required.filter((_, i) => !exemptFlags[i]);
+  const waived = await waivedMergePaths(repoRoot, unexempt);
+  const waivedSet = new Set(waived.map((w) => w.path));
+  const graded = required.filter((p) => !waivedSet.has(p));
+  // Every path that still owed evidence was waived — what is left is placeholders.
+  if (unexempt.length > 0 && unexempt.every((p) => waivedSet.has(p))) {
+    remind(
+      `the /tdd guard waived ${waived.map((w) => `${w.path} (equal to ${w.head})`).join(", ")} ` +
+        `in ${repoRoot}, because each staged file matches the incoming side, or git's own result, of the merge in progress.`,
+      "nothing to do when this is a merge of shipped work; a file edited by hand during the " +
+        "merge still needs /dev-process-toolkit:tdd evidence.",
+    );
+  }
+
   // STE-598 — EITHER door satisfies: the per-FR orchestrator's Skill tool_use,
   // or a red-before proof covering the very paths that raised the requirement.
   // `required` is that set, so a proof for some other file cannot open the door.
@@ -435,11 +454,19 @@ if (import.meta.main) {
   const proofRoot = checkoutRootOf(repoRoot) ?? repoRoot;
   const sessionRoot = payload.cwd ? checkoutRootOf(payload.cwd) : null;
 
+  // AC-STE-676.8 — squash, cherry-pick and revert get no waiver; say so, but
+  // only while one is in progress, so an ordinary refusal stays byte-identical.
+  const uncovered = await uncoveredOperation(repoRoot);
+  const remedyNote = uncovered === null
+    ? undefined
+    : `This commit is a ${uncovered}: the merge waiver covers a merge or a rebase only, ` +
+      "and squash, cherry-pick and revert are not covered.";
+
   const { found } = requireTddEvidence(
     "dev-process-toolkit:tdd",
     "pre-commit-tdd-orchestrator",
     payload,
-    required,
+    graded,
     {
       // Door one's repository leg: the same composer the sibling gate-check
       // hook calls, so "which roots, and which vouching peers" is answered once
@@ -452,6 +479,7 @@ if (import.meta.main) {
       }),
       proof: { targetRoot: proofRoot, sessionRoot },
     },
+    remedyNote,
   );
   process.exit(found ? 0 : 2);
 }
