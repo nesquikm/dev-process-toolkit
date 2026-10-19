@@ -1285,5 +1285,8 @@ describe("post-review regressions — token-keyed provenance", () => {
         ) === "undecidable",
     );
     expect(undecidable).toEqual([]);
-  });
+    // One git provenance walk per archived plan: past bun's 5 s default on this
+    // repository by v2.98.1 (timed out at bd2c911c), so it carries the suite's
+    // usual 30 s budget.
+  }, 30_000);
 });
