@@ -13,7 +13,8 @@
 //   - keys mirror Schema L top-level shape (`key: value`);
 //   - `default_labels:` is a YAML inline array `[a, b, "c"]` parsed into
 //     string[] (caller-facing as `defaultLabels` to honor the canonical
-//     camelCase TS surface);
+//     camelCase TS surface); `milestone_exempt_issue_types:` is one too
+//     (`milestoneExemptIssueTypes`);
 //   - whitespace-only / empty values surface as missing keys so the probe
 //     is the single decision point on absence.
 
@@ -38,6 +39,12 @@ export interface WorkspaceBinding {
   repoTag?: string;
   /** STE-602 — the lowest toolkit version allowed to write into the shared container. */
   minDptVersion?: string;
+  /**
+   * Jira only — issue types created as plain tickets, not FRs (e.g. `[Bug]`):
+   * a create of one with no parent and no `milestone-` label needs no
+   * milestone container, so the write gate skips its attach-target check.
+   */
+  milestoneExemptIssueTypes?: string[];
   /** STE-602 — always present; `true` exactly when a non-empty `repo_tag` is declared. */
   shared: boolean;
 }
@@ -138,6 +145,10 @@ export function readWorkspaceBinding(
     if (key in occurrences) occurrences[key]!.push(value);
     if (key === "default_labels") {
       result.defaultLabels = parseInlineYamlArray(value);
+      continue;
+    }
+    if (key === "milestone_exempt_issue_types") {
+      result.milestoneExemptIssueTypes = parseInlineYamlArray(value);
       continue;
     }
     if (value.length === 0) continue;

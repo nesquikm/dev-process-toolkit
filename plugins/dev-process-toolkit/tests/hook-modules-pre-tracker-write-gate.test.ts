@@ -64,6 +64,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Glob } from "bun";
 import { receiptsDir } from "../adapters/_shared/src/dpt_paths";
+import { readWorkspaceBinding } from "../adapters/_shared/src/workspace_binding";
 import {
   RECEIPT_ANNOUNCEMENT_PREFIX,
   writeReceipt,
@@ -3963,6 +3964,76 @@ describe("AC-STE-611.3 — an FR create in a shared repository needs an attach-t
     );
     for (const r of runs) expectSilent(r);
   }, 30_000);
+});
+
+// A plain ticket type a shared repository files with no milestone — a bug for
+// triage, say. `milestone_exempt_issue_types` in its `### Jira` block lifts the
+// attach-target check for a parentless create of a listed type, and nothing
+// else: the create receipt, the repo tag and every other create keep the
+// AC-STE-611.3 rule. The permit leg is RED on the pre-change bytes (the hook
+// refused every create without an attach-target receipt).
+
+/** BE's shared declaration plus `milestone_exempt_issue_types: <types>`. */
+function declareExemptTypes(root: string, types: string): void {
+  claudeMd(root, {
+    mode: "jira",
+    project: "GF",
+    defaultLabels: [BE_TAG],
+    repoTag: BE_TAG,
+    minDptVersion: "2.87.0",
+    paragraph: `milestone_exempt_issue_types: ${types}`,
+  });
+}
+
+describe("milestone_exempt_issue_types — a listed ticket type needs no milestone container", () => {
+  test("the reader returns the listed types, quoted or not; an undeclared key stays absent", () => {
+    const w = makeWorld();
+    declareExemptTypes(w.be, '[Bug, "Support request"]');
+    expect(readWorkspaceBinding(join(w.be, "CLAUDE.md"), "jira").milestoneExemptIssueTypes).toEqual(["Bug", "Support request"]);
+    expect(readWorkspaceBinding(join(w.fe, "CLAUDE.md"), "jira").milestoneExemptIssueTypes).toBeUndefined();
+  });
+
+  test("permit: a listed type (any case), no parent, a matching create receipt and no attach-target receipt → exit 0", async () => {
+    const w = makeWorld();
+    declareExemptTypes(w.be, "[bug]");
+    const s = new Session();
+    s.announceDecide(w.be, createReceipt(w.be, { title: "BE payout export", parent: null }));
+    expectPermit(await runSh(JIRA("createJiraIssue"), jiraCreate({ type: "Bug", parent: null }), { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 30_000);
+
+  test("forbid: everything outside the exemption keeps its refusal → exit 2", async () => {
+    const cases: Array<{ name: string; types: string | null; receipt: Parameters<typeof createReceipt>[1] | null; create: JiraCreate; needle: string }> = [
+      { name: "undeclared key", types: null, receipt: { title: "BE payout export", parent: null }, create: { type: "Bug", parent: null }, needle: ATTACH },
+      { name: "unlisted type", types: "[Bug]", receipt: { title: "BE payout export", parent: null }, create: { type: "Task", parent: null }, needle: ATTACH },
+      { name: "listed type under a parent", types: "[Bug]", receipt: { title: "BE payout export" }, create: { type: "Bug" }, needle: ATTACH },
+      {
+        name: "listed type with a milestone label",
+        types: "[Bug]",
+        receipt: { title: "BE payout export", parent: null, labels: [BE_TAG, "milestone-M7"] },
+        create: { type: "Bug", parent: null, labels: [BE_TAG, "milestone-M7"] },
+        needle: ATTACH,
+      },
+      { name: "listed type without the repo tag", types: "[Bug]", receipt: { title: "BE payout export", parent: null }, create: { type: "Bug", parent: null, labels: [] }, needle: DECIDE },
+      { name: "listed type with no create receipt", types: "[Bug]", receipt: null, create: { type: "Bug", parent: null }, needle: DECIDE },
+    ];
+    const worlds = cases.map((c) => {
+      const w = makeWorld();
+      if (c.types !== null) declareExemptTypes(w.be, c.types);
+      const s = new Session();
+      if (c.receipt) s.announceDecide(w.be, createReceipt(w.be, c.receipt));
+      return { c, w, transcript: s.save(w.scratch) };
+    });
+    const runs = await mapBounded(worlds, HOOK_SPAWN_LIMIT, (x) =>
+      runSh(JIRA("createJiraIssue"), jiraCreate(x.c.create), { cwd: x.w.be, transcript: x.transcript }),
+    );
+    runs.forEach((r, i) => {
+      try {
+        expectRefusal(r, cases[i]!.needle);
+      } catch (e) {
+        throw new Error(`${cases[i]!.name}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
+  }, 90_000);
 });
 
 describe("AC-STE-611.6 — the stranding scenario, through the hook", () => {

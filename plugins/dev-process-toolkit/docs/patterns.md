@@ -434,7 +434,7 @@ A one-time migration helper for projects that picked up the drift before the con
 | Sub-section | Required keys | Optional keys |
 |-------------|---------------|---------------|
 | `### Linear` | `team:` (the team's KEY — the prefix of its issue identifiers, e.g., `STE` — never its display name), `project:` (string, e.g., `DPT — Dev Process Toolkit`) | `default_labels:` (inline YAML array, e.g., `[feature, m31]`), `repo_tag:`, `min_dpt_version:` |
-| `### Jira` | `project:` (string, the Jira project key) | `default_labels:`, `repo_tag:`, `min_dpt_version:` |
+| `### Jira` | `project:` (string, the Jira project key) | `default_labels:`, `repo_tag:`, `min_dpt_version:`, `milestone_exempt_issue_types:` (inline YAML array, e.g., `[Bug]`) |
 
 Parser rules:
 - A sub-section starts at its `### Linear` / `### Jira` heading and ends at the next `##` or `###` heading or EOF (greedy).
@@ -447,8 +447,9 @@ Parser rules:
 **Shared tracker container declaration.** A repository that shares one Jira project or one Linear project with other repositories declares it with two optional keys of the ACTIVE sub-section. They are never top-level keys: probe #21 closes the top level.
 - `repo_tag: <lowercase-kebab>` is this repository's ownership label. Its presence IS the declaration that the container is shared. The same value must also appear in `default_labels`, so every create forwards it.
 - `min_dpt_version: <X.Y.Z>` is the lowest toolkit version allowed to write into the shared container.
+- `milestone_exempt_issue_types: [<type>, …]` (Jira only, optional) names issue types filed as plain tickets, not FRs — a bug for triage, say. A create of one with no parent and no `milestone-` label needs no milestone container: `pre-tracker-write-gate` skips its attach-target check, and still requires the create receipt and the repo tag.
 
-The reader returns `{ team?, project?, defaultLabels?, repoTag?, minDptVersion?, shared }`. `shared` is always present, and is `true` exactly when a non-empty `repo_tag` is declared. An absent key and an empty `repo_tag:` value (with no floor) are one declaration: undeclared, with the pre-declaration return plus `shared: false`. A malformed declaration is a typed NFR-10 refusal, never a silent drop. The refusal cases:
+The reader returns `{ team?, project?, defaultLabels?, repoTag?, minDptVersion?, milestoneExemptIssueTypes?, shared }`. `shared` is always present, and is `true` exactly when a non-empty `repo_tag` is declared. An absent key and an empty `repo_tag:` value (with no floor) are one declaration: undeclared, with the pre-declaration return plus `shared: false`. A malformed declaration is a typed NFR-10 refusal, never a silent drop. The refusal cases:
 1. a tag that is not lowercase-kebab;
 2. a tag missing from `default_labels` — raised as `RepoTagBindingError`;
 3. a floor that is not strict `X.Y.Z` (no `v`, no pre-release suffix);

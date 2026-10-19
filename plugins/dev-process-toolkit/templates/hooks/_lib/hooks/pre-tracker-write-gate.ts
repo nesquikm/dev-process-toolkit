@@ -1159,6 +1159,7 @@ function gateCreate(
   }
   const matching = seen.filter((r) => createMismatch(call.adapter, shape, r.shape, tag) === null);
   if (matching.some((r) => !r.spent)) {
+    if (milestoneExempt(call, shape, target.binding)) return 0;
     const created = createdKeys(parsed, call.adapter);
     return gateAttachTarget(call, shape, sessionId, announcements, created, target, note, parsed);
   }
@@ -1419,6 +1420,22 @@ function bindsTarget(call: TrackerCall, shape: CreateShape, t: AttachTarget): bo
  * resolved target serves every FR of its milestone, so the receipt is never
  * spent.
  */
+/**
+ * A Jira create of an issue type the target lists in
+ * `milestone_exempt_issue_types` — a bug filed for triage, say — that names no
+ * parent and carries no `milestone-` label is a plain ticket, not an FR: there
+ * is no milestone to attach it to, so the attach-target check below does not
+ * apply. Its create receipt and the repo tag are still required (above). A
+ * parent or a milestone label means the create does bind a milestone, and the
+ * check applies as for any FR.
+ */
+function milestoneExempt(call: TrackerCall, shape: CreateShape, binding: WorkspaceBinding): boolean {
+  if (call.adapter !== "jira" || shape.container !== "") return false;
+  if (shape.labels.some((l) => l.startsWith("milestone-"))) return false;
+  const type = typeof call.input.issueTypeName === "string" ? call.input.issueTypeName.trim() : "";
+  return type !== "" && (binding.milestoneExemptIssueTypes ?? []).some((t) => sameName(t, type));
+}
+
 function gateAttachTarget(
   call: TrackerCall,
   shape: CreateShape,
