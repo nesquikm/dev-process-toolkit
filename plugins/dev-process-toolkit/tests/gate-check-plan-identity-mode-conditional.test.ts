@@ -542,5 +542,8 @@ describe("AC-STE-417.3 — the toolkit repo itself is clean under probe #73", ()
     const report = await runPlanIdentityModeConditionalProbe(repoRoot);
     expect(report.mode).toBe("linear");
     expect(report.violations).toEqual([]);
-  });
+    // The probe dates every archived plan through git, ~4.5 s over this
+    // repository's ~140 plans (measured at bd2c911c), so bun's 5 s default
+    // times it out by a margin each milestone narrows.
+  }, 30_000);
 });

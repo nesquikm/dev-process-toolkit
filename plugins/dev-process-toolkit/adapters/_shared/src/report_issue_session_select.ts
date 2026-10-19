@@ -23,6 +23,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { transcriptMatchesCwd } from "./find_current_session";
 
 /** Default scan-window size — the K most-recent `*.jsonl` candidates. */
 export const DEFAULT_INCIDENT_WINDOW = 5;
@@ -46,12 +47,13 @@ export interface IncidentSessionSelection {
  * returns the most-recent-mtime file with `matched: false` (the explicit
  * mtime fallback). An absent directory or one with zero `*.jsonl` files
  * returns the sentinel `{ path: null, matched: false }`. `truncated: true`
- * is surfaced whenever the total candidate count exceeds K.
+ * is surfaced whenever the total candidate count exceeds K. With `opts.cwd`,
+ * candidates are filtered by {@link transcriptMatchesCwd} first (STE-677).
  */
 export function selectIncidentSession(
   cwdSlugDir: string,
   markers: string[],
-  opts?: { k?: number },
+  opts?: { k?: number; cwd?: string },
 ): IncidentSessionSelection {
   const k = opts?.k ?? DEFAULT_INCIDENT_WINDOW;
 
@@ -74,6 +76,8 @@ export function selectIncidentSession(
     } catch {
       continue;
     }
+    // STE-677: skip a transcript whose first recorded cwd is another cwd's.
+    if (opts?.cwd !== undefined && !transcriptMatchesCwd(full, opts.cwd)) continue;
     candidates.push({ path: full, mtime });
   }
 

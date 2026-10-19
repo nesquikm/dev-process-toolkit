@@ -100,9 +100,12 @@ describe("AC-STE-229.12 #3 — full-mode payload shape", () => {
     expect(body).toContain("CLAUDE_CONFIG_DIR");
     expect(body).toContain("~/.claude");
     expect(body).toContain("<cwd-slug>");
-    // The slug derivation: every `/` is replaced by `-`. Assert both
-    // tokens appear together in a single paragraph.
-    expect(body).toMatch(/every\s+`?\/`?\s+replac\w+\s+(by|with)\s+`?-`?/i);
+    // The slug derivation (STE-677): every character outside `[A-Za-z0-9]`
+    // becomes `-`, as Claude Code names its project folders — stated in the
+    // prose or delegated to `cwdToSlug` by name. The old slash-only rule
+    // must be gone.
+    expect(body).toMatch(/`cwdToSlug`|every character (that is )?(not a letter or digit|outside `?\[A-Za-z0-9\]`?)/i);
+    expect(body).not.toMatch(/every\s+`?\/`?\s+replac\w+\s+(by|with)\s+`?-`?/i);
   });
 
   test("SKILL.md cites findCurrentSession and the mtime heuristic", () => {
