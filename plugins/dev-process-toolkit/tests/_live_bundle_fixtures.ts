@@ -72,6 +72,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { cwdToSlug } from "../adapters/_shared/src/find_current_session";
 
 export type Tracker = "jira" | "linear";
 export type Root = "A" | "B";
@@ -1269,7 +1270,7 @@ export function markerLine(marker: string, client: Client = "tree"): string {
 
 /** The project slug Claude Code files a session's transcript under. */
 export function slugOf(cwd: string): string {
-  return cwd.replace(/[^A-Za-z0-9]/g, "-");
+  return cwdToSlug(cwd);
 }
 
 /**

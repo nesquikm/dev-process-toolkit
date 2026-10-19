@@ -30,6 +30,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CHILD_LISTING_REJECTED } from "./sibling_release.ts";
+import { cwdToSlug } from "./find_current_session";
 
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
@@ -894,7 +895,7 @@ export function extractBundle(o: ExtractOptions): ExtractResult {
   // convenience, and a fix that deletes prior evidence to make a check pass is
   // the wrong direction twice.
   const ledgered = new Set(o.ledgerSessionIds);
-  const slugs = [A, real(A), B, real(B)].map((p) => p.replace(/[^A-Za-z0-9]/g, "-"));
+  const slugs = [A, real(A), B, real(B)].map((p) => cwdToSlug(p));
   const runStartMs = Date.parse(o.run.startedAt);
   const unledgeredSessions: string[] = [];
   for (const [sid, path] of mains) {

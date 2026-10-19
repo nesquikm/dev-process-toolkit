@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.98.1] — 2026-10-19 — "Common Ancestor"
+
+### Fixed
+
+- A merge or rebase commit is graded on its own changes (STE-676). While a merge or rebase is in progress, the pre-commit `/tdd` guard waives a staged test or FR file whose bytes equal a `MERGE_HEAD` or `REBASE_HEAD` commit, or git's own merge result (`AUTO_MERGE`, else `git merge-tree`). A waived-only commit passes with one visible `Reminder:` and exit 1, never silently, because a hand-made merge can forge the waiver. A file edited by hand during resolution still needs evidence, and a mixed commit refuses naming only that file. Heads must be full shas outside HEAD's history; any git failure turns the waiver off for the whole commit. Squash, cherry-pick and revert are not covered, and the refusal says so.
+- Session lookup finds transcripts under dotted and long paths (STE-677). `cwdToSlug` now follows Claude Code's project-folder rule: every character outside `[A-Za-z0-9]` becomes `-`, and a slug over 200 characters is cut and hash-suffixed, as read from the Claude Code 2.1.301 binary. `/report-issue` no longer loses its transcript in a directory with a dot in its path. Both session pickers skip a transcript whose recorded cwd differs, so two paths sharing one folder no longer swap transcripts.
+
+### Known defects
+
+- `video_commit_nudge.ts --commit` can silently conclude an in-progress merge when the merge staged only video-tooling paths (STE-678).
+- The merge-tree fallback needs git 2.38 or later, and 2.40 during a rebase; on older git the waiver is off.
+
+Total test count at release: 18923 tests, 0 failures, 0 errors.
+
 ## [2.98.0] — 2026-10-13 — "Final Mix"
 
 ### Added

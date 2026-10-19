@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.98.0 — "Final Mix"** (M_866092, video render fixes and a house-style commit nudge. Re-recorded footage now re-renders, the picture stays in sync with the voice and the mix hits a loudness target. A missing caption filter is caught before any paid call, and /video offers to commit the house style)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.98.1 — "Common Ancestor"** (M_8b09e6, merge commits graded on their own changes and a session lookup that follows Claude Code's folder rule. Merging main no longer asks for TDD evidence for tests main already shipped, and /report-issue finds its transcript under dotted and long paths)
 
 ## Core Philosophy
 
