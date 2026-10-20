@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.98.1 — "Common Ancestor"** (M_8b09e6, merge commits graded on their own changes and a session lookup that follows Claude Code's folder rule. Merging main no longer asks for TDD evidence for tests main already shipped, and /report-issue finds its transcript under dotted and long paths)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.99.0 — "Field Report"** (M_7384cf, bugs filed as bugs. `/spec-write --bug` writes a bug FR and files the ticket as a tracker bug, and bugs imported from the tracker are graded by gate-check probe #88)
 
 ## Core Philosophy
 
