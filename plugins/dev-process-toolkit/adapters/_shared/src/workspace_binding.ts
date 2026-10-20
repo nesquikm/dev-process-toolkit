@@ -38,6 +38,10 @@ export interface WorkspaceBinding {
   repoTag?: string;
   /** STE-602 — the lowest toolkit version allowed to write into the shared container. */
   minDptVersion?: string;
+  /** STE-679 — `jira_bug_issue_type:` override for `--bug` creates (Jira). */
+  jiraBugIssueType?: string;
+  /** STE-679 — `linear_bug_label:` override for `--bug` creates (Linear). */
+  linearBugLabel?: string;
   /** STE-602 — always present; `true` exactly when a non-empty `repo_tag` is declared. */
   shared: boolean;
 }
@@ -145,9 +149,24 @@ export function readWorkspaceBinding(
     else if (key === "project") result.project = value;
     else if (key === "repo_tag") result.repoTag = value;
     else if (key === "min_dpt_version") result.minDptVersion = value;
+    else if (key === "jira_bug_issue_type" && adapterKey === "jira") result.jiraBugIssueType = value;
+    else if (key === "linear_bug_label" && adapterKey === "linear") result.linearBugLabel = value;
   }
   validateDeclaration(result, occurrences, context);
   return { ...result, shared: result.repoTag !== undefined };
+}
+
+/**
+ * STE-679 — the tracker-side bug type for a `--bug` create: the mode's
+ * override when declared, `Bug` otherwise, `null` for `mode: none`.
+ */
+export function resolveBugTrackerType(
+  mode: WorkspaceAdapterKey | "none",
+  binding: Pick<WorkspaceBinding, "jiraBugIssueType" | "linearBugLabel">,
+): string | null {
+  if (mode === "jira") return binding.jiraBugIssueType ?? "Bug";
+  if (mode === "linear") return binding.linearBugLabel ?? "Bug";
+  return null;
 }
 
 function refuse(verdict: string, remedy: string, context: string): never {

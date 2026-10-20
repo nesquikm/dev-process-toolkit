@@ -55,6 +55,19 @@ key was added. The discriminator is the value: any string matching
 is the description-body sentinel; any other value is rejected with
 NFR-10 canonical shape during `/setup`.
 
+## Bug tickets — `jira_bug_issue_type`
+
+`/spec-write --bug` files the FR as a Jira issue of the bug type. The type
+name is read from the optional `jira_bug_issue_type:` key under `### Jira` in
+`## Task Tracking` and defaults to `Bug`. The create payload carries it as
+`issueType`. Before any tracker write or FR file, the type must exist in the
+project's issue-type listing and be able to take the milestone Epic as its
+parent; otherwise the run refuses in NFR-10 canonical shape, naming
+`jira_bug_issue_type` (no label fallback). The Linear counterpart is
+`linear_bug_label` (see `adapters/linear.md`).
+The run appends `--bug` to each `create_idempotency_probe.ts` `decide` call
+below, which is how the create payload gets the bug type.
+
 ## MCP tool names
 
 | Operation | MCP tool | Notes |
@@ -288,7 +301,8 @@ the canonical form (no round-trip loop).
      Default-team-managed Kanban templates have `Task` / `Epic` /
      `Subtask` only (no `Story`); `Task` is the universally available
      choice. Operators on Scrum templates can switch to `Story` via the
-     override.
+     override. A `--bug` run files the `createPayload`'s `issueType`
+     instead (see § Bug tickets).
    - **Pre-create JQL idempotency probe (single-shot fast path).** Before the
      create call fires, look for a ticket this FR already minted on a prior
      run (resume / retry) and return that id without writing.
@@ -368,7 +382,9 @@ the canonical form (no round-trip loop).
      `tracker_idempotency_uncertain`: re-run the search `query` printed, and
      never join or create beside it.
    - `mcp__atlassian__createJiraIssue(projectKey=<from CLAUDE.md ### Jira>, summary=title, description=<rendered template>, issuetype=<resolved type>, contentFormat: "markdown")`,
-     carrying the `createPayload`'s `labels` and, when present, its `parent`
+     carrying the `createPayload`'s `labels`, when present its `parent`, and,
+     when present, its `issueType` — a `--bug` run's payload names the bug
+     type there, and it replaces the resolved type as `issuetype`
      — so the new ticket lands already inside its milestone container and a
      retry's narrowed query can find it. Create only on a `create` decision.
    - **Network-error retry path (Gateway-Timeout idempotency hardening).**
