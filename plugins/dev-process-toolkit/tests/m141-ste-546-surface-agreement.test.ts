@@ -719,31 +719,38 @@ function probeRow(n: number): string {
 describe("AC-STE-546.6 — the probe count and its pinned sites do not move", () => {
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("the numbered probe list is still contiguous 1..87", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("the numbered probe list is still contiguous 1..88", () => {
     const numbers = [...gateSkill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(
       numbers.length,
       "the probe count moved — a new probe id drags sixty pinned sites across fifteen files",
-    ).toBe(87); // Amended by AC-STE-659.3: probe count 85 -> 86. Amended by AC-STE-673.6: probe count 86 -> 87.
-    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 87 }, (_, i) => i + 1));
+    ).toBe(88); // Amended by AC-STE-659.3: probe count 85 -> 86. Amended by AC-STE-673.6: probe count 86 -> 87. Amended by AC-STE-680.6: probe count 87 -> 88.
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 88 }, (_, i) => i + 1));
   });
 
   // Amended by AC-STE-659.3: the NEXT-row tripwire moves #86 -> #87.
   // Amended by AC-STE-673.6: the NEXT-row tripwire moves #87 -> #88.
-  test("no `88.` row was registered", () => {
-    expect(gateSkill()).not.toMatch(/^88\. \*\*/m);
+  // Amended by AC-STE-680.6: the NEXT-row tripwire moves #88 -> #89.
+  test("no `89.` row was registered", () => {
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(gateSkill()).not.toMatch(/^89\. \*\*/m);
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("README's two probe-count sentences still say 87", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("README's two probe-count sentences still say 88", () => {
     const readme = read(join(REPO_ROOT, "README.md"));
     const line = (re: RegExp): string =>
       readme.split("\n").find((l) => re.test(l)) ?? "";
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
-    expect(line(/numbered `\/gate-check` probes/)).toMatch(/\b87\b/);
-    expect(line(/which layers \d+ probes on top/)).toMatch(/\b87\b\s+probes/);
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(line(/numbered `\/gate-check` probes/)).toMatch(/\b88\b/);
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(line(/which layers \d+ probes on top/)).toMatch(/\b88\b\s+probes/);
   });
 
   test("row #63 is still plan_ship_coherence and still names its runner", () => {

@@ -611,9 +611,11 @@ function probeRegistrationLines(): { number: number; line: string }[] {
 }
 
 /** The count before this FR registers its probe — the number that must be gone. */
-const PREVIOUS_PROBE_COUNT = 86;
+// Amended by AC-STE-680.6: probe count 86 -> 87 (the previous count moves with the cascade).
+const PREVIOUS_PROBE_COUNT = 87;
 /** The count after. */
-const EXPECTED_PROBE_COUNT = 87;
+// Amended by AC-STE-680.6: probe count 87 -> 88.
+const EXPECTED_PROBE_COUNT = 88;
 
 /**
  * Every surface pinning the probe count: STE-659's enumerated table (AC-STE-659.3) plus the pins that
@@ -661,7 +663,8 @@ const fill = (template: string, n: number): string => template.split("{N}").join
 const surfaceAbs = (rel: string): string => (rel === "README.md" ? README : join(PLUGIN_ROOT, ...rel.split("/")));
 
 describe("AC-STE-673.6 — registered as probe #87, every count pin moved with it", () => {
-  test("the registry is contiguous 1..87", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("the registry is contiguous 1..88", () => {
     expect(probeRegistrationLines().map((r) => r.number)).toEqual(
       Array.from({ length: EXPECTED_PROBE_COUNT }, (_, i) => i + 1),
     );
@@ -671,8 +674,9 @@ describe("AC-STE-673.6 — registered as probe #87, every count pin moved with i
     const hits = probeRegistrationLines().filter((r) => r.line.includes(PROBE_REL));
     expect(hits.length).toBe(1);
     const row = hits[0]!;
-    expect(row.number).toBe(EXPECTED_PROBE_COUNT);
-    expect(row.line.startsWith(`${EXPECTED_PROBE_COUNT}. **\`${PROBE_ID}\`**`)).toBe(true);
+    // Amended by AC-STE-680.6: probe count 87 -> 88 — this probe keeps its own number #87, no longer the total.
+    expect(row.number).toBe(87);
+    expect(row.line.startsWith(`87. **\`${PROBE_ID}\`**`)).toBe(true);
     expect(row.line).toContain(`call \`runVideoToolingUncommittedProbe(projectRoot)\` from \`${PROBE_REL}\``);
     expect(row.line).toContain("**Severity: warning**");
     expect(row.line).toMatch(/never[^.]{0,40}GATE FAILED/);
@@ -681,7 +685,8 @@ describe("AC-STE-673.6 — registered as probe #87, every count pin moved with i
     expect(row.line).toContain(PROBE_TEST_REL);
   });
 
-  test("EVERY enumerated pin reads 87 — and none still reads 86", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("EVERY enumerated pin reads 88 — and none still reads 87", () => {
     const missing: string[] = [];
     const stale: string[] = [];
     for (const [rel, template] of PINS) {
@@ -704,18 +709,20 @@ describe("AC-STE-673.6 — registered as probe #87, every count pin moved with i
     expect(without).toEqual([]);
   });
 
-  test("the front-door warning names the NEXT unregistered number (#88), in both places", () => {
+  // Amended by AC-STE-680.6: the next unregistered number is #89 at 88 live registrations.
+  test("the front-door warning names the NEXT unregistered number (#89), in both places", () => {
     const skill = read(GATE_CHECK_SKILL);
-    expect(skill).toContain("registering probe #88 will turn probe #81 red");
-    expect(skill).not.toContain("registering probe #87 will turn probe #81 red");
+    expect(skill).toContain("registering probe #89 will turn probe #81 red");
+    expect(skill).not.toContain("registering probe #88 will turn probe #81 red");
     const m140 = read(surfaceAbs("tests/m140-ste-543-external-link-verdicts.test.ts"));
-    expect(m140).toContain("registering probe #88 will turn probe #81 red");
+    expect(m140).toContain("registering probe #89 will turn probe #81 red");
   });
 
-  test("M141's `no NEXT row` tripwire moved to #88", () => {
+  // Amended by AC-STE-680.6: the NEXT-row tripwire moves #88 -> #89.
+  test("M141's `no NEXT row` tripwire moved to #89", () => {
     const body = read(surfaceAbs("tests/m141-ste-546-surface-agreement.test.ts"));
-    expect(body).toContain(String.raw`/^88\. \*\*/m`);
-    expect(body).not.toContain(String.raw`/^87\. \*\*/m`);
+    expect(body).toContain(String.raw`/^89\. \*\*/m`);
+    expect(body).not.toContain(String.raw`/^88\. \*\*/m`);
   });
 
   test("the probe module carries an `if (import.meta.main)` entry", () => {
