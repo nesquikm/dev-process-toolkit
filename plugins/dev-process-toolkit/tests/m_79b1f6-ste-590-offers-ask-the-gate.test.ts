@@ -259,6 +259,11 @@ function expectUneditedBeyondSte609(suite: string, ref: string): void {
  * STE-673 registers probe #87, so the 86 -> 87 probe-count move reaches
  * tests/m_8f07e0-ste-584-awaiting-siblings.test.ts, each hunk adding a line marked
  * `Amended by AC-STE-673.6`. An unmarked hunk is still an edit.
+ *
+ * Amended by AC-STE-680.6 (approved spec STE-680, M_7384cf): admitted the same way.
+ * STE-680 registers probe #88, so the 87 -> 88 probe-count move reaches
+ * tests/m_8f07e0-ste-584-awaiting-siblings.test.ts, each hunk adding a line marked
+ * `Amended by AC-STE-680.6`. An unmarked hunk is still an edit.
  */
 function unmarkedHunks(diff: string): string[] {
   const hunks = diff.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ "));
@@ -270,7 +275,7 @@ function unmarkedHunks(diff: string): string[] {
   ).map((h) => h.split("\n")[0]!);
 }
 
-const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6)\b/;
+const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6)\b/;
 
 /** The suite's working-tree bytes equal `ref`'s committed bytes. */
 function expectUnedited(suite: string, ref: "main" | "HEAD"): void {
