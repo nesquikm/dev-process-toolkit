@@ -141,9 +141,11 @@ describe("AC-STE-689.2 — the docs-section probe and the docs know the key", ()
     expect(listing).toMatch(/^\s*- changelog_unversioned:\s+true \| false/m);
   });
 
-  test("docs/setup-reference.md documents the key in the Schema-L block and with default false", () => {
+  test("docs/setup-reference.md documents the key with default false, outside the block /setup writes", () => {
     const ref = readFileSync(join(PLUGIN_ROOT, "docs", "setup-reference.md"), "utf-8");
-    expect(ref).toMatch(/^changelog_unversioned: <true\|false>$/m);
+    // /setup writes only the three prompted flags; the key is added by hand.
+    expect(ref).not.toMatch(/^changelog_unversioned: <true\|false>$/m);
+    expect(ref).toMatch(/`\/setup` neither prompts for nor writes `changelog_unversioned`/);
     const paragraphs = ref.split(/\n\s*\n/).filter((p) => p.includes("changelog_unversioned"));
     const documentsDefault = paragraphs.some((p) => /default/i.test(p) && /\bfalse\b/.test(p));
     expect(documentsDefault).toBe(true);
