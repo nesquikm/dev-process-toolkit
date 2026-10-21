@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { extractTddResultBlock, parseTddResultBlock } from "../adapters/_shared/src/tdd_result";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 // STE-225 AC.9 — Headless live smoke for the /tdd orchestrator.
 //
@@ -164,13 +165,12 @@ describeIfLive("AC-STE-225.9 — /tdd headless live smoke (DPT_TDD_LIVE_SMOKE=1)
     else findings.push(`(b) PASS — implementation file ${implFile}`);
 
     // (c) test command exits 0 — re-run the test command in the fixture cwd.
-    const reRun = spawnSync("bun", ["test"], {
+    const reRun = runNestedBunTest([], {
       cwd: run.cwd,
-      encoding: "utf-8",
-      timeout: 60 * 1000,
+      timeoutMs: 60 * 1000,
     });
-    if (reRun.status === 0) findings.push("(c) PASS — `bun test` exits 0");
-    else findings.push(`(c) FAIL — \`bun test\` exit code ${reRun.status}`);
+    if (reRun.exitCode === 0) findings.push("(c) PASS — `bun test` exits 0");
+    else findings.push(`(c) FAIL — \`bun test\` exit code ${reRun.exitCode}`);
 
     // (d) orchestrator stdout contains all three closing tdd-result
     // blocks (one per role: test-writer, implementer, refactorer)

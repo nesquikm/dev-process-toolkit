@@ -16,6 +16,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 // ===========================================================================
 // Paths and pins.
@@ -138,12 +139,12 @@ describe("AC-STE-672.2 — the m143-551 legs of the 590 suite pass here and on m
   });
 
   test("on this branch the 590 suite's m143-551 tests pass", () => {
-    const proc = spawnSync("bun", ["test", SUITE_590_REL, "-t", "m143"], {
+    const proc = runNestedBunTest([SUITE_590_REL, "-t", "m143"], {
       cwd: PLUGIN_ROOT,
-      encoding: "utf-8",
+      timeoutMs: 300_000,
     });
     const out = `${proc.stdout ?? ""}${proc.stderr ?? ""}`;
-    expect(proc.status, out.slice(-4000)).toBe(0);
+    expect(proc.exitCode, out.slice(-4000)).toBe(0);
     expect(out).toMatch(/\b[3-9]\d* pass\b|\b[1-9]\d+ pass\b/);
     expect(out).toMatch(/\b0 fail\b/);
   }, 300_000);
@@ -156,15 +157,17 @@ describe("AC-STE-672.2 — the m143-551 legs of the 590 suite pass here and on m
     try {
       const wtPlugin = join(wt, "plugins", "dev-process-toolkit");
       copyFileSync(SUITE_590, join(wtPlugin, SUITE_590_REL));
+      // The fixed suite imports the nested-run runner, which trunk predates.
+      copyFileSync(join(PLUGIN_ROOT, "tests", "_nested_bun_test.ts"), join(wtPlugin, "tests", "_nested_bun_test.ts"));
       // The checkout really is trunk: its m143-551 suite equals trunk's bytes.
       const clean = git(["diff", "--quiet", MERGED_TRUNK, "--", M143_REPO_REL], wt);
       expect(clean.status, "the worktree's m143-551 suite is not trunk's").toBe(0);
-      const proc = spawnSync("bun", ["test", SUITE_590_REL, "-t", "m143"], {
+      const proc = runNestedBunTest([SUITE_590_REL, "-t", "m143"], {
         cwd: wtPlugin,
-        encoding: "utf-8",
+        timeoutMs: 400_000,
       });
       const out = `${proc.stdout ?? ""}${proc.stderr ?? ""}`;
-      expect(proc.status, `590 m143 legs red on merged trunk:\n${out.slice(-4000)}`).toBe(0);
+      expect(proc.exitCode, `590 m143 legs red on merged trunk:\n${out.slice(-4000)}`).toBe(0);
       expect(out).toMatch(/\b[3-9]\d* pass\b|\b[1-9]\d+ pass\b/);
       expect(out).toMatch(/\b0 fail\b/);
     } finally {
@@ -207,12 +210,12 @@ describe("AC-STE-672.3 — the mutation controls red against the pinned diff", (
   });
 
   test("the 590 suite's own MUTATION test is green on this branch", () => {
-    const proc = spawnSync("bun", ["test", SUITE_590_REL, "-t", "MUTATION: an unmarked hunk in the m143-551 diff"], {
+    const proc = runNestedBunTest([SUITE_590_REL, "-t", "MUTATION: an unmarked hunk in the m143-551 diff"], {
       cwd: PLUGIN_ROOT,
-      encoding: "utf-8",
+      timeoutMs: 120_000,
     });
     const out = `${proc.stdout ?? ""}${proc.stderr ?? ""}`;
-    expect(proc.status, out.slice(-4000)).toBe(0);
+    expect(proc.exitCode, out.slice(-4000)).toBe(0);
     expect(out).toMatch(/\b1 pass\b/);
     expect(out).toMatch(/\b0 fail\b/);
   }, 120_000);

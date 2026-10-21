@@ -63,9 +63,10 @@
 // files, so no assertion here requires that comment to change.
 
 import { describe, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process"; // Amended by AC-STE-685.3: spawnSync moved to the nested runner.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
+import { runNestedBunTest } from "./_nested_bun_test"; // Amended by AC-STE-685.3
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -594,13 +595,10 @@ describe("AC-STE-444.6 — the prose edit breaks no test that reads the edited p
     "every at-risk suite passes with zero failures after the edit",
     () => {
       const files = atRiskTestFiles().map((n) => join("tests", n));
-      const run = spawnSync("bun", ["test", ...files], {
-        cwd: PLUGIN_ROOT,
-        encoding: "utf-8",
-        maxBuffer: 16 * 1024 * 1024,
-      });
-      const combined = `${run.stdout ?? ""}${run.stderr ?? ""}`;
-      expect(run.status, `at-risk subset went red:\n${combined.slice(-4000)}`).toBe(0);
+      // Amended by AC-STE-685.3: the nested run goes through the bounded runner.
+      const run = runNestedBunTest(files, { cwd: PLUGIN_ROOT });
+      const combined = `${run.stdout}${run.stderr}`;
+      expect(run.exitCode, `at-risk subset went red:\n${combined.slice(-4000)}`).toBe(0);
       expect(combined, "bun test reported failures").toMatch(/\n\s*0 fail\b/);
       const ran = combined.match(/Ran (\d+) tests across (\d+) files/);
       expect(ran, `could not parse the runner summary:\n${combined.slice(-2000)}`).not.toBeNull();

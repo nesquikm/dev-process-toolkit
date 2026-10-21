@@ -45,6 +45,8 @@ import { Glob } from "bun";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { runNestedBunTest } from "./_nested_bun_test";
+
 import { mintMilestoneEpic } from "../adapters/_shared/src/mint_milestone_epic";
 import {
   ORDERED_UNREACHABLE_PIN,
@@ -671,11 +673,12 @@ describe("AC-STE-592.5 — the STE-580 suite stays green, its constants unedited
   });
 
   test("the suite passes in a child `bun test`", () => {
-    const child = Bun.spawnSync([process.execPath, "test", STE_580_SUITE_REL], {
+    const child = runNestedBunTest([STE_580_SUITE_REL], {
       cwd: pluginRoot,
       env: process.env,
+      timeoutMs: 300_000,
     });
-    const out = child.stdout.toString() + child.stderr.toString();
+    const out = child.stdout + child.stderr;
     const passed = Number.parseInt(out.match(/(\d+) pass/)?.[1] ?? "0", 10);
     expect(passed, `the child ran tests at all. Output tail: ${out.slice(-600)}`).toBeGreaterThan(0);
     expect(out, `Output tail: ${out.slice(-600)}`).toMatch(/\b0 fail\b/);

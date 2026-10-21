@@ -49,6 +49,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 import {
   FULL_CHAIN_STAGES,
@@ -828,13 +829,11 @@ describe("AC-STE-600.4 — the M129 suite is green with a real declaring plan", 
         // `DPT_STE600_CHILD` stops the child re-entering this leg; without it
         // the spawn recurses without bound.
         for (const suite of [M129_SUITE_REL, OWN_SUITE_REL]) {
-          const proc = Bun.spawnSync(["bun", "test", suite], {
+          const proc = runNestedBunTest([suite], {
             cwd: PLUGIN_ROOT,
-            stdout: "pipe",
-            stderr: "pipe",
             env: { ...process.env, DPT_STE600_CHILD: "1" },
           });
-          const out = `${proc.stdout.toString()}\n${proc.stderr.toString()}`;
+          const out = `${proc.stdout}\n${proc.stderr}`;
           expect(out, `${suite}: ${out.slice(0, 4000)}`).toMatch(/\b0 fail\b/);
           expect(proc.exitCode, suite).toBe(0);
         }
@@ -854,11 +853,11 @@ describe("AC-STE-600.4 — the M129 suite is green with a real declaring plan", 
     "  test(",
     '    "bun test tests/m129-ste-495-target-repo.test.ts exits 0 with 0 fail",',
     "    () => {",
-    "      const proc = Bun.spawnSync(",
-    '        ["bun", "test", "tests/m129-ste-495-target-repo.test.ts"],',
-    '        { cwd: PLUGIN_ROOT, stdout: "pipe", stderr: "pipe" },',
+    "      const proc = runNestedBunTest(",
+    '        ["tests/m129-ste-495-target-repo.test.ts"],',
+    "        { cwd: PLUGIN_ROOT },",
     "      );",
-    "      const out = `${proc.stdout.toString()}\\n${proc.stderr.toString()}`;",
+    "      const out = `${proc.stdout}\\n${proc.stderr}`;",
     "      expect(out).toMatch(/\\b0 fail\\b/);",
     "      expect(proc.exitCode).toBe(0);",
     "    },",

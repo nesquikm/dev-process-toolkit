@@ -59,6 +59,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { mutateInRegion } from "./_sited-mutation";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -784,6 +785,7 @@ function runOverlay(
         `cp ${JSON.stringify(join(PLUGIN_ROOT, THIS_FILE_REL))} ${JSON.stringify(join(plugin, "tests"))}/`,
         `cp ${JSON.stringify(join(PLUGIN_ROOT, PROBE_TEST_REL))} ${JSON.stringify(join(plugin, "tests"))}/`,
         `cp ${JSON.stringify(join(PLUGIN_ROOT, "tests", "_sited-mutation.ts"))} ${JSON.stringify(join(plugin, "tests"))}/`,
+        `cp ${JSON.stringify(join(PLUGIN_ROOT, "tests", "_nested_bun_test.ts"))} ${JSON.stringify(join(plugin, "tests"))}/`,
       ].join("; "),
     ],
     { stdout: "pipe", stderr: "pipe" },
@@ -807,13 +809,8 @@ function runOverlay(
     expect(sha256(mutatedSource)).not.toBe(sha256(before));
   }
 
-  const proc = Bun.spawnSync([process.execPath, "test", suiteRel, "-t", filter], {
-    cwd: plugin,
-    env: baseEnv(),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return { code: proc.exitCode ?? -1, output: `${proc.stdout.toString()}\n${proc.stderr.toString()}`, mutatedSource };
+  const proc = runNestedBunTest([suiteRel, "-t", filter], { cwd: plugin, env: baseEnv() });
+  return { code: proc.exitCode, output: `${proc.stdout}\n${proc.stderr}`, mutatedSource };
 }
 
 const failedRow = (run: OverlayRun, name: string): boolean =>

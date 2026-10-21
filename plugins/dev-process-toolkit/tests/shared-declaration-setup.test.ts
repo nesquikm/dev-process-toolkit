@@ -44,6 +44,7 @@ import {
 } from "../adapters/_shared/src/module_reachability";
 import { runRootHygiene } from "../adapters/_shared/src/root_hygiene";
 import { linearTeamKey } from "../adapters/_shared/src/migrations/entries/linear_team_key";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
@@ -572,9 +573,12 @@ describe("AC-STE-603.3 — refusals leave the file byte-identical", () => {
       ].join("\n");
       const testFile = join(scratch, "readback.test.ts");
       writeFileSync(testFile, injected);
-      const r = await spawn(["bun", "test", testFile], { CLAUDE_PLUGIN_ROOT: manifest });
+      const r = runNestedBunTest([testFile], {
+        cwd: pluginRoot,
+        env: { ...process.env, CLAUDE_PLUGIN_ROOT: manifest },
+      });
       const out = r.stdout + r.stderr;
-      expect(r.code, out).toBe(0);
+      expect(r.exitCode, out).toBe(0);
       expect(out).toContain("READBACK-LEG-OK");
     } finally {
       rmSync(scratch, { recursive: true, force: true });

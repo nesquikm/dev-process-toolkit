@@ -54,6 +54,7 @@ import {
 import { classifyResume } from "../adapters/_shared/src/resume_classifier";
 import { SpansReposError, readSpansReposDeclaration } from "../adapters/_shared/src/spans_repos";
 import { gradedViolations } from "./_plan_ship_grading";
+import { runNestedBunTest } from "./_nested_bun_test";
 import { type SpanFixture, makeSpanFixture } from "./_span_fixture";
 
 // ===========================================================================
@@ -391,12 +392,12 @@ describe("AC-STE-588.2 — an archived stamped plan with no spans_repos is untou
   test(
     "the m141 surface-agreement suite passes over the live repo root",
     () => {
-      const proc = spawnSync("bun", ["test", "tests/m141-ste-546-surface-agreement.test.ts"], {
+      const proc = runNestedBunTest(["tests/m141-ste-546-surface-agreement.test.ts"], {
         cwd: PLUGIN_ROOT,
-        encoding: "utf-8",
+        timeoutMs: 120_000,
       });
       const out = `${proc.stdout}${proc.stderr}`;
-      expect(proc.status, out.slice(-3000)).toBe(0);
+      expect(proc.exitCode, out.slice(-3000)).toBe(0);
       // Non-vacuity: a run that collected nothing exits 0 too.
       expect(out).toMatch(/\b[1-9]\d* pass\b/);
     },

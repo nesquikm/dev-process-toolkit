@@ -47,10 +47,10 @@
 // established.
 
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 import {
   CLASS_DECIDERS,
@@ -419,13 +419,12 @@ describe("AC-STE-552.3 — an undelegated run is unchanged", () => {
   test(
     "the two shipped suites still pass, with the same test count — no third pin moved",
     () => {
-      const run = spawnSync(
-        "bun",
-        ["test", ...SHIPPED_SUITES],
-        { cwd: PLUGIN_ROOT, encoding: "utf-8" },
+      const run = runNestedBunTest(
+        [...SHIPPED_SUITES],
+        { cwd: PLUGIN_ROOT },
       );
-      const out = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
-      expect(run.status, `shipped suites did not pass:\n${out}`).toBe(0);
+      const out = `${run.stdout}\n${run.stderr}`;
+      expect(run.exitCode, `shipped suites did not pass:\n${out}`).toBe(0);
       const fails = out.match(/(\d+)\s+fail/);
       expect(fails, `no failure count in bun output:\n${out}`).not.toBeNull();
       expect(Number(fails![1]), `shipped suites reported failures:\n${out}`).toBe(0);
