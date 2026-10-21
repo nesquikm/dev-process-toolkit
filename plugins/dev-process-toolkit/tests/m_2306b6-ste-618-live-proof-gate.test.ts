@@ -1348,6 +1348,86 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     expect(shipDrift(then, moved.join("\n"))).toHaveLength(1);
   });
 
+  // RULING (STE-691, M_7a948e, operator 2026-10-21 — the same ruling as STE-689
+  // above, which said it would admit STE-691's refusal #4 sentence when that FR
+  // lands): refusal #4 IS line 91, already a permitted line rewritten in place,
+  // so the line sets stay exactly {91, 265} and NO new region is admitted. The
+  // admitted hunk is ONE named sentence appended IN PLACE to line 91 — never a
+  // new line after it (that would shift every later line and is drift). It is
+  // identified by a fixed marker, must occur exactly once in the file, only on
+  // line 91, and must carry the `--children` + numeric + Jira wording and the
+  // front door's literal `children=none (no container)` (AC-STE-691.6).
+  // Anything else touching refusal #4's neighbourhood still needs a fresh ruling.
+  const SHIP_NUMERIC_JIRA_MARKER = "`--children` is not required for a numeric `M<N>` milestone under a Jira shared binding";
+  const SHIP_NUMERIC_JIRA_SENTENCE =
+    "`--children` is not required for a numeric `M<N>` milestone under a Jira shared binding — it has no Epic, so no child listing — and the front door prints `children=none (no container)` in place of the count.";
+
+  /** `null` when the numeric-Jira sentence is the admitted in-place hunk on line 91; otherwise why not. */
+  function numericJiraSentenceError(text: string): string | null {
+    const lines = text.split("\n");
+    const hits = lines.flatMap((l, i) => (l.includes(SHIP_NUMERIC_JIRA_MARKER) ? [i + 1] : []));
+    if (hits.length === 0) return "numeric-Jira sentence absent";
+    if (hits.length > 1 || text.split(SHIP_NUMERIC_JIRA_MARKER).length - 1 > 1) return "numeric-Jira sentence occurs more than once";
+    if (hits[0] !== SHIP_PERMITTED_LINE) return `numeric-Jira sentence sits on line ${hits[0]}, not refusal #4's line ${SHIP_PERMITTED_LINE}`;
+    const line = lines[SHIP_PERMITTED_LINE - 1]!;
+    if (!/^4\. \*\*Sibling not provably idle\*\*/.test(line)) return "line 91 is not refusal #4";
+    if (!line.includes(SHIP_NUMERIC_JIRA_SENTENCE)) return "numeric-Jira sentence is not the admitted text";
+    return null;
+  }
+
+  test("AC-STE-691.6 — refusal #4 (line 91) carries the admitted numeric-Jira sentence once, in place, and the freeze still holds on {91, 265}", () => {
+    const now = readFileSync(join(REPO, SHIP), "utf-8");
+    const then = shipKickoff(SHIP);
+    expect(numericJiraSentenceError(now)).toBeNull();
+    expect(shipDrift(then, now)).toEqual([]);
+    const line = now.split("\n")[SHIP_PERMITTED_LINE - 1]!;
+    expect(line).toContain("children=none (no container)");
+    expect(line).toContain("--children");
+    expect(line).toContain("numeric");
+    expect(then.includes(SHIP_NUMERIC_JIRA_MARKER), "the base has no numeric-Jira sentence").toBe(false);
+  });
+
+  test("NEGATIVE CONTROL — STE-691: the numeric-Jira sentence admits nothing beyond itself appended in place to line 91", () => {
+    const now = readFileSync(join(REPO, SHIP), "utf-8");
+    const then = shipKickoff(SHIP);
+    const lines = now.split("\n");
+    const i91 = SHIP_PERMITTED_LINE - 1;
+    expect(lines[i91], "control: line 91 is refusal #4").toMatch(/^4\. \*\*Sibling not provably idle\*\*/);
+    // Synthesised from the live file, so the controls hold whether or not the sentence has landed yet.
+    const base91 = lines[i91]!.includes(SHIP_NUMERIC_JIRA_MARKER) ? lines[i91]! : `${lines[i91]} ${SHIP_NUMERIC_JIRA_SENTENCE}`;
+    const withSentence = [...lines];
+    withSentence[i91] = base91;
+    // (positive) the in-place append is admitted.
+    expect(numericJiraSentenceError(withSentence.join("\n"))).toBeNull();
+    expect(shipDrift(then, withSentence.join("\n"))).toEqual([]);
+    // (a) A stray line directly AFTER refusal #4 fails the freeze.
+    const strayAfter = [...withSentence.slice(0, i91 + 1), "a stray line", ...withSentence.slice(i91 + 1)];
+    expect(shipDrift(then, strayAfter.join("\n"))).toHaveLength(1);
+    // (a) A stray line directly BEFORE refusal #4 fails the freeze.
+    const strayBefore = [...withSentence.slice(0, i91), "a stray line", ...withSentence.slice(i91)];
+    expect(shipDrift(then, strayBefore.join("\n"))).toHaveLength(1);
+    // (a) An edit to the line after refusal #4 is drift.
+    const nextEdit = [...withSentence];
+    nextEdit[i91 + 1] = `${nextEdit[i91 + 1]} (edited)`;
+    expect(shipDrift(then, nextEdit.join("\n"))).toEqual([`line ${SHIP_PERMITTED_LINE + 1}`]);
+    // (b) The sentence as its own NEW line after refusal #4 is not the admitted hunk.
+    const ownLine = [...lines.slice(0, i91 + 1), SHIP_NUMERIC_JIRA_SENTENCE, ...lines.slice(i91 + 1)];
+    expect(numericJiraSentenceError(ownLine.join("\n"))).not.toBeNull();
+    expect(shipDrift(then, ownLine.join("\n"))).toHaveLength(1);
+    // (c) The sentence twice — on line 91 and again elsewhere, or twice on line 91 — is refused.
+    const twiceOnLine = [...withSentence];
+    twiceOnLine[i91] = `${base91} ${SHIP_NUMERIC_JIRA_SENTENCE}`;
+    expect(numericJiraSentenceError(twiceOnLine.join("\n"))).toBe("numeric-Jira sentence occurs more than once");
+    const ten = withSentence.indexOf(SHIP_10_HEADING);
+    const twiceElsewhere = [...withSentence];
+    twiceElsewhere[ten + 2] = `${twiceElsewhere[ten + 2]} ${SHIP_NUMERIC_JIRA_SENTENCE}`;
+    expect(numericJiraSentenceError(twiceElsewhere.join("\n"))).toBe("numeric-Jira sentence occurs more than once");
+    // (d) The marker without the rest of the admitted text is not the admitted sentence.
+    const truncated = [...lines];
+    truncated[i91] = `${lines[i91]!.includes(SHIP_NUMERIC_JIRA_MARKER) ? lines[i91]!.replace(SHIP_NUMERIC_JIRA_SENTENCE, "") : lines[i91]} ${SHIP_NUMERIC_JIRA_MARKER}.`;
+    expect(numericJiraSentenceError(truncated.join("\n"))).toBe("numeric-Jira sentence is not the admitted text");
+  });
+
   test("NEGATIVE CONTROL — a ship-milestone sibling with one changed line fails the byte-identity guard", () => {
     const then = shipKickoff(SHIP);
     const lines = then.split("\n");
