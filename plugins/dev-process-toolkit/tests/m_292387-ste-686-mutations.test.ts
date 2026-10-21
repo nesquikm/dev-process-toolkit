@@ -9,6 +9,9 @@
 //   MUTANT 5. `gate_identity_run.ts` loses its SIGKILL escalation — every
 //             `"SIGKILL"` in it becomes `"SIGTERM"`, so a TERM-ignoring gate
 //             run outlives its bound (AC-STE-686.9).
+//   MUTANT 6. `gate_identity_run.ts`'s supervisor signals the direct child pid
+//             instead of its process group — on the bun stack's `/bin/sh -c`
+//             arm the TERM-ignoring grandchild survives (AC-STE-686.9).
 //
 // Each mutant must turn its AC's behavioural test RED — the AC.4-.6 tests in
 // `m_292387-ste-686-product-bounds.test.ts`, the AC.9 test in
@@ -193,6 +196,18 @@ const MUTANTS: readonly Mutant[] = [
     pattern: ANY_SIGKILL,
     replacement: '"SIGTERM"',
     testName: "AC-STE-686.9: a run that ignores SIGTERM is SIGKILLed after the grace period",
+    target: GATE_BOUND_TEST,
+  },
+  {
+    // The `/bin/sh -c` arm (the bun stack): the supervisor signals only the
+    // direct child pid instead of its process group, so the TERM-ignoring
+    // grandchild the stub `bun` started outlives the "killed" run.
+    id: "gate_identity_run signals the child pid, not its process group",
+    file: "gate_identity_run.ts",
+    region: fn("signalGroup"),
+    pattern: /process\.kill\(\s*-pid\b/,
+    replacement: "process.kill(pid",
+    testName: "AC-STE-686.9: a TERM-ignoring bun-stack run is killed with its grandchild, naming the bound",
     target: GATE_BOUND_TEST,
   },
 ];
