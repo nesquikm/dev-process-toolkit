@@ -94,9 +94,11 @@ function parseBun(output: string): TestCountParseResult {
     return { ok: true, count: { total: Number(summaryMatch[1]), failures, errors, skipped } };
   }
   // Fallback: last `N pass` line (older Bun versions or truncated output).
+  // STE-683: `total` carries the `Ran N tests` meaning (pass + fail + skip),
+  // so downstream `total - fail - skip` recovers the pass counter.
   const lastPass = lastCountedMatch(output, /(\d+)\s+pass\b/g);
   if (lastPass !== undefined) {
-    return { ok: true, count: { total: lastPass, failures, errors, skipped } };
+    return { ok: true, count: { total: lastPass + failures + skipped, failures, errors, skipped } };
   }
   return {
     ok: false,
