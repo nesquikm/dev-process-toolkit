@@ -29,7 +29,7 @@
 // (AC-STE-686.10), which re-runs this file against patched copies.
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -37,6 +37,7 @@ const SRC_ROOT = process.env.STE686_SRC_ROOT ?? resolve(import.meta.dir, "../ada
 const GATE_IDENTITY_RUN = join(SRC_ROOT, "gate_identity_run.ts");
 const GATE_CAPTURE = join(SRC_ROOT, "gate_capture.ts");
 
+const { skipIdentityCommand } = (await import(join(SRC_ROOT, "skip_identities.ts"))) as typeof import("../adapters/_shared/src/skip_identities");
 const mod = (await import(GATE_IDENTITY_RUN)) as typeof import("../adapters/_shared/src/gate_identity_run") & {
   readonly GATE_KILL_GRACE_MS?: unknown;
 };
@@ -159,6 +160,147 @@ describe("AC-STE-686.9 — a run that ignores SIGTERM is SIGKILLed after the gra
     );
     expect(obs.output).toContain("3 pass");
     expect(obs.output).not.toContain(mod.TIMED_OUT_MARKER);
+  }, 28_000);
+});
+
+// ===========================================================================
+// The `/bin/sh -c` arm — the bun stack, whose run is an identity invocation
+// ===========================================================================
+
+describe("AC-STE-686.9 — a killed bun-stack run ends its whole process group", () => {
+  // `runGateNamingSkips` on the bun stack runs `["/bin/sh", "-c", <identity
+  // command>]`, not the caller's argv: `skipIdentityCommand("bun", …)` composes
+  // `bun test … --reporter=junit …`. A stub `bun` first on PATH is the gate. It
+  // ignores TERM, starts a TERM-ignoring GRANDCHILD, and both record their pids.
+  // The stub detaches its own stdio first, so a survivor cannot hold the
+  // captured pipe open and turn a missing group kill into a slow-but-green run.
+  // THE VERDICT IS THE PIDS: after the run returns, neither may still exist.
+  interface ShRun {
+    output: string;
+    killedOnBoundMs: number | null;
+    armed: boolean;
+    pids: number[];
+    boundMs: number;
+    all: string;
+  }
+
+  function stubBun(bin: string, dir: string): { armed: string; childPid: string; grandPid: string } {
+    const armed = join(dir, "armed");
+    const childPid = join(dir, "child.pid");
+    const grandPid = join(dir, "grandchild.pid");
+    const body = [
+      "#!/bin/bash",
+      "exec </dev/null >/dev/null 2>&1",
+      "trap '' TERM",
+      `echo $$ > '${childPid}'`,
+      `/bin/bash -c "trap '' TERM; echo \\$\\$ > '${grandPid}'; exec /bin/sleep ${CHILD_SLEEP_S}" &`,
+      "for _ in $(/usr/bin/seq 1 150); do",
+      `  [ -s '${grandPid}' ] && break`,
+      "  /bin/sleep 0.02",
+      "done",
+      `[ -s '${grandPid}' ] && : > '${armed}'`,
+      `/bin/sleep ${CHILD_SLEEP_S}`,
+      "",
+    ].join("\n");
+    writeFileSync(join(bin, "bun"), body, { mode: 0o755 });
+    return { armed, childPid, grandPid };
+  }
+
+  const readPid = (p: string): number | null => {
+    if (!existsSync(p)) return null;
+    const n = Number(readFileSync(p, "utf-8").trim());
+    return Number.isInteger(n) && n > 1 ? n : null;
+  };
+
+  function alive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code === "EPERM";
+    }
+  }
+
+  /** Pids still alive after a short reaping window; survivors are killed by recorded pid. */
+  function survivors(pids: readonly number[]): number[] {
+    const deadline = performance.now() + 3_000;
+    let left = pids.filter(alive);
+    while (left.length > 0 && performance.now() < deadline) {
+      Bun.sleepSync(50);
+      left = left.filter(alive);
+    }
+    for (const pid of left) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+    return left;
+  }
+
+  // `Bun.spawnSync` with no `env` hands the child the env this process STARTED
+  // with, so a PATH set via `process.env` never reaches `/bin/sh`. The run is
+  // therefore driven from a small child process whose PATH carries the stub.
+  function runOnce(boundMs: number): ShRun {
+    const dir = tempDir("sh");
+    const bin = tempDir("sh-bin");
+    const s = stubBun(bin, dir);
+    const driver =
+      `const m = await import(${JSON.stringify(GATE_IDENTITY_RUN)});` +
+      `const o = m.runGateNamingSkips(${JSON.stringify(dir)}, "bun", ["bun", "test"], ${boundMs});` +
+      `process.stdout.write(JSON.stringify({ output: o.output, killedOnBoundMs: o.killedOnBoundMs ?? null }));`;
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+    env.PATH = `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`;
+    env.DPT_GATE_KILL_GRACE_MS = String(GRACE_MS);
+    const proc = Bun.spawnSync([process.execPath, "-e", driver], {
+      cwd: dir,
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 20_000,
+      killSignal: "SIGKILL",
+    });
+    const stdout = proc.stdout.toString();
+    let parsed: { output: string; killedOnBoundMs: number | null } = { output: "", killedOnBoundMs: null };
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {
+      // left empty; `all` carries the evidence
+    }
+    const pids = [readPid(s.childPid), readPid(s.grandPid)].filter((p): p is number => p !== null);
+    return {
+      ...parsed,
+      armed: existsSync(s.armed),
+      pids,
+      boundMs,
+      all: `exit ${proc.exitCode}\nstdout:\n${stdout}\nstderr:\n${proc.stderr.toString()}`,
+    };
+  }
+
+  test("AC-STE-686.9: the bun stack runs through /bin/sh -c (the arm under test)", () => {
+    expect(skipIdentityCommand("bun", "/tmp/r.xml")).toMatch(/^bun test\b/);
+  });
+
+  test("AC-STE-686.9: a TERM-ignoring bun-stack run is killed with its grandchild, naming the bound", () => {
+    let run: ShRun | null = null;
+    for (const boundMs of BOUNDS_MS) {
+      const attempt = runOnce(boundMs);
+      if (attempt.armed && attempt.pids.length === 2) {
+        run = attempt;
+        break;
+      }
+      survivors(attempt.pids);
+    }
+    if (run === null) throw new Error(`the bun stub never armed within ${BOUNDS_MS.join("/")} ms`);
+    const left = survivors(run.pids);
+    if (left.length > 0) throw new Error(`pids ${left.join(", ")} outlived the killed run\n${run.all}`);
+    expect({
+      killedOnBoundMs: run.killedOnBoundMs,
+      timedOut: run.output.includes(mod.TIMED_OUT_MARKER),
+      survivors: left,
+    }).toEqual({ killedOnBoundMs: run.boundMs, timedOut: true, survivors: [] });
   }, 28_000);
 });
 
