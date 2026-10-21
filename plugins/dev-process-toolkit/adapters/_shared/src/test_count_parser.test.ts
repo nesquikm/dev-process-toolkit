@@ -161,8 +161,9 @@ describe("parseTestOutput — bun summary-line anchoring (STE-323)", () => {
     ].join("\n");
     const result = parseTestOutput(output, "bun");
     if (!result.ok) throw new Error(`expected ok but got: ${result.reason}`);
-    // Legacy first-match would yield 4; spec requires 2891.
-    expect(result.count.total).toBe(2891);
+    // Legacy first-match would yield 4; spec requires the LAST pass counter,
+    // 2891, which since AC-STE-683.2 counts skips too: 2891 + 0 + 11.
+    expect(result.count.total).toBe(2902);
   });
 
   // AC-STE-323.1 fall-through: neither summary nor `N pass` present.
