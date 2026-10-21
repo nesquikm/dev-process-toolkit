@@ -285,6 +285,39 @@ interface RenderParams {
   bug?: boolean;
 }
 
+/**
+ * Split the first `### Root cause` subsection (heading and body, up to the
+ * next heading of any level) out of a ticket description. Returns the
+ * description without it and the trimmed subsection, or `""` when absent.
+ */
+function splitRootCause(description: string): { description: string; rootCause: string } {
+  const lines = description.split("\n");
+  // A line inside a ``` / ~~~ fence is never a heading: a `# comment` in a
+  // code block neither opens nor ends the subsection.
+  let fence: string | undefined;
+  const fenced = lines.map((l) => {
+    const m = /^\s{0,3}(`{3,}|~{3,})/.exec(l);
+    if (fence === undefined) {
+      if (m) fence = m[1]!;
+      return false;
+    }
+    if (m && m[1]![0] === fence[0] && m[1]!.length >= fence.length && l.trim() === m[1]) fence = undefined;
+    return true;
+  });
+  // Case-insensitive, as probe #88 reads the heading.
+  const start = lines.findIndex((l, i) => !fenced[i] && /^### root cause\s*$/i.test(l));
+  if (start < 0) return { description, rootCause: "" };
+  let end = start + 1;
+  while (end < lines.length && (fenced[end] || !/^#{1,6} /.test(lines[end]!))) end++;
+  const body = lines.slice(start + 1, end).join("\n").trim();
+  const rootCause = body === "" ? "### Root cause" : `### Root cause\n\n${body}`;
+  const before = lines.slice(0, start);
+  while (before.length > 0 && before[before.length - 1]!.trim() === "") before.pop();
+  const after = lines.slice(end);
+  const rest = (after.length > 0 ? [...before, "", ...after] : before).join("\n").trimEnd();
+  return { description: rest, rootCause };
+}
+
 function renderFRFile(p: RenderParams): string {
   // acPrefix in tracker mode keys off the tracker binding — no id: needed.
   const prefix = acPrefix({
@@ -298,13 +331,18 @@ function renderFRFile(p: RenderParams): string {
   const acs = p.bug && !p.acs.some((ac) => ac.startsWith("Regression:"))
     ? [...p.acs, "Regression: TODO — name the test that reproduces the reported failure; it fails before the fix and passes after it."]
     : p.acs;
+  // STE-681 AC-STE-681.4 — a ticket-supplied `### Root cause` belongs under
+  // ## Technical Design, not ## Requirement: split it out of the description.
+  // Bugs only — a plain FR imports byte-identical (AC-STE-682.3).
+  const { description, rootCause } = p.bug ? splitRootCause(p.description) : { description: p.description, rootCause: "" };
   const acsBlock = acs.length === 0
     ? "- TODO: AC list from tracker was empty. Add ACs here or in the tracker; FR-39 sync will reconcile.\n"
     : acs.map((ac, i) => `- AC-${prefix}.${i + 1}: ${ac}\n`).join("");
   // STE-680 AC-STE-680.2 — the four bug subsections (docs/resolver-entry.md
   // § "Bug FR body"): one the ticket's description already carries is kept as
   // it is; each one it does not supply gets a TODO marker.
-  const supplies = (heading: string): boolean => new RegExp(`^### ${heading}\\s*$`, "m").test(p.description);
+  const supplies = (heading: string): boolean =>
+    heading === "Root cause" ? rootCause !== "" : new RegExp(`^### ${heading}\\s*$`, "im").test(description);
   const todo = (heading: string, hint: string): string => (supplies(heading) ? "" : `\n### ${heading}\n\nTODO — ${hint}\n`);
   const bugRecord = p.bug
     ? todo("Steps to reproduce", "numbered steps from a clean state.") +
@@ -312,7 +350,11 @@ function renderFRFile(p: RenderParams): string {
       todo("Actual", "what happens instead.")
     : "";
   // Last under Technical Design, so its body is the TODO alone and never the placeholder line.
-  const bugDiagnosis = p.bug && !supplies("Root cause") ? "### Root cause\n\nTODO — why it happens (file:line, the faulty assumption).\n\n" : "";
+  const bugDiagnosis = rootCause !== ""
+    ? `${rootCause}\n\n`
+    : p.bug
+      ? "### Root cause\n\nTODO — why it happens (file:line, the faulty assumption).\n\n"
+      : "";
   return `---
 title: ${escapeYamlScalar(p.title)}
 milestone: ${p.milestone}
@@ -325,7 +367,7 @@ ${p.bug ? "changelog_category: Fixed\nkind: bug\n" : ""}---
 
 ## Requirement
 
-${p.description}
+${description}
 ${bugRecord}
 ## Acceptance Criteria
 

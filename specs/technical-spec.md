@@ -292,7 +292,7 @@ created_at: 2026-04-21T10:30:00Z
 ---
 ```
 
-Rules: `milestone` must match a key in `specs/plan/`. `tracker` keys written in alphabetical order. `archived_at` null unless `status: archived`. In `mode: none`, `id:` is immutable for the FR's lifetime and equals the filename stem (NFR-15). In tracker mode, the `id:` line is absent; the bimodal invariant is enforced by the `identity_mode_conditional` `/gate-check` probe (STE-86 AC-STE-86.5) and cross-referenced from NFR-15.
+Rules: `milestone` must match a key in `specs/plan/`. Optional key: `kind` — its only value is `bug`, written by `/spec-write --bug` (STE-679); absent means an ordinary FR. `tracker` keys written in alphabetical order. `archived_at` null unless `status: archived`. In `mode: none`, `id:` is immutable for the FR's lifetime and equals the filename stem (NFR-15). In tracker mode, the `id:` line is absent; the bimodal invariant is enforced by the `identity_mode_conditional` `/gate-check` probe (STE-86 AC-STE-86.5) and cross-referenced from NFR-15.
 
 Archived FRs live at `specs/frs/archive/<stem>.md` with the same mode-conditional frontmatter plus `status: archived` and a non-null `archived_at`. No separate archive-file schema exists — Schema Q is the single source of truth on both sides of the active/archived boundary.
 
