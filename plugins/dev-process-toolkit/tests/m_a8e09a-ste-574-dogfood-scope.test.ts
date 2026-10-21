@@ -54,6 +54,7 @@ import {
   type PlanShipCoherenceViolation,
 } from "../adapters/_shared/src/plan_ship_coherence";
 import { TRANSIENT_KIND, gradedViolations } from "./_plan_ship_grading";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -349,16 +350,14 @@ describe("AC-STE-574.2 — the diagnostic text is byte-identical", () => {
     // `toContain("unshipped debt")`); `m141-ste-546-corrections.test.ts` pins
     // the surface rows' reason substrings. Neither is edited by this FR, so
     // "they pass" is a statement about the probe, not about the tests.
-    const proc = Bun.spawnSync(
+    const proc = runNestedBunTest(
       [
-        "bun",
-        "test",
         "tests/gate-check-plan-ship-coherence.test.ts",
         "tests/m141-ste-546-corrections.test.ts",
       ],
-      { cwd: PLUGIN_ROOT, stdout: "pipe", stderr: "pipe" },
+      { cwd: PLUGIN_ROOT },
     );
-    const out = proc.stdout.toString() + proc.stderr.toString();
+    const out = proc.stdout + proc.stderr;
     expect(proc.exitCode, out.slice(-3000)).toBe(0);
     // Non-vacuity: a run that collected nothing exits 0 too.
     expect(out, "the sibling run reported no passing tests at all").toMatch(/\b\d+ pass\b/);

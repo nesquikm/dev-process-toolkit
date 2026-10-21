@@ -23,6 +23,7 @@ import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 const PLUGIN_ROOT = resolve(import.meta.dir, "..");
 const SHARED_SRC = join(PLUGIN_ROOT, "adapters", "_shared", "src");
@@ -89,17 +90,12 @@ interface TestRun {
 }
 
 function runTarget(srcRoot: string, testFile: string, filter: string): TestRun {
-  const proc = Bun.spawnSync(
-    [process.execPath, "test", "--timeout", "120000", join("tests", testFile), "-t", filter],
-    {
-      cwd: PLUGIN_ROOT,
-      env: { ...process.env, STE662_SRC_ROOT: srcRoot },
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 300_000,
-    },
-  );
-  return { exitCode: proc.exitCode ?? -1, output: `${proc.stdout.toString()}\n${proc.stderr.toString()}` };
+  const proc = runNestedBunTest(["--timeout", "120000", join("tests", testFile), "-t", filter], {
+    cwd: PLUGIN_ROOT,
+    env: { ...process.env, STE662_SRC_ROOT: srcRoot },
+    timeoutMs: 300_000,
+  });
+  return { exitCode: proc.exitCode, output: `${proc.stdout}\n${proc.stderr}` };
 }
 
 /** The test ran at least one case, and every case it ran passed. */

@@ -46,6 +46,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 import { describe, expect, test } from "bun:test";
 
@@ -941,10 +942,8 @@ function runSubjectSuite(opts: {
   if (opts.declaredRun === undefined) delete env.DPT_CAPTURE_RUN;
   else env.DPT_CAPTURE_RUN = opts.declaredRun;
 
-  const proc = spawnSync(
-    "bun",
+  const proc = runNestedBunTest(
     [
-      "test",
       SUBJECT_TEST_REL,
       // Scoped to the describe under observation. Unscoped, each of these six
       // spawns re-ran the WHOLE subject file — including an unrelated
@@ -957,9 +956,9 @@ function runSubjectSuite(opts: {
       "--reporter=junit",
       `--reporter-outfile=${outfile}`,
     ],
-    { cwd: PLUGIN_ROOT, env, encoding: "utf-8" },
+    { cwd: PLUGIN_ROOT, env },
   );
-  const output = `${proc.stdout ?? ""}${proc.stderr ?? ""}`;
+  const output = `${proc.stdout}${proc.stderr}`;
   if (!existsSync(outfile)) {
     throw new Error(`subject suite produced no junit report:\n${output}`);
   }

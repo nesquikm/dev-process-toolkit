@@ -28,6 +28,7 @@ import { createGoogleTts } from "../adapters/_shared/src/video/tts_google";
 import { videoInit } from "../adapters/_shared/src/video_init";
 import { runVideoStage } from "../adapters/_shared/src/video_pipeline";
 import { mutateInRegion } from "./_sited-mutation";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -596,6 +597,7 @@ function runOverlay(filter: string, mutation: OverlayMutation | null): OverlayRu
         `cp -R ${JSON.stringify(SRC)} ${JSON.stringify(join(plugin, "adapters", "_shared"))}/`,
         `cp ${JSON.stringify(join(PLUGIN_ROOT, THIS_FILE_REL))} ${JSON.stringify(join(plugin, "tests"))}/`,
         `cp ${JSON.stringify(join(PLUGIN_ROOT, "tests", "_sited-mutation.ts"))} ${JSON.stringify(join(plugin, "tests"))}/`,
+        `cp ${JSON.stringify(join(PLUGIN_ROOT, "tests", "_nested_bun_test.ts"))} ${JSON.stringify(join(plugin, "tests"))}/`,
       ].join("; "),
     ],
     { stdout: "pipe", stderr: "pipe" },
@@ -622,8 +624,8 @@ function runOverlay(filter: string, mutation: OverlayMutation | null): OverlayRu
     );
   }
 
-  const proc = Bun.spawnSync(["bun", "test", THIS_FILE_REL, "-t", filter], { cwd: plugin, stdout: "pipe", stderr: "pipe" });
-  return { code: proc.exitCode ?? -1, output: `${proc.stdout.toString()}\n${proc.stderr.toString()}`, mutatedSource };
+  const proc = runNestedBunTest([THIS_FILE_REL, "-t", filter], { cwd: plugin });
+  return { code: proc.exitCode, output: `${proc.stdout}\n${proc.stderr}`, mutatedSource };
 }
 
 const failedRow = (run: OverlayRun, name: string): boolean =>

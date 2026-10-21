@@ -46,6 +46,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 import { parseFrontmatter } from "../adapters/_shared/src/frontmatter";
 import {
@@ -439,11 +440,11 @@ describe("AC-STE-582.8 — the M129 target-repo suite passes with zero failures"
   test(
     "bun test tests/m129-ste-495-target-repo.test.ts exits 0 with 0 fail",
     () => {
-      const proc = Bun.spawnSync(
-        ["bun", "test", "tests/m129-ste-495-target-repo.test.ts"],
-        { cwd: PLUGIN_ROOT, stdout: "pipe", stderr: "pipe" },
+      const proc = runNestedBunTest(
+        ["tests/m129-ste-495-target-repo.test.ts"],
+        { cwd: PLUGIN_ROOT },
       );
-      const out = `${proc.stdout.toString()}\n${proc.stderr.toString()}`;
+      const out = `${proc.stdout}\n${proc.stderr}`;
       expect(out).toMatch(/\b0 fail\b/);
       expect(proc.exitCode).toBe(0);
     },

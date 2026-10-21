@@ -1,0 +1,6 @@
+# Gate-root test config (STE-685). bun parses `[test] timeout` but does not
+# apply it (measured on bun 1.3.14), so the preload sets the same default via
+# setDefaultTimeout. Keep both in step.
+[test]
+timeout = 30000
+preload = ["./tests/_default_timeout.ts"]
