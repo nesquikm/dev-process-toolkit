@@ -1,0 +1,5 @@
+rewrote plugins/dev-process-toolkit/.claude-plugin/plugin.json
+rewrote .claude-plugin/marketplace.json
+rewrote CHANGELOG.md
+rewrote README.md
+rewrote specs/requirements.md

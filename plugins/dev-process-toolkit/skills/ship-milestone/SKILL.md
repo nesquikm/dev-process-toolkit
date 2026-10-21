@@ -100,6 +100,8 @@ Any of these fire before any file write and exit non-zero with an NFR-10-shape m
 
 ## Flow
 
+**Unversioned run (`changelog_unversioned: true` in `## Docs`).** The run skips version inference (step 2) and codename resolution (step 3). It still runs the test-gate refusal #3, but writes no test-count line. The step-4 migration pre-flight calls `assertMigrationDeclared(planPath, MIGRATIONS, "unreleased")`, which checks registry presence only. Steps 4 and 7 run `release_config.ts <projectRoot> unreleased --date <YYYY-MM-DD> --body "<changelog body>"` (with `--dry-run` at step 4), which adds the entries to the changelog's unreleased part and skips every other release file. The proposed branch is `release/<milestone-lowercase>-unreleased` (`branchNameFor({ milestone, unreleased: true })`), the plan is stamped `shipped_in: unreleased`, and the commit subject is `chore(release): <milestone> unreleased` with footers `Release: unreleased` and `Refs: <milestone>`.
+
 ### 1. Resolve milestone + FR list
 
 Read `specs/plan/M<N>.md`. **Archive fallback (STE-210 AC-STE-210.1):** if `specs/plan/M<N>.md` is missing, check `specs/plan/archive/M<N>.md` — when the archived plan exists AND every FR row in it has `status: archived` (consistent end state), proceed to read from the archive path. When the archived plan exists but FR rows are mixed (some still `status: active`), refuse with NFR-10:

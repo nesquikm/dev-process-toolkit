@@ -1,0 +1,65 @@
+would rewrite plugins/dev-process-toolkit/.claude-plugin/plugin.json (dry-run)
+--- a/plugins/dev-process-toolkit/.claude-plugin/plugin.json
++++ b/plugins/dev-process-toolkit/.claude-plugin/plugin.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "dev-process-toolkit",
+-  "version": "2.99.2",
++  "version": "2.100.0",
+   "description": "Portable skills, agents, and templates that add Spec-Driven Development and TDD workflows to any Claude Code project.",
+   "author": {
+     "name": "nesquikm",
+would rewrite .claude-plugin/marketplace.json (dry-run)
+--- a/.claude-plugin/marketplace.json
++++ b/.claude-plugin/marketplace.json
+@@ -9,7 +9,7 @@
+   "plugins": [
+     {
+       "name": "dev-process-toolkit",
+-      "version": "2.99.2",
++      "version": "2.100.0",
+       "source": "./plugins/dev-process-toolkit",
+       "description": "Portable skills, agents, and templates that add SDD and TDD workflows to any Claude Code project.",
+       "category": "development-workflow",
+would rewrite CHANGELOG.md (dry-run)
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -6,6 +6,14 @@
+ 
+ > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
+ 
++## [2.100.0] — 2026-10-21 — "Golden Path"
++
++### Added
++
++- A golden release line (STE-1)
++
++Total test count at release: 100 tests, 0 failures, 0 errors.
++
+ ## [2.99.2] — 2026-10-21 — "Short Fuse"
+ 
+ ### Fixed
+would rewrite README.md (dry-run)
+--- a/README.md
++++ b/README.md
+@@ -7,7 +7,7 @@
+ 
+ ## Release Notes
+ 
+-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.99.2 — "Short Fuse"** (M_292387, test runs that cannot hang. Nested test runs and the gate carry hard time limits, the gate escalates SIGTERM to SIGKILL and names every failing test, and the supervisor mints the spawn receipt a worker cannot)
++See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.100.0 — "Golden Path"** (M_292387, test runs that cannot hang. Nested test runs and the gate carry hard time limits, the gate escalates SIGTERM to SIGKILL and names every failing test, and the supervisor mints the spawn receipt a worker cannot)
+ 
+ ## Core Philosophy
+ 
+would rewrite specs/requirements.md (dry-run)
+--- a/specs/requirements.md
++++ b/specs/requirements.md
+@@ -4,7 +4,7 @@
+ 
+ **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
+ **Users:** Claude Code plugin users running SDD/TDD workflows.
+-**Latest shipped release:** **v2.99.2 ("Short Fuse")**.
++**Latest shipped release:** **v2.100.0 ("Golden Path")**.
+ 
+ ### Shipped milestones
+ 

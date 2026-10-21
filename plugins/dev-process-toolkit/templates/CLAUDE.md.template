@@ -376,6 +376,7 @@ Keys `/setup` emits:
   - user_facing_mode:    true | false   (narrative + mermaid state/flow diagrams)
   - packages_mode:       true | false   (packages-style API reference)
   - changelog_ci_owned:  true | false   (if true, /ship-milestone will not write CHANGELOG.md)
+  - changelog_unversioned: true | false (if true, /ship-milestone writes no version: entries go under ## [Unreleased]; default false)
 
 Values are lowercase literal `true`/`false` — no quoting, no `yes`/`no`.
 ===============================================================================
@@ -386,6 +387,7 @@ Values are lowercase literal `true`/`false` — no quoting, no `yes`/`no`.
 user_facing_mode: false
 packages_mode: false
 changelog_ci_owned: false
+changelog_unversioned: false
 
 <!--
 ===============================================================================
