@@ -110,12 +110,8 @@ function ownershipLabels(trackerKey: string, trackerId: string, ctx: ImportOwner
   return undefined;
 }
 
-/** The raw tracker item for `trackerId`: the fetched ticket, else its row on a listing page. */
-function rawTicketItem(trackerKey: "jira" | "linear", trackerId: string, ctx: ImportOwnershipContext): Record<string, unknown> | undefined {
-  if (ctx.ticket !== undefined) {
-    const read = readTrackerItem(trackerKey, ctx.ticket);
-    return read.ok ? read.item : undefined;
-  }
+/** The raw tracker item for `trackerId` on a listing page (the orphan-listing path). */
+function rawPageItem(trackerKey: "jira" | "linear", trackerId: string, ctx: ImportOwnershipContext): Record<string, unknown> | undefined {
   const want = trackerId.toUpperCase();
   for (const page of ctx.pages) {
     const read = readTrackerPage(trackerKey, page);
@@ -127,25 +123,56 @@ function rawTicketItem(trackerKey: "jira" | "linear", trackerId: string, ctx: Im
 }
 
 /**
- * STE-680 AC-STE-680.1 — is the ticket being imported a tracker bug? Its raw
- * answer is the one fetched `ticket`, or its item on the listing `pages` (the
- * orphan-listing path). Jira: its `fields.issuetype.name` equals the resolved
- * bug type; Linear: its `labels` include the resolved bug label. A ticket in
- * neither, an unreadable answer, or any other tracker is never a bug.
+ * STE-680 AC-STE-680.1 / STE-682 — is the ticket being imported a tracker bug?
+ * Its raw answer is the one fetched `ticket`, or its item on the listing
+ * `pages` (the orphan-listing path). Jira: its `fields.issuetype.name` equals
+ * the resolved bug type; Linear: its `labels` include the resolved bug label.
+ * Three answers: a bug, not a bug, or UNREADABLE — no readable answer holds
+ * the ticket, or that answer lacks the field bug detection reads (Linear: a
+ * `labels` list; Jira: `fields.issuetype.name` as a string). Without an
+ * ownership context, or on any other tracker, a ticket is never a bug.
  */
-function isBugTicket(trackerKey: string, trackerId: string, ctx: ImportOwnershipContext | undefined): boolean {
-  if (ctx === undefined || (trackerKey !== "jira" && trackerKey !== "linear")) return false;
-  const item = rawTicketItem(trackerKey, trackerId, ctx);
-  if (item === undefined) return false;
-  const bugType = resolveBugTrackerType(trackerKey, readWorkspaceBinding(join(ctx.projectRoot, "CLAUDE.md"), trackerKey));
-  if (bugType === null) return false;
+type BugVerdict = { kind: "bug" } | { kind: "not-bug" } | { kind: "unreadable"; reason: string };
+
+function bugVerdict(trackerKey: string, trackerId: string, ctx: ImportOwnershipContext | undefined): BugVerdict {
+  if (ctx === undefined || (trackerKey !== "jira" && trackerKey !== "linear")) return { kind: "not-bug" };
+  let item: Record<string, unknown> | undefined;
+  if (ctx.ticket !== undefined) {
+    const read = readTrackerItem(trackerKey, ctx.ticket);
+    if (!read.ok) return { kind: "unreadable", reason: `the fetched ticket cannot be read: ${read.reason}` };
+    item = read.item;
+  } else {
+    item = rawPageItem(trackerKey, trackerId, ctx);
+  }
+  if (item === undefined) return { kind: "unreadable", reason: "no readable tracker answer holds the ticket" };
+  let name: string | undefined;
+  let labels: unknown[] | undefined;
   if (trackerKey === "jira") {
     const fields = item["fields"] as Record<string, unknown> | undefined;
     const issuetype = fields?.["issuetype"] as Record<string, unknown> | undefined;
-    return issuetype?.["name"] === bugType;
+    const n = issuetype?.["name"];
+    if (typeof n !== "string") return { kind: "unreadable", reason: "its `fields.issuetype.name` is not a string" };
+    name = n;
+  } else {
+    if (!Array.isArray(item["labels"])) return { kind: "unreadable", reason: "its `labels` is not a list" };
+    labels = item["labels"] as unknown[];
   }
-  const labels = Array.isArray(item["labels"]) ? (item["labels"] as unknown[]) : [];
-  return labels.some((l) => (typeof l === "string" ? l : (l as Record<string, unknown> | null)?.["name"]) === bugType);
+  const bugType = resolveBugTrackerType(trackerKey, readWorkspaceBinding(join(ctx.projectRoot, "CLAUDE.md"), trackerKey));
+  if (bugType === null) return { kind: "not-bug" };
+  const isBug = name !== undefined
+    ? name === bugType
+    : labels!.some((l) => (typeof l === "string" ? l : (l as Record<string, unknown> | null)?.["name"]) === bugType);
+  return isBug ? { kind: "bug" } : { kind: "not-bug" };
+}
+
+/** STE-682 — refuse, in the NFR-10 shape, an import whose bug verdict is unreadable. */
+function refuseIfBugUnreadable(trackerKey: string, trackerId: string, verdict: BugVerdict): void {
+  if (verdict.kind !== "unreadable") return;
+  throw new Error(
+    `importFromTracker: cannot tell whether ${trackerId} is a bug — ${verdict.reason}; refusing to import it\n` +
+      `Remedy: re-fetch ${trackerId} with the tracker's own read (Linear \`get_issue\`, Jira \`getJiraIssue\`) and pass its full answer, so bug detection can read ${trackerKey === "jira" ? "`fields.issuetype.name`" : "`labels`"}\n` +
+      `Context: mode=${trackerKey}, ticket=${trackerId}, skill=importFromTracker`,
+  );
 }
 
 /**
@@ -178,6 +205,11 @@ export async function importFromTracker(
   // frontmatter whatever the filename — refuses before any tracker read,
   // prompt, ownership read or file write.
   refuseIfLocallyBound(trackerId, specsDir);
+  // STE-682: an unreadable bug verdict refuses before any prompt, write or
+  // sync — and before the ownership read, whose page normalizer would refuse
+  // a missing Jira `issuetype` outside the NFR-10 shape.
+  const verdict = bugVerdict(trackerKey, trackerId, ownership);
+  refuseIfBugUnreadable(trackerKey, trackerId, verdict);
   const claimLabels = ownership === undefined ? undefined : ownershipLabels(trackerKey, trackerId, ownership);
   const metadata = await provider.getMetadata(`${trackerKey}:${trackerId}`);
   const milestone = await promptMilestone();
@@ -200,7 +232,7 @@ export async function importFromTracker(
   const description = stripFences(rawDescription);
   const acs = rawAcs.map(stripFences);
   const createdAt = new Date().toISOString();
-  const bug = isBugTicket(trackerKey, trackerId, ownership);
+  const bug = verdict.kind === "bug";
 
   const body = renderFRFile({
     title: metadata.title,
