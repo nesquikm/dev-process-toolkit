@@ -199,6 +199,8 @@ packages_mode: <true|false>
 changelog_ci_owned: <true|false>
 ```
 
+`/setup` neither prompts for nor writes `changelog_unversioned`; an absent key reads as its default, `false`. A project whose git tags or CI own the version adds `changelog_unversioned: true` to `## Docs` by hand, and `/ship-milestone` then closes a milestone with no version — entries land under `## [Unreleased]` and no versioned release file is rewritten.
+
 Re-run writes are atomic — read CLAUDE.md, splice the full `## Docs` block, write once.
 
 **Toolchain snapshot.** When `packages_mode == true`, also write `docs/.dpt-docs-toolchain.json` recording the per-stack preferred signature-extraction strategy at /setup time, derived from `preferredFromStatus(probeToolchains(projectRoot))`:

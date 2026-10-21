@@ -23,6 +23,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { hasFrontmatterOpener, joinFrontmatter, splitFrontmatter } from "./frontmatter";
 
+import { UNRELEASED_STAMP } from "./active_plan_ship_ready";
+
+/** The `unreleased` stamp sentinel (STE-690); defined beside the readers. */
+export { UNRELEASED_STAMP };
+
 /**
  * NFR-10 canonical refusal for the double-ship guard: the plan already
  * carries a `shipped_in` that differs from the version being stamped.
@@ -64,7 +69,19 @@ export async function stampShippedIn(
   planPath: string,
   version: string,
 ): Promise<void> {
-  const stampValue = version.startsWith("v") ? version : `v${version}`;
+  // STE-690: `unreleased` is written verbatim; anything else must be a
+  // plain `X.Y.Z` (optionally `v`-prefixed) or it is refused untouched.
+  if (version !== UNRELEASED_STAMP && !/^v?\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error(
+      [
+        `Refusing: \`${version}\` is neither a \`v<X.Y.Z>\` version nor \`${UNRELEASED_STAMP}\`.`,
+        `Remedy: pass a bare semver (\`2.40.0\`) or \`${UNRELEASED_STAMP}\`, then re-run.`,
+        `Context: mode=plan-ship-stamp, file=${planPath}, attempted=${version}`,
+      ].join("\n"),
+    );
+  }
+  const stampValue =
+    version === UNRELEASED_STAMP || version.startsWith("v") ? version : `v${version}`;
   const stampLine = `shipped_in: ${stampValue}`;
 
   const original = await readFile(planPath, "utf-8");

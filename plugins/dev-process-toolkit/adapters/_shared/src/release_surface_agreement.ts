@@ -33,6 +33,7 @@ import { readDocsConfig } from "./docs_config";
 // fixture of its own post-release tree, this module returned a `latest_line`
 // violation and exit 1, which aborts /ship-milestone before `git add`.
 import { MILESTONE_TOKEN_SOURCE, parseMilestoneToken } from "./milestone_token";
+import { changelogUnversionedAt } from "./active_plan_ship_ready";
 
 export interface PlanText {
   /** Path on disk, used only for diagnostics. */
@@ -445,7 +446,10 @@ export async function runReleaseSurfaceAgreement(
   projectRoot: string,
   version?: string,
 ): Promise<AgreementViolation[]> {
-  if (changelogIsCiOwned(projectRoot)) return [];
+  // STE-690 (AC-STE-690.7) — an unversioned project writes no versioned
+  // CHANGELOG heading and stamps plans `unreleased`, so there is no release
+  // version for the two surfaces to agree on: vacuous, as under ci-owned.
+  if (changelogIsCiOwned(projectRoot) || changelogUnversionedAt(projectRoot)) return [];
   const readOrEmpty = async (name: string): Promise<string> => {
     try {
       return await readFile(join(projectRoot, name), "utf-8");

@@ -9,6 +9,7 @@
 //     user_facing_mode: <true|false>
 //     packages_mode: <true|false>
 //     changelog_ci_owned: <true|false>
+//     changelog_unversioned: <true|false>
 //
 // Absent section ≡ all three `false` (AC-STE-68.3 — backward compat for
 // projects that predate v1.23.0). Missing CLAUDE.md file also returns
@@ -28,6 +29,7 @@ export interface DocsConfig {
   userFacingMode: boolean;
   packagesMode: boolean;
   changelogCiOwned: boolean;
+  changelogUnversioned: boolean;
 }
 
 /**
@@ -71,6 +73,7 @@ const ALL_FALSE: DocsConfig = {
   userFacingMode: false,
   packagesMode: false,
   changelogCiOwned: false,
+  changelogUnversioned: false,
 };
 
 function parseBool(key: string, raw: string): boolean {
@@ -114,6 +117,9 @@ export function readDocsConfig(claudeMdPath: string): DocsConfig {
         break;
       case "changelog_ci_owned":
         result.changelogCiOwned = parseBool(key, value);
+        break;
+      case "changelog_unversioned":
+        result.changelogUnversioned = parseBool(key, value);
         break;
     }
   }
