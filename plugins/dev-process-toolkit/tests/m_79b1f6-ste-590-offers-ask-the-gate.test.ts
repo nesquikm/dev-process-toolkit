@@ -265,6 +265,14 @@ function expectUneditedBeyondSte609(suite: string, ref: string): void {
  * STE-680 registers probe #88, so the 87 -> 88 probe-count move reaches
  * tests/m_8f07e0-ste-584-awaiting-siblings.test.ts, each hunk adding a line marked
  * `Amended by AC-STE-680.6`. An unmarked hunk is still an edit.
+ *
+ * Amended by AC-STE-690.1 (approved spec STE-690, M_7a948e): admitted the same way.
+ * STE-690 widens the one stamp grammar to `v<X.Y.Z>` plus the literal `unreleased`
+ * and narrows the stampShippedIn byte-identity pin to its frontmatter-edit tail, so
+ * tests/m_79b1f6-ste-589-sibling-ship-gate.test.ts carries the STAMP_RE agreement
+ * pin, each hunk adding a line marked `Amended by AC-STE-690.1`, and the narrowed
+ * stampShippedIn pin, each hunk adding a line marked `Amended by AC-STE-690.2`.
+ * An unmarked hunk is still an edit.
  */
 function unmarkedHunks(diff: string): string[] {
   const hunks = diff.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ "));
@@ -276,7 +284,7 @@ function unmarkedHunks(diff: string): string[] {
   ).map((h) => h.split("\n")[0]!);
 }
 
-const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6)\b/;
+const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6|690\.1|690\.2)\b/;
 
 /** The suite's working-tree bytes equal `ref`'s committed bytes. */
 function expectUnedited(suite: string, ref: "main" | "HEAD"): void {
