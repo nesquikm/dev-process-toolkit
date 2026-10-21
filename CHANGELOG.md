@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.100.0] — 2026-10-22 — "Not Yet Numbered"
+
+### Added
+
+- A release can close a milestone without a version (STE-689). A new `## Docs` flag, `changelog_unversioned`, is for projects whose git tags and CI own the version. Under it, `release_config.ts <root> unreleased` merges the milestone's entries into `## [Unreleased]` by category, idempotently, and reports every other release file as skipped. The writer refuses when the version slot and the flag disagree. `/ship-milestone` documents the unversioned run: branch `release/<milestone>-unreleased`, stamp `shipped_in: unreleased`, and a migration pre-flight that checks registry presence only.
+- An unreleased ship stamp counts as shipped (STE-690). `shipped_in: unreleased` joins the one stamp grammar. Plan/ship coherence and its sibling leg, the resume classifier, ship-readiness, release-surface agreement, the live-proof gate and the `Spans:` footer accept it only where the project, or the sibling, declares the flag. Without the flag it stays a corrupt stamp, and the remedy names the flag. `stampShippedIn` writes the sentinel verbatim and still refuses any other non-version value.
+
+### Fixed
+
+- A numbered Jira milestone has no children to grade (STE-691). Under a Jira shared binding, a numeric `M<N>` milestone has no Epic, so refusal #4's front door no longer demands `--children` for it. It prints `children=none (no container)` instead. Keyed Jira milestones and every Linear milestone still refuse without a listing.
+
+Total test count at release: 19386 tests, 0 failures, 0 errors.
+
 ## [2.99.2] — 2026-10-21 — "Short Fuse"
 
 ### Fixed

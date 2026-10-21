@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.99.2 — "Short Fuse"** (M_292387, test runs that cannot hang. Nested test runs and the gate carry hard time limits, the gate escalates SIGTERM to SIGKILL and names every failing test, and the supervisor mints the spawn receipt a worker cannot)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.100.0 — "Not Yet Numbered"** (M_7a948e, releases for repos whose tags own the version. An opt-in `changelog_unversioned` flag lets `/ship-milestone` close a milestone under `## [Unreleased]` with no version bump, every stamp reader accepts `shipped_in: unreleased` under that flag, and a numbered Jira milestone no longer needs a child listing)
 
 ## Core Philosophy
 
