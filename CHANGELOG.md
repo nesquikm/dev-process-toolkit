@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.99.1] — 2026-10-21 — "Fine Print"
+
+### Fixed
+
+- Gate-check probe #88 now grades each bug section where it belongs (STE-681). Steps to reproduce, Expected and Actual must sit under `## Requirement` and Root cause under `## Technical Design`; a section found anywhere else is reported as misplaced, naming where it was found. A `Regression:` criterion with no body or only a TODO marker no longer counts, so a freshly imported bug stays red until someone names the test. Fenced code is never read as a heading or a criterion. Import moves a Root cause the ticket supplies under `## Technical Design`, and Schema Q lists the `kind` key.
+- Import refuses a ticket it cannot read for bug detection (STE-682). When no readable answer holds the ticket, or the answer lacks the Linear `labels` list or the Jira issue type name, the import stops in the NFR-10 shape before any file or tracker write, instead of filing a possible bug as a plain FR.
+- The bun test-count fallback stops subtracting skips twice (STE-683). Output with no `Ran N tests` line now totals pass, fail and skip, so stage evidence reports the real pass count.
+- The `--bug` issue-type check runs before a new milestone Epic exists (STE-684). The Jira Epic key is optional; without it the check still grades the type and names "the new milestone Epic". `/spec-write` orders the check before the Epic is created.
+
+Total test count at release: 19157 tests, 0 failures, 0 errors.
+
 ## [2.99.0] — 2026-10-21 — "Field Report"
 
 ### Added

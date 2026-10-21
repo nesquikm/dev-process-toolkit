@@ -6,6 +6,7 @@ kickoff_branch: fix/m_0cac80-bug-follow-ups
 frozen_at: null
 migration: none
 codename: Fine Print
+shipped_in: v2.99.1
 ---
 
 # Implementation Plan
@@ -100,3 +101,16 @@ No deadline loop without a bound was found.
 3. Bring the sleepSync waits in `_ste594_harness.ts` and the ste-595 test under the per-test budget, or make them async (`await Bun.sleep`) so bun can time them out. Add a timeout to the `ps` calls in `spawnLive`.
 4. Add timeouts to `spawn_receipt.ts:466`, `signature_extractor.ts:216` (matching its dart/griffe siblings) and `falsifiability_harness.ts:723`.
 5. On the next occurrence, capture `ps -axo pid,ppid,pcpu,etime,command | grep bun` while it is happening, to tell a spinning test from a nested-suite pile-up.
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| agent-toolkit:spawn-agent | claude-opus-5-5 | 74 | 28205 | 17471662 | 193994 |
+| dev-process-toolkit:gate-check | claude-opus-5-5 | 36 | 9932 | 6875425 | 143564 |
+| design/exploration | claude-opus-5-5 | 752 | 198034 | 76253058 | 876758 |
+| total |  | 862 | 236171 | 100600145 | 1214316 |
+
+<!-- token-stats:end -->
