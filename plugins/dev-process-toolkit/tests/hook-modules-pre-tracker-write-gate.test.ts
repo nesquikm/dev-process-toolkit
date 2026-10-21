@@ -7193,3 +7193,64 @@ describe("STE-655 AC-STE-655.8 / .17 — the labels-envelope predicate: its cont
     expect(r.exitCode, `the mutant must permit (the leg sees the mutation):\n${show(r)}`).toBe(0);
   }, 60_000);
 });
+
+// ===========================================================================
+// AC-STE-679.6 (M_7384cf) — in a shared repository the hook permits the create
+// a REAL `decide … --bug` authorised: the Jira create carries the resolved
+// issue type, the Linear create carries the resolved bug label.
+// ===========================================================================
+
+/** Spawn the REAL `decide` with `--bug`; the returned command is what the transcript records. */
+function realDecideBug(root: string, page: unknown, title: string, container: string[], scratch: string): RealDecide {
+  const pagePath = join(scratch, `page-${Math.random().toString(36).slice(2)}.json`);
+  writeFileSync(pagePath, JSON.stringify(page));
+  const argv = [root, pagePath, "--title", title, ...container, "--attempt", "fast", "--bug"];
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  env.CLAUDE_PLUGIN_ROOT = MANIFEST_DIR;
+  env.CLAUDE_CODE_SESSION_ID = SESSION;
+  const p = Bun.spawnSync(["bun", "run", join(ADAPTERS_SRC, DECIDE), "decide", ...argv], { env, stdout: "pipe", stderr: "pipe" });
+  if (p.exitCode !== 0) throw new Error(`decide --bug failed (exit ${p.exitCode}): ${p.stderr.toString()}`);
+  const command = `bun run "${join(ADAPTERS_SRC, DECIDE)}" decide ${argv.map((a) => (/[\s"]/.test(a) ? `"${a}"` : a)).join(" ")}`;
+  return { command, out: p.stdout.toString().trimEnd() };
+}
+
+function createPayloadOf(out: string): Record<string, any> {
+  const line = out.split("\n").find((l) => l.trim().startsWith("{"));
+  if (!line) throw new Error(`no decision line in:\n${out}`);
+  const d = JSON.parse(line) as Record<string, any>;
+  expect(d.outcome).toBe("create");
+  return d.createPayload as Record<string, any>;
+}
+
+describe("AC-STE-679.6 — a shared repository's hook permits a decide --bug create", () => {
+  test("Jira: createJiraIssue carrying the decided issueType Bug → exit 0", async () => {
+    const w = makeWorld();
+    const s = new Session();
+    withAttachTarget(s, w.be, { scratch: w.scratch });
+    const d = realDecideBug(w.be, { issues: [], isLast: true }, "BE payout export", ["--parent", "GK-85"], w.scratch);
+    s.bash(d.command, d.out);
+    const payload = createPayloadOf(d.out);
+    expect(payload.issueType).toBe("Bug");
+    const input = jiraCreate({ title: payload.summary, labels: payload.labels, parent: payload.parent, type: payload.issueType });
+    expectPermit(await runHook(JIRA("createJiraIssue"), input, { cwd: w.be, transcript: s.save(w.scratch) }));
+  }, 60_000);
+
+  test("Linear: save_issue carrying the decided Bug label beside the repo tag → exit 0", async () => {
+    const root = linearRepo(BE_TAG);
+    const scratch = tempDir("679-linear");
+    const s = new Session();
+    withAttachTarget(s, root, { mode: "linear", scratch });
+    const d = realDecideBug(
+      root,
+      { issues: [], hasNextPage: false },
+      "BE payout export",
+      ["--linear-milestone", LINEAR_ATTACH_MILESTONE],
+      scratch,
+    );
+    s.bash(d.command, d.out);
+    const payload = createPayloadOf(d.out);
+    expect(payload.labels).toEqual([BE_TAG, "Bug"]);
+    expectPermit(await runHook(LINEAR("save_issue"), payload, { cwd: root, transcript: s.save(scratch) }));
+  }, 60_000);
+});

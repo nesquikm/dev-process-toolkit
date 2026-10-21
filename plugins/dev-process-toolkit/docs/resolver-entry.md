@@ -21,6 +21,16 @@ through the `fallthrough` branch of `resolveFRArgument` per NFR-18.
   (`id_pattern`, `url_host`, `url_path_regex`, plus optional `prefixes` inferred
   from `ticket_id_regex`).
 
+## Preamble flags (`/spec-write`)
+
+`/spec-write --bug` (STE-679) is parsed in the resolver-entry preamble beside `--no-tech`, before § 0a; the flag does not change resolver `kind` routing — `resolveFRArgument` sees the same `arg` with or without it.
+
+On the new-FR creation path `--bug` sets `kind: bug` in the FR frontmatter via `buildFRFrontmatter(spec, trackerBinding, { changelogCategory, kind: "bug" })` and defaults `changelog_category` to `Fixed`. `Security` is accepted as an override; any other category on a `--bug` run is refused at the draft gate (§ 0b step 4) with an NFR-10-shape error, and nothing is written.
+
+The draft-gate preview of a `--bug` run shows both values — the `kind: bug` line and the resolved `changelog_category` (`Fixed`, or `Security` when overridden) — so the operator approves them before any tracker create or file write.
+
+In tracker mode a `--bug` run proves the bug type exists before anything is written. Resolve the name with `resolveBugTrackerType(mode, readWorkspaceBinding(...))` from `adapters/_shared/src/workspace_binding.ts` (`jira_bug_issue_type` under `### Jira`, `linear_bug_label` under `### Linear`, default `Bug`), save the project's issue-type listing (Jira) or the label listing filtered by that name (Linear), and run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/bug_tracker_type.ts jira <listing.json> <issueType> <epicKey>` or `… linear <listing.json> <label>`. The check compares names exactly, case included, because import recognises a bug only by an equal name. A non-zero exit is the NFR-10 refusal: surface it verbatim and stop with zero tracker writes and zero files. On success, append `--bug` to every `create_idempotency_probe.ts decide` call; the `createPayload` it prints then carries the Jira `issueType` or the Linear label. `mode: none` has no tracker type to check — `resolveBugTrackerType` returns `null` — and the flag only shapes the frontmatter and body.
+
 ## Decision table
 
 | `kind` | Next step in `/spec-write` | Next step in `/implement` | Next step in `/spec-archive` |
@@ -94,3 +104,33 @@ Context: mode=<mode>, ticket=<ticket-id-or-unbound>, skill=<skill-name>
 
 Happy-path invocations never surface resolver output to the user — the resolver
 is internal plumbing.
+
+## Bug FR body (`/spec-write --bug`)
+
+A `--bug` FR keeps the standard FR sections and adds four headings (STE-679): the observable record under `## Requirement`, the diagnosis under `## Technical Design`.
+
+```markdown
+## Requirement
+
+### Steps to reproduce
+1. <numbered steps from a clean state>
+
+### Expected
+<what should happen>
+
+### Actual
+<what happens instead — error text, screenshot path, log excerpt>
+
+## Acceptance Criteria
+
+- AC-<ID>.1: Regression: `<test file> › <test name>` reproduces the reported failure; it fails before the fix and passes after it.
+
+## Technical Design
+
+### Root cause
+<why it happens — file:line, the faulty assumption>
+```
+
+Every bug FR carries at least one AC whose body begins `Regression:` and names the test that fails before the fix — the reproduction, captured as a test, is the proof the fix closes the bug.
+
+`/spec-write --bug --no-tech` is the QA-friendly path: the interview fills only the observable record — Steps to reproduce, Expected, Actual — and the `Regression:` AC. `## Technical Design` (its Root cause heading included) and `## Testing` carry the STE-227 needs-technical-review placeholder line `[needs technical review — run /spec-write <FR-id> to complete]`, and the frontmatter gains `needs_technical_review: true`. `branchTypeFor` is unchanged: `{ changelogCategory: "Fixed", noTech: true }` → `chore`, `{ changelogCategory: "Fixed", noTech: false }` → `fix`.

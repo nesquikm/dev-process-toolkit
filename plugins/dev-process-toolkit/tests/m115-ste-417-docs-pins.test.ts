@@ -273,13 +273,16 @@ describe("AC-STE-417.3 — gate-check SKILL.md registers probe #73", () => {
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("the highest numbered probe is now 87, with no gap in the sequence", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("the highest numbered probe is now 88, with no gap in the sequence", () => {
     // Recalibrated 82 → 83: M140 added #83 external_link_verdicts.
     const numbers = [...skill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
-    expect(Math.max(...numbers)).toBe(87);
-    expect(numbers.length).toBe(87);
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(Math.max(...numbers)).toBe(88);
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(numbers.length).toBe(88);
   });
 });
 
@@ -288,14 +291,18 @@ describe("AC-STE-417.3 — README probe-count pins move 72 → 73", () => {
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("the Features bullet counts 87 numbered probes", () => {
-    expect(readme()).toMatch(/\b87\b\s+numbered `\/gate-check` probes/);
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("the Features bullet counts 88 numbered probes", () => {
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(readme()).toMatch(/\b88\b\s+numbered `\/gate-check` probes/);
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("the /implement-invokes-/tdd aside counts 87 probes", () => {
-    expect(readme()).toMatch(/layers 87 probes/);
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("the /implement-invokes-/tdd aside counts 88 probes", () => {
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(readme()).toMatch(/layers 88 probes/);
   });
 
   test("no stale `72 numbered` / `layers 72 probes` token survives in README", () => {
