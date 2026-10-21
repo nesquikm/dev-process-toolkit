@@ -95,7 +95,7 @@ Empty FR list is still a minor bump, labelled `default minor bump (no FRs in mil
 
 | Stack | Input shape | Parse rule |
 |-------|-------------|------------|
-| `bun` | `N pass\nF fail` | total = N+F, failures = F, errors = 0 |
+| `bun` | `Ran T tests across M files`, else the last `N pass` / `F fail` / `S skip` | total = T, else N+F+S (STE-683); failures = F, errors = 0 |
 | `pytest` | `N passed, F failed [, E errors] in TIME` | total = N+F+E, failures = F, errors = E |
 | `flutter` | `00:04 +N -F: ...` | total = N+F, failures = F, errors = 0 |
 | `unknown` | — | `{ ok: false, reason: "unknown stack..." }` → NFR-10 fallback |

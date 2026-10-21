@@ -153,8 +153,9 @@ export type RunCounts =
  * `gate_capture.ts` front door's totals line both read them from here.
  *
  * STACK-CORRECT BY CONSTRUCTION: the runners disagree about what their total
- * includes. bun's `Ran N tests` COUNTS skipped tests; pytest's `N passed` does
- * not. A single-stack formula silently mis-derives `pass` on the other, which
+ * includes. Every bun total COUNTS skipped tests (`Ran N tests`, and the
+ * `N pass` fallback rebuilt as pass + fail + skip per STE-683); pytest's
+ * `N passed` does not. A single-stack formula silently mis-derives `pass` on the other, which
  * is exactly the kind of wrong number that looks plausible in a green run.
  */
 export function deriveRunCounts(run: Pick<CapturedRun, "output" | "stack">): RunCounts {

@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.99.0 — "Field Report"** (M_7384cf, bugs filed as bugs. `/spec-write --bug` writes a bug FR and files the ticket as a tracker bug, and bugs imported from the tracker are graded by gate-check probe #88)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.99.1 — "Fine Print"** (M_0cac80, bug follow-ups graded in place. Probe #88 grades each bug section under its own heading and rejects a TODO regression criterion, import refuses a ticket it cannot read, and the bun count fallback stops dropping passes)
 
 ## Core Philosophy
 

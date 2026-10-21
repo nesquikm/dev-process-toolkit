@@ -701,8 +701,9 @@ describe("AC-STE-680.3 — probe #88 grades each active bug FR's pieces, one vio
       expect(naming(r, piece).length, piece).toBe(1);
     }
     expect(naming(r, "Root cause").length).toBe(1);
-    // Steps / Expected / Actual / Root cause; the imported TODO `Regression:` AC satisfies its piece.
-    expect(r.violations.length).toBe(4);
+    // Steps / Expected / Actual / Root cause / Regression; since AC-STE-681.3 the
+    // imported TODO `Regression:` AC no longer satisfies its piece.
+    expect(r.violations.length).toBe(5);
     expect(r.vacuous).toBe(false);
   });
 });

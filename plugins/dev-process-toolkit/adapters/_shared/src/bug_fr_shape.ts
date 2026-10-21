@@ -5,8 +5,10 @@
 //     `### Steps to reproduce`, `### Expected` and `### Actual` present and not
 //     TODO-only; `### Root cause` present and not TODO-only, with the STE-227
 //     needs-technical-review placeholder satisfying it on an FR flagged
-//     `needs_technical_review: true`; at least one AC whose body begins
-//     `Regression:`.
+//     `needs_technical_review: true`; at least one AC under
+//     `## Acceptance Criteria` whose body begins `Regression:` followed by
+//     something other than nothing or a TODO marker. Each subsection is graded
+//     under its own `##` parent (STE-681); fenced code is never structure.
 //   * COHERENCE arm — a `kind: bug` FR's `changelog_category` is `Fixed` or
 //     `Security`; `bug` is the only recognised `kind:` value.
 //
@@ -68,6 +70,29 @@ function violation(file: string, line: number, reason: string, remedy: string): 
 }
 
 const HEADING_RE = /^(#{1,6})\s+(.*?)\s*$/;
+const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/;
+
+/**
+ * The lines with every line inside a ``` / ~~~ fence replaced by a neutral,
+ * non-blank filler: a `# comment` or a quoted `### Expected` / AC line in a
+ * code block is not structure, but the block still fills its section. Line
+ * numbers are kept.
+ */
+function maskFences(lines: readonly string[]): string[] {
+  let open: string | undefined;
+  return lines.map((l) => {
+    const m = FENCE_RE.exec(l);
+    if (open === undefined) {
+      if (m) open = m[1]!;
+      return l;
+    }
+    if (m && m[1]![0] === open[0] && m[1]!.length >= open.length && l.trim() === m[1]) {
+      open = undefined;
+      return l;
+    }
+    return "(fenced)";
+  });
+}
 
 interface Section {
   /** 1-based line of the heading. */
@@ -117,13 +142,60 @@ const OBSERVABLE: readonly { readonly title: string; readonly what: string }[] =
   { title: "Actual", what: "what happens instead" },
 ];
 
+interface PlacedSubsection extends Section {
+  /** Title of the `##` section the subsection sits under, or `(none)`. */
+  readonly parent: string;
+}
+
+/** Every `### <title>` subsection (case-insensitive), each with the `##` section it sits under. */
+function findSubsections(lines: readonly string[], title: string): PlacedSubsection[] {
+  const want = title.toLowerCase();
+  const out: PlacedSubsection[] = [];
+  let parent = "(none)";
+  for (let i = 0; i < lines.length; i++) {
+    const m = HEADING_RE.exec(lines[i]!);
+    if (!m) continue;
+    const level = m[1]!.length;
+    if (level <= 2) {
+      parent = level === 2 ? m[2]! : "(none)";
+      continue;
+    }
+    if (level !== 3 || m[2]!.toLowerCase() !== want) continue;
+    const body: string[] = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (HEADING_RE.test(lines[j]!)) break;
+      body.push(lines[j]!);
+    }
+    out.push({ line: i + 1, body, parent });
+  }
+  return out;
+}
+
 function gradeBugFr(rel: string, lines: readonly string[], fm: Record<string, unknown>): BugFrShapeViolation[] {
   const out: BugFrShapeViolation[] = [];
   const anchor = (title: string): number => findTopSection(lines, title)?.line ?? 1;
+  // Flags every `### <title>` sitting outside `## <home>`; returns the first one
+  // in place, and whether any were misplaced (the "missing" verdict then yields).
+  const place = (title: string, home: string): { sec: PlacedSubsection | undefined; misplaced: boolean } => {
+    const all = findSubsections(lines, title);
+    const stray = all.filter((s) => s.parent.toLowerCase() !== home.toLowerCase());
+    for (const s of stray) {
+      out.push(
+        violation(
+          rel,
+          s.line,
+          `the bug FR's \`### ${title}\` subsection is misplaced under ## ${s.parent} — it belongs under ## ${home}`,
+          `move \`### ${title}\` under ## ${home}`,
+        ),
+      );
+    }
+    return { sec: all.find((s) => s.parent.toLowerCase() === home.toLowerCase()), misplaced: stray.length > 0 };
+  };
 
   for (const piece of OBSERVABLE) {
-    const sec = findSection(lines, 3, piece.title);
+    const { sec, misplaced } = place(piece.title, "Requirement");
     if (sec === undefined) {
+      if (misplaced) continue;
       out.push(
         violation(
           rel,
@@ -144,10 +216,10 @@ function gradeBugFr(rel: string, lines: readonly string[], fm: Record<string, un
     }
   }
 
-  const rootCause = findSection(lines, 3, "Root cause");
+  const { sec: rootCause, misplaced: rootMisplaced } = place("Root cause", "Technical Design");
   // The placeholder is not a root cause: it satisfies the piece only on a flagged FR.
   const written = rootCause !== undefined && isFilled(rootCause.body.filter((l) => !NTR_PLACEHOLDER_RE.test(l)));
-  if (!written) {
+  if (!written && !(rootCause === undefined && rootMisplaced)) {
     const flagged = fm["needs_technical_review"] === true;
     const tech = findTopSection(lines, "Technical Design");
     const placeholder = tech !== undefined && tech.body.some((l) => NTR_PLACEHOLDER_RE.test(l));
@@ -166,16 +238,17 @@ function gradeBugFr(rel: string, lines: readonly string[], fm: Record<string, un
     }
   }
 
-  const hasRegression = lines.some((l) => {
+  const hasRegression = (findTopSection(lines, "Acceptance Criteria")?.body ?? []).some((l) => {
     const m = AC_LINE_RE.exec(l);
-    return m !== null && m[1]!.startsWith("Regression:");
+    // An empty or TODO-only `Regression:` body (the import's appended stub) does not count.
+    return m !== null && m[1]!.startsWith("Regression:") && isFilled([m[1]!.slice("Regression:".length)]);
   });
   if (!hasRegression) {
     out.push(
       violation(
         rel,
         anchor("Acceptance Criteria"),
-        "the bug FR has no Regression criterion — no AC body begins `Regression:`",
+        "the bug FR has no Regression criterion — no AC body begins `Regression:` with a filled, non-TODO body",
         "add an AC whose body begins `Regression:` naming the test that fails before the fix and passes after it",
       ),
     );
@@ -254,7 +327,7 @@ export function runBugFrShapeProbe(projectRoot: string): BugFrShapeReport {
     violations.push(...gradeCoherence(rel, text, fm));
     if (fm["kind"] !== "bug") continue;
     graded++;
-    violations.push(...gradeBugFr(rel, text.split("\n"), fm));
+    violations.push(...gradeBugFr(rel, maskFences(text.split("\n")), fm));
   }
   return { violations, notes: violations.map((v) => v.note), vacuous: graded === 0 };
 }
