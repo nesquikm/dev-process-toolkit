@@ -58,6 +58,7 @@ describe("readDocsConfig", () => {
       userFacingMode: true,
       packagesMode: true,
       changelogCiOwned: true,
+      changelogUnversioned: false,
     });
   });
 
@@ -74,6 +75,7 @@ describe("readDocsConfig", () => {
       userFacingMode: true,
       packagesMode: false,
       changelogCiOwned: false,
+      changelogUnversioned: false,
     });
   });
 
@@ -90,6 +92,7 @@ describe("readDocsConfig", () => {
       userFacingMode: false,
       packagesMode: true,
       changelogCiOwned: false,
+      changelogUnversioned: false,
     });
   });
 
@@ -102,6 +105,7 @@ describe("readDocsConfig", () => {
       userFacingMode: false,
       packagesMode: false,
       changelogCiOwned: false,
+      changelogUnversioned: false,
     });
   });
 
@@ -111,6 +115,7 @@ describe("readDocsConfig", () => {
       userFacingMode: false,
       packagesMode: false,
       changelogCiOwned: false,
+      changelogUnversioned: false,
     });
   });
 
@@ -176,6 +181,7 @@ user_facing_mode: this_should_be_ignored
       userFacingMode: true,
       packagesMode: false,
       changelogCiOwned: false,
+      changelogUnversioned: false,
     });
   });
 
@@ -191,6 +197,7 @@ user_facing_mode: true
       userFacingMode: true,
       packagesMode: false,
       changelogCiOwned: false,
+      changelogUnversioned: false,
     });
   });
 });

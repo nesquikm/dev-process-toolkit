@@ -917,16 +917,28 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
     });
   });
 
-  test("stampShippedIn's body is byte-identical to main's", () => {
+  // Amended by AC-STE-690.2 (approved spec STE-690, M_7a948e): AC-STE-690.2 makes `stampShippedIn` admit
+  // the literal `unreleased` and refuse every other non-`v<X.Y.Z>` value, so the
+  // VALUE half of its body (everything before the plan is read) may change. The
+  // frontmatter-edit half — from the plan read to the end — is what this pin
+  // protects (the partial writer stays a separate function), and it stays
+  // byte-identical to main's.
+  test("stampShippedIn's frontmatter-edit body (from the plan read on) is byte-identical to main's", () => {
     const re = /export async function stampShippedIn\([\s\S]*?\n\}\n/;
+    const TAIL_START = '  const original = await readFile(planPath, "utf-8");'; // Amended by AC-STE-690.2
+    const tail = (fn: string | undefined): string | undefined => {
+      if (fn === undefined) return undefined;
+      const at = fn.indexOf(TAIL_START);
+      return at < 0 ? undefined : fn.slice(at);
+    };
     const proc = spawnSync("git", ["show", "main:./adapters/_shared/src/plan_ship_stamp.ts"], {
       cwd: PLUGIN_ROOT,
       encoding: "utf-8",
     });
     expect(proc.status, proc.stderr).toBe(0);
-    const onMain = re.exec(proc.stdout)?.[0];
-    expect(onMain, "main's stampShippedIn was not found — the extractor is blind").toBeDefined();
-    expect(re.exec(readLf(STAMP_MODULE))?.[0]).toBe(onMain);
+    const onMain = tail(re.exec(proc.stdout)?.[0]); // Amended by AC-STE-690.2
+    expect(onMain, "main's stampShippedIn tail was not found — the extractor is blind").toBeDefined();
+    expect(tail(re.exec(readLf(STAMP_MODULE))?.[0])).toBe(onMain);
   });
 
   test("step 7 of the skill writes ship_partial through stampShipPartial from plan_ship_stamp.ts", () => {
@@ -945,14 +957,67 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
 
   // The measure is the DEFINITION, not an occurrence count: STE-588's sibling
   // leg legitimately REUSES `STAMP_RE` in plan_ship_coherence.ts, so a use-site
-  // count would red a correct tree. The checker reports two things, each as a
-  // finding line: (1) the `const STAMP_RE = …;` definition is not exactly one
-  // line on each side, or differs byte-for-byte from main's (its line number
-  // may move); (2) a line the branch adds over main carries a stamp-shaped
-  // regex literal (`/^v\d` or `/^v(\d`). "Added" is the multiset difference of
-  // lines, so a moved-but-unchanged line is not an addition.
+  // count would red a correct tree.
+  //
+  // Amended by AC-STE-690.1 (approved spec STE-690, M_7a948e): the one stamp grammar now
+  // admits exactly `v<X.Y.Z>` and the literal `unreleased`, so the definition is
+  // no longer byte-identical to main's. What the pin keeps is that the three
+  // definitions AGREE: the checker reports, each as a finding line, (1) the
+  // `const STAMP_RE = …;` definition is not exactly one line on each side;
+  // (2) the branch definition is not a one-line regex literal, or its grammar
+  // differs from the shared one on STAMP_CORPUS (accept exactly `v<X.Y.Z>` and
+  // `unreleased`, reject everything else); (3) a line the branch adds over main,
+  // OTHER than its own definition line, carries a stamp-shaped regex literal
+  // (`/^v\d` or `/^v(\d`). "Added" is the multiset difference of lines, so a
+  // moved-but-unchanged line is not an addition.
   const STAMP_DEF_RE = /^\s*(?:export\s+)?const\s+STAMP_RE\s*=.*;\s*$/;
   const STAMP_LITERAL_RE = /\/\^v\(?\\d/;
+
+  /** The shared grammar's verdict on each probe string: true = a well-formed stamp. */ // Amended by AC-STE-690.1
+  const STAMP_CORPUS: ReadonlyArray<readonly [string, boolean]> = [
+    ["v0.0.0", true],
+    ["v1.2.3", true],
+    ["v10.20.300", true],
+    ["unreleased", true],
+    ["", false],
+    ["null", false],
+    ["Unreleased", false],
+    ["UNRELEASED", false],
+    [" unreleased", false],
+    ["unreleased ", false],
+    ["vunreleased", false],
+    ["unreleased1", false],
+    ["v1.2.3unreleased", false],
+    ["v1.2.3\nunreleased", false],
+    ["unreleased\nv1.2.3", false],
+    ["1.2.3", false],
+    ["v1.2", false],
+    ["v1.2.3.4", false],
+    ["v1.2.3-rc", false],
+    ["banana", false],
+    ["2.x", false],
+  ];
+
+  /** The regex a one-line `const STAMP_RE = /…/flags;` definition compiles to, or null. */
+  const definitionRegex = (def: string): RegExp | null => {
+    const m = /=\s*\/(.+)\/([a-z]*)\s*;\s*$/.exec(def);
+    if (!m) return null;
+    try {
+      return new RegExp(m[1]!, m[2]!);
+    } catch {
+      return null;
+    }
+  };
+
+  /** Corpus entries the definition grades differently from the shared grammar. */
+  const grammarDrift = (def: string): string[] => {
+    const re = definitionRegex(def);
+    if (re === null) return [`definition is not a one-line regex literal: ${JSON.stringify(def)}`];
+    return STAMP_CORPUS.filter(([probe, want]) => {
+      re.lastIndex = 0;
+      return re.test(probe) !== want;
+    }).map(([probe, want]) => `grammar ${want ? "rejects" : "admits"} ${JSON.stringify(probe)}`);
+  };
 
   const stampReGuard = (onMain: string, onBranch: string): string[] => {
     const findings: string[] = [];
@@ -962,9 +1027,7 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
     const branchDefs = branchLines.filter((l) => STAMP_DEF_RE.test(l));
     if (mainDefs.length !== 1) findings.push(`main carries ${mainDefs.length} STAMP_RE definitions`);
     if (branchDefs.length !== 1) findings.push(`branch carries ${branchDefs.length} STAMP_RE definitions`);
-    if (mainDefs.length === 1 && branchDefs.length === 1 && mainDefs[0] !== branchDefs[0]) {
-      findings.push(`definition changed: ${JSON.stringify(mainDefs[0])} → ${JSON.stringify(branchDefs[0])}`);
-    }
+    if (branchDefs.length === 1) findings.push(...grammarDrift(branchDefs[0]!)); // Amended by AC-STE-690.1
     const remaining = new Map<string, number>();
     for (const l of mainLines) remaining.set(l, (remaining.get(l) ?? 0) + 1);
     for (const l of branchLines) {
@@ -973,6 +1036,7 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
         remaining.set(l, left - 1);
         continue;
       }
+      if (STAMP_DEF_RE.test(l)) continue; // the definition is graded by its grammar above — Amended by AC-STE-690.1
       if (STAMP_LITERAL_RE.test(l)) findings.push(`added stamp-shaped regex literal: ${JSON.stringify(l)}`);
     }
     return findings;
@@ -987,11 +1051,55 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
     return proc.stdout;
   };
 
-  for (const file of ["plan_ship_coherence.ts", "resume_classifier.ts", "active_plan_ship_ready.ts"]) {
-    test(`${file}: STAMP_RE's definition is byte-identical to main's and no stamp-shaped regex is added`, () => {
+  const STAMP_FILES = ["plan_ship_coherence.ts", "resume_classifier.ts", "active_plan_ship_ready.ts"] as const; // Amended by AC-STE-690.1
+
+  for (const file of STAMP_FILES) {
+    test(`${file}: one STAMP_RE definition, in the shared v<X.Y.Z>|unreleased grammar, and no stamp-shaped regex is added`, () => {
       expect(stampReGuard(showOnMain(file), read(join(SHARED_SRC, file)))).toEqual([]);
     });
   }
+
+  test("the three STAMP_RE definitions agree with each other on every corpus string", () => { // Amended by AC-STE-690.1
+    const verdicts = STAMP_FILES.map((file) => {
+      const def = read(join(SHARED_SRC, file)).split("\n").find((l) => STAMP_DEF_RE.test(l));
+      expect(def, `${file} carries no STAMP_RE definition`).toBeDefined();
+      const re = definitionRegex(def!);
+      expect(re, `${file}: ${def}`).not.toBeNull();
+      return STAMP_CORPUS.map(([probe]) => re!.test(probe));
+    });
+    expect(verdicts[1]).toEqual(verdicts[0]!);
+    expect(verdicts[2]).toEqual(verdicts[0]!);
+    // Non-vacuity: the agreed grammar is the shared one, not three copies of main's.
+    expect(verdicts[0]).toEqual(STAMP_CORPUS.map(([, want]) => want));
+  });
+
+  // AC-STE-690.1's "no fourth stamp-shaped regex": the literal `unreleased`
+  // appears inside an anchored regex literal on the three STAMP_RE definition
+  // lines and nowhere else among the shared modules — every other reader
+  // compares against the exported sentinel constant.
+  const UNRELEASED_LITERAL_RE = /\/\^[^\n]*\bunreleased\b/;
+  const isCommentLine = (l: string): boolean => /^\s*(?:\/\/|\*|\/\*)/.test(l);
+
+  test("no shared module carries an `unreleased` regex literal beyond the three STAMP_RE definitions", () => {
+    const { readdirSync } = require("node:fs") as typeof import("node:fs");
+    const files = readdirSync(SHARED_SRC).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+    expect(files.length, "the sweep must see the shared modules").toBeGreaterThan(20);
+    const extra = files.flatMap((f) =>
+      read(join(SHARED_SRC, f))
+        .split("\n")
+        .filter((l) => !isCommentLine(l) && UNRELEASED_LITERAL_RE.test(l) && !STAMP_DEF_RE.test(l))
+        .map((l) => `${f}: ${l.trim()}`),
+    );
+    expect(extra, extra.join("\n")).toEqual([]);
+  });
+
+  test("the `unreleased` literal sweep sees what it exists to catch, and only that", () => {
+    expect(UNRELEASED_LITERAL_RE.test("const U = /^unreleased$/;")).toBe(true);
+    expect(UNRELEASED_LITERAL_RE.test("if (/^(?:unreleased)$/.test(s)) {")).toBe(true);
+    expect(UNRELEASED_LITERAL_RE.test("const heading = /^## \\[Unreleased\\][ \\t]*$/m;")).toBe(false);
+    expect(UNRELEASED_LITERAL_RE.test('if (stamp === UNRELEASED_STAMP) return "unreleased";')).toBe(false);
+    expect(isCommentLine("  // shipped_in: /^unreleased$/")).toBe(true);
+  });
 
   // The AC's closing clause reaches BEYOND the three named files: no module
   // GAINS a second stamp-shaped regex literal. "Gains" is measured per module
@@ -1043,24 +1151,35 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
   });
 
   describe("the STAMP_RE guard's controls — it reports what it exists to catch, and only that", () => {
-    const DEF = "const STAMP_RE = /^v(\\d+\\.\\d+\\.\\d+)$/;";
-    const MAIN = ["import x from 'y';", "", DEF, "", "export function f(s: string) {", "  return STAMP_RE.exec(s);", "}", ""].join(
-      "\n",
-    );
+    const MAIN_DEF = "const STAMP_RE = /^v(\\d+\\.\\d+\\.\\d+)$/;"; // Amended by AC-STE-690.1
+    const DEF = "const STAMP_RE = /^(?:v\\d+\\.\\d+\\.\\d+|unreleased)$/;";
+    const body = (def: string): string =>
+      ["import x from 'y';", "", def, "", "export function f(s: string) {", "  return STAMP_RE.exec(s);", "}", ""].join("\n");
+    const MAIN = body(MAIN_DEF);
+    const BRANCH = body(DEF);
 
-    test("the controls start from a clean baseline: main against itself reports nothing", () => {
-      expect(stampReGuard(MAIN, MAIN)).toEqual([]);
+    test("the controls start from a clean baseline: main against the shared-grammar branch reports nothing", () => {
+      expect(stampReGuard(MAIN, BRANCH)).toEqual([]);
     });
 
-    test("an ALTERED definition is reported as a changed definition", () => {
-      const altered = MAIN.replace(DEF, "const STAMP_RE = /^v(\\d+\\.\\d+\\.\\d+)(-rc)?$/;");
-      expect(altered).not.toBe(MAIN);
+    test("a definition still in main's v<X.Y.Z>-only grammar is reported as rejecting `unreleased`", () => { // Amended by AC-STE-690.1
+      expect(stampReGuard(MAIN, MAIN)).toEqual([`grammar rejects ${JSON.stringify("unreleased")}`]);
+    });
+
+    test("an ALTERED definition is reported as a grammar drift", () => { // Amended by AC-STE-690.1
+      const altered = BRANCH.replace(DEF, "const STAMP_RE = /^(?:v\\d+\\.\\d+\\.\\d+(-rc)?|unreleased)$/;");
+      expect(altered).not.toBe(BRANCH);
       const findings = stampReGuard(MAIN, altered);
-      expect(findings.some((f) => f.startsWith("definition changed:")), findings.join("\n")).toBe(true);
+      expect(findings, findings.join("\n")).toEqual([`grammar admits ${JSON.stringify("v1.2.3-rc")}`]); // Amended by AC-STE-690.1
+    });
+
+    test("a case-insensitive definition is reported as admitting `Unreleased`", () => {
+      const loose = BRANCH.replace(DEF, "const STAMP_RE = /^(?:v\\d+\\.\\d+\\.\\d+|unreleased)$/i;");
+      expect(stampReGuard(MAIN, loose)).toContain(`grammar admits ${JSON.stringify("Unreleased")}`);
     });
 
     test("a SECOND /^v\\d…$/ literal is reported as an added stamp-shaped regex", () => {
-      const second = MAIN.replace(DEF, `${DEF}\nconst OTHER_RE = /^v\\d+\\.\\d+\\.\\d+$/;`);
+      const second = BRANCH.replace(DEF, `${DEF}\nconst OTHER_RE = /^v\\d+\\.\\d+\\.\\d+$/;`); // Amended by AC-STE-690.1
       const findings = stampReGuard(MAIN, second);
       expect(findings, findings.join("\n")).toEqual([
         `added stamp-shaped regex literal: ${JSON.stringify("const OTHER_RE = /^v\\d+\\.\\d+\\.\\d+$/;")}`,
@@ -1068,7 +1187,7 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
     });
 
     test("a duplicated definition is reported, even though its text is identical", () => {
-      const dup = `${MAIN}\n${DEF}\n`;
+      const dup = `${BRANCH}\n${DEF}\n`; // Amended by AC-STE-690.1
       const findings = stampReGuard(MAIN, dup);
       expect(findings).toContain("branch carries 2 STAMP_RE definitions");
     });

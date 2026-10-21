@@ -90,7 +90,7 @@ export async function runClaudeMdDocsSectionProbe(
   const note = `${rel}:1 — ${reason}`;
   const message = [
     `claudemd_docs_section: ${reason}`,
-    `Remedy: append a ${HEADING_LINE} section to ${rel} with the canonical keys (user_facing_mode, packages_mode, changelog_ci_owned), all defaulting to false. ` +
+    `Remedy: append a ${HEADING_LINE} section to ${rel} with the canonical keys (user_facing_mode, packages_mode, changelog_ci_owned, changelog_unversioned), all defaulting to false. ` +
       `See plugins/dev-process-toolkit/templates/CLAUDE.md.template for the canonical block shape.`,
     `Context: file=${rel}, probe=claudemd_docs_section`,
   ].join("\n");

@@ -481,16 +481,93 @@ export function bumpChangelog(
   // `testCount` — two different counts therefore produce two different
   // sections, which a literal could never do.
   const closing = testCount === undefined ? "" : `\n${renderClosingLine(testCount)}\n`;
-  const newSection = `${header}\n\n${bodyBlock}${closing}`;
-  // Insert above the topmost `## [` heading; if none, append after the
-  // intro block (everything up to the first blank line after `# Title`).
+  return insertAboveFirstSection(content, `${header}\n\n${bodyBlock}${closing}`, "\n");
+}
+
+/**
+ * Insert `newSection` above the topmost `## [` heading, followed by
+ * `separator`; if there is none, append it after the intro block with a
+ * blank-line separator.
+ */
+function insertAboveFirstSection(content: string, newSection: string, separator: string): string {
   const firstSectionIdx = content.search(/^##\s+\[/m);
   if (firstSectionIdx >= 0) {
-    return content.slice(0, firstSectionIdx) + newSection + "\n" + content.slice(firstSectionIdx);
+    return content.slice(0, firstSectionIdx) + newSection + separator + content.slice(firstSectionIdx);
   }
   // No prior versioned sections — append at the end with a separator.
   const trimmed = content.replace(/\s+$/, "");
   return `${trimmed}\n\n${newSection}`;
+}
+
+/**
+ * STE-689: merge `body` into the `## [Unreleased]` section. No version, no
+ * codename, no closing test-count line — under `changelog_unversioned: true`
+ * the release version is owned elsewhere, so only the unreleased notes move.
+ */
+export function bumpChangelogUnreleased(content: string, body: string): string {
+  const heading = /^## \[Unreleased\][ \t]*$/m.exec(content);
+  if (heading) {
+    const sectionStart = heading.index + heading[0].length;
+    const nextHeading = /^## /m.exec(content.slice(sectionStart));
+    const sectionEnd = nextHeading ? sectionStart + nextHeading.index : content.length;
+    const merged = mergeUnreleasedSection(content.slice(sectionStart, sectionEnd), body);
+    return content.slice(0, sectionStart) + merged + content.slice(sectionEnd);
+  }
+  // The merged section already ends with a blank line, so no separator.
+  return insertAboveFirstSection(content, `## [Unreleased]${mergeUnreleasedSection("", body)}`, "");
+}
+
+const SUBSECTION_HEADING = /^### (.+?)\s*$/;
+
+type Subsection = { name: string; lines: string[] };
+
+/**
+ * STE-689 AC-STE-689.4: merge `body`'s `### <Category>` groups into the text
+ * that follows a `## [Unreleased]` heading. An existing subsection is appended
+ * to; a missing one is added at the end. Returns the text after the heading
+ * line, starting with its newline and ending with a blank line.
+ */
+function mergeUnreleasedSection(section: string, body: string): string {
+  const preface: string[] = [];
+  const subsections: Subsection[] = [];
+  for (const line of section.replace(/^\n/, "").split("\n")) {
+    const sub = SUBSECTION_HEADING.exec(line);
+    if (sub) subsections.push({ name: sub[1]!, lines: [] });
+    else if (subsections.length > 0) subsections[subsections.length - 1]!.lines.push(line);
+    else preface.push(line);
+  }
+  let current: Subsection | undefined;
+  // A CRLF body would carry `\r` into every line and defeat the duplicate check.
+  for (const line of body.replace(/\r\n?/g, "\n").split("\n")) {
+    const sub = SUBSECTION_HEADING.exec(line);
+    if (sub) {
+      current = subsections.find((s) => s.name === sub[1]);
+      if (!current) {
+        current = { name: sub[1]!, lines: [] };
+        subsections.push(current);
+      }
+      continue;
+    }
+    if (line.trim() === "") continue;
+    // AC-STE-689.5: a line already present is not added again, so a second
+    // identical run leaves the section byte-identical.
+    if ((current ? current.lines : preface).includes(line)) continue;
+    if (current) {
+      while (current.lines.length > 0 && current.lines[current.lines.length - 1]!.trim() === "") current.lines.pop();
+      current.lines.push(line);
+    } else {
+      preface.push(line);
+    }
+  }
+  const trimmed = (lines: string[]): string => lines.join("\n").trim();
+  let out = "\n\n";
+  const pre = trimmed(preface);
+  if (pre !== "") out += `${pre}\n\n`;
+  for (const s of subsections) {
+    const lines = trimmed(s.lines);
+    out += `### ${s.name}\n\n${lines === "" ? "" : `${lines}\n\n`}`;
+  }
+  return out;
 }
 
 /**
@@ -727,6 +804,14 @@ if (import.meta.main) {
   // `--` token refuses by name and does not eat its neighbour.
   const VALUE_FLAGS = new Set(["--codename", "--date", "--body", "--test-count"]);
 
+  // STE-689 AC-STE-689.6: the positional version and `changelog_unversioned`
+  // disagree. Carries its own remedy — the `## Release Files` block is fine.
+  class VersionFlagMismatchError extends Error {
+    constructor(message: string, readonly remedy: string) {
+      super(message);
+    }
+  }
+
   // First line only, and with any inline `Remedy:` tail removed: the canonical
   // shape wants a one-line verdict, and the envelope below supplies the rest.
   const verdictOf = (error: unknown): string => {
@@ -878,10 +963,34 @@ if (import.meta.main) {
       // schema and THROWS on a value that is neither lowercase `true` nor
       // `false`, so drift surfaces as a refusal here instead of being silently
       // coerced to "CI does not own it" and rewriting the file anyway.
-      const ciOwnsChangelog = readDocsConfig(claudeMdPath).changelogCiOwned;
+      const docsConfig = readDocsConfig(claudeMdPath);
+      const ciOwnsChangelog = docsConfig.changelogCiOwned;
+      // STE-689 AC-STE-689.3: under `changelog_unversioned: true` the
+      // `unreleased` run rewrites the changelog alone; every other entry is
+      // reported by name and left byte-identical.
+      const unreleasedRun = newVersion === "unreleased";
+      // STE-689 AC-STE-689.6: the version slot and the flag must agree, before
+      // any release file is read — in --dry-run and real runs alike. Past this
+      // point `unreleasedRun` implies the flag is set.
+      if (unreleasedRun && !docsConfig.changelogUnversioned) {
+        throw new VersionFlagMismatchError(
+          "release_config: version `unreleased` needs `changelog_unversioned: true` in `## Docs`",
+          "pass the `X.Y.Z` release version, or set `changelog_unversioned: true` in the `## Docs` block of CLAUDE.md",
+        );
+      }
+      if (!unreleasedRun && docsConfig.changelogUnversioned) {
+        throw new VersionFlagMismatchError(
+          `release_config: version \`${newVersion}\` is refused under \`changelog_unversioned: true\` — the release version is owned elsewhere`,
+          "pass `unreleased` as the version, or set `changelog_unversioned: false` in the `## Docs` block of CLAUDE.md",
+        );
+      }
       const entries = parseReleaseFiles(readFileSync(claudeMdPath, "utf-8"));
       for (const entry of entries) {
         const abs = join(root, entry.path);
+        if (unreleasedRun && entry.kind !== "changelog") {
+          skipped.push({ path: entry.path, reason: "changelog_unversioned: true" });
+          continue;
+        }
         // CI owns the CHANGELOG: skip the entry entirely — no rewrite, and no
         // missing-count refusal either, because there is no section to put a
         // count in. Every other kind in the same run is still rewritten.
@@ -906,7 +1015,14 @@ if (import.meta.main) {
         // channel; every other failure still throws (AC-STE-555.2).
         let content: string;
         try {
-          content = bumpFile(entry, before, opts);
+          if (unreleasedRun) {
+            if (opts.date === undefined || opts.changelogBody === undefined) {
+              throw new Error("release_config: `unreleased` requires --date and --body");
+            }
+            content = bumpChangelogUnreleased(before, opts.changelogBody);
+          } else {
+            content = bumpFile(entry, before, opts);
+          }
         } catch (error) {
           if (error instanceof RegexPatternMissError && entry.optional) {
             skipped.push({ path: entry.path, reason: "optional, pattern did not match" });
@@ -952,10 +1068,15 @@ if (import.meta.main) {
           ? "nothing was written."
           : `${wrote} file(s) were already rewritten before the failure — check the tree ` +
             `before re-running.`;
+      // A version/flag mismatch is thrown before any file is read, so its
+      // remedy names the flag and its outcome is always "nothing was written".
+      const mismatch = error instanceof VersionFlagMismatchError;
       refuse(
         `Refusing: to rewrite the release files — ${verdictOf(error)}`,
-        `fix the \`${block}\` block in CLAUDE.md (or the offending file) and re-run; ${outcome}`,
-        `root=${root}, version=${newVersion}`,
+        mismatch
+          ? `${error.remedy}; ${outcome}`
+          : `fix the \`${block}\` block in CLAUDE.md (or the offending file) and re-run; ${outcome}`,
+        `root=${root}, version=${newVersion}${mismatch ? ", changelog_unversioned=mismatch" : ""}`,
       );
     }
   }

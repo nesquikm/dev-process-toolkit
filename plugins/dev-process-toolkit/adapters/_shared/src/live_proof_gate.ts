@@ -44,6 +44,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 
+import { UNRELEASED_STAMP, changelogUnversionedAt } from "./active_plan_ship_ready";
 import { BUNDLE_FILE, behaviourDigest, bundleHash, gradeBundle, keysOutsideSpaces, VERDICT_FILE, type BehaviourDigestResult, type LiveBundle, type LiveVerdict } from "./shared_tracker_live_grader";
 
 // ---------------------------------------------------------------------------
@@ -491,7 +492,11 @@ export function gradeLiveProof(o: { repoRoot: string; planPath?: string }): Live
   }
   const stamp = shippedInOf(text);
   const mode: LiveProofMode = stamp === null ? "pre-release" : "post-release";
-  if (stamp !== null && PROPERTY["stamp-release"] && !changelogHasRelease(repoRoot, stamp)) {
+  // STE-690 — under `changelog_unversioned: true` the `unreleased` stamp is a
+  // release with no CHANGELOG heading to check; without the flag it stays an
+  // unmatched stamp.
+  const unreleasedRelease = stamp === UNRELEASED_STAMP && changelogUnversionedAt(repoRoot);
+  if (stamp !== null && !unreleasedRelease && PROPERTY["stamp-release"] && !changelogHasRelease(repoRoot, stamp)) {
     return planLevelFail("stamp-without-release", `${found.rel} carries shipped_in ${stamp} but CHANGELOG.md has no release heading for it`, "stamp-without-release", found.rel);
   }
   const table = parseLiveProofTable(text);
@@ -500,7 +505,7 @@ export function gradeLiveProof(o: { repoRoot: string; planPath?: string }): Live
   // A stamp must also be strictly newer than the plugin version each bundle
   // recorded at its run: hand-stamping an already-released version (the run's
   // own pre-bump version, say) cannot switch freshness off.
-  if (stamp !== null && PROPERTY["stamp-release"]) {
+  if (stamp !== null && !unreleasedRelease && PROPERTY["stamp-release"]) {
     const notBefore = versionsNotBeforeStamp(repoRoot, table.rows, stamp);
     if (notBefore.length > 0 || semver(stamp) === null) {
       return planLevelFail(

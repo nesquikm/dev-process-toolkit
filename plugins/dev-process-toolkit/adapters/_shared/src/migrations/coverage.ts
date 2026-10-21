@@ -173,6 +173,12 @@ export async function assertMigrationDeclared(
     );
   }
 
+  // STE-689: an unversioned release (`changelog_unversioned: true`) ships as the
+  // literal `unreleased` (`UNRELEASED_STAMP` in active_plan_ship_ready.ts, not
+  // imported here to keep this module's import graph small). There is no
+  // version to compare `introduced_in` with, so registry presence is the check.
+  if (releaseVersion === "unreleased") return;
+
   const shipVersion = normalizeVersion(releaseVersion);
   const entryVersion = normalizeVersion(entry.introduced_in);
   if (entryVersion !== shipVersion) {
