@@ -47,6 +47,9 @@
 // file is the one place a child process is run, and it never runs under
 // `import` — see its own header.
 
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import type { StepPlacement } from "./resume_classifier";
 
 /**
@@ -418,7 +421,8 @@ export function chainRequiresSpawnReceipt(chain: readonly ChainStep[]): boolean 
 // exact act AC.2 forbids. A guard nothing invokes is a guard that never fires,
 // so the emission side gets the shipped `import.meta.main` idiom
 // (`active_plan_ship_ready.ts`, `deliver_decision.ts`) and the operative
-// surface ORDERS the command instead of dictating a line.
+// surface ORDERS the command instead of dictating a line. Since STE-687 the
+// supervisor runs it from its own session and hands the line to the worker.
 //
 //   bun run spawn_receipt.ts <handle> <ledger> <name> <host> [owned-check-command]
 //
@@ -430,6 +434,16 @@ export function chainRequiresSpawnReceipt(chain: readonly ChainStep[]): boolean 
 // handle it RESOLVED. Still NO SPAWN MECHANICS HERE — the check arrives as an
 // injected command exactly as the in-process path takes an injected runner.
 //
+// STE-687. When `[owned-check-command]` is omitted, the check is agent-toolkit's
+// own `owned.py`, run as `python3 <owned.py> <ledger> <name>` and located
+// through the plugin registry by `resolveOwnedPy` below. No registry entry with
+// an existing file is a refusal (`reason=ownership-unresolved`), never a guess
+// at a command on PATH.
+//
+// STE-686. Whichever check runs is bounded: it is SIGKILLed after
+// `ownedCheckTimeoutMs()`, and a check killed at the bound is the same
+// `reason=ownership-unresolved` refusal, never a hang.
+//
 // A clean resolve prints the ONE receipt line on stdout and exits 0. Every
 // other outcome prints the NFR-10 envelope on STDERR, exits non-zero, and
 // prints NOTHING on stdout: the record channel stays empty on a refusal, so a
@@ -439,8 +453,79 @@ export function chainRequiresSpawnReceipt(chain: readonly ChainStep[]): boolean 
 // and its exported functions stay pure.
 // ---------------------------------------------------------------------------
 
-/** The ownership check used when the caller names none — the tool's own. */
-const DEFAULT_OWNED_CHECK = "spawn-agent-owned";
+/** Where agent-toolkit keeps its ownership check, relative to its plugin root. */
+const OWNED_PY_REL = join("skills", "spawn-agent", "lib", "owned.py");
+
+/** A parsed JSON file, or `null` when it is absent or does not parse. */
+function readJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * STE-687. Agent-toolkit's `owned.py`, found through the plugin registry under
+ * the Claude config dir (`CLAUDE_CONFIG_DIR`, else `~/.claude`), or `null`.
+ *
+ * A `directory`-source marketplace is looked at FIRST: it is a live checkout,
+ * where an `installPath` cache copy may be stale. Its `path` is the MARKETPLACE
+ * root, not the plugin root — the plugin root is that path joined with the
+ * `source` the marketplace's own `marketplace.json` gives the `agent-toolkit`
+ * entry. An `installPath` is already a plugin root. Only a file that EXISTS is
+ * returned, so a checkout without one falls through to the next candidate.
+ *
+ * Not exported: it reads the filesystem, and the exported functions stay pure.
+ */
+function resolveOwnedPy(env: NodeJS.ProcessEnv): string | null {
+  const configDir = env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude");
+  const candidates: string[] = [];
+
+  const known = readJson(join(configDir, "plugins", "known_marketplaces.json"));
+  if (known !== null && typeof known === "object") {
+    for (const entry of Object.values(known as Record<string, unknown>)) {
+      const source = (entry as { source?: { source?: unknown; path?: unknown } } | null)?.source;
+      if (source?.source !== "directory" || typeof source.path !== "string") continue;
+      const manifest = readJson(join(source.path, ".claude-plugin", "marketplace.json")) as {
+        plugins?: { name?: unknown; source?: unknown }[];
+      } | null;
+      // A malformed manifest skips this candidate; it never aborts the lookup.
+      const plugins = Array.isArray(manifest?.plugins) ? manifest.plugins : [];
+      const plugin = plugins.find((p) => p?.name === "agent-toolkit");
+      if (typeof plugin?.source !== "string") continue;
+      candidates.push(join(resolve(source.path, plugin.source), OWNED_PY_REL));
+    }
+  }
+
+  const installed = readJson(join(configDir, "plugins", "installed_plugins.json")) as {
+    plugins?: Record<string, unknown>;
+  } | null;
+  for (const [key, installs] of Object.entries(installed?.plugins ?? {})) {
+    if (!key.startsWith("agent-toolkit@") || !Array.isArray(installs)) continue;
+    for (const install of installs) {
+      const installPath = (install as { installPath?: unknown } | null)?.installPath;
+      if (typeof installPath === "string") candidates.push(join(installPath, OWNED_PY_REL));
+    }
+  }
+
+  return candidates.find((path) => existsSync(path)) ?? null;
+}
+
+/**
+ * How long the front door's ownership check may run before it is SIGKILLed
+ * (STE-686). A check that outlives it is a refusal, never a hang.
+ * `DPT_OWNED_CHECK_TIMEOUT_MS` overrides it when it names a positive number of
+ * milliseconds; a malformed value falls back to the default.
+ */
+const OWNED_CHECK_TIMEOUT_MS = 10_000;
+
+function ownedCheckTimeoutMs(): number {
+  const raw = process.env.DPT_OWNED_CHECK_TIMEOUT_MS;
+  if (raw === undefined) return OWNED_CHECK_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : OWNED_CHECK_TIMEOUT_MS;
+}
 
 if (import.meta.main) {
   const [handle, ledger, name, host, ownedCommand] = process.argv.slice(2);
@@ -459,14 +544,58 @@ if (import.meta.main) {
     );
     process.exitCode = 1;
   } else {
+    // Set by `refuse` when the ownership check cannot be run (no fifth
+    // argument and no registry owned.py) or was killed at its bound. The
+    // runner throws so `renderSpawnReceipt` stops; the catch below prints THIS
+    // envelope verbatim rather than the generic one the throw is wrapped in.
+    let refusal: string | null = null;
+    function refuse(refusing: string, remedy: string): never {
+      refusal = [`Refusing: ${refusing}`, `Remedy: ${remedy}`, "Context: reason=ownership-unresolved"].join("\n");
+      throw new Error(refusal);
+    }
     try {
       const receipt = renderSpawnReceipt({
         spawned: { handle, ledger, name, host },
         owned: (query) => {
-          const proc = Bun.spawnSync(
-            [ownedCommand ?? DEFAULT_OWNED_CHECK, query.ledger, query.name],
-            { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
-          );
+          let command: string[];
+          if (ownedCommand !== undefined) {
+            command = [ownedCommand];
+          } else {
+            const ownedPy = resolveOwnedPy(process.env);
+            if (ownedPy === null) {
+              refuse(
+                `no ownership check for worker "${query.name}" was found: neither plugins/known_marketplaces.json nor plugins/installed_plugins.json under the Claude config dir names an agent-toolkit install with an existing ${OWNED_PY_REL}`,
+                "install agent-toolkit so the plugin registry resolves its owned.py, or pass the ownership check as the fifth argument [owned-check-command]",
+              );
+            }
+            command = ["python3", ownedPy];
+          }
+          const timeoutMs = ownedCheckTimeoutMs();
+          let proc: ReturnType<typeof Bun.spawnSync>;
+          try {
+            proc = Bun.spawnSync(
+              [...command, query.ledger, query.name],
+              {
+                stdin: "ignore",
+                stdout: "pipe",
+                stderr: "pipe",
+                timeout: timeoutMs,
+                killSignal: "SIGKILL",
+              },
+            );
+          } catch (error) {
+            // A missing interpreter or check binary throws here; name it.
+            refuse(
+              `the ownership check for worker "${query.name}" could not be started (\`${command[0]}\`): ${error instanceof Error ? error.message : String(error)}`,
+              "install the check's interpreter or pass a runnable ownership check as the fifth argument [owned-check-command], then re-run the stage",
+            );
+          }
+          if (proc.exitedDueToTimeout) {
+            refuse(
+              `the ownership check for worker "${query.name}" timed out after ${timeoutMs} ms and was killed`,
+              "make the ownership check finish within the bound (or raise DPT_OWNED_CHECK_TIMEOUT_MS), then re-run the stage",
+            );
+          }
           const resolved = (proc.stdout.toString().split("\n")[0] ?? "").trim();
           return {
             code: proc.exitCode ?? 1,
@@ -477,7 +606,9 @@ if (import.meta.main) {
       console.log(receipt.line);
     } catch (error) {
       // stderr, never stdout — the fail-closed invariant above.
-      console.error(error instanceof Error ? error.message : String(error));
+      console.error(
+        refusal ?? (error instanceof Error ? error.message : String(error)),
+      );
       process.exitCode = 1;
     }
   }
