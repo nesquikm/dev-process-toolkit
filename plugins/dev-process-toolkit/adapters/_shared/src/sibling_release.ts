@@ -24,7 +24,7 @@ import {
 import { normalizeContainerItems, readJsonFile } from "./container_ownership";
 import { readTrackerListing } from "./tracker_answer";
 import { parseFrontmatter } from "./frontmatter";
-import { milestoneIdFromLinearMilestone } from "./milestone_token";
+import { milestoneIdFromLinearMilestone, parseMilestoneToken } from "./milestone_token";
 import { SPANS_REPOS_KEY, SpansReposError, readSpansReposDeclaration } from "./spans_repos";
 import { isToolkitManaged } from "./toolkit_managed";
 import { oneLine } from "./tracker_receipts";
@@ -531,6 +531,10 @@ if (import.meta.main) {
     } catch (error) {
       bindingError = (error as Error).message;
     }
+    // STE-691: a numeric milestone under Jira has no Epic (STE-523's label
+    // path), so it has no child listing to grade by construction.
+    const noContainer =
+      shared !== null && shared.adapter === "jira" && parseMilestoneToken(milestone)?.kind === "numeric";
     if (planBody === null) {
       console.error(
         shipRefusal(
@@ -549,7 +553,7 @@ if (import.meta.main) {
         ),
       );
       process.exitCode = 1;
-    } else if (shared !== null && listingFile === undefined && !offer) {
+    } else if (shared !== null && !noContainer && listingFile === undefined && !offer) {
       console.error(
         shipRefusal(
           `${milestone} is released from a shared tracker container, so refusal #4 must grade its children.`,
@@ -561,7 +565,7 @@ if (import.meta.main) {
     } else {
       const result = await siblingShipGate({ projectRoot, planBody, milestone, partial });
       let children: ChildrenGrade | null = null;
-      if (result.refusal === null && shared !== null && listingFile !== undefined) {
+      if (result.refusal === null && shared !== null && !noContainer && listingFile !== undefined) {
         let listing: unknown;
         try {
           listing = readJsonFile(listingFile, "child listing");
@@ -594,6 +598,7 @@ if (import.meta.main) {
         for (const line of result.footer) console.log(line);
         for (const line of result.unchecked) console.error(line);
         if (children !== null) console.error(`children=${children.count}`);
+        else if (noContainer) console.error("children=none (no container)");
         else if (shared !== null) console.error("children=not checked (offer)");
       }
     }
