@@ -16,7 +16,7 @@
 import { readCompleteList, readTrackerPage } from "./tracker_answer";
 
 export type BugTrackerTypeInput =
-  | { mode: "jira"; issueType: string; epicKey: string; listing: unknown }
+  | { mode: "jira"; issueType: string; epicKey?: string; listing: unknown }
   | { mode: "linear"; label: string; listing: unknown };
 
 function refuse(verdict: string, remedy: string, context: string): never {
@@ -37,6 +37,9 @@ function unreadable(tracker: string, key: string, name: string, why: string): ne
 const eq = (a: unknown, b: string) => a === b;
 
 function checkJira(issueType: string, epicKey: string, listing: unknown): string {
+  // No key yet (the milestone Epic is created after this check): name it as new.
+  const epic = epicKey || "(new)";
+  const parent = epicKey ? `the milestone Epic ${epicKey}` : "the new milestone Epic";
   const read = readCompleteList("jira:getJiraProjectIssueTypesMetadata", listing);
   if (!read.ok) unreadable("Jira", "jira_bug_issue_type", issueType, read.reason);
   const types = read.items;
@@ -47,15 +50,15 @@ function checkJira(issueType: string, epicKey: string, listing: unknown): string
     refuse(
       `bug type refused: Jira issue type "${issueType}" is not available in this project`,
       `set jira_bug_issue_type in CLAUDE.md to one of: ${types.map((t) => String(t.name)).join(", ") || "(none listed)"}`,
-      `mode=jira, jira_bug_issue_type=${issueType}, epic=${epicKey}, skill=/spec-write`,
+      `mode=jira, jira_bug_issue_type=${issueType}, epic=${epic}, skill=/spec-write`,
     );
   }
   const level = typeof hit.hierarchyLevel === "number" ? hit.hierarchyLevel : 0;
   if (hit.subtask === true || level !== 0) {
     refuse(
-      `bug type refused: Jira issue type "${String(hit.name)}" cannot take the milestone Epic ${epicKey} as parent`,
+      `bug type refused: Jira issue type "${String(hit.name)}" cannot take ${parent} as parent`,
       `set jira_bug_issue_type in CLAUDE.md to a standard issue type that sits under an Epic`,
-      `mode=jira, jira_bug_issue_type=${issueType}, epic=${epicKey}, hierarchyLevel=${level}, subtask=${hit.subtask === true}, skill=/spec-write`,
+      `mode=jira, jira_bug_issue_type=${issueType}, epic=${epic}, hierarchyLevel=${level}, subtask=${hit.subtask === true}, skill=/spec-write`,
     );
   }
   return String(hit.name);
@@ -99,14 +102,14 @@ export function checkBugTrackerType(input: Record<string, unknown>): string {
 }
 
 // Front door:
-//   bun bug_tracker_type.ts jira <listing.json> <issueType> <epicKey>
+//   bun bug_tracker_type.ts jira <listing.json> <issueType> [<epicKey>]
 //   bun bug_tracker_type.ts linear <listing.json> <label>
 // Prints the resolved name; exits 2 with the NFR-10 message on refusal.
 if (import.meta.main) {
   const [mode, file, name, epicKey] = process.argv.slice(2);
-  if (!mode || !file || !name || (mode === "jira" && !epicKey)) {
+  if (!mode || !file || !name) {
     console.error(
-      "usage: bug_tracker_type.ts jira <listing.json> <issueType> <epicKey> | linear <listing.json> <label>",
+      "usage: bug_tracker_type.ts jira <listing.json> <issueType> [<epicKey>] | linear <listing.json> <label>",
     );
     process.exit(2);
   }
