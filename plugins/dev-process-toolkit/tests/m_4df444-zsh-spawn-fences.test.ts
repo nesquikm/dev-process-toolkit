@@ -50,8 +50,8 @@ const SHELLS: Array<[string, string]> = [
 ];
 
 const sandboxes: Sandbox[] = [];
-afterEach(() => {
-  for (const sb of sandboxes.splice(0)) reap(sb);
+afterEach(async () => {
+  for (const sb of sandboxes.splice(0)) await reap(sb);
 });
 
 function runIn(shell: string, sb: Sandbox, script: string, env: Record<string, string>): { code: number; out: string } {

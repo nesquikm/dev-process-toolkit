@@ -82,12 +82,12 @@ function expectEachChildRecordedFirst(cs: readonly Call[], legOf: (c: Call) => s
 
 describe("AC-STE-594.1 — the actual Phase A fence records each child under its --session-id before spawning it", () => {
   for (const sel of selections(REGISTERED_LEGS)) {
-    test(`SELECTED_LEGS="${sel.join(" ")}": ${sel.length} recorded, ${sel.length} spawned, one run id, no unselected leg recorded`, () => {
+    test(`SELECTED_LEGS="${sel.join(" ")}": ${sel.length} recorded, ${sel.length} spawned, one run id, no unselected leg recorded`, async () => {
       const sb = makeSandbox("record");
       try {
         const env = baseEnv(sb, { ...PHASE_A_ENV, SELECTED_LEGS: sel.join(" ") });
         const run = runScript(sb, phaseAScript(sb, unique("ste594i")), env);
-        const cs = waitForKind(sb, "claude", sel.length);
+        const cs = await waitForKind(sb, "claude", sel.length);
         const kids = cs.filter((c) => c.kind === "claude");
         expect(kids.length, `stub claude calls:\n${kids.map((c) => c.args).join("\n")}`).toBe(sel.length);
         expectEachChildRecordedFirst(cs, (c) => trackerOf(c.args), "Phase A");
@@ -104,7 +104,7 @@ describe("AC-STE-594.1 — the actual Phase A fence records each child under its
         expect(count.live, count.line).toBe(sel.length);
         expect(run.exitCode, `stderr:\n${run.err}`).toBe(0);
       } finally {
-        reap(sb);
+        await reap(sb);
       }
     }, 60_000);
   }
@@ -121,11 +121,11 @@ describe("AC-STE-594.1 — each runnable /smoke-test spawn fence records its chi
 
   for (const f of SMOKE_RUNNABLE) {
     const k = spawnLineIndices(f).length;
-    test(`${label(f)}: ${k} children, each under a recorded --session-id; the appends carry a run and a leg; count still launched=${k} live=${k}`, () => {
+    test(`${label(f)}: ${k} children, each under a recorded --session-id; the appends carry a run and a leg; count still launched=${k} live=${k}`, async () => {
       const sb = makeSandbox("record");
       try {
         const run = runScript(sb, smokeScript(f, sb, unique("ste594t")), baseEnv(sb));
-        const cs = waitForKind(sb, "claude", k);
+        const cs = await waitForKind(sb, "claude", k);
         expect(cs.filter((c) => c.kind === "claude").length).toBe(k);
         expectEachChildRecordedFirst(cs, () => null, label(f));
         for (const a of appendsIn(cs)) {
@@ -137,7 +137,7 @@ describe("AC-STE-594.1 — each runnable /smoke-test spawn fence records its chi
         expect(count.live, count.line).toBe(k);
         expect(run.exitCode, `stderr:\n${run.err}`).toBe(0);
       } finally {
-        reap(sb);
+        await reap(sb);
       }
     }, 60_000);
   }
@@ -150,7 +150,7 @@ describe("AC-STE-594.1 — each runnable /smoke-test spawn fence records its chi
 const SENTINEL_TRACKER = "trk594x";
 
 describe("AC-STE-594.3 — a /smoke-test grandchild records the run id and leg its parent's environment carries", () => {
-  test("the loop exports its run id and each child's leg; a /smoke-test spawn fence run under that environment records them, not its own", () => {
+  test("the loop exports its run id and each child's leg; a /smoke-test spawn fence run under that environment records them, not its own", async () => {
     const f = SMOKE_RUNNABLE[0];
     expect(f, "a runnable /smoke-test spawn fence").toBeDefined();
     const k = spawnLineIndices(f!).length;
@@ -158,7 +158,7 @@ describe("AC-STE-594.3 — a /smoke-test grandchild records the run id and leg i
     try {
       const loopEnv = baseEnv(sb, { ...PHASE_A_ENV, SELECTED_LEGS: REGISTERED_LEGS.join(" ") });
       runScript(sb, phaseAScript(sb, unique("ste594g")), loopEnv);
-      const cs = waitForKind(sb, "claude", REGISTERED_LEGS.length);
+      const cs = await waitForKind(sb, "claude", REGISTERED_LEGS.length);
       const kids = cs.filter((c) => c.kind === "claude");
       expect(kids.length).toBe(REGISTERED_LEGS.length);
       const loopRuns = [...new Set(appendsIn(cs).map((a) => a.run).filter((r): r is string => !!r))];
@@ -177,7 +177,7 @@ describe("AC-STE-594.3 — a /smoke-test grandchild records the run id and leg i
         // can only have come from the inherited environment.
         const from = readCalls(sb).length;
         runScript(sb, smokeScript(f!, sb, SENTINEL_TRACKER), { ...baseEnv(sb), ...delta });
-        const gAppends = appendsIn(waitForKind(sb, "claude", k, from));
+        const gAppends = appendsIn(await waitForKind(sb, "claude", k, from));
         expect(gAppends.length, `${leg}: one append per grandchild`).toBe(k);
         for (const a of gAppends) {
           expect(a.run, `${leg} grandchild append: ${a.args}`).toBe(runId);
@@ -188,11 +188,11 @@ describe("AC-STE-594.3 — a /smoke-test grandchild records the run id and leg i
       // CONTROL: the same fence with nothing inherited does not land in the loop's run.
       const from = readCalls(sb).length;
       runScript(sb, smokeScript(f!, sb, SENTINEL_TRACKER), baseEnv(sb));
-      const standalone = appendsIn(waitForKind(sb, "claude", k, from));
+      const standalone = appendsIn(await waitForKind(sb, "claude", k, from));
       expect(standalone.length).toBe(k);
       for (const a of standalone) expect(a.run, `standalone append: ${a.args}`).not.toBe(runId);
     } finally {
-      reap(sb);
+      await reap(sb);
     }
   }, 90_000);
 });

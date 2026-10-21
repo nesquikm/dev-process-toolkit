@@ -66,22 +66,69 @@ export function captureGateRun(
   stack: Stack,
   command: readonly string[],
 ): CapturedRun {
+  return captureGateRunNamingFailures(projectRoot, stack, command).captured;
+}
+
+/**
+ * The front door's killed-on-the-bound line (AC-STE-686.9): a run that
+ * outlived its bound is SAID to have been killed, naming the bound, so a short
+ * capture is never read as merely an unreadable report.
+ */
+export function renderKilledLine(killedOnBoundMs: number | null): string[] {
+  if (killedOnBoundMs === null) return [];
+  return [
+    `gate_capture: the gate run was killed on its ${killedOnBoundMs} ms bound (DPT_GATE_TIMEOUT_MS) — ` +
+      `SIGTERM, then SIGKILL; its output and report are partial`,
+  ];
+}
+
+/**
+ * The front door's failing-test lines (AC-STE-686.8): one per failing test,
+ * or, on a stack that writes a report, one line saying the report could not
+ * be read, so a red run is never silent about why nothing is named.
+ */
+export function renderFailingLines(
+  failingNames: readonly string[] | null,
+  writesReport: boolean,
+): string[] {
+  if (failingNames !== null) return failingNames.map((name) => `gate_capture: failing — ${name}`);
+  return writesReport ? ["gate_capture: failing tests cannot be named — this run's report could not be read"] : [];
+}
+
+/**
+ * `captureGateRun`, plus the identities of the tests that FAILED in the same
+ * run (AC-STE-686.8) — read from that run's own report before it is removed,
+ * so a red gate can be diagnosed from its capture without a re-run. `null`
+ * when the run produced no readable report to name them from.
+ */
+export function captureGateRunNamingFailures(
+  projectRoot: string,
+  stack: Stack,
+  command: readonly string[],
+): {
+  readonly captured: CapturedRun;
+  readonly failingNames: readonly string[] | null;
+  /** The bound the run was killed on (AC-STE-686.9), or `null` when it finished. */
+  readonly killedOnBoundMs: number | null;
+} {
   const run = runGateNamingSkips(projectRoot, stack, command);
   const captured: CapturedRun = {
     command: command.join(" "),
     output: run.output,
     stack,
   };
+  const failingNames = run.failures?.status === "named" ? run.failures.names : null;
+  const killedOnBoundMs = run.killedOnBoundMs ?? null;
 
   // The key is ABSENT — not present-and-undefined — for a stack that writes no
   // report, because `evaluateSkipDelta` branches on `undefined` meaning "said
   // nothing" and a spread of an explicit `undefined` would read the same only
   // by luck of the current implementation.
-  if (run.identities === null) return captured;
+  if (run.identities === null) return { captured, failingNames, killedOnBoundMs };
 
   const skipNames: readonly string[] | null =
     run.identities.status === "named" ? run.identities.names : null;
-  return { ...captured, skipNames };
+  return { captured: { ...captured, skipNames }, failingNames, killedOnBoundMs };
 }
 
 // The command-line front door of the READ side, mirroring
@@ -91,9 +138,11 @@ export function captureGateRun(
 //
 //   bun run gate_capture.ts [projectRoot]
 //
-// It prints ONE totals line first (`renderTotalsLine`, AC-STE-662.6), then the
-// skip-identity verdict. The totals never move the exit code — only the
-// identity report does (AC-STE-662.7).
+// It prints ONE totals line first (`renderTotalsLine`, AC-STE-662.6), then, for
+// a run killed on its bound, one line saying so and naming the bound
+// (AC-STE-686.9), then one line per failing test (AC-STE-686.8), then the
+// skip-identity verdict. The totals, the killed line and the failing lines
+// never move the exit code — only the identity report does (AC-STE-662.7).
 //
 // WHY IT EXISTS. Without it nothing in the tree could execute this module: it
 // carries no entry point and nothing carrying one imports it, which is exactly
@@ -114,11 +163,20 @@ if (import.meta.main) {
     console.error(`gate_capture: no test runner detected in ${projectRoot}`);
     process.exitCode = 1;
   } else {
-    const captured = captureGateRun(projectRoot, gate.stack, gate.command);
+    const { captured, failingNames, killedOnBoundMs } = captureGateRunNamingFailures(
+      projectRoot,
+      gate.stack,
+      gate.command,
+    );
     const names = captured.skipNames;
     // Totals first, from this run's own bytes — the count and the names are
     // separate facts, so it prints whatever happened to the report.
     console.log(renderTotalsLine(captured));
+    // A run killed on its bound says so, naming the bound (AC-STE-686.9).
+    for (const line of renderKilledLine(killedOnBoundMs)) console.log(line);
+    // Then every failing test, one line each, in the skip lines' shape
+    // (AC-STE-686.8). Passing tests are never named.
+    for (const line of renderFailingLines(failingNames, names !== undefined)) console.log(line);
     if (names === undefined) {
       // ABSENT, and said out loud: this runner writes no machine-readable
       // report, so the run says nothing about identities. Silence here would be
