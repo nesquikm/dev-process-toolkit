@@ -61,6 +61,9 @@ const REAL_BUN = process.execPath;
 let seq = 0;
 export const unique = (prefix: string): string => `${prefix}${process.pid}x${Date.now().toString(36)}x${++seq}`;
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Upper bound on every `ps` spawn: a wedged `ps` must not hang the suite. */
+const PS_TIMEOUT_MS = 2_000;
+
 export const today = (): string => Bun.spawnSync(["date", "+%Y-%m-%d"]).stdout.toString().trim();
 
 // ===========================================================================
@@ -389,11 +392,11 @@ export function appendsIn(cs: readonly Call[]): Append[] {
 }
 
 /** Stubs record themselves a few ms after the fork: wait for `n` of `kind` (from `from` on), then let stragglers land. */
-export function waitForKind(sb: Sandbox, kind: string, n: number, from = 0, ms = 5_000): Call[] {
+export async function waitForKind(sb: Sandbox, kind: string, n: number, from = 0, ms = 5_000): Promise<Call[]> {
   const deadline = Date.now() + ms;
   const count = () => readCalls(sb).slice(from).filter((c) => c.kind === kind).length;
-  while (Date.now() < deadline && count() < n) Bun.sleepSync(50);
-  Bun.sleepSync(200);
+  while (Date.now() < deadline && count() < n) await Bun.sleep(50);
+  await Bun.sleep(200);
   return readCalls(sb).slice(from);
 }
 
@@ -407,9 +410,9 @@ export const alive = (pid: number): boolean => {
   }
 };
 
-export function waitDead(pids: readonly number[], ms = 10_000): boolean {
+export async function waitDead(pids: readonly number[], ms = 10_000): Promise<boolean> {
   const deadline = Date.now() + ms;
-  while (Date.now() < deadline && pids.some(alive)) Bun.sleepSync(50);
+  while (Date.now() < deadline && pids.some(alive)) await Bun.sleep(50);
   return !pids.some(alive);
 }
 
@@ -452,7 +455,7 @@ export function snapshotPidfiles(sb: Sandbox): Map<string, string> {
  * double-forked so init reaps it: it stops answering `kill -0` the moment it
  * exits, whatever this process is blocked in.
  */
-export function spawnLive(sb: Sandbox, seconds: number): number {
+export async function spawnLive(sb: Sandbox, seconds: number): Promise<number> {
   const r = Bun.spawnSync([
     "bash",
     "-c",
@@ -464,9 +467,9 @@ export function spawnLive(sb: Sandbox, seconds: number): number {
   const deadline = Date.now() + 2_000;
   while (
     Date.now() < deadline &&
-    Bun.spawnSync(["ps", "-p", String(pid), "-o", "comm="]).stdout.toString().trim() !== "claude"
+    Bun.spawnSync(["ps", "-p", String(pid), "-o", "comm="], { timeout: PS_TIMEOUT_MS }).stdout.toString().trim() !== "claude"
   ) {
-    Bun.sleepSync(20);
+    await Bun.sleep(20);
   }
   return pid;
 }
@@ -525,14 +528,14 @@ export function smokeScript(f: Fence, sb: Sandbox, tracker: string): string {
 // Cleanup and the real-repo guard.
 // ===========================================================================
 
-export function reap(sb: Sandbox): void {
+export async function reap(sb: Sandbox): Promise<void> {
   const candidates = new Set<number>([
     ...readCalls(sb).filter((c) => c.kind === "claude").map((c) => c.pid),
     ...pidfilePids(sb),
     ...sb.planted,
   ]);
   const ours = new Set<number>();
-  for (const line of Bun.spawnSync(["ps", "-axo", "pid=,args="]).stdout.toString().split("\n")) {
+  for (const line of Bun.spawnSync(["ps", "-axo", "pid=,args="], { timeout: PS_TIMEOUT_MS }).stdout.toString().split("\n")) {
     const m = /^\s*(\d+)\s+(.*)$/.exec(line);
     if (!m) continue;
     const pid = Number(m[1]);
@@ -547,7 +550,7 @@ export function reap(sb: Sandbox): void {
       // already gone
     }
   }
-  waitDead([...ours], 5_000);
+  await waitDead([...ours], 5_000);
   rmSync(sb.root, { recursive: true, force: true });
 }
 

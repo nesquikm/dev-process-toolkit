@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { runTaskTrackingWorkspaceBindingPresentProbe } from "../adapters/_shared/src/task_tracking_workspace_binding_present";
 import { ORDERED_UNREACHABLE_PIN, runModuleReachabilityProbe } from "../adapters/_shared/src/module_reachability";
 import { jiraClaudeMdText, writeFr, writePlan } from "./_repoint_fixture";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -468,9 +469,9 @@ describe("AC-STE-656.8 — pinned counts and doc-conformance suites stay green (
     ];
     // The AC-STE-656.1 legs added to two of these suites are graded by AC.1;
     // this control runs everything else in them.
-    const r = spawnSync("bun", ["test", "-t", "^(?!.*AC-STE-656)", ...suites], { cwd: PLUGIN_ROOT, encoding: "utf-8", timeout: 240_000 });
-    const out = `${r.stdout ?? ""}${r.stderr ?? ""}`;
-    expect(r.status, out.split("\n").filter((l) => /\(fail\)|error/i.test(l)).slice(0, 20).join("\n")).toBe(0);
+    const r = runNestedBunTest(["-t", "^(?!.*AC-STE-656)", ...suites], { cwd: PLUGIN_ROOT, timeoutMs: 240_000 });
+    const out = `${r.stdout}${r.stderr}`;
+    expect(r.exitCode, out.split("\n").filter((l) => /\(fail\)|error/i.test(l)).slice(0, 20).join("\n")).toBe(0);
     expect(out).toMatch(/\b0 fail\b/);
   }, 300_000);
 });

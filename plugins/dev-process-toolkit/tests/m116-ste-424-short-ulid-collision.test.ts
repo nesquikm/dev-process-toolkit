@@ -297,7 +297,7 @@ describe("AC-STE-424.1 — the plan duplicate check spans the archive boundary w
     const report = await runPlanIdentityModeConditionalProbe(REPO_ROOT);
     expect(report.mode).toBe("linear");
     expect(report.violations).toEqual([]);
-  });
+  }, 30000);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

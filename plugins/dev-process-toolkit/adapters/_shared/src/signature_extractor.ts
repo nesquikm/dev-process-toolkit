@@ -44,6 +44,11 @@ export interface ExtractOptions {
    */
   typedocBinary?: string | null;
   /**
+   * Wall-clock bound on the typedoc spawn, in ms. Defaults to
+   * `TYPEDOC_TIMEOUT_MS` (60_000), the bound its dart and griffe siblings use.
+   */
+  typedocTimeoutMs?: number;
+  /**
    * Explicit path to a dart binary, or null to force-skip the dart-analyzer
    * strategy. When undefined (default), the resolver looks up `dart` on
    * `PATH`. Test injection point for the AC-STE-103.2 fallthrough cases.
@@ -165,7 +170,7 @@ function runTsChain(
   const warnings: string[] = [];
   const typedocBinary = resolveTypedocBinary(projectRoot, options);
   if (typedocBinary) {
-    const typedocResult = runTypedoc(typedocBinary, projectRoot);
+    const typedocResult = runTypedoc(typedocBinary, projectRoot, options.typedocTimeoutMs);
     if (typedocResult.ok) {
       strategy = "typedoc";
       const disagreement = crossCheckNames(typedocResult.names, modules);
@@ -209,7 +214,9 @@ interface TypedocFail {
 }
 type TypedocResult = TypedocOk | TypedocFail;
 
-function runTypedoc(binary: string, projectRoot: string): TypedocResult {
+const TYPEDOC_TIMEOUT_MS = 60_000;
+
+function runTypedoc(binary: string, projectRoot: string, timeoutMs?: number): TypedocResult {
   const work = mkdtempSync(join(tmpdir(), "dpt-typedoc-"));
   const outFile = join(work, "typedoc.json");
   try {
@@ -217,7 +224,11 @@ function runTypedoc(binary: string, projectRoot: string): TypedocResult {
       cwd: projectRoot,
       stdout: "pipe",
       stderr: "pipe",
+      timeout: timeoutMs ?? TYPEDOC_TIMEOUT_MS,
     });
+    if (res.exitedDueToTimeout) {
+      return { ok: false, reason: `timed out after ${timeoutMs ?? TYPEDOC_TIMEOUT_MS} ms` };
+    }
     if (res.exitCode !== 0) {
       return { ok: false, reason: `exit ${res.exitCode}` };
     }

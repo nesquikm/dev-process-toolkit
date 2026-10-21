@@ -34,6 +34,7 @@ import {
 import { classifyResume, resumeChain } from "../adapters/_shared/src/resume_classifier";
 import * as siblingRelease from "../adapters/_shared/src/sibling_release";
 import { SpansReposError, readSpansReposDeclaration } from "../adapters/_shared/src/spans_repos";
+import { runNestedBunTest } from "./_nested_bun_test";
 import { type SpanFixture, makeSpanFixture } from "./_span_fixture";
 
 // ===========================================================================
@@ -213,9 +214,9 @@ const describeDoor = (d: DoorRun): string =>
 
 /** Run one suite in a child `bun test`; green means exit 0 AND something passed. */
 function expectSuiteGreen(suite: string): void {
-  const proc = spawnSync("bun", ["test", suite], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
+  const proc = runNestedBunTest([suite], { cwd: PLUGIN_ROOT });
   const out = `${proc.stdout ?? ""}${proc.stderr ?? ""}`;
-  expect(proc.status, `${suite} is not green:\n${out.slice(-4000)}`).toBe(0);
+  expect(proc.exitCode, `${suite} is not green:\n${out.slice(-4000)}`).toBe(0);
   // Non-vacuity: a run that collected nothing exits 0 too.
   expect(out, `${suite} collected nothing`).toMatch(/\b[1-9]\d* pass\b/);
   expect(out).toMatch(/\b0 fail\b/);

@@ -33,8 +33,8 @@ import {
 } from "./_ste594_harness";
 
 const sandboxes: Sandbox[] = [];
-afterEach(() => {
-  for (const sb of sandboxes.splice(0)) reap(sb);
+afterEach(async () => {
+  for (const sb of sandboxes.splice(0)) await reap(sb);
 });
 
 /** Run Phase A for iterations 1 then 2 of ONE run (same DATE) in one sandbox. */

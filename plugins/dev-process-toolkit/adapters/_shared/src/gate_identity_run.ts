@@ -34,11 +34,12 @@
 // Callers map those three states into their own record shapes. What they do NOT
 // do is decide them a second time.
 
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { constants as osConstants, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
+  extractFailureIdentities,
   extractSkipIdentities,
   SKIP_IDENTITY_SEPARATOR,
   skipIdentityCommand,
@@ -53,12 +54,14 @@ export const TIMED_OUT_MARKER = "dpt-gate-run: the gate command did not finish";
 
 /**
  * How long a gate run may take before it is cut. Generous — this project's own
- * suite takes about seven minutes — but FINITE, because a runner really does
- * hang: `bun test --reporter=junit` stalled at 0% CPU with no children twice on
- * one machine, and an unbounded run turns that into a gate that never returns,
- * blocking every commit and every release. A verdict beats a hang (M_85e846).
+ * suite takes about seven minutes on a quiet machine and far longer on a loaded
+ * one — but FINITE, because a runner really does hang: `bun test
+ * --reporter=junit` stalled at 0% CPU with no children twice on one machine,
+ * and an unbounded run turns that into a gate that never returns, blocking
+ * every commit and every release. A verdict beats a hang (M_85e846). Forty
+ * minutes since AC-STE-686.9.
  */
-export const GATE_RUN_TIMEOUT_MS = 20 * 60_000;
+export const GATE_RUN_TIMEOUT_MS = 40 * 60_000;
 
 /**
  * The bound in force: `DPT_GATE_TIMEOUT_MS` when it names a positive number of
@@ -66,10 +69,26 @@ export const GATE_RUN_TIMEOUT_MS = 20 * 60_000;
  * a project whose suite legitimately runs longer raises it on purpose.
  */
 export function gateRunTimeoutMs(): number {
-  const raw = process.env.DPT_GATE_TIMEOUT_MS;
-  if (raw === undefined) return GATE_RUN_TIMEOUT_MS;
+  return positiveMsFromEnv("DPT_GATE_TIMEOUT_MS", GATE_RUN_TIMEOUT_MS);
+}
+
+/**
+ * How long a run that outlived its bound is given, after SIGTERM, before it is
+ * sent SIGKILL (AC-STE-686.9). A single SIGTERM is a request: a gate run once
+ * spun for an hour past its bound because nothing in it handled the signal.
+ */
+export const GATE_KILL_GRACE_MS = 5_000;
+
+/** The grace in force: `DPT_GATE_KILL_GRACE_MS` when positive, else the default. */
+export function gateKillGraceMs(): number {
+  return positiveMsFromEnv("DPT_GATE_KILL_GRACE_MS", GATE_KILL_GRACE_MS);
+}
+
+function positiveMsFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : GATE_RUN_TIMEOUT_MS;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /** What one gate run observed. */
@@ -87,6 +106,17 @@ export interface GateRunObservation {
    * verdict, `named` or `unavailable`, forwarded without interpretation.
    */
   readonly identities: SkipIdentities | null;
+  /**
+   * The identities of the tests that FAILED in this run, read from the same
+   * report before it is removed (AC-STE-686.8). Absent exactly when
+   * `identities` carries no `named` answer from a report.
+   */
+  readonly failures?: SkipIdentities;
+  /**
+   * Present exactly when the run outlived its bound and was killed: the bound,
+   * in milliseconds, it was killed on (AC-STE-686.9).
+   */
+  readonly killedOnBoundMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,29 +250,162 @@ export function runGateNamingSkips(
     // cwd or a captured stream can be forgotten, and a gate run in the wrong
     // directory measures another project's skips.
     const argv = identityCommand === null ? [...command] : ["/bin/sh", "-c", identityCommand];
-    const proc = Bun.spawnSync(argv, { cwd: projectRoot, stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
-    // A cut run has no exit code. SAY so in the bytes: a caller parsing counts
-    // out of a half-written summary would otherwise read the silence as a
-    // clean-but-unparseable run, which is the confident nothing this avoids.
-    const cut = proc.exitCode === null;
-    const minutes = Math.round(timeoutMs / 60_000);
+    // The run goes through a SUPERVISOR — this same module, re-entered below —
+    // rather than `spawnSync`'s own `timeout`. That option sends ONE SIGTERM and
+    // then blocks for as long as the child ignores it, which is how a gate run
+    // spun an hour past its bound. The supervisor puts the gate in its own
+    // process group, sends the group SIGTERM at the bound and SIGKILL after the
+    // grace period, so `/bin/sh -c` and every runner under it end. The
+    // supervisor's stdio is the gate's stdio, so the bytes are captured here
+    // exactly as before, and this call stays synchronous.
+    const graceMs = gateKillGraceMs();
+    const cutFile = join(reportDir, "killed-on-bound");
+    const pidFile = join(reportDir, "gate.pid");
+    const backstopMs = positiveMsFromEnv("DPT_GATE_SUPERVISOR_BACKSTOP_MS", SUPERVISOR_BACKSTOP_MS);
+    const proc = Bun.spawnSync(
+      [
+        process.execPath,
+        import.meta.path,
+        SUPERVISE_FLAG,
+        String(timeoutMs),
+        String(graceMs),
+        cutFile,
+        pidFile,
+        ...argv,
+      ],
+      {
+        cwd: projectRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+        // A backstop for a wedged supervisor only — far past the escalation,
+        // so it never pre-empts the supervisor's own kill.
+        timeout: timeoutMs + graceMs + backstopMs,
+        killSignal: "SIGKILL",
+      },
+    );
+    // The backstop kills only the SUPERVISOR. The gate lives in its own process
+    // group, so a supervisor cut here leaves that group running as orphans
+    // unless this caller ends it: the supervisor recorded the group's pid.
+    if (proc.exitCode === null) {
+      const gatePid = readGatePid(pidFile);
+      if (gatePid !== null) signalGroup(gatePid, "SIGKILL");
+    }
+    // A cut run has no complete report and no honest exit code. SAY so in the
+    // bytes: a caller parsing counts out of a half-written summary would
+    // otherwise read the silence as a clean-but-unparseable run, which is the
+    // confident nothing this avoids.
+    const cut = existsSync(cutFile) || proc.exitCode === null;
     const output =
       `${proc.stdout.toString()}\n${proc.stderr.toString()}` +
-      (cut ? `\n${TIMED_OUT_MARKER} within ${minutes} minute(s) and was stopped.\n` : "");
+      (cut
+        ? `\n${TIMED_OUT_MARKER} within ${timeoutMs} ms and was killed ` +
+          `(SIGTERM, then SIGKILL after ${graceMs} ms).\n`
+        : "");
 
     // A cut run states it could not name its skips, rather than handing back
     // the identities of a report that was still being written.
-    if (cut) return { output, identities: identityCommand === null ? null : { status: "unavailable" } };
+    if (cut) {
+      return {
+        output,
+        identities: identityCommand === null ? null : { status: "unavailable" },
+        killedOnBoundMs: timeoutMs,
+      };
+    }
     if (identityCommand === null) return { output, identities: null };
     // Anchored HERE, at the one place both halves of the ratchet run their
     // gate: the WRITE side and the READ side must divide out the same cwd or
     // they are not comparing like with like, and a second anchoring in either
     // caller is the drift this module exists to prevent.
-    return { output, identities: anchorIdentities(extractSkipIdentities(reportPath), projectRoot) };
+    return {
+      output,
+      identities: anchorIdentities(extractSkipIdentities(reportPath), projectRoot),
+      failures: anchorIdentities(extractFailureIdentities(reportPath), projectRoot),
+    };
   } finally {
     // The report directory is this module's alone, and it goes whether the run
     // succeeded, failed, or threw — a leaked temp tree per gate run is how a
     // long-lived session fills a disk.
     rmSync(reportDir, { recursive: true, force: true });
   }
+}
+
+// ---------------------------------------------------------------------------
+// The SUPERVISOR (AC-STE-686.9).
+// ---------------------------------------------------------------------------
+//
+// `runGateNamingSkips` re-enters this module as a separate process:
+//
+//   bun gate_identity_run.ts --dpt-gate-supervise <boundMs> <graceMs> <cutFile> <pidFile> <argv...>
+//
+// It runs the gate in a NEW process group (`detached`), with this process's
+// stdio, and waits. At the bound it records the cut in `cutFile`, sends the
+// whole group SIGTERM, and after the grace period sends the group SIGKILL —
+// unconditionally, so a runner that exited on TERM leaves no grandchild
+// behind either. It never exits before the gate does: returning early would
+// let a TERM-ignoring gate keep running unseen behind a "killed" verdict.
+
+const SUPERVISE_FLAG = "--dpt-gate-supervise";
+
+/**
+ * How far past bound + grace the caller's backstop sits. `DPT_GATE_SUPERVISOR_BACKSTOP_MS`
+ * (positive ms) replaces it, so a test can reach the backstop in seconds.
+ */
+const SUPERVISOR_BACKSTOP_MS = 60_000;
+
+/** The gate group's pid the supervisor recorded, or `null` when none was. */
+function readGatePid(pidFile: string): number | null {
+  try {
+    const pid = Number(readFileSync(pidFile, "utf8").trim());
+    return Number.isInteger(pid) && pid > 1 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Signal a whole process group; a group that is already gone is not an error. */
+function signalGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    // ESRCH — every member has already exited.
+  }
+}
+
+async function supervise(args: readonly string[]): Promise<number> {
+  const [boundRaw, graceRaw, cutFile, pidFile, ...argv] = args;
+  const boundMs = Number(boundRaw);
+  const graceMs = Number(graceRaw);
+  // TEST-ONLY SEAM: `DPT_GATE_SUPERVISOR_WEDGE_FILE` simulates a supervisor
+  // that wedges. When set, the supervisor writes that file, starts the gate
+  // exactly as in production, then never arms the bound and never exits — the
+  // caller's backstop is the only thing left to end the run. Inert when unset.
+  const wedgeFile = process.env.DPT_GATE_SUPERVISOR_WEDGE_FILE;
+  if (wedgeFile !== undefined && wedgeFile !== "") writeFileSync(wedgeFile, "wedged\n");
+  const child = Bun.spawn([...argv], { stdin: "inherit", stdout: "inherit", stderr: "inherit", detached: true });
+  writeFileSync(pidFile as string, `${child.pid}\n`);
+  if (wedgeFile !== undefined && wedgeFile !== "") {
+    setInterval(() => {}, 1 << 30);
+    return new Promise<number>(() => {});
+  }
+
+  const kill: { escalated: Promise<void> | null } = { escalated: null };
+  const bound = setTimeout(() => {
+    writeFileSync(cutFile as string, `${boundMs}\n`);
+    signalGroup(child.pid, "SIGTERM");
+    kill.escalated = new Promise((done) =>
+      setTimeout(() => {
+        signalGroup(child.pid, "SIGKILL");
+        done();
+      }, graceMs),
+    );
+  }, boundMs);
+
+  const code = await child.exited;
+  clearTimeout(bound);
+  if (kill.escalated !== null) await kill.escalated;
+  return child.signalCode === null ? code : 128 + (osConstants.signals[child.signalCode] ?? 0);
+}
+
+if (import.meta.main && process.argv[2] === SUPERVISE_FLAG) {
+  void supervise(process.argv.slice(3)).then((code) => process.exit(code));
 }
