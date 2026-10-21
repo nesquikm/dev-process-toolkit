@@ -1213,9 +1213,38 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     return { text: [...lines.slice(0, start), ...lines.slice(end)].join("\n"), region: lines.slice(start, end), error: null };
   }
 
-  /** The ship guard: the admitted hunk stripped, then line-for-line on {91, 265}. */
+  // RULING (STE-689, M_7a948e, operator 2026-10-21): the SECOND admitted new
+  // region is the `**Unversioned run (`changelog_unversioned: true` in `## Docs`).**`
+  // paragraph that sits directly under `## Flow` (AC-STE-689.8). The region is
+  // exactly two lines: the one-line paragraph opening with that start marker,
+  // and its blank-line terminator, which must sit directly before
+  // `### 1. Resolve milestone + FR list`.
+  // It is a NAMED hunk, not a criterion: it must occur exactly once, it is
+  // stripped whole alongside the 9b hunk, and the rest of the file must still
+  // line up with SHIP_KICKOFF on {91, 265}. The same ruling admits STE-691's
+  // refusal #4 sentence, in place on line 91 — see the STE-691 ruling below.
+  const SHIP_UNVERSIONED_MARKER = "**Unversioned run (`changelog_unversioned: true` in `## Docs`).**";
+  const SHIP_STEP1_HEADING = "### 1. Resolve milestone + FR list";
+
+  /** Strip the admitted Unversioned-run hunk; `error` names why the region is not the admitted one. */
+  function stripAdmittedUnversioned(text: string): { text: string; region: string[]; error: string | null } {
+    const lines = text.split("\n");
+    const starts = lines.flatMap((l, i) => (l.startsWith(SHIP_UNVERSIONED_MARKER) ? [i] : []));
+    if (starts.length === 0) return { text, region: [], error: null };
+    if (starts.length > 1) return { text, region: [], error: "Unversioned-run paragraph occurs twice" };
+    // Exactly two lines: the one-line paragraph and its blank terminator, then step 1.
+    const start = starts[0]!;
+    const end = start + 1;
+    if (lines[end] !== "" || lines[end + 1] !== SHIP_STEP1_HEADING)
+      return { text, region: [], error: `Unversioned-run region is not paragraph + blank line directly before step 1 (next: ${JSON.stringify(lines[end] ?? "<eof>")})` };
+    return { text: [...lines.slice(0, start), ...lines.slice(end + 1)].join("\n"), region: lines.slice(start, end + 1), error: null };
+  }
+
+  /** The ship guard: both admitted hunks stripped, then line-for-line on {91, 265}. */
   function shipDrift(before: string, after: string): string[] {
-    const s = stripAdmitted9b(after);
+    const u = stripAdmittedUnversioned(after);
+    if (u.error) return [u.error];
+    const s = stripAdmitted9b(u.text);
     if (s.error) return [s.error];
     return driftBeyond(before, s.text, SHIP_PERMITTED);
   }
@@ -1231,7 +1260,20 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     expect(region.join("\n")).toContain("Make an explainer video for M<N>? [y/N]");
     expect(region.join("\n")).toContain("Run: /video <slug>");
     expect(then.includes(SHIP_9B_HEADING), "the base has no 9b section").toBe(false);
-    const epic = now.split("\n")[SHIP_EPIC_CLOSE_LINE - 1]!;
+    // The second admitted hunk is the Unversioned-run paragraph, carrying the AC-STE-689.8 literals.
+    const u = stripAdmittedUnversioned(now);
+    expect(u.error).toBeNull();
+    expect(u.region.length, "the Unversioned-run region is the paragraph + its blank line").toBe(2);
+    expect(u.region[0]!.startsWith(SHIP_UNVERSIONED_MARKER)).toBe(true);
+    expect(u.region[u.region.length - 1], "the region ends at its blank-line terminator").toBe("");
+    expect(now.split("\n")[now.split("\n").indexOf(u.region[0]!) - 2], "the paragraph sits directly under ## Flow").toBe("## Flow");
+    const uText = u.region.join("\n");
+    expect(uText).toContain("shipped_in: unreleased");
+    expect(uText).toContain("Release: unreleased");
+    expect(uText).toContain("release/<milestone-lowercase>-unreleased");
+    expect(then.includes(SHIP_UNVERSIONED_MARKER), "the base has no Unversioned-run paragraph").toBe(false);
+    // Line 265 is read past the admitted Unversioned-run hunk, which sits above it.
+    const epic = u.text.split("\n")[SHIP_EPIC_CLOSE_LINE - 1]!;
     expect(then.split("\n")[SHIP_EPIC_CLOSE_LINE - 1], "line 265 was the checklist's item 3 at the kickoff").toMatch(/^  3\. Update any external references/);
     expect(epic).toMatch(/^  3\. Update any external references/);
     expect(epic, "line 265 names closing the milestone Epic by its key").toContain("close the milestone Epic <P>-<N>");
@@ -1243,7 +1285,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     expect(line, "and no longer tells a Linear child to follow `endCursor` at top level").not.toMatch(/previous page's `endCursor`/);
   });
 
-  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91 and 265), or an added line outside the 9b region, fails the guard", () => {
+  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91 and 265), or an added line outside the 9b or Unversioned-run regions, fails the guard", () => {
     const now = readFileSync(join(REPO, SHIP), "utf-8");
     const then = shipKickoff(SHIP);
     const lines = now.split("\n");
@@ -1267,10 +1309,43 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
       const smuggled = [...lines.slice(0, nine + 1), "### 9c. Another section", ...lines.slice(nine + 1)];
       expect(shipDrift(then, smuggled.join("\n"))).toHaveLength(1);
     }
-    // The admitted region does not admit a stray edit before it: line 268 (step 9 body) stays frozen.
+    // The admitted region does not admit a stray edit before it: base line 268 (step 9 body) stays frozen.
+    // In the live file it sits two lines lower, past the admitted Unversioned-run paragraph.
     const before9b = [...lines];
-    before9b[267] = `${before9b[267]} (edited)`;
+    expect(before9b[269], "control: live line 270 is base line 268").toBe(then.split("\n")[267]);
+    before9b[269] = `${before9b[269]} (edited)`;
     expect(shipDrift(then, before9b.join("\n"))).toEqual(["line 268"]);
+
+    // STE-689: the Unversioned-run region admits nothing beyond itself.
+    const uStart = lines.findIndex((l) => l.startsWith(SHIP_UNVERSIONED_MARKER));
+    expect(uStart, "control: the Unversioned-run paragraph is present").toBeGreaterThan(0);
+    const step1 = lines.indexOf(SHIP_STEP1_HEADING);
+    expect(step1, "control: step 1 follows the region's blank terminator").toBe(uStart + 2);
+    // (a) A stray added line just BEFORE the region (between ## Flow's blank and the paragraph).
+    const strayBefore = [...lines.slice(0, uStart), "a stray line", ...lines.slice(uStart)];
+    expect(shipDrift(then, strayBefore.join("\n"))).toHaveLength(1);
+    // (a) A stray added line just AFTER the region (directly after step 1's heading).
+    const strayAfter = [...lines.slice(0, step1 + 1), "a stray line", ...lines.slice(step1 + 1)];
+    expect(shipDrift(then, strayAfter.join("\n"))).toHaveLength(1);
+    // (a) A stray line glued to the paragraph's end (no blank terminator before step 1) is not the hunk.
+    const glued = [...lines.slice(0, uStart + 1), "a stray line", ...lines.slice(uStart + 1)];
+    expect(shipDrift(then, glued.join("\n"))).toHaveLength(1);
+    // (a) Removing the blank terminator, so the paragraph runs straight into step 1, is refused.
+    const noBlank = [...lines.slice(0, uStart + 1), ...lines.slice(uStart + 2)];
+    expect(shipDrift(then, noBlank.join("\n"))).toHaveLength(1);
+    // (a) An edit to step 1's heading line (right after the region) is drift.
+    const step1Edit = [...lines];
+    step1Edit[step1] = `${step1Edit[step1]} (edited)`;
+    expect(shipDrift(then, step1Edit.join("\n"))).toHaveLength(1);
+    // (b) A duplicated region fails, in place or elsewhere in the file.
+    const dupInPlace = [...lines.slice(0, uStart + 2), lines[uStart]!, "", ...lines.slice(uStart + 2)];
+    expect(shipDrift(then, dupInPlace.join("\n"))).toEqual(["Unversioned-run paragraph occurs twice"]);
+    const ten2 = lines.indexOf(SHIP_10_HEADING);
+    const dupElsewhere = [...lines.slice(0, ten2), lines[uStart]!, "", ...lines.slice(ten2)];
+    expect(shipDrift(then, dupElsewhere.join("\n"))).toEqual(["Unversioned-run paragraph occurs twice"]);
+    // The region moved away from directly before step 1 is not the admitted hunk.
+    const moved = [...lines.slice(0, uStart), ...lines.slice(uStart + 2, ten2), lines[uStart]!, "", ...lines.slice(ten2)];
+    expect(shipDrift(then, moved.join("\n"))).toHaveLength(1);
   });
 
   test("NEGATIVE CONTROL — a ship-milestone sibling with one changed line fails the byte-identity guard", () => {

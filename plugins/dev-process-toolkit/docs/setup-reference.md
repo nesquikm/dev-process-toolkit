@@ -197,7 +197,10 @@ Write the resolved answers as a `## Docs` section in `CLAUDE.md`, placed immedia
 user_facing_mode: <true|false>
 packages_mode: <true|false>
 changelog_ci_owned: <true|false>
+changelog_unversioned: <true|false>
 ```
+
+`changelog_unversioned` is not prompted; `/setup` always writes it with its default `false`. Set it to `true` by hand when git tags or CI own the version: `/ship-milestone` then closes a milestone with no version — entries land under `## [Unreleased]` and no versioned release file is rewritten. An absent key reads as `false`.
 
 Re-run writes are atomic — read CLAUDE.md, splice the full `## Docs` block, write once.
 
