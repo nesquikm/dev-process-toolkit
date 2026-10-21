@@ -473,10 +473,12 @@ const liveProbeCount = (): number => probeRegistrationLines().length;
 
 /** The count before this FR registers its probe — the number that must be gone. */
 // Amended by AC-STE-673.6: probe count 85 -> 86 (the previous count moves with the cascade).
-const PREVIOUS_PROBE_COUNT = 86;
+// Amended by AC-STE-680.6: probe count 86 -> 87 (the previous count moves with the cascade).
+const PREVIOUS_PROBE_COUNT = 87;
 /** The count after. */
 // Amended by AC-STE-673.6: probe count 86 -> 87.
-const EXPECTED_PROBE_COUNT = 87;
+// Amended by AC-STE-680.6: probe count 87 -> 88.
+const EXPECTED_PROBE_COUNT = 88;
 
 /**
  * Every surface pinning the probe count, as `[plugin-relative path or
@@ -570,7 +572,8 @@ const surfaceAbs = (rel: string): string =>
 
 describe("AC-STE-659.3 — registered as probe #86, every count pin moved with it", () => {
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("the registry is contiguous 1..87", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("the registry is contiguous 1..88", () => {
     expect(liveProbeCount()).toBe(EXPECTED_PROBE_COUNT);
     expect(probeRegistrationLines().map((r) => r.number)).toEqual(
       Array.from({ length: EXPECTED_PROBE_COUNT }, (_, i) => i + 1),
@@ -607,7 +610,8 @@ describe("AC-STE-659.3 — registered as probe #86, every count pin moved with i
   });
 
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("EVERY enumerated pin reads 87 — and none still reads 86", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("EVERY enumerated pin reads 88 — and none still reads 87", () => {
     const missing: string[] = [];
     const stale: string[] = [];
     for (const [rel, template] of PINS) {
@@ -630,7 +634,8 @@ describe("AC-STE-659.3 — registered as probe #86, every count pin moved with i
   });
 
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("the front-door warning names the NEXT unregistered number (#88), in both places", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("the front-door warning names the NEXT unregistered number (#89), in both places", () => {
     const next = liveProbeCount() + 1;
     expect(next).toBe(EXPECTED_PROBE_COUNT + 1);
     const skill = read(GATE_CHECK_SKILL);
@@ -641,10 +646,13 @@ describe("AC-STE-659.3 — registered as probe #86, every count pin moved with i
   });
 
   // Amended by AC-STE-673.6: the NEXT-row tripwire moves #87 -> #88.
-  test("M141's `no NEXT row` tripwire moved to #88", () => {
+  // Amended by AC-STE-680.6: the NEXT-row tripwire moves #88 -> #89.
+  test("M141's `no NEXT row` tripwire moved to #89", () => {
     const body = read(surfaceAbs("tests/m141-ste-546-surface-agreement.test.ts"));
-    expect(body).toContain(String.raw`/^88\. \*\*/m`);
-    expect(body).not.toContain(String.raw`/^87\. \*\*/m`);
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(body).toContain(String.raw`/^89\. \*\*/m`);
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(body).not.toContain(String.raw`/^88\. \*\*/m`);
   });
 
   test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {

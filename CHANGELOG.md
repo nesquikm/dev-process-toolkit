@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.99.0] — 2026-10-21 — "Field Report"
+
+### Added
+
+- `/spec-write --bug` files a bug as a bug (STE-679). The flag writes `kind: bug` into the FR frontmatter and defaults `changelog_category` to `Fixed`; `Security` is the only other category it accepts. The body asks for steps to reproduce, expected and actual results, the root cause and a `Regression:` acceptance criterion, and `--bug --no-tech` asks only the observable questions. In tracker mode the run first proves the bug type exists, by exact name: a Jira issue type that can sit under the milestone Epic (`jira_bug_issue_type`, default `Bug`), or a live Linear label (`linear_bug_label`, default `Bug`). A missing type refuses before any tracker write or file. `decide --bug` then carries the type in the create payload, and the Jira create step files it as that issue type.
+- Bugs imported from the tracker stay bugs, and the gate grades them (STE-680). A Jira ticket whose issue type is the bug type, or a Linear issue carrying the bug label, imports as `kind: bug` with `changelog_category: Fixed`, from a fetched ticket or a listing page alike. Its body gets TODO bug sections and a TODO `Regression:` criterion unless the ticket already supplies them. New gate-check probe #88 `bug_fr_shape` fails an active bug FR that lacks any of those pieces, a bug whose category is not `Fixed` or `Security`, and any `kind:` value other than `bug`.
+
+### Known defects
+
+- An imported TODO `Regression:` criterion satisfies probe #88's regression check, because the probe checks only that an AC begins `Regression:`. The TODO bug sections still keep the imported FR red.
+- Import fails open on a ticket answer it cannot read: the FR imports as a plain FR, not a bug. The ownership check already refuses an unreadable ticket on the join path.
+
+Total test count at release: 19063 tests, 0 failures, 0 errors.
+
 ## [2.98.1] — 2026-10-19 — "Common Ancestor"
 
 ### Fixed

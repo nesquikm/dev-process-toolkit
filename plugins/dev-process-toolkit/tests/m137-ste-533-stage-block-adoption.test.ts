@@ -2072,7 +2072,8 @@ describe("AC-STE-533.8 — the adoption grader is registered on a runtime path",
     const numbers = registrations.map((r) => r.number);
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
-    expect(numbers).toEqual(Array.from({ length: 87 }, (_, i) => i + 1));
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(numbers).toEqual(Array.from({ length: 88 }, (_, i) => i + 1));
     const mine = registrations.filter((r) =>
       r.line.includes(`\`${ADOPTION_PROBE_ID}\``),
     );
@@ -2386,7 +2387,8 @@ const PROBE_COUNT_PINS: readonly (readonly [string, string])[] = [
  */
 // Amended by AC-STE-659.3: the previous count is now 85 (probe #86 landed), so the staleness half stays live.
 // Amended by AC-STE-673.6: the previous count is now 86 (probe #87 landed), so the staleness half stays live.
-const STALE_PROBE_COUNT = 86;
+// Amended by AC-STE-680.6: the previous count is now 87 (probe #88 landed), so the staleness half stays live.
+const STALE_PROBE_COUNT = 87;
 
 const fill = (template: string, n: number): string =>
   template.split("{N}").join(String(n));
@@ -2399,11 +2401,13 @@ const surfaceBody = (rel: string): string =>
 describe("AC-STE-533.8 — the probe-count cascade moved as one", () => {
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("the live count is 87 and README advertises it in BOTH places", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("the live count is 88 and README advertises it in BOTH places", () => {
     const live = liveProbeCount();
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
-    expect(live).toBe(87);
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(live).toBe(88);
     const readme = read(README);
     expect(readme).toContain(`${live} numbered \`/gate-check\` probes`);
     expect(readme).toMatch(new RegExp(`layers ${live} probes`));

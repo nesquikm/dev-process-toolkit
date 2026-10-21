@@ -541,23 +541,27 @@ async function runQueryCommand(args: QueryArgs): Promise<string> {
 interface DecideArgs extends QueryArgs {
   pages: string[];
   attempt: IdempotencyAttempt;
+  /** STE-679 — `--bug`: the create carries the resolved bug type / label. */
+  bug?: boolean;
 }
 
-/** Parse `<root> <page.json>... --title <t> [container] --attempt <a>`. */
+/** Parse `<root> <page.json>... --title <t> [container] --attempt <a> [--bug]`. */
 function parseDecideArgs(argv: readonly string[]): DecideArgs | null {
   const [root, ...rest] = argv;
   if (!root || root.startsWith("--")) return null;
   const pages: string[] = [];
   let i = 0;
   while (i < rest.length && !rest[i]!.startsWith("--")) pages.push(rest[i++]!);
-  const flags = rest.slice(i);
+  const allFlags = rest.slice(i);
+  const flags = allFlags.filter((f) => f !== "--bug");
+  const bug = flags.length !== allFlags.length;
   const at = flags.indexOf("--attempt");
   if (at < 0 || at % 2 !== 0) return null;
   const attempt = flags[at + 1] as IdempotencyAttempt | undefined;
   if (!attempt || !IDEMPOTENCY_ATTEMPTS.includes(attempt)) return null;
   const q = parseQueryArgs([root, ...flags.slice(0, at), ...flags.slice(at + 2)]);
   if (!q || pages.length === 0) return null;
-  return { ...q, pages, attempt };
+  return { ...q, pages, attempt, ...(bug ? { bug: true } : {}) };
 }
 
 /** A page the decision cannot read. Never "no match". */
@@ -682,6 +686,7 @@ function buildCreatePayload(
   mode: "jira" | "linear",
   args: DecideArgs,
   binding: { project: string; team?: string; defaultLabels?: string[] },
+  bugType: string | null = null,
 ): Record<string, unknown> {
   const labels = [...(binding.defaultLabels ?? [])];
   if (mode === "jira") {
@@ -691,8 +696,10 @@ function buildCreatePayload(
       summary: args.title,
       labels,
       ...(args.parentKey ? { parent: args.parentKey } : {}),
+      ...(bugType ? { issueType: bugType } : {}),
     };
   }
+  if (bugType && !labels.some((l) => l.toLowerCase() === bugType.toLowerCase())) labels.push(bugType);
   return {
     ...(binding.team ? { team: binding.team } : {}),
     project: binding.project,
@@ -728,9 +735,14 @@ async function runDecideCommand(args: DecideArgs): Promise<string> {
     decision = refusal("page-unreadable");
   }
 
+  let bugType: string | null = null;
+  if (args.bug && decision.outcome === "create") {
+    const { resolveBugTrackerType } = await import("./workspace_binding");
+    bugType = resolveBugTrackerType(mode, binding);
+  }
   const out =
     decision.outcome === "create"
-      ? { ...decision, createPayload: buildCreatePayload(mode, args, binding) }
+      ? { ...decision, createPayload: buildCreatePayload(mode, args, binding, bugType) }
       : decision;
   const lines = [JSON.stringify(out)];
   // STE-604 §4 — a shared repository records what it decided; an undeclared
@@ -809,7 +821,7 @@ if (import.meta.main) {
   console.error(
     "usage: bun create_idempotency_probe.ts normalize <title>\n" +
       "       bun create_idempotency_probe.ts query <projectRoot> (--title <t> | --title-file <path>) [--parent <EpicKey> | --milestone-label <label> | --linear-milestone <id>]\n" +
-      "       bun create_idempotency_probe.ts decide <projectRoot> <page.json>... (--title <t> | --title-file <path>) [container] --attempt <fast|retry-1|retry-2|retry-3>\n" +
+      "       bun create_idempotency_probe.ts decide <projectRoot> <page.json>... (--title <t> | --title-file <path>) [container] --attempt <fast|retry-1|retry-2|retry-3> [--bug]\n" +
       "       bun create_idempotency_probe.ts jql <projectKey> <title> [parentKey] [repoTag]",
   );
   process.exit(2);

@@ -36,6 +36,18 @@ on the server side — `normalize.ts` applies the same canonical form on both
 pull and push so round-trips converge on the first iteration (AC-39.6,
 AC-37.5).
 
+## Bug tickets — `linear_bug_label`
+
+`/spec-write --bug` files the FR as a Linear issue carrying the bug label. The
+label name is read from the optional `linear_bug_label:` key under `### Linear`
+in `## Task Tracking` and defaults to `Bug`. The create payload appends it to
+`labels` (no duplicate when `default_labels` already holds it, compared without case). Before any
+tracker write or FR file, the label must exist and not be retired; otherwise
+the run refuses in NFR-10 canonical shape, naming `linear_bug_label`. The Jira
+counterpart is `jira_bug_issue_type` (see `adapters/jira.md`).
+The run appends `--bug` to each `create_idempotency_probe.ts` `decide` call
+below, which is how the create payload gets the bug type.
+
 ## MCP tool names
 
 > **Verified 2026-04-22 against the live authenticated Linear MCP.** The

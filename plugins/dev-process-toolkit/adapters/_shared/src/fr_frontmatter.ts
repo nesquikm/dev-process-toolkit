@@ -113,6 +113,12 @@ export interface BuildFRFrontmatterOpts {
    * entirely.
    */
   changelogCategory?: "Added" | "Changed" | "Deprecated" | "Removed" | "Fixed" | "Security" | string;
+  /**
+   * STE-679 AC-STE-679.1 — when `"bug"`, emit a `kind: bug` line after
+   * `changelog_category:`. Absent / `undefined` produce byte-identical output
+   * with the field omitted; any other value throws (NFR-10 shape).
+   */
+  kind?: "bug";
 }
 
 /**
@@ -121,7 +127,7 @@ export interface BuildFRFrontmatterOpts {
  *
  * Field ordering (both modes):
  *   title → milestone → status → archived_at → (id | tracker)
- *     → [needs_technical_review] → created_at → [changelog_category]
+ *     → [needs_technical_review] → created_at → [changelog_category] → [kind]
  *
  * Throws:
  *   - {@link InvalidFrontmatterInputError} when `spec.id` and `trackerBinding`
@@ -150,6 +156,16 @@ export function buildFRFrontmatter(
     );
   }
 
+  if (opts?.kind !== undefined && opts.kind !== "bug") {
+    throw new InvalidFrontmatterInputError(
+      [
+        `Refusing: kind ${JSON.stringify(opts.kind)} is not a recognised FR kind; the only value is "bug".`,
+        `Remedy: pass kind: "bug" for a bug FR, or omit kind for any other FR`,
+        `Context: mode=spec-write, ticket=unbound, skill=spec-write, helper=buildFRFrontmatter`,
+      ].join("\n"),
+    );
+  }
+
   const lines: string[] = ["---"];
   lines.push(`title: ${escapeYamlScalar(spec.title)}`);
   lines.push(`milestone: ${spec.milestone}`);
@@ -167,6 +183,9 @@ export function buildFRFrontmatter(
   lines.push(`created_at: ${spec.createdAt}`);
   if (opts?.changelogCategory !== undefined) {
     lines.push(`changelog_category: ${opts.changelogCategory}`);
+  }
+  if (opts?.kind === "bug") {
+    lines.push("kind: bug");
   }
   lines.push("---");
   return lines.join("\n") + "\n";

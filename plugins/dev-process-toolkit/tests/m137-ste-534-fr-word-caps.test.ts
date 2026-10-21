@@ -584,7 +584,8 @@ describe("AC-STE-534.5 — probe id, severity and the README's probe count agree
     const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
-    expect(readme).toContain("87 numbered `/gate-check` probes");
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(readme).toContain("88 numbered `/gate-check` probes");
     expect(readme).not.toMatch(/\b81\b numbered `\/gate-check` probes/);
     expect(PROBE_ID).toBe("fr_summary_altitude");
   });
@@ -612,7 +613,8 @@ describe("AC-STE-534.5 — probe id, severity and the README's probe count agree
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
-  test("STE-534 minted no probe id of its own — the list ends where #87 left it", () => {
+  // Amended by AC-STE-680.6: probe count 87 -> 88.
+  test("STE-534 minted no probe id of its own — the list ends where #88 left it", () => {
     // The whole reason the word rule joined an existing probe rather than
     // becoming one of its own was to spend no probe number of its own here.
     const skill = readFileSync(
@@ -622,7 +624,8 @@ describe("AC-STE-534.5 — probe id, severity and the README's probe count agree
     const numbers = [...skill.matchAll(/^(\d+)\. \*\*`/gm)].map((m) => Number(m[1]));
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
-    expect(Math.max(...numbers)).toBe(87);
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(Math.max(...numbers)).toBe(88);
   });
 
   test("word_cap violations are produced by the module that owns PROBE_ID", () => {
@@ -1302,7 +1305,8 @@ describe("AC-STE-534.5 — probe #67's registration prose matches the shipped sc
     const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
-    expect(readme).toContain("87 numbered `/gate-check` probes");
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(readme).toContain("88 numbered `/gate-check` probes");
     expect(readme).not.toMatch(/\b81\b numbered `\/gate-check` probes/);
 
     const entry = probe67Entry();
@@ -1325,7 +1329,8 @@ describe("AC-STE-534.5 — probe #67's registration prose matches the shipped sc
     const numbers = [...skill.matchAll(/^(\d+)\. \*\*`/gm)].map((m) => Number(m[1]));
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
-    expect(Math.max(...numbers)).toBe(87);
+    // Amended by AC-STE-680.6: probe count 87 -> 88.
+    expect(Math.max(...numbers)).toBe(88);
   });
 
   // ---- falsifiability: the checks above must be able to FAIL ---------------

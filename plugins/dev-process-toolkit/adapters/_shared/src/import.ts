@@ -32,8 +32,8 @@ import { stripLinearACFences } from "../../linear/src/format_description";
 import type { FRSpec, Provider } from "./provider";
 import { assertListingProject, classifyTicket, isOfferable, normalizeContainerItems, normalizeContainerPage } from "./container_ownership";
 import { readLocalFRBindings } from "./reconcile_tracker_local";
-import { readTrackerItem } from "./tracker_answer";
-import { readWorkspaceBinding } from "./workspace_binding";
+import { readTrackerItem, readTrackerPage, trackerItemKey } from "./tracker_answer";
+import { readWorkspaceBinding, resolveBugTrackerType } from "./workspace_binding";
 
 /**
  * STE-605 — optional ownership context. With it, a `sibling` or `container`
@@ -110,6 +110,44 @@ function ownershipLabels(trackerKey: string, trackerId: string, ctx: ImportOwner
   return undefined;
 }
 
+/** The raw tracker item for `trackerId`: the fetched ticket, else its row on a listing page. */
+function rawTicketItem(trackerKey: "jira" | "linear", trackerId: string, ctx: ImportOwnershipContext): Record<string, unknown> | undefined {
+  if (ctx.ticket !== undefined) {
+    const read = readTrackerItem(trackerKey, ctx.ticket);
+    return read.ok ? read.item : undefined;
+  }
+  const want = trackerId.toUpperCase();
+  for (const page of ctx.pages) {
+    const read = readTrackerPage(trackerKey, page);
+    if (!read.ok) continue;
+    const hit = read.page.items.find((i) => trackerItemKey(trackerKey, i) === want);
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
+}
+
+/**
+ * STE-680 AC-STE-680.1 — is the ticket being imported a tracker bug? Its raw
+ * answer is the one fetched `ticket`, or its item on the listing `pages` (the
+ * orphan-listing path). Jira: its `fields.issuetype.name` equals the resolved
+ * bug type; Linear: its `labels` include the resolved bug label. A ticket in
+ * neither, an unreadable answer, or any other tracker is never a bug.
+ */
+function isBugTicket(trackerKey: string, trackerId: string, ctx: ImportOwnershipContext | undefined): boolean {
+  if (ctx === undefined || (trackerKey !== "jira" && trackerKey !== "linear")) return false;
+  const item = rawTicketItem(trackerKey, trackerId, ctx);
+  if (item === undefined) return false;
+  const bugType = resolveBugTrackerType(trackerKey, readWorkspaceBinding(join(ctx.projectRoot, "CLAUDE.md"), trackerKey));
+  if (bugType === null) return false;
+  if (trackerKey === "jira") {
+    const fields = item["fields"] as Record<string, unknown> | undefined;
+    const issuetype = fields?.["issuetype"] as Record<string, unknown> | undefined;
+    return issuetype?.["name"] === bugType;
+  }
+  const labels = Array.isArray(item["labels"]) ? (item["labels"] as unknown[]) : [];
+  return labels.some((l) => (typeof l === "string" ? l : (l as Record<string, unknown> | null)?.["name"]) === bugType);
+}
+
 /**
  * STE-652 — refuse a key a local FR already binds. Fails OPEN on an FR whose
  * file cannot be read or whose frontmatter does not parse: such a file yields
@@ -162,6 +200,7 @@ export async function importFromTracker(
   const description = stripFences(rawDescription);
   const acs = rawAcs.map(stripFences);
   const createdAt = new Date().toISOString();
+  const bug = isBugTicket(trackerKey, trackerId, ownership);
 
   const body = renderFRFile({
     title: metadata.title,
@@ -171,6 +210,7 @@ export async function importFromTracker(
     createdAt,
     description,
     acs,
+    bug,
   });
 
   const spec: FRSpec = {
@@ -180,6 +220,7 @@ export async function importFromTracker(
       status: "active",
       tracker: { [trackerKey]: trackerId },
       created_at: createdAt,
+      ...(bug ? { changelog_category: "Fixed", kind: "bug" } : {}),
     },
     body,
     ...(claimLabels !== undefined ? { labels: claimLabels } : {}),
@@ -209,6 +250,7 @@ interface RenderParams {
   createdAt: string;
   description: string;
   acs: string[];
+  bug?: boolean;
 }
 
 function renderFRFile(p: RenderParams): string {
@@ -219,9 +261,26 @@ function renderFRFile(p: RenderParams): string {
     },
     body: "",
   });
-  const acsBlock = p.acs.length === 0
+  // STE-680 AC-STE-680.2 — a bug FR carries a `Regression:` AC; a TODO one
+  // is appended when the ticket supplies none.
+  const acs = p.bug && !p.acs.some((ac) => ac.startsWith("Regression:"))
+    ? [...p.acs, "Regression: TODO — name the test that reproduces the reported failure; it fails before the fix and passes after it."]
+    : p.acs;
+  const acsBlock = acs.length === 0
     ? "- TODO: AC list from tracker was empty. Add ACs here or in the tracker; FR-39 sync will reconcile.\n"
-    : p.acs.map((ac, i) => `- AC-${prefix}.${i + 1}: ${ac}\n`).join("");
+    : acs.map((ac, i) => `- AC-${prefix}.${i + 1}: ${ac}\n`).join("");
+  // STE-680 AC-STE-680.2 — the four bug subsections (docs/resolver-entry.md
+  // § "Bug FR body"): one the ticket's description already carries is kept as
+  // it is; each one it does not supply gets a TODO marker.
+  const supplies = (heading: string): boolean => new RegExp(`^### ${heading}\\s*$`, "m").test(p.description);
+  const todo = (heading: string, hint: string): string => (supplies(heading) ? "" : `\n### ${heading}\n\nTODO — ${hint}\n`);
+  const bugRecord = p.bug
+    ? todo("Steps to reproduce", "numbered steps from a clean state.") +
+      todo("Expected", "what should happen.") +
+      todo("Actual", "what happens instead.")
+    : "";
+  // Last under Technical Design, so its body is the TODO alone and never the placeholder line.
+  const bugDiagnosis = p.bug && !supplies("Root cause") ? "### Root cause\n\nTODO — why it happens (file:line, the faulty assumption).\n\n" : "";
   return `---
 title: ${escapeYamlScalar(p.title)}
 milestone: ${p.milestone}
@@ -230,12 +289,12 @@ archived_at: null
 tracker:
   ${p.trackerKey}: ${p.trackerId}
 created_at: ${p.createdAt}
----
+${p.bug ? "changelog_category: Fixed\nkind: bug\n" : ""}---
 
 ## Requirement
 
 ${p.description}
-
+${bugRecord}
 ## Acceptance Criteria
 
 ${acsBlock}
@@ -243,7 +302,7 @@ ${acsBlock}
 
 *(fill in during implementation)*
 
-## Testing
+${bugDiagnosis}## Testing
 
 *(fill in during implementation)*
 
