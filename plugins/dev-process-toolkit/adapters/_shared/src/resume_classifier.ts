@@ -38,6 +38,7 @@ import {
 } from "./needs_technical_review_consistency";
 import { MAX_CONCURRENT_WORKERS } from "./target_repo";
 import { oneLine } from "./tracker_receipts";
+import { UNRELEASED_STAMP, changelogUnversionedAt } from "./active_plan_ship_ready";
 
 // ===========================================================================
 // Vocabulary.
@@ -258,7 +259,7 @@ export class ResumeRefusedError extends Error {
 // Classification.
 // ===========================================================================
 
-const STAMP_RE = /^v\d+\.\d+\.\d+$/;
+const STAMP_RE = /^(?:v\d+\.\d+\.\d+|unreleased)$/;
 
 /** A plan's file: its live home, or under `archive/` once the plan is archived. */
 function planFile(projectRoot: string, milestone: string, planStatus: PlanStatus): string {
@@ -355,7 +356,12 @@ async function classifyMilestoneResume(
   const planFm = planFrontmatter(planBody);
 
   const shippedIn = scalar(planFm, "shipped_in");
-  const stamped = shippedIn !== null && STAMP_RE.test(shippedIn);
+  // STE-690 — `unreleased` is a ship stamp only under the project's own
+  // `changelog_unversioned: true`.
+  const stamped =
+    shippedIn !== null &&
+    STAMP_RE.test(shippedIn) &&
+    (shippedIn !== UNRELEASED_STAMP || changelogUnversionedAt(projectRoot));
   const parked = scalar(planFm, "ship_state") === "parked";
   const parkedReason = scalar(planFm, "park_reason");
 
@@ -804,7 +810,7 @@ function renderFrResumePlan(c: FrResumeClassification): ResumePlan {
 
 function shippedRefusal(c: ResumeClassification): string {
   return nfr10Refusal(
-    `milestone ${c.milestone} already shipped as ${c.shippedIn ?? "a stamped release"}.`,
+    `milestone ${c.milestone} already shipped as ${c.shippedIn ?? "a stamped release"} (shipped_in: ${c.shippedIn ?? "<stamped>"}).`,
     "resume a milestone that is still open, or mint a new milestone for the follow-up work.",
     `milestone=${c.milestone}, state=shipped, shipped_in=${c.shippedIn ?? "<stamped>"}`,
   );

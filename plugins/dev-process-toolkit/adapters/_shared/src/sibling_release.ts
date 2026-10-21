@@ -15,6 +15,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type DeclaredSibling,
+  UNRELEASED_STAMP,
+  changelogUnversionedAt,
   milestoneTrackerKeys,
   spanningSiblingState,
   trackerAdapterKey,
@@ -155,7 +157,13 @@ export async function siblingShipGate(input: {
   const footer = await Promise.all(
     siblings.map(async (s) => {
       const plan = s.root === null ? null : await readSiblingPlan(s.root, milestone);
-      const version = shipStampVersion(plan?.frontmatter.shipped_in);
+      const stamp = plan?.frontmatter.shipped_in;
+      // STE-690: a sibling stamped `unreleased` under its OWN flag has shipped,
+      // as coherence's sibling leg reads it; the footer says so, not `pending`.
+      if (typeof stamp === "string" && stamp.trim() === UNRELEASED_STAMP && s.root !== null && changelogUnversionedAt(s.root)) {
+        return `Spans: ${s.name}@${UNRELEASED_STAMP}`;
+      }
+      const version = shipStampVersion(stamp);
       return `Spans: ${s.name}@${version === null ? "pending" : `v${version}`}`;
     }),
   );

@@ -32,6 +32,7 @@ import { PLAN_FILENAME_RE, compareMilestoneTokens } from "./milestone_token";
 import { normalizeFrontmatterSource } from "./frontmatter";
 import { SpansReposError, resolveSpansRepos } from "./spans_repos";
 import { readTaskTrackingSection } from "./resolver_config";
+import { MalformedDocsConfigError, readDocsConfig } from "./docs_config";
 import { isToolkitManaged } from "./toolkit_managed";
 import { parseWorktreePorcelain, runGit, sameRepository } from "./target_repo";
 import { trackerIdsOf } from "./reconcile_tracker_local";
@@ -49,7 +50,33 @@ export interface ActivePlanShipReadyReport {
   notes: string[];
 }
 
-const STAMP_RE = /^v\d+\.\d+\.\d+$/;
+/**
+ * The `shipped_in:` sentinel a `changelog_unversioned: true` release writes
+ * (STE-690). It joins the one stamp grammar; readers compare this value.
+ * Defined here, in a reachable module, and re-exported by `plan_ship_stamp.ts`:
+ * importing the writer from a reader would move probe #81's ordered-unreachable
+ * count (see the note on `shipStampVersion` in `sibling_release.ts`).
+ */
+export const UNRELEASED_STAMP = "unreleased";
+
+/**
+ * Does the toolkit-managed repo at `root` declare `changelog_unversioned: true`
+ * in CLAUDE.md's `## Docs` (STE-690)? The one reader every `unreleased`-stamp
+ * consumer shares. A malformed `## Docs` value reads as false: graders must not
+ * take the gate down over one bad word (`release_config.ts` already refuses it
+ * loudly), and false keeps the `unreleased` stamp graded as unshipped.
+ */
+export function changelogUnversionedAt(root: string): boolean {
+  if (!isToolkitManaged(root)) return false;
+  try {
+    return readDocsConfig(join(root, "CLAUDE.md")).changelogUnversioned;
+  } catch (e) {
+    if (e instanceof MalformedDocsConfigError) return false;
+    throw e;
+  }
+}
+
+const STAMP_RE = /^(?:v\d+\.\d+\.\d+|unreleased)$/;
 
 /** Canonical remedy suffix on the ship-ready NOTES row. */
 const NOTE_SUFFIX = " — run /spec-archive M<N> then /ship-milestone M<N>";
@@ -888,6 +915,9 @@ export async function classifyActivePlans(projectRoot: string): Promise<Classifi
   const frsDir = join(projectRoot, "specs", "frs");
   const activeFrTokens = boundTokens(await readFrDir(frsDir));
   const archivedFrTokens = boundTokens(await readFrDir(join(frsDir, "archive")));
+  // STE-690 — an `unreleased` stamp means "shipped" only under
+  // `changelog_unversioned: true`; read the flag once per call.
+  const unversioned = changelogUnversionedAt(projectRoot);
 
   for (const file of planFiles) {
     let content: string;
@@ -900,7 +930,7 @@ export async function classifyActivePlans(projectRoot: string): Promise<Classifi
     // Real `shipped_in: v<X.Y.Z>` stamp → already shipped, never nudged.
     // (`shipped_in: null` is the plan template's pre-ship sentinel: unshipped.)
     const shippedIn = scanFrontmatterField(content, "shipped_in");
-    if (shippedIn !== null && STAMP_RE.test(shippedIn)) continue;
+    if (shippedIn !== null && STAMP_RE.test(shippedIn) && (shippedIn !== UNRELEASED_STAMP || unversioned)) continue;
     // Parked plans are excluded from the predicate (no /gate-check nudge, no
     // /implement close offer) but surfaced so parking never goes silent.
     if (scanFrontmatterField(content, "ship_state") === "parked") {

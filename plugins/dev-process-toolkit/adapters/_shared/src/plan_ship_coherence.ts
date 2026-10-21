@@ -38,6 +38,7 @@ import {
   siblingPlanPaths,
 } from "./sibling_release";
 import { sameRepository } from "./target_repo";
+import { UNRELEASED_STAMP, changelogUnversionedAt } from "./active_plan_ship_ready";
 
 const PROBE = "plan_ship_coherence";
 
@@ -82,7 +83,7 @@ export interface PlanShipCoherenceReport {
   notes: string[];
 }
 
-const STAMP_RE = /^v(\d+\.\d+\.\d+)$/;
+const STAMP_RE = /^(?:v(\d+\.\d+\.\d+)|unreleased)$/;
 
 interface FieldHit {
   present: boolean;
@@ -276,7 +277,13 @@ async function gradeSiblingLeg(projectRoot: string, plan: ShippedPlan): Promise<
     }
     // An agreeing sibling with no well-formed stamp is pending, never a violation.
     const siblingStamp = siblingPlan.frontmatter["shipped_in"];
-    if (typeof siblingStamp !== "string" || !STAMP_RE.test(siblingStamp.trim())) {
+    // STE-690 — an `unreleased` sibling stamp is shipped only under the
+    // SIBLING's own `changelog_unversioned: true`, never this repository's.
+    const siblingUnreleased =
+      typeof siblingStamp === "string" &&
+      siblingStamp.trim() === UNRELEASED_STAMP &&
+      !changelogUnversionedAt(sibling.root);
+    if (typeof siblingStamp !== "string" || !STAMP_RE.test(siblingStamp.trim()) || siblingUnreleased) {
       pend(sibling.name, "unshipped");
     }
   }
@@ -303,6 +310,9 @@ export async function runPlanShipCoherenceProbe(
   const notes: string[] = [];
   const parked: string[] = [];
   const pendingSiblings: string[] = [];
+  // STE-690 — the `unreleased` stamp is legal only under the project's own
+  // `changelog_unversioned: true`; read the flag once per call.
+  const unversioned = changelogUnversionedAt(projectRoot);
 
   for (const file of files) {
     let content: string;
@@ -343,7 +353,14 @@ export async function runPlanShipCoherenceProbe(
 
     const stampLine = shippedIn.line || 1;
     const stampMatch = STAMP_RE.exec(shippedIn.value);
-    if (!stampMatch) {
+    const isUnreleased = shippedIn.value === UNRELEASED_STAMP;
+    if (!stampMatch || (isUnreleased && !unversioned)) {
+      const remedy = isUnreleased
+        ? `the \`${UNRELEASED_STAMP}\` stamp is legal only when CLAUDE.md's \`## Docs\` declares ` +
+          `\`changelog_unversioned: true\`; declare it, or rewrite the shipped_in stamp in ${rel} as v<X.Y.Z> ` +
+          `matching the \`## [X.Y.Z]\` CHANGELOG.md heading of the release that shipped this milestone.`
+        : `rewrite the shipped_in stamp in ${rel} as v<X.Y.Z> matching the ` +
+          `\`## [X.Y.Z]\` CHANGELOG.md heading of the release that shipped this milestone.`;
       violations.push(
         makeViolation(
           "corrupt_stamp",
@@ -351,16 +368,18 @@ export async function runPlanShipCoherenceProbe(
           rel,
           stampLine,
           `malformed shipped_in stamp in ${rel}: expected v<X.Y.Z>, observed: ${shippedIn.value} (corrupt stamp)`,
-          `rewrite the shipped_in stamp in ${rel} as v<X.Y.Z> matching the ` +
-            `\`## [X.Y.Z]\` CHANGELOG.md heading of the release that shipped this milestone.`,
+          remedy,
           shippedIn.value,
         ),
       );
       continue;
     }
 
-    const version = stampMatch[1]!;
-    if (!changelogVersions.has(version)) {
+    const version = stampMatch[1];
+    if (version === undefined) {
+      // STE-690 — under `changelog_unversioned: true` an `unreleased` stamp
+      // names no CHANGELOG heading, so none is looked for.
+    } else if (!changelogVersions.has(version)) {
       violations.push(
         makeViolation(
           "corrupt_stamp",
