@@ -33,8 +33,8 @@ const REAL_BUN = process.execPath;
 const ZSH = "/bin/zsh";
 
 const sandboxes: Sandbox[] = [];
-afterEach(() => {
-  for (const sb of sandboxes.splice(0)) reap(sb);
+afterEach(async () => {
+  for (const sb of sandboxes.splice(0)) await reap(sb);
 });
 
 /** Replace the harness's bun stub with one that records each cleanup argv element on its own line. */

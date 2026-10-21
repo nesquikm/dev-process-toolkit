@@ -104,10 +104,10 @@ function stubCalls(sb: Sandbox): StubCall[] {
 }
 
 /** Stubs record themselves a few ms after the fork: wait for `n`, then let stragglers land. */
-function waitForCalls(sb: Sandbox, n: number, ms = 4_000): StubCall[] {
+async function waitForCalls(sb: Sandbox, n: number, ms = 4_000): Promise<StubCall[]> {
   const deadline = Date.now() + ms;
-  while (Date.now() < deadline && stubCalls(sb).length < n) Bun.sleepSync(50);
-  Bun.sleepSync(200);
+  while (Date.now() < deadline && stubCalls(sb).length < n) await Bun.sleep(50);
+  await Bun.sleep(200);
   return stubCalls(sb);
 }
 
@@ -123,7 +123,7 @@ const alive = (pid: number): boolean => {
   }
 };
 
-function reap(sb: Sandbox): void {
+async function reap(sb: Sandbox): Promise<void> {
   const candidates = new Set<number>(stubCalls(sb).map((c) => c.pid));
   if (existsSync(sb.tmp)) {
     for (const name of readdirSync(sb.tmp)) {
@@ -148,7 +148,7 @@ function reap(sb: Sandbox): void {
     }
   }
   const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline && ours.some(alive)) Bun.sleepSync(50);
+  while (Date.now() < deadline && ours.some(alive)) await Bun.sleep(50);
   rmSync(sb.root, { recursive: true, force: true });
 }
 
@@ -253,7 +253,7 @@ describe("AC-STE-595.7 — the actual Phase A fence, run from a file with claude
   });
 
   for (const sel of selections(REGISTERED_LEGS)) {
-    test(`SELECTED_LEGS="${sel.join(" ")}": one stub child per selected leg, and the count line reports ${sel.length}`, () => {
+    test(`SELECTED_LEGS="${sel.join(" ")}": one stub child per selected leg, and the count line reports ${sel.length}`, async () => {
       const sb = makeSandbox();
       try {
         const iter = unique("ste595i");
@@ -262,7 +262,7 @@ describe("AC-STE-595.7 — the actual Phase A fence, run from a file with claude
           SELECTED_LEGS: sel.join(" "),
         });
 
-        const calls = waitForCalls(sb, sel.length);
+        const calls = await waitForCalls(sb, sel.length);
         expect(calls.length, `stub claude calls: ${JSON.stringify(calls)}`).toBe(sel.length);
         for (const c of calls) expect(c.args).toMatch(/^-p \/smoke-test --tracker \S+/);
         expect(calls.map((c) => /--tracker\s+(\S+)/.exec(c.args)?.[1] ?? "").sort()).toEqual([...sel].sort());
@@ -273,7 +273,7 @@ describe("AC-STE-595.7 — the actual Phase A fence, run from a file with claude
         expect(count.live, count.line).toBe(sel.length);
         expect(run.exitCode, `stderr:\n${run.err}`).toBe(0);
       } finally {
-        reap(sb);
+        await reap(sb);
       }
     }, 60_000);
   }
@@ -297,10 +297,10 @@ describe("AC-STE-595.7 — the actual Phase A fence, run from a file with claude
       const allowed = await runHookOn(`bash ${file}`);
       expect(allowed.exitCode, `hook stderr:\n${allowed.stderr}`).toBe(0);
       runFenceAt(file, sb, { ...PHASE_A_ENV, SELECTED_LEGS: REGISTERED_LEGS.join(" ") });
-      waitForCalls(sb, REGISTERED_LEGS.length);
+      await waitForCalls(sb, REGISTERED_LEGS.length);
       expect(pidfileLegs(sb, iterFile)).toEqual([...REGISTERED_LEGS].sort());
     } finally {
-      reap(sb);
+      await reap(sb);
     }
   }, 60_000);
 });
@@ -310,7 +310,7 @@ describe("AC-STE-595.7 — the actual Phase A fence, run from a file with claude
 // ===========================================================================
 
 describe("AC-STE-595.6 — Phase A: a count mismatch aborts through the per-leg abort teardown (BEHAVIOUR)", () => {
-  test("a leg whose pid cannot be recorded ⇒ live < launched ⇒ non-zero exit, an ABORT, the per-leg abort teardown", () => {
+  test("a leg whose pid cannot be recorded ⇒ live < launched ⇒ non-zero exit, an ABORT, the per-leg abort teardown", async () => {
     const sb = makeSandbox();
     try {
       const iter = unique("ste595m");
@@ -322,7 +322,7 @@ describe("AC-STE-595.6 — Phase A: a count mismatch aborts through the per-leg 
         ...PHASE_A_ENV,
         SELECTED_LEGS: REGISTERED_LEGS.join(" "),
       });
-      waitForCalls(sb, REGISTERED_LEGS.length);
+      await waitForCalls(sb, REGISTERED_LEGS.length);
       const both = `${run.out}\n${run.err}`;
 
       const count = lastCount(run);
@@ -332,7 +332,7 @@ describe("AC-STE-595.6 — Phase A: a count mismatch aborts through the per-leg 
       expect(both).toMatch(/ABORT/);
       expect(both).toMatch(/per-leg abort teardown|teardown_spawned_legs=/i);
     } finally {
-      reap(sb);
+      await reap(sb);
     }
   }, 60_000);
 });
@@ -363,27 +363,27 @@ describe("AC-STE-595.6 — each runnable /smoke-test spawn fence counts its chil
   for (const f of SMOKE_RUNNABLE) {
     const k = spawnLineIndices(f).length;
 
-    test(`${label(f)}: ${k} stub children, count line launched=${k} live=${k}, exit 0`, () => {
+    test(`${label(f)}: ${k} stub children, count line launched=${k} live=${k}, exit 0`, async () => {
       const sb = makeSandbox();
       try {
         const run = runFenceAt(writeFence(sb, smokeScript(f, unique("ste595t"), sb)), sb, {});
-        expect(waitForCalls(sb, k).length).toBe(k);
+        expect((await waitForCalls(sb, k)).length).toBe(k);
         const count = lastCount(run);
         expect(count.launched, count.line).toBe(k);
         expect(count.live, count.line).toBe(k);
         expect(run.exitCode, `stderr:\n${run.err}`).toBe(0);
       } finally {
-        reap(sb);
+        await reap(sb);
       }
     }, 60_000);
 
-    test(`${label(f)}: a pid that cannot be recorded ⇒ launched=${k} live=${k - 1}, an ABORT through teardown, non-zero exit`, () => {
+    test(`${label(f)}: a pid that cannot be recorded ⇒ launched=${k} live=${k - 1}, an ABORT through teardown, non-zero exit`, async () => {
       const sb = makeSandbox();
       try {
         const script = smokeScript(f, unique("ste595t"), sb);
         mkdirSync(firstPidfile(script), { recursive: true });
         const run = runFenceAt(writeFence(sb, script), sb, {});
-        waitForCalls(sb, k);
+        await waitForCalls(sb, k);
         const both = `${run.out}\n${run.err}`;
         const count = lastCount(run);
         expect(count.launched, count.line).toBe(k);
@@ -392,7 +392,7 @@ describe("AC-STE-595.6 — each runnable /smoke-test spawn fence counts its chil
         expect(both).toMatch(/ABORT/);
         expect(both).toMatch(/teardown/i);
       } finally {
-        reap(sb);
+        await reap(sb);
       }
     }, 60_000);
   }
