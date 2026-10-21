@@ -12,6 +12,9 @@
 //   MUTANT 6. `gate_identity_run.ts`'s supervisor signals the direct child pid
 //             instead of its process group — on the bun stack's `/bin/sh -c`
 //             arm the TERM-ignoring grandchild survives (AC-STE-686.9).
+//   MUTANT 7. `runGateNamingSkips` loses the backstop `timeout:` on its
+//             supervisor spawn — a wedged supervisor then never returns
+//             (AC-STE-686.9, the backstop path).
 //
 // Each mutant must turn its AC's behavioural test RED — the AC.4-.6 tests in
 // `m_292387-ste-686-product-bounds.test.ts`, the AC.9 test in
@@ -208,6 +211,19 @@ const MUTANTS: readonly Mutant[] = [
     pattern: /process\.kill\(\s*-pid\b/,
     replacement: "process.kill(pid",
     testName: "AC-STE-686.9: a TERM-ignoring bun-stack run is killed with its grandchild, naming the bound",
+    target: GATE_BOUND_TEST,
+  },
+  {
+    // The caller's BACKSTOP on the supervisor spawn: without it a wedged
+    // supervisor blocks `runGateNamingSkips` forever. The target test drives the
+    // call from a 20 s-bounded child process, so this mutant fails that test by
+    // its own check, inside the nested runner's bound, and never hangs.
+    id: "runGateNamingSkips drops the supervisor backstop timeout",
+    file: "gate_identity_run.ts",
+    region: fn("runGateNamingSkips"),
+    pattern: DROP_TIMEOUT,
+    testName:
+      "AC-STE-686.9: a wedged supervisor is cut by the backstop; the run is reported cut and its gate group is gone",
     target: GATE_BOUND_TEST,
   },
 ];

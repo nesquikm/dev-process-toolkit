@@ -82,6 +82,39 @@ function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
   }
 }
 
+const readPid = (p: string): number | null => {
+  if (!existsSync(p)) return null;
+  const n = Number(readFileSync(p, "utf-8").trim());
+  return Number.isInteger(n) && n > 1 ? n : null;
+};
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Pids still alive after a short reaping window; survivors are killed by recorded pid. */
+function survivors(pids: readonly number[]): number[] {
+  const deadline = performance.now() + 3_000;
+  let left = pids.filter(alive);
+  while (left.length > 0 && performance.now() < deadline) {
+    Bun.sleepSync(50);
+    left = left.filter(alive);
+  }
+  for (const pid of left) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+  return left;
+}
+
 // ===========================================================================
 // The default bound
 // ===========================================================================
@@ -206,39 +239,6 @@ describe("AC-STE-686.9 — a killed bun-stack run ends its whole process group",
     return { armed, childPid, grandPid };
   }
 
-  const readPid = (p: string): number | null => {
-    if (!existsSync(p)) return null;
-    const n = Number(readFileSync(p, "utf-8").trim());
-    return Number.isInteger(n) && n > 1 ? n : null;
-  };
-
-  function alive(pid: number): boolean {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch (e) {
-      return (e as NodeJS.ErrnoException).code === "EPERM";
-    }
-  }
-
-  /** Pids still alive after a short reaping window; survivors are killed by recorded pid. */
-  function survivors(pids: readonly number[]): number[] {
-    const deadline = performance.now() + 3_000;
-    let left = pids.filter(alive);
-    while (left.length > 0 && performance.now() < deadline) {
-      Bun.sleepSync(50);
-      left = left.filter(alive);
-    }
-    for (const pid of left) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        // already gone
-      }
-    }
-    return left;
-  }
-
   // `Bun.spawnSync` with no `env` hands the child the env this process STARTED
   // with, so a PATH set via `process.env` never reaches `/bin/sh`. The run is
   // therefore driven from a small child process whose PATH carries the stub.
@@ -301,6 +301,150 @@ describe("AC-STE-686.9 — a killed bun-stack run ends its whole process group",
       timedOut: run.output.includes(mod.TIMED_OUT_MARKER),
       survivors: left,
     }).toEqual({ killedOnBoundMs: run.boundMs, timedOut: true, survivors: [] });
+  }, 28_000);
+});
+
+// ===========================================================================
+// The supervisor BACKSTOP — a wedged supervisor (AC-STE-686.10 closing .9)
+// ===========================================================================
+
+describe("AC-STE-686.9 — a wedged supervisor is cut by the caller's backstop, and its gate group with it", () => {
+  // `runGateNamingSkips` spawns the supervisor with a backstop `timeout:` (bound
+  // + grace + SUPERVISOR_BACKSTOP_MS) and `killSignal: "SIGKILL"`. Nothing else
+  // stops a supervisor that never returns. TWO TEST-ONLY SEAMS, both inert when
+  // unset:
+  //   * `DPT_GATE_SUPERVISOR_BACKSTOP_MS` — a positive number of milliseconds
+  //     that replaces the 60 s backstop margin;
+  //   * `DPT_GATE_SUPERVISOR_WEDGE_FILE` — a path. When set, the supervisor
+  //     writes that file, starts the gate exactly as in production (its own
+  //     process group), and then neither arms the bound nor ever exits.
+  // The wedge file is the precondition: no file, no wedge, and the run proves
+  // nothing about the backstop.
+  //
+  // PINNED: the backstop SIGKILLs only the supervisor, and the gate lives in its
+  // own process group, so a backstop that stops there leaves the gate and its
+  // grandchild running as orphans. "A child that ignores SIGTERM still ends"
+  // (AC .9) holds on this path too: after the call returns, the gate and its
+  // grandchild are gone. The verdict is their recorded pids.
+  //
+  // Driven from a child process because `Bun.spawnSync` with no `env` hands the
+  // supervisor the env this process STARTED with. The driver is itself bounded
+  // (20 s, SIGKILL), so a missing backstop fails this test by its own check
+  // instead of hanging it; strays are then killed by recorded pid.
+  const BOUND_MS = 300;
+  const BACKSTOPS_MS = [500, 2_000, 4_000];
+  const RETURN_WITHIN_MS = 10_000;
+
+  interface WedgeRun {
+    wedged: boolean;
+    armed: boolean;
+    elapsedMs: number | null;
+    timedOut: boolean;
+    killedOnBoundMs: number | null;
+    pids: { supervisor: number | null; gate: number | null; grandchild: number | null };
+    all: string;
+  }
+
+  function runOnce(backstopMs: number): WedgeRun {
+    const dir = tempDir("wedge");
+    const wedgeFile = join(dir, "supervisor-wedged");
+    const armed = join(dir, "armed");
+    const supPid = join(dir, "supervisor.pid");
+    const gatePid = join(dir, "gate.pid");
+    const grandPid = join(dir, "grandchild.pid");
+    const script = join(dir, "gate.sh");
+    writeFileSync(
+      script,
+      [
+        "#!/bin/bash",
+        "exec </dev/null >/dev/null 2>&1",
+        "trap '' TERM",
+        `echo $$ > '${gatePid}'`,
+        `echo $PPID > '${supPid}'`,
+        `/bin/bash -c "trap '' TERM; echo \\$\\$ > '${grandPid}'; exec /bin/sleep ${CHILD_SLEEP_S}" &`,
+        "for _ in $(/usr/bin/seq 1 150); do",
+        `  [ -s '${grandPid}' ] && break`,
+        "  /bin/sleep 0.02",
+        "done",
+        `[ -s '${grandPid}' ] && : > '${armed}'`,
+        `/bin/sleep ${CHILD_SLEEP_S}`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const driver =
+      `const m = await import(${JSON.stringify(GATE_IDENTITY_RUN)});` +
+      `const t0 = performance.now();` +
+      `const o = m.runGateNamingSkips(${JSON.stringify(dir)}, "unknown", ["/bin/bash", ${JSON.stringify(script)}], ${BOUND_MS});` +
+      `process.stdout.write(JSON.stringify({ output: o.output, killedOnBoundMs: o.killedOnBoundMs ?? null, elapsedMs: performance.now() - t0 }));`;
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+    env.DPT_GATE_KILL_GRACE_MS = String(GRACE_MS);
+    env.DPT_GATE_SUPERVISOR_BACKSTOP_MS = String(backstopMs);
+    env.DPT_GATE_SUPERVISOR_WEDGE_FILE = wedgeFile;
+    const proc = Bun.spawnSync([process.execPath, "-e", driver], {
+      cwd: dir,
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 20_000,
+      killSignal: "SIGKILL",
+    });
+    const stdout = proc.stdout.toString();
+    let parsed: { output: string; killedOnBoundMs: number | null; elapsedMs: number | null } = {
+      output: "",
+      killedOnBoundMs: null,
+      elapsedMs: null,
+    };
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {
+      // the driver was cut or crashed; `all` carries the evidence
+    }
+    return {
+      wedged: existsSync(wedgeFile),
+      armed: existsSync(armed),
+      elapsedMs: parsed.elapsedMs,
+      timedOut: parsed.output.includes(mod.TIMED_OUT_MARKER),
+      killedOnBoundMs: parsed.killedOnBoundMs,
+      pids: { supervisor: readPid(supPid), gate: readPid(gatePid), grandchild: readPid(grandPid) },
+      all: `exit ${proc.exitCode} signal ${proc.signalCode}\nstdout:\n${stdout}\nstderr:\n${proc.stderr.toString()}`,
+    };
+  }
+
+  const recorded = (run: WedgeRun): number[] =>
+    [run.pids.supervisor, run.pids.gate, run.pids.grandchild].filter((p): p is number => p !== null);
+
+  test("AC-STE-686.9: a wedged supervisor is cut by the backstop; the run is reported cut and its gate group is gone", () => {
+    let run: WedgeRun | null = null;
+    for (const backstopMs of BACKSTOPS_MS) {
+      const attempt = runOnce(backstopMs);
+      if (!attempt.wedged || (attempt.armed && attempt.pids.gate !== null)) {
+        run = attempt;
+        break;
+      }
+      // The gate never armed before the backstop fired: proves nothing; widen.
+      survivors(recorded(attempt));
+    }
+    if (run === null) throw new Error(`the gate never armed under a wedged supervisor within ${BACKSTOPS_MS.join("/")} ms`);
+    // The supervisor itself is reaped by the backstop; the gate and grandchild
+    // must have been reaped by the caller too. Anything left is killed by pid.
+    const gateGroup = [run.pids.gate, run.pids.grandchild].filter((p): p is number => p !== null);
+    const leftGate = survivors(gateGroup);
+    survivors(run.pids.supervisor === null ? [] : [run.pids.supervisor]);
+    const returnedInTime = run.elapsedMs !== null && run.elapsedMs < RETURN_WITHIN_MS;
+    const actual = {
+      wedged: run.wedged,
+      returnedInTime,
+      timedOut: run.timedOut,
+      killedOnBoundMs: run.killedOnBoundMs,
+      gateSurvivors: leftGate,
+    };
+    const expected = { wedged: true, returnedInTime: true, timedOut: true, killedOnBoundMs: BOUND_MS, gateSurvivors: [] };
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      throw new Error(`wedged-supervisor run: ${JSON.stringify(actual)} (elapsed ${run.elapsedMs} ms)\n${run.all}`);
+    }
+    expect(actual).toEqual(expected);
   }, 28_000);
 });
 

@@ -34,7 +34,7 @@
 // Callers map those three states into their own record shapes. What they do NOT
 // do is decide them a second time.
 
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -260,18 +260,36 @@ export function runGateNamingSkips(
     // exactly as before, and this call stays synchronous.
     const graceMs = gateKillGraceMs();
     const cutFile = join(reportDir, "killed-on-bound");
+    const pidFile = join(reportDir, "gate.pid");
+    const backstopMs = positiveMsFromEnv("DPT_GATE_SUPERVISOR_BACKSTOP_MS", SUPERVISOR_BACKSTOP_MS);
     const proc = Bun.spawnSync(
-      [process.execPath, import.meta.path, SUPERVISE_FLAG, String(timeoutMs), String(graceMs), cutFile, ...argv],
+      [
+        process.execPath,
+        import.meta.path,
+        SUPERVISE_FLAG,
+        String(timeoutMs),
+        String(graceMs),
+        cutFile,
+        pidFile,
+        ...argv,
+      ],
       {
         cwd: projectRoot,
         stdout: "pipe",
         stderr: "pipe",
         // A backstop for a wedged supervisor only — far past the escalation,
         // so it never pre-empts the supervisor's own kill.
-        timeout: timeoutMs + graceMs + SUPERVISOR_BACKSTOP_MS,
+        timeout: timeoutMs + graceMs + backstopMs,
         killSignal: "SIGKILL",
       },
     );
+    // The backstop kills only the SUPERVISOR. The gate lives in its own process
+    // group, so a supervisor cut here leaves that group running as orphans
+    // unless this caller ends it: the supervisor recorded the group's pid.
+    if (proc.exitCode === null) {
+      const gatePid = readGatePid(pidFile);
+      if (gatePid !== null) signalGroup(gatePid, "SIGKILL");
+    }
     // A cut run has no complete report and no honest exit code. SAY so in the
     // bytes: a caller parsing counts out of a half-written summary would
     // otherwise read the silence as a clean-but-unparseable run, which is the
@@ -317,7 +335,7 @@ export function runGateNamingSkips(
 //
 // `runGateNamingSkips` re-enters this module as a separate process:
 //
-//   bun gate_identity_run.ts --dpt-gate-supervise <boundMs> <graceMs> <cutFile> <argv...>
+//   bun gate_identity_run.ts --dpt-gate-supervise <boundMs> <graceMs> <cutFile> <pidFile> <argv...>
 //
 // It runs the gate in a NEW process group (`detached`), with this process's
 // stdio, and waits. At the bound it records the cut in `cutFile`, sends the
@@ -328,8 +346,21 @@ export function runGateNamingSkips(
 
 const SUPERVISE_FLAG = "--dpt-gate-supervise";
 
-/** How far past bound + grace the caller's backstop sits. */
+/**
+ * How far past bound + grace the caller's backstop sits. `DPT_GATE_SUPERVISOR_BACKSTOP_MS`
+ * (positive ms) replaces it, so a test can reach the backstop in seconds.
+ */
 const SUPERVISOR_BACKSTOP_MS = 60_000;
+
+/** The gate group's pid the supervisor recorded, or `null` when none was. */
+function readGatePid(pidFile: string): number | null {
+  try {
+    const pid = Number(readFileSync(pidFile, "utf8").trim());
+    return Number.isInteger(pid) && pid > 1 ? pid : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Signal a whole process group; a group that is already gone is not an error. */
 function signalGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
@@ -341,10 +372,21 @@ function signalGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
 }
 
 async function supervise(args: readonly string[]): Promise<number> {
-  const [boundRaw, graceRaw, cutFile, ...argv] = args;
+  const [boundRaw, graceRaw, cutFile, pidFile, ...argv] = args;
   const boundMs = Number(boundRaw);
   const graceMs = Number(graceRaw);
+  // TEST-ONLY SEAM: `DPT_GATE_SUPERVISOR_WEDGE_FILE` simulates a supervisor
+  // that wedges. When set, the supervisor writes that file, starts the gate
+  // exactly as in production, then never arms the bound and never exits — the
+  // caller's backstop is the only thing left to end the run. Inert when unset.
+  const wedgeFile = process.env.DPT_GATE_SUPERVISOR_WEDGE_FILE;
+  if (wedgeFile !== undefined && wedgeFile !== "") writeFileSync(wedgeFile, "wedged\n");
   const child = Bun.spawn([...argv], { stdin: "inherit", stdout: "inherit", stderr: "inherit", detached: true });
+  writeFileSync(pidFile as string, `${child.pid}\n`);
+  if (wedgeFile !== undefined && wedgeFile !== "") {
+    setInterval(() => {}, 1 << 30);
+    return new Promise<number>(() => {});
+  }
 
   const kill: { escalated: Promise<void> | null } = { escalated: null };
   const bound = setTimeout(() => {
