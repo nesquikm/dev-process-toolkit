@@ -158,15 +158,15 @@ function plantVerdict(sb: Sandbox, leg: string, v: Verdict): void {
   }
 }
 
-function dispose(s: Scenario): void {
+async function dispose(s: Scenario): Promise<void> {
   try {
-    reap(s.sb);
+    await reap(s.sb);
   } finally {
     assertRealLedgerUntouched(s.guard);
   }
 }
 
-function runScenario(o: ScenarioOpts): Scenario {
+async function runScenario(o: ScenarioOpts): Promise<Scenario> {
   const term = requireTerm();
   const sb = makeSandbox("delegate");
   const s: Scenario = {
@@ -189,7 +189,7 @@ function runScenario(o: ScenarioOpts): Scenario {
     const spawned = o.spawned ?? o.selected;
     const loopEnv = baseEnv(sb, { ...PHASE_A_ENV, SELECTED_LEGS: spawned.join(" ") });
     s.phaseA = runScript(sb, phaseAScript(sb, s.iter), loopEnv);
-    const kids = waitForKind(sb, "claude", spawned.length).filter((c) => c.kind === "claude");
+    const kids = (await waitForKind(sb, "claude", spawned.length)).filter((c) => c.kind === "claude");
     if (kids.length !== spawned.length) {
       throw new Error(`precondition: Phase A started ${kids.length} of ${spawned.length} stub children\n--- stdout ---\n${s.phaseA.out}\n--- stderr ---\n${s.phaseA.err}`);
     }
@@ -200,7 +200,7 @@ function runScenario(o: ScenarioOpts): Scenario {
       s.children[leg] = sid;
       s.sessions[leg] = [sid];
     }
-    waitDead([...kids.map((c) => c.pid), ...pidfilePids(sb)]);
+    await waitDead([...kids.map((c) => c.pid), ...pidfilePids(sb)]);
 
     // 2. Grandchildren, under the environment each child inherited.
     if (o.grandchildren) {
@@ -211,10 +211,10 @@ function runScenario(o: ScenarioOpts): Scenario {
         const delta = inheritedDelta(envOf(sb, c.pid) ?? {}, loopEnv);
         const from = readCalls(sb).length;
         runScript(sb, smokeScript(f, sb, leg), { ...baseEnv(sb), ...delta });
-        const g = waitForKind(sb, "claude", n, from).filter((x) => x.kind === "claude");
+        const g = (await waitForKind(sb, "claude", n, from)).filter((x) => x.kind === "claude");
         s.grandchildren[leg] = g.map((x) => sessionIdOf(x.args) ?? "").filter((x) => x !== "");
         s.sessions[leg] = [...(s.sessions[leg] ?? []), ...s.grandchildren[leg]!];
-        waitDead(g.map((x) => x.pid));
+        await waitDead(g.map((x) => x.pid));
       }
     }
 
@@ -237,7 +237,7 @@ function runScenario(o: ScenarioOpts): Scenario {
     writeFileSync(approval, approvalBody);
     s.planted.set(approval, approvalBody);
     for (const l of o.live ?? []) {
-      const pid = spawnLive(sb, l.seconds);
+      const pid = await spawnLive(sb, l.seconds);
       const pidfile =
         l.kind === "smoke"
           ? join(sb.tmp, `dpt-smoke-${l.leg}-implement.pid`)
@@ -266,7 +266,7 @@ function runScenario(o: ScenarioOpts): Scenario {
     s.output = `${s.run.out}\n${s.run.err}`;
     return s;
   } catch (e) {
-    dispose(s);
+    await dispose(s);
     throw e;
   }
 }
@@ -324,12 +324,12 @@ function dump(s: Scenario): string {
   ].join("\n");
 }
 
-function scenario(o: ScenarioOpts, body: (s: Scenario) => void): void {
-  const s = runScenario(o);
+async function scenario(o: ScenarioOpts, body: (s: Scenario) => void): Promise<void> {
+  const s = await runScenario(o);
   try {
     body(s);
   } finally {
-    dispose(s);
+    await dispose(s);
   }
 }
 
@@ -340,16 +340,16 @@ const allOf = (v: Verdict): Record<string, Verdict> => Object.fromEntries(SMOKE_
 // ===========================================================================
 
 describe("CONTROL — the delegate sandbox", () => {
-  test("the actual Phase A fence runs in it and starts one stub child per registered leg, each carrying its --session-id", () => {
+  test("the actual Phase A fence runs in it and starts one stub child per registered leg, each carrying its --session-id", async () => {
     const sb = makeSandbox("delegate");
     const guard = realLedgerTree();
     try {
       const run = runScript(sb, phaseAScript(sb, unique("ste594c")), baseEnv(sb, { ...PHASE_A_ENV, SELECTED_LEGS: REGISTERED_LEGS.join(" ") }));
-      const kids = waitForKind(sb, "claude", REGISTERED_LEGS.length).filter((c) => c.kind === "claude");
+      const kids = (await waitForKind(sb, "claude", REGISTERED_LEGS.length)).filter((c) => c.kind === "claude");
       expect(kids.map((c) => trackerOf(c.args)).sort(), `stdout:\n${run.out}\nstderr:\n${run.err}`).toEqual([...REGISTERED_LEGS].sort());
       expect(readCalls(sb).filter((c) => c.kind === "refused"), "no delegated call named the real repo").toEqual([]);
     } finally {
-      reap(sb);
+      await reap(sb);
       assertRealLedgerUntouched(guard);
     }
   }, 60_000);
@@ -367,8 +367,8 @@ describe("AC-STE-594.7 — the actual Termination fence gives opposite outcomes 
   for (const leg of SMOKE_LEGS) {
     const others = SMOKE_LEGS.filter((l) => l !== leg);
 
-    test(`${leg}=pass (rc-file 64), partners fail (rc-file 0): ${leg} is cleaned through --delete, each partner kept and named with its manual cleanup command`, () => {
-      scenario(
+    test(`${leg}=pass (rc-file 64), partners fail (rc-file 0): ${leg} is cleaned through --delete, each partner kept and named with its manual cleanup command`, async () => {
+      await scenario(
         {
           selected: SMOKE_LEGS,
           verdicts: { ...allOf("fail"), [leg]: "pass" },
@@ -385,8 +385,8 @@ describe("AC-STE-594.7 — the actual Termination fence gives opposite outcomes 
       );
     }, 90_000);
 
-    test(`${leg}=fail (rc-file 0), partners pass (rc-file 64): the opposite — ${leg} kept and named, each partner cleaned`, () => {
-      scenario(
+    test(`${leg}=fail (rc-file 0), partners pass (rc-file 64): the opposite — ${leg} kept and named, each partner cleaned`, async () => {
+      await scenario(
         {
           selected: SMOKE_LEGS,
           verdicts: { ...allOf("pass"), [leg]: "fail" },
@@ -409,8 +409,8 @@ describe("AC-STE-594.7 — the actual Termination fence gives opposite outcomes 
 
 describe("AC-STE-594.4 — a non-pass or absent verdict deletes nothing of its leg", () => {
   for (const v of ["abort", "missing", "malformed", "unreadable"] as const) {
-    test(`a ${v} verdict for ${L0} deletes nothing of it and names its manual cleanup command (CONTROL: the passing partners ARE cleaned)`, () => {
-      scenario({ selected: SMOKE_LEGS, verdicts: { ...allOf("pass"), [L0]: v }, rc: { [L0]: "0" } }, (s) => {
+    test(`a ${v} verdict for ${L0} deletes nothing of it and names its manual cleanup command (CONTROL: the passing partners ARE cleaned)`, async () => {
+      await scenario({ selected: SMOKE_LEGS, verdicts: { ...allOf("pass"), [L0]: v }, rc: { [L0]: "0" } }, (s) => {
         expect(touched(s, L0), `${L0} (${v}) must not be touched\n${dump(s)}`).toBe(false);
         expect(namesManualCleanup(s, L0), `${L0} (${v}) must be named with its manual cleanup command\n${dump(s)}`).toBe(true);
         for (const o of [L1, L2]) expect(cleaned(s, o), `${o} (pass) should be cleaned\n${dump(s)}`).toBe(true);
@@ -418,15 +418,15 @@ describe("AC-STE-594.4 — a non-pass or absent verdict deletes nothing of its l
     }, 90_000);
   }
 
-  test("the artifact decides, never the rc-file: a pass artifact beside rc 1 is cleaned, a fail artifact beside rc 0 is kept", () => {
-    scenario({ selected: [L0, L1], verdicts: { [L0]: "pass", [L1]: "fail" }, rc: { [L0]: "1", [L1]: "0" } }, (s) => {
+  test("the artifact decides, never the rc-file: a pass artifact beside rc 1 is cleaned, a fail artifact beside rc 0 is kept", async () => {
+    await scenario({ selected: [L0, L1], verdicts: { [L0]: "pass", [L1]: "fail" }, rc: { [L0]: "1", [L1]: "0" } }, (s) => {
       expect(cleaned(s, L0), dump(s)).toBe(true);
       expect(touched(s, L1), dump(s)).toBe(false);
     });
   }, 90_000);
 
-  test("an unselected leg with a pass artifact and recorded sessions is untouched", () => {
-    scenario({ selected: [L0, L1], spawned: SMOKE_LEGS, verdicts: allOf("pass") }, (s) => {
+  test("an unselected leg with a pass artifact and recorded sessions is untouched", async () => {
+    await scenario({ selected: [L0, L1], spawned: SMOKE_LEGS, verdicts: allOf("pass") }, (s) => {
       expect(s.sessions[L2]?.length ?? 0, "control: the unselected leg really has recorded sessions").toBeGreaterThan(0);
       expect(touched(s, L2), `${L2} is not selected\n${dump(s)}`).toBe(false);
       expect(cleaned(s, L0), dump(s)).toBe(true);
@@ -434,15 +434,15 @@ describe("AC-STE-594.4 — a non-pass or absent verdict deletes nothing of its l
     });
   }, 90_000);
 
-  test("a delete that exits non-zero naming a survivor does not pass the survivor check: the leg is named with its manual cleanup command", () => {
-    scenario({ selected: [L0], verdicts: { [L0]: "pass" }, cleanupRc: 1 }, (s) => {
+  test("a delete that exits non-zero naming a survivor does not pass the survivor check: the leg is named with its manual cleanup command", async () => {
+    await scenario({ selected: [L0], verdicts: { [L0]: "pass" }, cleanupRc: 1 }, (s) => {
       expect(deletesFor(s, L0).length, `control: the delete was attempted\n${dump(s)}`).toBeGreaterThan(0);
       expect(namesManualCleanup(s, L0), `a leg whose delete left a survivor must stay on the manual list\n${dump(s)}`).toBe(true);
     });
   }, 90_000);
 
-  test("every delete is scoped to the leg's recorded sessions, never to a time window", () => {
-    scenario({ selected: SMOKE_LEGS, verdicts: allOf("pass") }, (s) => {
+  test("every delete is scoped to the leg's recorded sessions, never to a time window", async () => {
+    await scenario({ selected: SMOKE_LEGS, verdicts: allOf("pass") }, (s) => {
       expect(s.deletes.length, dump(s)).toBeGreaterThan(0);
       expectScoped(s);
     });
@@ -455,8 +455,8 @@ describe("AC-STE-594.4 — a non-pass or absent verdict deletes nothing of its l
 
 describe("AC-STE-594.5 — Termination cleanup of a leg waits until none of its recorded pids answers kill -0", () => {
   for (const kind of ["smoke", "loop"] as const) {
-    test(`a live pid in the leg's ${kind} pidfile that exits after ~2.5 s: the leg's delete runs, and only after that pid stopped answering`, () => {
-      scenario({ selected: [L0], verdicts: { [L0]: "pass" }, live: [{ leg: L0, kind, seconds: 2.5 }] }, (s) => {
+    test(`a live pid in the leg's ${kind} pidfile that exits after ~2.5 s: the leg's delete runs, and only after that pid stopped answering`, async () => {
+      await scenario({ selected: [L0], verdicts: { [L0]: "pass" }, live: [{ leg: L0, kind, seconds: 2.5 }] }, (s) => {
         const pid = String(s.live[0]!.pid);
         const d = deletesFor(s, L0);
         expect(d.length, `the leg was never cleaned\n${dump(s)}`).toBeGreaterThan(0);
@@ -465,8 +465,8 @@ describe("AC-STE-594.5 — Termination cleanup of a leg waits until none of its 
     }, 90_000);
   }
 
-  test("a pid that outlives the fence: no delete of that leg ever runs while it answers, and the fence does not kill it to get through", () => {
-    scenario({ selected: [L0], verdicts: { [L0]: "pass" }, live: [{ leg: L0, kind: "smoke", seconds: 40 }], timeoutMs: 20_000 }, (s) => {
+  test("a pid that outlives the fence: no delete of that leg ever runs while it answers, and the fence does not kill it to get through", async () => {
+    await scenario({ selected: [L0], verdicts: { [L0]: "pass" }, live: [{ leg: L0, kind: "smoke", seconds: 40 }], timeoutMs: 20_000 }, (s) => {
       const pid = s.live[0]!.pid;
       for (const c of deletesFor(s, L0)) {
         expect(c.alive, `a delete ran while pid ${pid} still answered kill -0\n${dump(s)}`).not.toContain(String(pid));
@@ -481,8 +481,8 @@ describe("AC-STE-594.5 — Termination cleanup of a leg waits until none of its 
 // ===========================================================================
 
 describe("AC-STE-594.6 — every leg's findings file and the approval record survive Termination cleanup", () => {
-  test("all legs pass and are cleaned; every findings file and the approval record are still there, byte-identical", () => {
-    scenario({ selected: SMOKE_LEGS, verdicts: allOf("pass") }, (s) => {
+  test("all legs pass and are cleaned; every findings file and the approval record are still there, byte-identical", async () => {
+    await scenario({ selected: SMOKE_LEGS, verdicts: allOf("pass") }, (s) => {
       expect(s.deletes.length, `control: the cleanup really ran\n${dump(s)}`).toBeGreaterThan(0);
       for (const [p, body] of s.planted) {
         expect(existsSync(p), `${p} was removed`).toBe(true);
@@ -497,8 +497,8 @@ describe("AC-STE-594.6 — every leg's findings file and the approval record sur
 // ===========================================================================
 
 describe("AC-STE-594.8 — a passed leg's cleanup leaves a failed partner's sessions, pidfiles and processes untouched", () => {
-  test(`${L0} passes, ${L1} fails with a live grandchild: ${L0} is cleaned with its grandchildren; ${L1} keeps everything; the fence does not wait on ${L1}`, () => {
-    scenario(
+  test(`${L0} passes, ${L1} fails with a live grandchild: ${L0} is cleaned with its grandchildren; ${L1} keeps everything; the fence does not wait on ${L1}`, async () => {
+    await scenario(
       {
         selected: [L0, L1],
         verdicts: { [L0]: "pass", [L1]: "fail" },

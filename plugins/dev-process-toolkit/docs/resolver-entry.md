@@ -131,6 +131,6 @@ A `--bug` FR keeps the standard FR sections and adds four headings (STE-679): th
 <why it happens — file:line, the faulty assumption>
 ```
 
-Every bug FR carries at least one AC whose body begins `Regression:` and names the test that fails before the fix — the reproduction, captured as a test, is the proof the fix closes the bug.
+Every bug FR carries at least one AC whose body begins `Regression:` and names the test that fails before the fix — the reproduction, captured as a test, is the proof the fix closes the bug. A `Regression:` criterion with no body, or with only a TODO marker, fails probe #88 until a test is named.
 
 `/spec-write --bug --no-tech` is the QA-friendly path: the interview fills only the observable record — Steps to reproduce, Expected, Actual — and the `Regression:` AC. `## Technical Design` and `## Testing` carry the STE-227 needs-technical-review placeholder line `[needs technical review — run /spec-write <FR-id> to complete]`, and the frontmatter gains `needs_technical_review: true`. `branchTypeFor` is unchanged: `{ changelogCategory: "Fixed", noTech: true }` → `chore`, `{ changelogCategory: "Fixed", noTech: false }` → `fix`.

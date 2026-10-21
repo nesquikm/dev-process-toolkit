@@ -40,6 +40,7 @@ import {
   runModuleReachabilityProbe,
 } from "../adapters/_shared/src/module_reachability";
 import { runTraceabilityLinkValidityProbe } from "../adapters/_shared/src/traceability_link_validity";
+import { runNestedBunTest } from "./_nested_bun_test";
 import { type SpanFixture, makeSpanFixture } from "./_span_fixture";
 
 // ===========================================================================
@@ -152,9 +153,9 @@ function writePlanBody(root: string, bodyLines: string[]): void {
 
 /** Run one suite in a child `bun test`; green means exit 0 AND something passed. */
 function expectSuiteGreen(suite: string): void {
-  const proc = spawnSync("bun", ["test", suite], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
+  const proc = runNestedBunTest([suite], { cwd: PLUGIN_ROOT });
   const out = `${proc.stdout ?? ""}${proc.stderr ?? ""}`;
-  expect(proc.status, `${suite} is not green:\n${out.slice(-4000)}`).toBe(0);
+  expect(proc.exitCode, `${suite} is not green:\n${out.slice(-4000)}`).toBe(0);
   // Non-vacuity: a run that collected nothing exits 0 too.
   expect(out, `${suite} collected nothing`).toMatch(/\b[1-9]\d* pass\b/);
   expect(out).toMatch(/\b0 fail\b/);
@@ -172,6 +173,31 @@ function expectUnedited(path: string, ref: string): void {
     cwd: PLUGIN_ROOT,
     encoding: "utf-8",
   });
+  expect(tracked.status, `${path} is not tracked on ${ref}`).toBe(0);
+}
+
+/**
+ * Amended by AC-STE-685.3: a suite this file freezes may carry hunks marked
+ * `Amended by AC-STE-685.3` (its nested `bun test` run moved onto the bounded
+ * runner). Every hunk of the `-U0` diff against `ref` must add a marked line;
+ * an unmarked hunk is still an edit. After merge the diff is empty and this is
+ * exactly `expectUnedited`.
+ */
+const STE685_MARKER = /Amended by AC-STE-685\.3\b/;
+
+function unmarkedHunks(diff: string, marker: RegExp): string[] {
+  return diff
+    .split(/^(?=@@ )/m)
+    .filter((h) => h.startsWith("@@ "))
+    .filter((h) => !h.split("\n").some((l) => l.startsWith("+") && marker.test(l)))
+    .map((h) => h.split("\n")[0]!);
+}
+
+function expectUneditedBeyondMarked(path: string, ref: string, marker: RegExp): void {
+  const proc = spawnSync("git", ["diff", "-U0", ref, "--", path], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
+  expect(proc.status, proc.stderr).toBe(0);
+  expect(unmarkedHunks(proc.stdout, marker), `${path} has unmarked edits against ${ref}`).toEqual([]);
+  const tracked = spawnSync("git", ["cat-file", "-e", `${ref}:./${path}`], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(tracked.status, `${path} is not tracked on ${ref}`).toBe(0);
 }
 
@@ -646,8 +672,18 @@ describe("structural — gate-check's probe rows stay where the pins expect them
     ).toBe(deleted!);
   });
 
-  test("tests/m120-ste-444-jira-binding-prose.test.ts is unedited against main", () => {
-    expectUnedited("tests/m120-ste-444-jira-binding-prose.test.ts", "main");
+  // Amended by AC-STE-685.3: admits STE-685's marked runner migration; an unmarked hunk still goes red.
+  test("tests/m120-ste-444-jira-binding-prose.test.ts is unedited against main beyond STE-685's marked amendments", () => {
+    expectUneditedBeyondMarked("tests/m120-ste-444-jira-binding-prose.test.ts", "main", STE685_MARKER);
+  });
+
+  // Amended by AC-STE-685.3: the admission stays falsifiable on a synthetic diff, so it holds after merge too.
+  test("MUTATION: a hunk without the STE-685 marker is still reported as an edit", () => {
+    const marked = "@@ -1 +1 @@\n-a\n+b // Amended by AC-STE-685.3\n";
+    const unmarked = "@@ -9 +9 @@\n-c\n+d\n";
+    expect(unmarkedHunks(marked, STE685_MARKER)).toEqual([]);
+    expect(unmarkedHunks(marked + unmarked, STE685_MARKER)).toEqual(["@@ -9 +9 @@"]);
+    expect(unmarkedHunks(marked.replace("685.3", "999.9"), STE685_MARKER)).toEqual(["@@ -1 +1 @@"]);
   });
 
   test("tests/m120-ste-444-jira-binding-prose.test.ts is green", () => {

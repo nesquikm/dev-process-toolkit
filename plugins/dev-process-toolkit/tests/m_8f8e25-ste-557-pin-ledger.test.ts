@@ -41,6 +41,7 @@ import {
   runModuleReachabilityProbe,
   type UnreachablePinMove,
 } from "../adapters/_shared/src/module_reachability";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 const PLUGIN_ROOT = resolve(import.meta.dir, "..");
 const REPO_ROOT = resolve(PLUGIN_ROOT, "..", "..");
@@ -197,13 +198,10 @@ function runTestFileUnder(
   }
   Bun.write(target, after);
 
-  const proc = Bun.spawnSync(
-    filter === null ? ["bun", "test", testRel] : ["bun", "test", testRel, "-t", filter],
-    { cwd: overlayPlugin, stdout: "pipe", stderr: "pipe" },
-  );
+  const proc = runNestedBunTest(filter === null ? [testRel] : [testRel, "-t", filter], { cwd: overlayPlugin });
   return {
-    code: proc.exitCode ?? -1,
-    output: `${proc.stdout.toString()}\n${proc.stderr.toString()}`,
+    code: proc.exitCode,
+    output: `${proc.stdout}\n${proc.stderr}`,
   };
 }
 

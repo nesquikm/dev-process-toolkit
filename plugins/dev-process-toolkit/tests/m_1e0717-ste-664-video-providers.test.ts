@@ -66,6 +66,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { dptEnvPath, videoWorkDir } from "../adapters/_shared/src/dpt_paths";
 import { mutateInRegion } from "./_sited-mutation";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -740,6 +741,7 @@ function runOverlay(
         `cp -R ${JSON.stringify(join(PLUGIN_ROOT, "adapters", "_shared", "src"))} ${JSON.stringify(join(plugin, "adapters", "_shared"))}/`,
         `cp ${JSON.stringify(join(PLUGIN_ROOT, THIS_FILE_REL))} ${JSON.stringify(join(plugin, "tests"))}/`,
         `cp ${JSON.stringify(join(PLUGIN_ROOT, "tests", "_sited-mutation.ts"))} ${JSON.stringify(join(plugin, "tests"))}/`,
+        `cp ${JSON.stringify(join(PLUGIN_ROOT, "tests", "_nested_bun_test.ts"))} ${JSON.stringify(join(plugin, "tests"))}/`,
         `cp -R ${JSON.stringify(FIXTURES)} ${JSON.stringify(join(plugin, "tests", "fixtures"))}/`,
       ].join("; "),
     ],
@@ -767,14 +769,10 @@ function runOverlay(
     expect(mutatedSource).toContain(mutation.marker);
   }
 
-  const proc = Bun.spawnSync(["bun", "test", THIS_FILE_REL, "-t", filter], {
-    cwd: plugin,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const proc = runNestedBunTest([THIS_FILE_REL, "-t", filter], { cwd: plugin });
   return {
-    code: proc.exitCode ?? -1,
-    output: `${proc.stdout.toString()}\n${proc.stderr.toString()}`,
+    code: proc.exitCode,
+    output: `${proc.stdout}\n${proc.stderr}`,
     mutatedSource,
   };
 }

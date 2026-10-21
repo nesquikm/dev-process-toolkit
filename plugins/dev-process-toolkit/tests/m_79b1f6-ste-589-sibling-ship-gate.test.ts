@@ -52,6 +52,7 @@ import { classifyResume, resumeChain } from "../adapters/_shared/src/resume_clas
 // the whole file at link time.
 import * as siblingRelease from "../adapters/_shared/src/sibling_release";
 import { SpansReposError, readSpansReposDeclaration } from "../adapters/_shared/src/spans_repos";
+import { runNestedBunTest } from "./_nested_bun_test";
 import { type SpanFixture, makeSpanFixture } from "./_span_fixture";
 
 // ===========================================================================
@@ -806,9 +807,9 @@ describe("AC-STE-589.7 — skills/ship-milestone/SKILL.md carries refusal #4, th
   });
 
   test("tests/ship-milestone-shape.test.ts is green", () => {
-    const proc = spawnSync("bun", ["test", SHAPE_SUITE], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
+    const proc = runNestedBunTest([SHAPE_SUITE], { cwd: PLUGIN_ROOT, timeoutMs: 60_000 });
     const out = `${proc.stdout}${proc.stderr}`;
-    expect(proc.status, out.slice(-3000)).toBe(0);
+    expect(proc.exitCode, out.slice(-3000)).toBe(0);
     // Non-vacuity: a run that collected nothing exits 0 too.
     expect(out).toMatch(/\b[1-9]\d* pass\b/);
   }, 60_000);

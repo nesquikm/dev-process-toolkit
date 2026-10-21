@@ -704,6 +704,21 @@ export interface AssertionRun {
   readonly exitCode: number;
   readonly stdout: string;
   readonly count: number;
+  /**
+   * True when the run was stopped at its bound rather than exiting. Its
+   * stdout and status are whatever the kill left behind, so it is never a
+   * count — `scoreRun` refuses it in both modes.
+   */
+  readonly timedOut?: boolean;
+}
+
+/** How long one bound assertion may run before it is stopped (AC-STE-686.6). */
+const ASSERTION_TIMEOUT_MS = 60_000;
+
+/** Options for `runAssertion`. */
+export interface RunAssertionOptions {
+  /** The bound in milliseconds; defaults to `ASSERTION_TIMEOUT_MS`. */
+  readonly timeoutMs?: number;
 }
 
 /**
@@ -719,17 +734,20 @@ export interface AssertionRun {
  * absent-subject half indistinguishable from a command that never launched,
  * which is the one thing this module exists to rule out.
  */
-export function runAssertion(bound: BoundAssertion): AssertionRun {
+export function runAssertion(bound: BoundAssertion, opts: RunAssertionOptions = {}): AssertionRun {
   const proc = spawnSync("bash", ["-c", bound.command], {
     encoding: "utf8",
     env: harnessEnv(),
+    timeout: opts.timeoutMs ?? ASSERTION_TIMEOUT_MS,
+    killSignal: "SIGKILL",
   });
+  const timedOut = (proc.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
   const stdout = proc.stdout ?? "";
   const trimmed = stdout.trim();
   const count = /^-?\d+$/.test(trimmed)
     ? Number.parseInt(trimmed, 10)
     : stdout.split("\n").filter((l) => l.trim() !== "").length;
-  return { command: bound.command, exitCode: proc.status ?? -1, stdout, count };
+  return { command: bound.command, exitCode: proc.status ?? -1, stdout, count, timedOut };
 }
 
 /**
@@ -777,6 +795,13 @@ const NEVER_RAN_EXIT_CODES = new Set([-1, 2, 126, 127]);
  * states a score has to separate are indistinguishable from that status alone.
  */
 export function scoreRun(run: AssertionRun, mode: ScoreMode): number {
+  if (run.timedOut) {
+    throw new Error(
+      `falsifiability scoring refused: the command did not complete — it was stopped at its time bound, ` +
+        `so its stdout and exit status are what the kill left behind, not a count.\n` +
+        `  command: ${run.command}`,
+    );
+  }
   if (mode !== "exit-code") return run.count;
   if (NEVER_RAN_EXIT_CODES.has(run.exitCode)) {
     throw new Error(

@@ -117,8 +117,12 @@ function elementsOf(tag: string): RegExp {
   return new RegExp(`<${tag}\\b([^>]*?)(\\/>|>([\\s\\S]*?)<\\/${tag}\\s*>)`, "g");
 }
 
-/** Every `<testcase>` in `body` that carries a `<skipped>` child, as identities. */
-function skippedIn(body: string, suiteScope: string | undefined): string[] {
+/**
+ * Every `<testcase>` in `body` that carries a child matching `child`, as
+ * identities. The child is the one thing the skip and failure readers differ
+ * in, so it is the one thing passed in.
+ */
+function casesWithChild(body: string, suiteScope: string | undefined, child: RegExp): string[] {
   const names: string[] = [];
   // A self-closing testcase has no children and therefore no `<skipped/>`; only
   // the paired form can be a skip. Both shapes are matched so the self-closing
@@ -126,13 +130,18 @@ function skippedIn(body: string, suiteScope: string | undefined): string[] {
   for (const match of body.matchAll(elementsOf("testcase"))) {
     const attrs = attributes(match[1] as string);
     const inner = match[3];
-    if (inner === undefined || !/<skipped\b/.test(inner)) continue;
+    if (inner === undefined || !child.test(inner)) continue;
     const name = attrs.name;
     if (name === undefined) continue;
     names.push(identity(attrs.file ?? attrs.classname ?? suiteScope, name));
   }
   return names;
 }
+
+/** A `<skipped>` child: the test was skipped. */
+const SKIPPED_CHILD = /<skipped\b/;
+/** A `<failure>` or `<error>` child: the test failed. */
+const FAILED_CHILD = /<(?:failure|error)\b/;
 
 /**
  * Does the document's ROOT element close?
@@ -175,13 +184,8 @@ function rootCloses(document: string): boolean {
   return false;
 }
 
-/**
- * Read the skipped-test identities out of the junit report at `reportPath`.
- *
- * Arity ONE, deliberately: there is no default path, so there is nothing here
- * that could disagree with the caller about where the report was written.
- */
-export function extractSkipIdentities(reportPath: string): SkipIdentities {
+/** Read the identities of every testcase carrying a `child` element. */
+function extractCaseIdentities(reportPath: string, child: RegExp): SkipIdentities {
   if (!existsSync(reportPath)) return { status: "unavailable" };
 
   let document: string;
@@ -202,14 +206,33 @@ export function extractSkipIdentities(reportPath: string): SkipIdentities {
     const attrs = attributes(suite[1] as string);
     const body = suite[3];
     if (body === undefined) continue;
-    names.push(...skippedIn(body, attrs.file ?? attrs.name));
+    names.push(...casesWithChild(body, attrs.file ?? attrs.name, child));
   }
   // A producer that emits testcases directly under the root, with no testsuite
   // wrapper, is still a report. Its cases are only read when no suite claimed
   // them, so a nested case is never counted twice.
-  if (suites.length === 0) names.push(...skippedIn(document, undefined));
+  if (suites.length === 0) names.push(...casesWithChild(document, undefined, child));
 
   return { status: "named", names };
+}
+
+/**
+ * Read the skipped-test identities out of the junit report at `reportPath`.
+ *
+ * Arity ONE, deliberately: there is no default path, so there is nothing here
+ * that could disagree with the caller about where the report was written.
+ */
+export function extractSkipIdentities(reportPath: string): SkipIdentities {
+  return extractCaseIdentities(reportPath, SKIPPED_CHILD);
+}
+
+/**
+ * Read the FAILING-test identities (a `<failure>` or `<error>` child) out of the
+ * junit report at `reportPath` (AC-STE-686.8) — the same reading path as the
+ * skips, so a red run can be diagnosed from its own report.
+ */
+export function extractFailureIdentities(reportPath: string): SkipIdentities {
+  return extractCaseIdentities(reportPath, FAILED_CHILD);
 }
 
 /** Single-quote a path for `/bin/sh`, leaving the path itself literal. */

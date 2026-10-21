@@ -42,6 +42,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { runNestedBunTest } from "./_nested_bun_test";
 import {
   RETIRED_LITERAL_PATTERNS,
   assertNoRetiredLiterals,
@@ -650,12 +651,10 @@ describe("AC-STE-384.5 — the shipped gate file exists and is wired to the live
   test("it is a real bun test file and passes on its own", () => {
     // The end-to-end proof of AC.5's "full gate green": the deliverable is
     // executed as the gate really executes it, not merely imported.
-    const proc = Bun.spawnSync(["bun", "test", "tests/dpt-path-drift.test.ts"], {
+    const proc = runNestedBunTest(["tests/dpt-path-drift.test.ts"], {
       cwd: PLUGIN_ROOT,
-      stdout: "pipe",
-      stderr: "pipe",
     });
-    const out = proc.stdout.toString() + proc.stderr.toString();
+    const out = proc.stdout + proc.stderr;
 
     expect(proc.exitCode).toBe(0);
     expect(out).toMatch(/0 fail/);

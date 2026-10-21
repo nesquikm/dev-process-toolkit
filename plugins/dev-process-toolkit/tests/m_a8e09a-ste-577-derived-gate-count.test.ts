@@ -58,6 +58,7 @@ import {
 } from "../adapters/_shared/src/module_reachability";
 import { deriveBlockingGates, type BlockingGate } from "./_blocking_gates";
 import { mutate } from "./_fence";
+import { runNestedBunTest } from "./_nested_bun_test";
 
 const pluginRoot = join(import.meta.dir, "..");
 const repoRoot = join(pluginRoot, "..", "..");
@@ -257,15 +258,11 @@ interface SuiteRun {
 /** Run ONE suite inside a staged root and read its counts back. */
 function runSuite(root: string, label: string): SuiteRun {
   const cwd = stagedPluginRoot(root);
-  const proc = Bun.spawnSync([process.execPath, "test", join("tests", label)], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const output = `${proc.stdout.toString()}${proc.stderr.toString()}`;
+  const proc = runNestedBunTest([join("tests", label)], { cwd });
+  const output = `${proc.stdout}${proc.stderr}`;
   const pass = Number(/(\d+)\s+pass/.exec(output)?.[1] ?? "-1");
   const fail = Number(/(\d+)\s+fail/.exec(output)?.[1] ?? "-1");
-  return { pass, fail, exitCode: proc.exitCode ?? -1, output };
+  return { pass, fail, exitCode: proc.exitCode, output };
 }
 
 /**

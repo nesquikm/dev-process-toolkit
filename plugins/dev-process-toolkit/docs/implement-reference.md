@@ -251,7 +251,7 @@ The gate is detected from the project's own markers, never accepted as an argume
 
 **Where the `gate:` row's skip identities come from.** The `gate:` capture handed to the renderer MUST carry `skipNames`, and it is built by `captureGateRun` in `adapters/_shared/src/gate_capture.ts` — the READ side of the skip ratchet, the counterpart to the WRITE side that records the branch's baseline. That helper composes a report path outside the project tree (a report written inside it would dirty the tree the capture side refuses on), asks `skipIdentityCommand` in `adapters/_shared/src/skip_identities.ts` for the invocation that writes a machine-readable report while still printing the summary the count parser reads, runs the gate ONCE through it, and reads the identities back with `extractSkipIdentities`. One run, both signals: a second run to name the skips would be a second measurement, and the two could disagree about the very number being ratcheted.
 
-**The run is bounded.** A gate run is cut after `GATE_RUN_TIMEOUT_MS` (20 minutes, raised or lowered for a slower suite through `DPT_GATE_TIMEOUT_MS`), because a runner really does hang: `bun test --reporter=junit` was measured stalling at 0% CPU with no children, twice, and an unbounded run turns that into a gate that never returns — no commit, no release ceremony, no live proof. A cut run is a VERDICT, not a silence: the marker `dpt-gate-run: the gate command did not finish` is appended to the captured bytes, so a count parsed from a half-written summary cannot read as merely unparseable, and the identities half answers `unavailable` rather than reporting the skips of a report that was still being written.
+**The run is bounded.** A gate run is cut after `GATE_RUN_TIMEOUT_MS` (40 minutes, raised or lowered for a slower suite through `DPT_GATE_TIMEOUT_MS`), because a runner really does hang: `bun test --reporter=junit` was measured stalling at 0% CPU with no children, twice, and an unbounded run turns that into a gate that never returns — no commit, no release ceremony, no live proof. Cut means ended: the run's whole process group is sent SIGTERM at the bound and SIGKILL after `GATE_KILL_GRACE_MS` (`DPT_GATE_KILL_GRACE_MS`), so a runner that ignores SIGTERM still stops, and the `gate_capture.ts` front door prints a line saying the run was killed on the bound, naming it. A cut run is a VERDICT, not a silence: the marker `dpt-gate-run: the gate command did not finish` is appended to the captured bytes, so a count parsed from a half-written summary cannot read as merely unparseable, and the identities half answers `unavailable` rather than reporting the skips of a report that was still being written.
 
 `skipNames` is declared on `CapturedRun` and forwarded verbatim to `evaluateSkipDelta`, which reads three states as three distinct facts, so what the caller supplies decides which comparison happens:
 
@@ -264,6 +264,21 @@ The gate is detected from the project's own markers, never accepted as an argume
 **Fail-closed, for the sections the project has DECLARED it has.** A missing capture is a refusal, not a silent omission: `ok` goes false, `reasons` names each offending section by name, and the `gate:` / `drive:` / `e2e:` rows are emitted anyway. A confident nothing is the failure mode this guards against.
 
 **Vacuity is declared, never assumed.** Which sections are required comes from `requiredEvidenceSections` in `adapters/_shared/src/evidence_required_sections.ts`, reading the project's own `## Verification` block: `gate` is unconditional, `drive` is required only when `run_cmd` names a real command, and `e2e` only when `e2e_cmd` does — both asked through `isRunCmdAnswered` / `isRunCmdNone`, so `run_cmd: none` (an answer: "this project cannot be run") and a bare `run_cmd:` (an omission wearing an answer's hat) stay distinct. A project that declared the command away is not refused for producing no output from a command it told us does not exist; a project that declared one and captured nothing still is. An explicit `required` from the caller overrides the derivation, and `/deliver`'s own fence renderer keeps its fail-closed all-three default — it grades a fence it did not author.
+
+### Capturing a stalled gate
+
+When the gate is stalled — no new output, the bound not yet reached — capture the process table before killing anything, because the kill erases the evidence of which kind of wedge it was:
+
+```sh
+ps -axo pid,ppid,pcpu,etime,command | grep bun
+```
+
+Read the rows two ways:
+
+- **A spinning test** — one bun pid at high CPU, its `etime` climbing, with no bun children under it. A single test is looping; find it by name and bound it.
+- **A nested pile-up** — a parent chain of bun test processes, each row's `ppid` the `pid` of the row above, most of them idle. A test is launching `bun test` from inside `bun test`, and every level waits on the one below; the fix is the test that spawns the inner run, not the innermost process.
+
+Kill by pid from the captured rows, never by name: a pattern kill also takes down any other bun run on the machine.
 
 ## Phase 4 End-to-End Authoring Hook
 

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.99.2] — 2026-10-21 — "Short Fuse"
+
+### Fixed
+
+- Nested test runs and the gate carry hard time limits (STE-685). Every test that starts a nested `bun test` now goes through one shared runner with a 300 s timeout, SIGKILL, the parent's own bun, and a depth guard that refuses at 3. A sweep test keeps direct spawns from coming back. The gate root's `bunfig.toml` sets a 30 s per-test budget, enforced by a `setDefaultTimeout` preload because bun 1.3.14 parses `[test] timeout` but does not apply it.
+- Test waits and product child processes are bounded (STE-686). The STE-594/595 harness waits are async and their `ps` calls time out, so bun can stop a test that overruns. typedoc, the falsifiability assertion and the spawn receipt's ownership check stop at their bounds with SIGKILL. The gate run is bounded at 40 minutes and escalates SIGTERM to SIGKILL on its whole process group, so a runner that ignores SIGTERM still ends. `gate_capture.ts` names every failing test from the run's own report, says so when the report cannot be read, and reports a run killed on its bound. `docs/implement-reference.md` carries the capture recipe for a stalled gate.
+- The supervisor mints the spawn receipt a worker cannot (STE-687). With no fifth argument, the receipt printer finds agent-toolkit's `owned.py` through the plugin registry, directory source first, and refuses by name when none resolves. `/deliver` has the supervisor run it and hand the line to the worker, which pastes it verbatim.
+- The bug FR guide says a TODO regression fails probe #88 (STE-688). `docs/resolver-entry.md` § Bug FR body now states that a `Regression:` criterion with no body, or only a TODO marker, fails the gate until a test is named.
+
+Total test count at release: 19260 tests, 0 failures, 0 errors.
+
 ## [2.99.1] — 2026-10-21 — "Fine Print"
 
 ### Fixed
