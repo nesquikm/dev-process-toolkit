@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.99.1 — "Fine Print"** (M_0cac80, bug follow-ups graded in place. Probe #88 grades each bug section under its own heading and rejects a TODO regression criterion, import refuses a ticket it cannot read, and the bun count fallback stops dropping passes)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.99.2 — "Short Fuse"** (M_292387, test runs that cannot hang. Nested test runs and the gate carry hard time limits, the gate escalates SIGTERM to SIGKILL and names every failing test, and the supervisor mints the spawn receipt a worker cannot)
 
 ## Core Philosophy
 
