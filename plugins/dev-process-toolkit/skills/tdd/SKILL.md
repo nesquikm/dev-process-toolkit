@@ -52,7 +52,7 @@ For each AC in order:
 - Pass the implementer **only** that AC's text + the failing-test command target.
 - The child fork runs in isolation, writes the minimum code to turn the failing test GREEN, re-runs the command, runs the **defect check**, and ends with a single `tdd-result` fenced block.
 
-The defect check is what makes RED load-bearing. A test that failed before the code existed may have failed only because a symbol was missing; the check plants the smallest bug in the end state the AC's test reads and requires that test to go RED **at its assertion**, then restores the source. The implementer records it in `notes` as `defect check: <plant> → red at <test>`. A `status: failed` whose `notes` reads `defect check: … → still GREEN` is a test that does not guard its AC: it is **not retried** under mode B, because the implementer may not edit tests and a second attempt cannot change the outcome — the orchestrator halts with the halt report and the operator decides (usually a test-writer re-run for that AC).
+The defect check is what makes RED load-bearing. A test that failed before the code existed may have failed only because a symbol was missing; the check plants the smallest bug in the end state the AC's test reads and requires that test to go RED **at its assertion**, then restores the source. The implementer records it in `notes`, which this stage always fills: `defect check: <plant> → red at <test>`, or `defect check: n/a — <reason>` / `defect check: not run — <reason>` when there was no source line to plant in or no turn left. The orchestrator relays every `n/a` and `not run` line in its report as an AC whose test is unverified. A `status: ok` implementer block with no `defect check:` line is a format violation (mode D). A `status: failed` whose `notes` reads `defect check: … → still GREEN` is a test that does not guard its AC: failure mode **not-load-bearing**. `recordTddFailure(…, "not-load-bearing")` halts on the first attempt and spends no budget, because the implementer may not edit tests and a second attempt cannot change the outcome; `formatHaltReport` renders it with its own header and a remedy that points at the test (usually a test-writer re-run for that AC).
 
 The orchestrator dispatches **N forks for N ACs** — each implementer invocation sees one AC, never the full list. This per-AC isolation is the load-bearing property: it stops the implementer from optimizing across ACs in ways the test-writer didn't anticipate.
 
@@ -104,17 +104,18 @@ notes: optional one-liner
 - `role` must equal the role being invoked (test-writer / implementer / refactorer).
 - `files` may be empty (`[]`) for the refactorer when no refactor was needed.
 - `output_excerpt` is the first 40 lines of test runner output — must show RED for test-writer, GREEN for implementer + refactorer.
-- `notes` is optional; everything else is required.
+- `notes` is optional in the schema; the implementer always fills it with its defect-check line.
 
-## Failure modes (5 modes)
+## Failure modes (5 retried modes, 1 immediate halt)
 
 The orchestrator distinguishes:
 
 - **(A) false-RED** — test-writer's `tdd-result` says `status: ok`, but re-running its `command` does not produce a failure (the tests don't actually fail).
-- **(B) implementer can't reach GREEN** — implementer's `tdd-result` says `status: failed`, or `status: ok` but re-running the command shows RED.
+- **(B) implementer can't reach GREEN** — implementer's `tdd-result` says `status: failed` (other than a failed defect check), or `status: ok` but re-running the command shows RED.
 - **(C) refactorer breaks GREEN** — refactorer's `tdd-result` says `status: failed`, or `status: ok` but re-running the command shows RED.
 - **(D) format violation** — `extractTddResultBlock` or `parseTddResultBlock` rejects the child's output (no fenced block, multiple fences, missing role, missing required field, wrong role for the invocation, invalid status).
 - **(E) maxTurns exhaustion** — child stopped after `maxTurns: 8` without producing a parseable block. Counts as a failed attempt under whichever of (A) / (B) / (C) applies to the calling role.
+- **not-load-bearing** — implementer's `status: failed` with `defect check: … → still GREEN`: the AC's test stayed GREEN with the behavior broken. Not retried — see Stage GREEN.
 
 ## Retry budget — bounded
 
@@ -122,6 +123,7 @@ Backed by `recordTddFailure(...)` from `adapters/_shared/src/tdd_retry_state.ts`
 
 - **Modes A / B / C / E (semantic):** max 2 attempts per role per AC. After the second failure, halt.
 - **Mode D (format):** single targeted retry — re-prompt with "re-emit your last message with a valid `tdd-result` block." After the second format failure, halt.
+- **not-load-bearing:** no retry and no budget spent — halt on the first occurrence.
 
 Format and semantic budgets are independent — a format violation does not consume the semantic-failure budget.
 
