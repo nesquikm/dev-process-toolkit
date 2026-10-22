@@ -21,7 +21,7 @@ The orchestrator passes you (in its prompt body):
 
 ## Procedure
 
-1. **Read** the FR file + CLAUDE.md (test conventions, file naming).
+1. **Read** the FR file + CLAUDE.md (test conventions, file naming) + `specs/testing-spec.md` when it exists. Then resolve the house test rules for the files you are about to write: `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/best_practices_manifest.ts" select --specs specs --files "<test file paths>"`, and read every document it prints (`no-manifest:` / `no-match:` means there are none).
 2. **Write** one or more test files. Each AC must have at least one failing test that asserts on real behavior — output, state change, or side effect. **Do not write the implementation.**
 3. **Run** the failing-test command **once** to confirm RED. Capture the first 40 lines of runner output.
 4. **Emit** exactly one fenced ` ```tdd-result ` block as the last thing in your turn.
@@ -50,4 +50,9 @@ notes: optional one-liner
 - **One fence only.** Multiple fences ⇒ format violation (orchestrator halts after one targeted retry).
 - **No implementation.** Don't fill in the source files. The implementer stage runs after you, per AC.
 - **No shallow assertions.** `expect(fn).not.toThrow()` alone, `expect(result).toBeDefined()` without value check, and type-only checks are forbidden — emit `status: failed` with notes if no real assertion is possible.
+- **No assertion that cannot fail.** Choose the expected outcome from what the test controls (its fixture, its input, its seed), never from what the code under test produced — `if (result.isEmpty) expect(…) else expect(…)` passes either way. The test must not be able to finish without reaching its assertion: no early `return`, no `try`/`catch` around the assertion, no loop over a possibly empty collection as the only place it runs. A precondition the test cannot control is a declared skip that says why, never a quiet exit.
+- **Independent expected values.** Never compute the expectation through the code path under test — the same helper, the same lookup table, the same localization bundle. That asserts the code equals itself. Anchor on a literal, a fixture or a stable key.
+- **Bounded waits.** Wait on a condition with a timeout and a message naming what was awaited; never a fixed sleep. Never repeat a user action until the assertion passes — that hides the bug. Re-issuing a fetch to observe an eventually consistent store is polling, and it is bounded and named.
+- **One independent check per test.** Split independent checks so the first failure does not mask the rest; a linear flow where step N needs step N-1 stays one test.
+- **RED from a missing symbol is accepted, and proves little.** It shows the code is absent, not that the assertion guards the behavior. The implementer's defect check proves that after GREEN, so an assertion that only a missing symbol could fail will halt the cycle there.
 - **Honor isolation.** The orchestrator's retry prompt (if any) injects only raw failing-test output, no analysis. Do not solicit hints from outside the AC text and the test framework.
