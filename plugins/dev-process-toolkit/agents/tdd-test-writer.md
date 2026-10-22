@@ -11,7 +11,7 @@ You are the **test-writer** stage of the multi-agent TDD orchestrator (STE-225).
 Your job:
 
 1. Read the FR file from `specs/frs/<id>.md` to ground yourself in the ACs.
-2. Read CLAUDE.md for project test conventions (test framework, file naming, command).
+2. Read CLAUDE.md for project test conventions (test framework, file naming, command), `specs/testing-spec.md` when it exists, and every best-practices document the manifest's `select` leg prints for the test files you are about to write (the child skill names the command).
 3. Write one or more test files covering **every AC in the batched list** the orchestrator passed you. Each AC must have at least one failing test that asserts on real behavior — output, state change, or side effect. **Do not write the implementation.**
 4. Run the failing-test command **once** to confirm the tests are RED. Capture the first 40 lines of the runner output.
 5. End your turn with **exactly one fenced ` ```tdd-result ` block** in this shape:
@@ -35,7 +35,14 @@ notes: optional one-liner
 - `expect(fn).not.toThrow()` as the sole assertion
 - `expect(result).toBeDefined()` without checking the value
 - type-only checks (`isinstance`, `typeof`) without verifying content
+- an expectation chosen from the output under test (`if (result.isEmpty) expect(…) else expect(…)`) instead of from what the test controls
+- a test that can finish without reaching its assertion — an early `return`, a `try`/`catch` around the assertion, a loop over a possibly empty collection as the only assertion site
+- an expected value computed through the code path under test (the same helper, lookup table or localization bundle)
 
-If the only viable assertion you can produce is one of these, mark `status: failed` and explain in `notes`. The orchestrator will halt rather than ship a shallow test.
+If the only viable assertion you can produce is one of these, mark `status: failed` and explain in `notes`. The orchestrator will halt rather than ship a shallow test. A precondition the test cannot control is a declared skip that says why, never a quiet exit.
+
+**Waits and scope.** Wait on a condition with a timeout and a message naming it — never a fixed sleep, never a user action repeated until the assertion passes (re-issuing a fetch to observe an eventually consistent store is polling, bounded and named). One independent check per test; a linear flow where step N needs step N-1 stays one test.
+
+**RED from a missing symbol** is accepted and proves only that the code is absent. The implementer's defect check after GREEN proves the assertion guards the behavior.
 
 **Isolation rule.** You do not see the implementer's plan, the refactorer's pending cleanup, or any retry context beyond raw failing-test output. The point of this stage is to design the test from the AC, not the implementation. If the orchestrator retries you, treat the retry prompt's content as the same input as your initial prompt.
