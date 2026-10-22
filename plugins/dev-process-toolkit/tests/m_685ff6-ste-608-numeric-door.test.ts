@@ -9,12 +9,12 @@
 // `resolve_milestone_identity.ts`; under `mode: none` it is byte-identical to HEAD.
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { archiveFRWithFlip } from "../adapters/_shared/src/archive_fr";
 import { stampShippedIn } from "../adapters/_shared/src/plan_ship_stamp";
+import { materializeClosure } from "./_base_relative";
 import { claudeMd, makeSpanFixture, type SpanFixture } from "./_span_fixture";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
@@ -170,15 +170,17 @@ function snapshot(root: string): Map<string, string> {
   return out;
 }
 
-/** HEAD's (merge-base) copies of the archival and ship-stamp modules, materialised to a temp dir. */
-function baseModules(): { archive: string; stamp: string } {
-  const base = execFileSync("git", ["-C", REPO_ROOT, "merge-base", "HEAD", "main"]).toString().trim();
+/**
+ * The last pre-STE-608 commit (merge of PR #97, the "HEAD (ca235fb)" HEAD_FREE_OUTPUT names).
+ * Pinned, not `merge-base HEAD main`: after a merge that ref IS the release.
+ */
+const PRE_STE_608_COMMIT = "ca235fb17c37a4845a721545412c7a707f2d6fbd";
+
+/** The pinned commit's archival and ship-stamp modules plus their relative-import closure, materialised to a temp dir. */
+function baseModules(): { archive: string; stamp: string; copied: string[] } {
   const dir = tempDir("base-src");
-  for (const f of ["archive_fr.ts", "plan_ship_stamp.ts", "frontmatter.ts"]) {
-    const bytes = execFileSync("git", ["-C", REPO_ROOT, "show", `${base}:plugins/dev-process-toolkit/adapters/_shared/src/${f}`]);
-    writeFileSync(join(dir, f), bytes);
-  }
-  return { archive: join(dir, "archive_fr.ts"), stamp: join(dir, "plan_ship_stamp.ts") };
+  const copied = materializeClosure(REPO_ROOT, PRE_STE_608_COMMIT, "plugins/dev-process-toolkit/adapters/_shared/src", ["archive_fr.ts", "plan_ship_stamp.ts"], dir);
+  return { archive: join(dir, "archive_fr.ts"), stamp: join(dir, "plan_ship_stamp.ts"), copied };
 }
 
 /** A tracker-mode repo holding an active numeric plan M8 with one FR, and a tracker double whose ticket carries `milestone-M8`. */
@@ -213,10 +215,11 @@ describe("AC-STE-608.14 — an old numeric plan archives and ships as at HEAD", 
       const now = numericWorld(mode);
       const head = numericWorld(mode);
       await archiveAndShip(now.root, null);
-      await archiveAndShip(head.root, baseModules());
+      const base = baseModules();
+      await archiveAndShip(head.root, base);
       const a = snapshot(now.root);
       const b = snapshot(head.root);
-      expect([...a.keys()]).toEqual([...b.keys()]);
+      expect([...a.keys()], `base modules copied from ${PRE_STE_608_COMMIT}: ${base.copied.join(", ")}`).toEqual([...b.keys()]);
       for (const [k, v] of a) expect(v, k).toBe(b.get(k)!);
       const plan = a.get(join("specs", "plan", "archive", "M8.md"))!;
       expect(plan).toMatch(/^milestone: M8$/m);
