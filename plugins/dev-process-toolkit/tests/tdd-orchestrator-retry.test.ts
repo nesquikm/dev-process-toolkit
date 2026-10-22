@@ -179,3 +179,32 @@ describe("AC-STE-296.6 — recordAuditRoundFailure cap=1", () => {
     expect(dec.reason).toMatch(/audit|spec-gap|spec-review/i);
   });
 });
+
+// A failed defect check: the implementer reached GREEN, planted the smallest
+// bug in the end state its AC's test reads, and the test stayed GREEN. The
+// test does not guard the AC, and the implementer may not edit tests, so a
+// second implementer attempt cannot change the outcome — the mode halts on
+// its first attempt instead of spending mode B's budget.
+describe("defect check — not-load-bearing halts at once", () => {
+  test("the first not-load-bearing failure halts, it is never retried", () => {
+    const budget = newRetryBudget();
+    const dec = recordTddFailure(
+      budget,
+      { role: "implementer", ac: "AC.1" },
+      "not-load-bearing",
+    );
+    expect(dec.decision).toBe("halt");
+    expect(dec.attemptNumber).toBe(1);
+    expect(dec.retryKind).toBeUndefined();
+    expect(dec.reason).toContain("not-load-bearing");
+    expect(dec.reason).toContain("AC.1");
+  });
+
+  test("it leaves mode B's budget for the same AC untouched", () => {
+    const budget = newRetryBudget();
+    recordTddFailure(budget, { role: "implementer", ac: "AC.1" }, "not-load-bearing");
+    const dec = recordTddFailure(budget, { role: "implementer", ac: "AC.1" }, "B");
+    expect(dec.decision).toBe("retry");
+    expect(dec.attemptNumber).toBe(1);
+  });
+});
