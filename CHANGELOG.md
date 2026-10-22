@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- A typed answer naming the key adopts the ticket (STE-694). On an `Adopt <KEY>` question, a typed answer counts as consent when it names the key as a whole word, opens with adopt, yes, approve, post or go, and holds none of skip, no, not, don't, dont or cancel. The rule lives once, in `typedAdopts`, which the hook and the live grader both reach through `perQuestionConsent`. `Import`, `Join`, `Create`, `Skip` and the answers block keep the exact label, and the refusal remedy says so.
+- A typed answer naming the key adopts the ticket (STE-694). On an `Adopt <KEY>` question, a typed answer counts as consent when it names the key as a whole word, opens with adopt, yes, approve, post or go, and holds none of skip, no, not, don't, dont, cancel, never or an n't contraction (won't, isn't …). An answer naming any other ticket key withholds too. The rule lives once, in `typedAdopts`, which the hook and the live grader both reach through `perQuestionConsent`. `Import`, `Join`, `Create`, `Skip` and the answers block keep the exact label, and the refusal remedy says so.
 
 Total test count at release: 19646 tests, 0 failures, 0 errors.
 
