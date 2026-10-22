@@ -232,9 +232,9 @@ describe("AC-STE-508.3 — skip parsing anchors on the LAST match", () => {
     const count = assertOk(parseTestOutput(FLUTTER_PROGRESS_LOG, "flutter"));
     expect(count.skipped).toBe(3);
     expect(count.skipped).not.toBe(1);
-    // NOTE: `total`/`failures` are deliberately not asserted on this fixture.
-    // STE-323 AC-323.5 audited flutter's +N/-F extraction as first-match and
-    // pinned it that way; re-anchoring those counters is out of STE-508's scope.
+    // NOTE: `total`/`failures` are not asserted here; their last-progress-line
+    // anchoring is pinned through `resolveE2eAuthoring` in
+    // tests/m132-ste-512-e2e-authoring.test.ts on this same log.
   });
 
   // STE-323's shipped audit pins that parsePytest/parseFlutter bodies contain
@@ -455,10 +455,8 @@ describe("M132 hardening — flutter `~N` must be anchored to the progress line"
   });
 
   test("anchoring the skip counter leaves the fail counter alone", () => {
-    // Scope guard: flutter's `+N`/`-N` extraction is deliberately first-match
-    // (STE-323 AC-323.5 audits parseFlutter for exactly that), so this asserts
-    // only that the skip fix does not reach into the fail counter. The `-1` in
-    // the final progress line is the run's real failure count; the trailing
+    // Scope guard: the skip fix does not reach into the fail counter. The `-1`
+    // in the final progress line is the run's real failure count; the trailing
     // stack frame carries no `-N` to be confused with it.
     const count = assertOk(parseTestOutput(FLUTTER_TRAILING_TILDE_NOISE, "flutter"));
     expect({ failures: count.failures, errors: count.errors })

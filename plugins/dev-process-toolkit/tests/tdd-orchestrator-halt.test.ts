@@ -143,3 +143,43 @@ describe("AC-STE-296.7 — spec-gap halt mode (audit failure)", () => {
     expect(out).toMatch(/audit|spec.review|missing/i);
   });
 });
+
+// A failed defect check halts on its first attempt, so the report must not
+// claim a retry budget ran out, and it must say what to do instead: the test
+// is the defect, which the implementer was not allowed to touch.
+describe("defect check — not-load-bearing halt report", () => {
+  const report = () =>
+    formatHaltReport({
+      mode: "not-load-bearing",
+      role: "implementer",
+      ac: "AC-X.2",
+      retryCount: 0,
+      lastBlock:
+        "```tdd-result\nrole: implementer\nstatus: failed\nfiles:\n  - src/x.ts\ncommand: bun test\noutput_excerpt: |\n  PASS\nnotes: defect check: dropped save() → still GREEN\n```",
+    });
+
+  test("names the mode with its own description", () => {
+    const out = report();
+    // The description, not the echoed notes line, has to name the check.
+    expect(out).toMatch(/failure mode: not-load-bearing \([^)\n]*defect check[^)\n]*\)/);
+    expect(out).toContain("AC: AC-X.2");
+  });
+
+  test("does not claim an exhausted retry budget", () => {
+    const out = report();
+    expect(out).not.toContain("bounded retry budget exhausted");
+    expect(out.split("\n")[0]).toBe(
+      "/dev-process-toolkit:tdd: halt — a test does not guard its acceptance criterion.",
+    );
+  });
+
+  // The test-writer is not user-invocable and /tdd takes only an FR id, so
+  // the remedy can only be a hand fix to the test, then a re-run of the FR.
+  test("the remedy points at the test, by hand, and names the AC", () => {
+    const remedy = report().split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+    expect(remedy).toContain("fix the test for AC-X.2 by hand");
+    expect(remedy).toContain("fails at its assertion when the behavior breaks");
+    expect(remedy).toContain("re-run /dev-process-toolkit:tdd against the FR");
+    expect(remedy).not.toContain("test-writer");
+  });
+});

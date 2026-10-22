@@ -253,6 +253,10 @@ Flag each risk in the relevant spec. Don't invent risks — only flag things tha
 
 **Solution**: Treat existing tests as immutable unless the spec has changed. If an existing test fails after new code is added, either the new code is wrong or the spec changed. Spec changes require user approval. The agent must never delete or weaken tests to make its implementation pass.
 
+**Parking, the one sanctioned way out of the run.** A test that cannot pass for a reason outside the code under test — a parked product decision, unusable shared test data, a dependency nobody owns — is skipped *at its declaration*, never left red and never deleted, and the comment above it carries three things: the **dated reason**, **what it waits on**, and the **literal line that restores it**. The runner still prints the row, so a park stays visible on every run. Two things look similar and are not parks: a test that skips itself when its environment is absent (no credentials, no device), and a precondition discovered inside the test, which is announced as a skip with its reason rather than a quiet `return` — a quiet return reads as a pass that asserted nothing. A *flaky* test is none of these: it is a bug in the test or the code, and parking it to get the suite green is the Test Weakener with a comment on top. A park changes an existing test, so the rule above holds: the agent proposes it, the user approves it.
+
+**Flake fixes are proven by count.** One green run proves nothing about a flake. Run the test N times before the fix (some red: the flake is real and now measured) and N times after (N of N), and put both tallies in the change description. Repeat whole runs, never an action inside the test.
+
 ## Pattern 19: Git Checkpoints for Recovery
 
 **Problem**: The self-review loop (Phase 3) discovers the implementation went in the wrong direction. But all changes are uncommitted — there's no way to partially revert to a known-good state.
@@ -283,7 +287,7 @@ Agent finds the spec is wrong, works around it in code, never updates the spec. 
 New code breaks existing tests, so the agent "fixes" the tests instead of the code. Fix: treat existing tests as immutable unless the spec changed (with user approval).
 
 ### The Shallow Test
-Test exists and passes, but asserts nothing meaningful (`expect(fn).not.toThrow()`, `assert result is not None`). Fix: assertion quality checks that flag tests without value/behavior assertions.
+Test exists and passes, but asserts nothing meaningful (`expect(fn).not.toThrow()`, `assert result is not None`), or asserts something that cannot fail. Fix: assertion quality checks that flag tests without value/behavior assertions, plus a defect check that turns each new test RED at its assertion (Pattern 22).
 
 ## Pattern 20: Spec-Code Drift Detection
 
@@ -309,7 +313,17 @@ Drift findings are **advisory** (GATE PASSED WITH NOTES, never GATE FAILED) beca
 
 **Problem**: Tests exist and pass, but they don't actually verify behavior. Common anti-patterns: `expect(fn).not.toThrow()` as the sole assertion, `assert result is not None` without checking the value, type-only checks without verifying content. These tests create false confidence.
 
-**Solution**: Add assertion quality checks in TDD (RED phase) and self-review (Stage A). Flag tests that only use these patterns and require assertions on actual return values, state changes, or side effects.
+**Solution**: Add assertion quality checks in TDD (RED phase), the implementer's defect check after GREEN, and self-review (Stage A). Flag tests that only use these patterns and require assertions on actual return values, state changes, or side effects.
+
+Shallow is not only what an assertion says, but whether it can fail — or whether it fails when nothing is wrong. Flag these too:
+
+- **Adaptive expectations** — the expected outcome is chosen from what the code under test produced (`if (result.isEmpty) expect(…) else expect(…)`), so both branches pass. Choose it from what the test controls: its fixture, its input, its declared configuration.
+- **Unreachable assertions** — the test can finish without reaching its assertion: an early `return`, an exception handler around the assertion (`try`/`catch`, `try`/`except`), a loop over a possibly empty collection as the only place it runs.
+- **Tautological expected values** — the expectation is computed through the code path under test (the same helper, lookup table or localization bundle), so the test asserts the code equals itself. Anchor on a literal, a fixture or a stable key.
+- **Repeated actions** — the action under test (a call, a request, a user action) repeated until the assertion passes, so the test cannot fail on the flake it hides. Re-issuing a read to observe an eventually consistent store is polling, and is fine when bounded and named.
+- **Wall-clock waits** — the opposite failure: a fixed sleep instead of a bounded wait on a condition fails tests that are right on a slow machine and teaches people to ignore red.
+
+**Defect check — RED is not proof until it is RED for the right reason.** In TDD the first RED often comes from a missing symbol, which proves the code was absent, not that the assertion guards the behavior. After GREEN, plant the smallest bug in the end state the test reads — return the wrong value, skip the state change, drop the call — in the source, never in the test, and not where breaking it fails the test before its assertion (a compile error, setup, a lookup on the way). The test must go RED **at that assertion**; RED earlier is not a catch: move the plant. GREEN with the bug in means the assertion is not load-bearing and the test needs fixing — inside `/tdd` the implementer may not edit it, so the cycle halts (mode `not-load-bearing`) and the operator fixes the test by hand so it fails at its assertion when the behavior breaks, then re-runs `/dev-process-toolkit:tdd` against the FR. Restore the source and record one line: `defect check: <what was planted> → red at <test>`. `/tdd`'s implementer stage runs it per AC; for end-to-end tests, plant in a scratch checkout and run that one test alone.
 
 ### Stable Anchor IDs
 
@@ -517,10 +531,11 @@ The per-AC implementer dispatch is the load-bearing isolation: the implementer s
 
 - Modes A (false-RED) / B (implementer can't reach GREEN) / C (refactorer breaks GREEN) / E (maxTurns exhaustion classified by role): max 2 attempts per role per AC, then halt.
 - Mode D (format violation — no/multiple/wrong-role/missing-field tdd-result): single targeted retry, then halt.
+- Mode not-load-bearing (the implementer's defect check left the AC's test GREEN with the behavior broken): no retry, halt at once — the implementer may not edit tests, so a retry cannot change the outcome.
 
 The retry prompt **injects only raw failing-test output** — no orchestrator-side analysis. Anything more leaks information that defeats the test-writer-cannot-see-implementation guarantee.
 
-**Halt path** via `formatHaltReport` from `tdd_halt_report.ts`: emits failure mode, retry count, last `tdd-result` block (or raw output), and exits non-zero. Halt is a real failure surfacing — it pauses for the operator. Routine cycles (no retries) run end-to-end without operator interaction; this composes cleanly with `/implement`'s "don't pause between phases" pacing memory because the halt is the bounded-cap signal, not a routine gate.
+**Halt path** via `formatHaltReport` from `tdd_halt_report.ts`: emits failure mode, retry count, last `tdd-result` block (or raw output), and exits non-zero. Halt is a real failure surfacing — it pauses for the operator. Routine cycles (no retries) run end-to-end without operator interaction; this composes cleanly with `/implement`'s "don't pause between phases" pacing memory because the halt is the bounded-cap signal (or a failed defect check), not a routine gate.
 
 **Structural probe**: `/gate-check` carries `tdd_orchestrator_integrity` (probe #39, error-severity) asserting (a) the four skill paths exist, (b) children carry `context: fork`, (c) `agent:` resolves, (d) `user-invocable: false` on children, (e) subagent `tools` excludes `Agent`. The probe does not assert prompt phrasing — content drift is verified by the headless live smoke (env-var-gated; nightly).
 
