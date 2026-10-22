@@ -157,6 +157,22 @@ sentinel exception: a project with no suite owes no test and no rationale, so it
 emits `end_to_end_none_needed` with a null reason. None of this is a fifth key —
 it is a consequence of the four already in the table above.
 
+A suite run that executed no test — every test skipped, none matched — is not
+evidence either: it parses, counts zero passes and zero failures, and would
+otherwise read as green. `resolveE2eAuthoring` refuses it, and the refusal
+names the skips, since an absent secret or device that makes every test skip
+itself is the usual cause.
+
+Whether a change *has* an end-to-end observable surface is a tier question, so
+answer it the way the testing spec's *Which tier a check belongs in* does: an
+end-to-end test earns its cost only when the answer depends on the app, its
+backend and a real session being live at once. A change whose every check
+passes or fails for reasons that never leave one component is covered one tier
+down, and that is a legitimate none-needed reason to record. An end-to-end test
+that is authored owes the same defect check as any other (`docs/patterns.md` §
+Pattern 22): plant the bug in a scratch checkout, run that test alone, and see
+it go RED at its assertion.
+
 ## The `.claude/skills/<name>` + `disable-model-invocation` convention
 
 A check skill is an ordinary Claude Code skill that lives in your project at
