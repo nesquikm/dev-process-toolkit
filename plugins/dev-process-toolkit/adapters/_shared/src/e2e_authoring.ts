@@ -221,8 +221,8 @@ export function resolveE2eAuthoring(input: E2eAuthoringInput): E2eAuthoringOutco
   // A run that EXECUTED nothing parses, counts zero and zero, and every ground
   // above reads it as clean. It proves nothing about the change. The usual
   // cause is an environment that made every test skip itself (no secret, no
-  // device), so the refusal names the skips rather than letting zero read as
-  // green. Not a red suite: the token is left to the authoring decision.
+  // device), so the refusal states the skip count rather than letting zero
+  // read as green. Not a red suite: the token is left to the authoring decision.
   if (counts !== null && counts.pass === 0 && counts.fail === 0) {
     reasons.push(
       `\`e2e\`: the suite ran but executed no test (${counts.skip} skipped) — ` +
