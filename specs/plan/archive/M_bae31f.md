@@ -1,7 +1,7 @@
 ---
 milestone: M_bae31f
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-10-22T17:59:57Z
 kickoff_branch: null
 frozen_at: null
 migration: none
@@ -31,13 +31,13 @@ codename: Off Switch
 
 ### Tasks
 
-- [ ] Measure live how Claude Code delivers a plugin userConfig value to a hook, at user and project scope
+- [x] Measure live how Claude Code delivers a plugin userConfig value to a hook, at user and project scope
   verify: the measurement and its transcript are recorded in the FR Notes before any gate code changes
-- [ ] Declare `tracker_write_gate` in plugin.json userConfig and honour `off` in the hook with one stderr line
+- [x] Declare `tracker_write_gate` in plugin.json userConfig and honour `off` in the hook with one stderr line
   verify: off exits 0 with the line; enforce and absent are byte-identical to today
-- [ ] Report the switch from /gate-check and document it in the hooks reference
+- [x] Report the switch from /gate-check and document it in the hooks reference
   verify: the probe row names the setting and the docs name the scope rule
-- [ ] Teach the shared consent predicate the typed-answer rule and amend AC-STE-607.4 and AC-STE-650.8
+- [x] Teach the shared consent predicate the typed-answer rule and amend AC-STE-607.4 and AC-STE-650.8
   verify: hook, grader and answeredAfter agree on every row of the consent matrix, D-8 negatives included
 
 ### Gate
