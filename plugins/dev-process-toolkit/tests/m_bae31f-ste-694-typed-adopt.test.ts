@@ -31,6 +31,8 @@
 //   drop the whole-word key check     → "AC-STE-694.8 [battery: key check] …"
 //   drop the affirmative-first-word   → "AC-STE-694.8 [battery: affirmative first word] …"
 //   drop the negation-word check      → "AC-STE-694.8 [battery: negation] …"
+//   drop the never / n't check        → "AC-STE-694.8 [battery: never/n't] …"
+//   drop the other-ticket-key check   → "AC-STE-694.8 [battery: other key] …"
 // (and their per-row twins in the matrix describe below, which carry the same tag).
 
 import { describe, expect, test } from "bun:test";
@@ -38,7 +40,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as consent from "../adapters/_shared/src/join_consent_ownership";
 import { readSpecFile } from "./_spec_tree";
-import { TYPED_ADOPT_MATRIX } from "./_typed_adopt_matrix";
+import { TYPED_ADOPT_MATRIX, otherKey } from "./_typed_adopt_matrix";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -100,6 +102,11 @@ describe("AC-STE-694.2 — the typed-answer matrix on `Adopt NEZ-496`", () => {
       "adopt NEZ-4960": false,
       "yes adopt NEZ-496 but not now": false,
       "NEZ-496": false,
+      // Rows added by the 2026-10-23 amendment of AC-STE-694.1 / .2.
+      "yes, never adopt NEZ-496": false,
+      "go, I won't adopt NEZ-496": false,
+      "adopt NEZ-496 and NEZ-497": false,
+      "yes adopt NEZ-496 isn't it": false,
     });
   });
 });
@@ -232,4 +239,117 @@ describe("AC-STE-694.6 — STE-607 AC.4 and STE-650 AC.8 name this FR as their a
       expect(line!).toMatch(/Amended by[^)]*STE-694/);
     });
   }
+});
+
+// ===========================================================================
+// AC-STE-694.1 / .2 / .8 — the 2026-10-23 amendment: never, n't contractions
+// and a second ticket key withhold
+// ===========================================================================
+
+describe("AC-STE-694.1 (amended) — never and n't contractions withhold", () => {
+  const words = ["never", "won't", "isn't", "can't", "shouldn't", "wouldn't", "doesn't"];
+  // Case variants and the curly apostrophe (U+2019) a phone or a rich editor types.
+  const variants = [
+    ...words,
+    ...words.map((w) => w.toUpperCase()),
+    ...words.map((w) => w[0]!.toUpperCase() + w.slice(1)),
+    ...words.filter((w) => w.includes("'")).map((w) => w.replace("'", "’")),
+    "WON’T",
+  ];
+  for (const w of variants) {
+    test(`AC-STE-694.8 [battery: never/n't] an affirmative answer holding ${JSON.stringify(w)} as a whole word → withholds`, () => {
+      expect(typedAdopts(`yes adopt ${KEY} ${w}`, KEY)).toBe(false);
+    });
+    test(`AC-STE-694.8 [battery: never/n't] perQuestionConsent on \`Adopt ${KEY}\` answered "go, I ${w} adopt ${KEY}" → withholds`, () => {
+      expect(verdict("Adopt", KEY, `go, I ${w} adopt ${KEY}`)).toBe(false);
+    });
+  }
+
+  for (const w of ["never", "won't", "isn't"]) {
+    test(`AC-STE-694.8 [battery: never/n't] ${JSON.stringify(w)} wrapped by punctuation is still a whole word → withholds`, () => {
+      expect(typedAdopts(`yes, adopt ${KEY} (${w}!)`, KEY)).toBe(false);
+    });
+  }
+
+  // CONTROLS — words that merely contain those letters are not the word.
+  //   "nevertheless", "evernote"       — contain "never" / "ever" inside a token
+  //   "pan'tomime"                     — n't inside a token, not at its end, so it is no n't contraction
+  //   "isnt", "wont", "cant"           — the AC names n't contractions; an apostrophe-less form has no
+  //                                      n't and so is NOT one (unlike "dont", which AC.1 lists by name)
+  for (const word of ["nevertheless", "evernote", "pan'tomime", "isnt", "wont", "cant", "can", "is"]) {
+    test(`CONTROL — ${JSON.stringify(word)} is not never nor an n't contraction, so it does not withhold`, () => {
+      expect(typedAdopts(`yes adopt ${KEY} ${word}`, KEY)).toBe(true);
+    });
+  }
+});
+
+describe("AC-STE-694.1 (amended) — an answer naming another ticket key withholds", () => {
+  const others: Array<[string, string]> = [
+    ["the same project, the next number", otherKey(KEY)],
+    ["the same project, another number", "NEZ-12"],
+    ["another project", "GK-122"],
+    ["another project in lower case", "gk-122"],
+    ["the same project in lower case", otherKey(KEY).toLowerCase()],
+    ["a key that only extends the label key's digits", `${KEY}0`],
+  ];
+  for (const [what, other] of others) {
+    test(`AC-STE-694.8 [battery: other key] "adopt ${KEY} and ${other}" (${what}) → withholds`, () => {
+      expect(typedAdopts(`adopt ${KEY} and ${other}`, KEY)).toBe(false);
+    });
+    test(`AC-STE-694.8 [battery: other key] perQuestionConsent on \`Adopt ${KEY}\` answered "yes, post to ${other} and ${KEY}" (${what}) → withholds`, () => {
+      expect(verdict("Adopt", KEY, `yes, post to ${other} and ${KEY}`)).toBe(false);
+    });
+  }
+
+  test("AC-STE-694.8 [battery: other key] AC-STE-694.2 as written: `adopt NEZ-1 and NEZ-2` on `Adopt NEZ-1` → withholds", () => {
+    expect(typedAdopts("adopt NEZ-1 and NEZ-2", "NEZ-1")).toBe(false);
+    expect(verdict("Adopt", "NEZ-1", "adopt NEZ-1 and NEZ-2")).toBe(false);
+  });
+
+  test("otherKey builds the AC-STE-694.2 second key from the label key", () => {
+    expect(otherKey("NEZ-1")).toBe("NEZ-2");
+    expect(otherKey(KEY)).toBe("NEZ-497");
+  });
+
+  // CONTROLS — the label key named twice is still one key.
+  for (const twice of [`adopt ${KEY}, yes ${KEY}`, `yes, adopt ${KEY} (${KEY.toLowerCase()})`, `go: ${KEY} / ${KEY}`]) {
+    test(`CONTROL — the label key named twice ${JSON.stringify(twice)} → consents`, () => {
+      expect(typedAdopts(twice, KEY)).toBe(true);
+    });
+  }
+
+  // CONTROL — `NEZ-496-1` stays governed by the existing whole-word key rule:
+  // it does not name NEZ-496, so the answer withholds for the key check alone.
+  test(`CONTROL — "adopt ${KEY}-1" stays governed by the whole-word key rule → withholds`, () => {
+    expect(typedAdopts(`adopt ${KEY}-1`, KEY)).toBe(false);
+  });
+});
+
+describe("AC-STE-694.2 (amended) — the FR's added rows are all in the shared matrix", () => {
+  test("every backticked answer after \"and so do\" in AC-STE-694.2 is a withholding matrix row", () => {
+    const body = readSpecFile(REPO_ROOT, "specs/frs", "STE-694.md").body;
+    const line = body.split("\n").find((l) => l.startsWith("- AC-STE-694.2:"));
+    expect(line, "STE-694.md has no `- AC-STE-694.2:` line").toBeDefined();
+    const tail = line!.slice(line!.indexOf("and so do"));
+    expect(tail.startsWith("and so do"), "AC-STE-694.2 carries no amended `and so do` rows").toBe(true);
+    const named = [...tail.matchAll(/`([^`]+)`/g)].map((m) => m[1]!).filter((a) => a !== "Adopt NEZ-1");
+    expect(named).toEqual(["yes, never adopt NEZ-496", "go, I won't adopt NEZ-496", "adopt NEZ-1 and NEZ-2", "yes adopt NEZ-496 isn't it"]);
+    for (const a of named) {
+      const key = a.includes("NEZ-496") ? "NEZ-496" : "NEZ-1";
+      const row = TYPED_ADOPT_MATRIX.find((r) => r.answer(key) === a);
+      expect(row, `no matrix row yields ${JSON.stringify(a)} on ${key}`).toBeDefined();
+      expect(row!.consents).toBe(false);
+    }
+  });
+
+  test("AC-STE-694.8 names the never/n't and the other-key mutations, and each has a battery row in the matrix", () => {
+    const body = readSpecFile(REPO_ROOT, "specs/frs", "STE-694.md").body;
+    const line = body.split("\n").find((l) => l.startsWith("- AC-STE-694.8:"));
+    expect(line).toBeDefined();
+    expect(line!).toMatch(/never\/n't check/);
+    expect(line!).toMatch(/other-key check/);
+    const tags = new Set(TYPED_ADOPT_MATRIX.map((r) => r.battery));
+    expect(tags.has("never/n't")).toBe(true);
+    expect(tags.has("other key")).toBe(true);
+  });
 });

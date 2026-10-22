@@ -150,12 +150,18 @@ const NEGATION_WORDS = new Set(["skip", "no", "not", "don't", "dont", "cancel"])
 /**
  * STE-694 AC.1: true only when a typed `answer` to an `Adopt <key>` question
  * names `key` as a whole word (case-insensitive), opens with an affirmative
- * word, and holds no negation word.
+ * word, and holds no negation word, no "never", no n't contraction and no
+ * ticket key other than `key`.
  */
 export function typedAdopts(answer: string, key: string): boolean {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   if (!new RegExp(`(?<![A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_-])`, "i").test(answer)) return false;
   const words = answer.replace(/\u2019/g, "'").toLowerCase().match(/[a-z0-9']+/g) ?? [];
   if (words.length === 0 || !AFFIRMATIVE_FIRST_WORDS.has(words[0]!)) return false;
-  return !words.some((w) => NEGATION_WORDS.has(w));
+  if (words.some((w) => NEGATION_WORDS.has(w))) return false;
+  if (words.includes("never")) return false;
+  if (words.some((w) => w.endsWith("n't"))) return false;
+  const keys = answer.match(/(?<![A-Za-z0-9_-])[A-Za-z][A-Za-z0-9_]*-\d+(?![A-Za-z0-9_-])/g) ?? [];
+  if (keys.some((k) => k.toLowerCase() !== key.toLowerCase())) return false;
+  return true;
 }
