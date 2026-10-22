@@ -39,17 +39,17 @@ Override to `tests/-mirror` only if your project has a strong reason — declare
 - Implementation details, third-party internals, generated code
 
 ### Which tier a check belongs in
-Put each check in the cheapest tier that can fail for the reason it is about: business rules and edge cases in unit tests, one component's rendering and state in component tests, request/response shape in contract tests. An end-to-end test is for a journey whose value is the integration — the answer depends on the app, its backend and a real session being live at once. A check that passes or fails for reasons that never leave one component is a component test, wherever it is written.
-<!-- ADAPT: name the tiers and their directories; note any surface the project cannot unit-test (a screen owned by another package) that stays end-to-end until its owner's suite covers it -->
+Put each check in the cheapest tier that can fail for the reason it is about: business rules and edge cases in unit tests, one component's behavior and state in component tests, request/response shape in contract tests. An end-to-end test is for a path whose value is the integration — the answer depends on the real parts of the system working together (processes, services, storage, a device or a real session) that no lower tier can stand in for. A check that passes or fails for reasons that never leave one component is a component test, wherever it is written.
+<!-- ADAPT: name the tiers and their directories; note any surface the project cannot unit-test (code owned by another package) that stays end-to-end until its owner's suite covers it -->
 
 ### A test must be able to fail
 - **Defect check:** a new or changed test goes RED at its assertion when the smallest bug is planted in the behavior it covers; RED earlier, or GREEN with the bug in, means the test is not done
 - **Hard, not adaptive:** the expected outcome comes from what the test controls, never from the output under test
-- **No quiet exits:** no early return or try/catch around an assertion; a precondition the test cannot control is a declared skip with its reason
+- **No quiet exits:** no early return or exception handler (`try`/`catch`, `try`/`except`) around an assertion; a precondition the test cannot control is a declared skip with its reason
 - **Independent expected values:** never computed through the code under test (same helper, lookup table or localization bundle)
-- **Waits:** bounded waits on a condition, never fixed sleeps; never repeat a user action until it passes
+- **Waits:** bounded waits on a condition, never fixed sleeps; never repeat the action under test (a call, a request, a user action) until it passes
 - **One independent check per test;** a linear flow where step N needs step N-1 stays one test
-<!-- ADAPT: UI finders — anchor on stable keys or widget types, not on user-facing copy -->
+<!-- ADAPT: UI finders — anchor on stable test ids or component types, not on user-facing copy -->
 
 ### Flaky and parked tests
 - A flaky test is a bug. Prove a fix by count: N runs before (some red), N of N after

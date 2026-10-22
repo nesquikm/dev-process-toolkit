@@ -73,6 +73,16 @@ const PYTEST_SKIPPED_RE = /(\d+)\s+skipped/g;
 // optional fail counter and the line's colon. Both flutter progress shapes
 // (with and without `-N`) still match; prose tildes no longer can.
 const FLUTTER_SKIPPED_RE = /\+\d+\s+~(\d+)(?=\s*(?:-\d+)?\s*:)/g;
+// The pass and fail counters take the same anchoring. A real `flutter test`
+// capture prints one cumulative progress line per test and opens with
+// `00:00 +0: loading …`, so a first-match `+N` read 0 on every run and a
+// first-match `-N` read the first failure (or any hyphen-digit in a path)
+// rather than the run's total. Only the LAST progress line carries the totals:
+// `+P` is on every progress line, and `~S` / `-F` print once non-zero and only
+// grow, so each counter's last match inside the `+P[ ~S][ -F]:` shape is that
+// line's value.
+const FLUTTER_PASSED_RE = /\+(\d+)(?=(?:\s+~\d+)?(?:\s+-\d+)?\s*:)/g;
+const FLUTTER_FAILED_RE = /\+\d+(?:\s+~\d+)?\s+-(\d+)(?=\s*:)/g;
 
 function parseBun(output: string): TestCountParseResult {
   // STE-323: anchor on Bun's trailing summary line, not the first match.
@@ -121,13 +131,11 @@ function parsePytest(output: string): TestCountParseResult {
 }
 
 function parseFlutter(output: string): TestCountParseResult {
-  const passMatch = /\+(\d+)/.exec(output);
-  const failMatch = /-(\d+)/.exec(output);
-  if (!passMatch && !failMatch) {
-    return { ok: false, reason: "could not determine test count — no +N/-N counters in flutter output" };
+  const pass = lastCountedMatch(output, FLUTTER_PASSED_RE);
+  if (pass === undefined) {
+    return { ok: false, reason: "could not determine test count — no `+N[ ~S][ -F]:` progress line in flutter output" };
   }
-  const pass = passMatch ? Number(passMatch[1]) : 0;
-  const fail = failMatch ? Number(failMatch[1]) : 0;
+  const fail = lastCountedMatch(output, FLUTTER_FAILED_RE) ?? 0;
   const skipped = lastCountedMatch(output, FLUTTER_SKIPPED_RE) ?? 0;
   return { ok: true, count: { total: pass + fail, failures: fail, errors: 0, skipped } };
 }

@@ -72,9 +72,11 @@ export function formatHaltReport(report: HaltReport): string {
   }
   lines.push("");
   if (report.mode === "not-load-bearing") {
+    // The test-writer is not user-invocable and /tdd takes only an FR id, so
+    // the one remedy the operator can act on is a hand fix to the test.
     lines.push(
-      `Remedy: the test is the defect, not the implementation — re-run the test-writer for ${report.ac ?? "this AC"} ` +
-        "(or fix the test by hand) so it fails at its assertion when the behavior breaks, " +
+      `Remedy: the test is the defect, not the implementation — fix the test for ${report.ac ?? "this AC"} by hand ` +
+        "so it fails at its assertion when the behavior breaks, " +
         "then re-run /dev-process-toolkit:tdd against the FR.",
     );
     lines.push(
