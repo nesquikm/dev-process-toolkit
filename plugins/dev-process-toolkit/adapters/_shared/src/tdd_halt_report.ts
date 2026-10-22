@@ -32,11 +32,18 @@ const MODE_DESCRIPTIONS: Record<FailureMode, string> = {
   E: "maxTurns exhaustion — subagent stopped without producing a block",
   "spec-gap":
     "spec-review audit still reports missing ACs after the bounded retry",
+  "not-load-bearing":
+    "defect check — the AC's test stayed GREEN with the behavior broken",
 };
 
 export function formatHaltReport(report: HaltReport): string {
   const lines: string[] = [];
-  lines.push("/dev-process-toolkit:tdd: halt — bounded retry budget exhausted.");
+  // not-load-bearing halts on its first attempt: no budget ran out.
+  lines.push(
+    report.mode === "not-load-bearing"
+      ? "/dev-process-toolkit:tdd: halt — a test does not guard its acceptance criterion."
+      : "/dev-process-toolkit:tdd: halt — bounded retry budget exhausted.",
+  );
   lines.push("");
   lines.push(`failure mode: ${report.mode} (${MODE_DESCRIPTIONS[report.mode]})`);
   lines.push(`role: ${report.role}`);
@@ -64,6 +71,19 @@ export function formatHaltReport(report: HaltReport): string {
     lines.push((report.rawOutput ?? "").trimEnd());
   }
   lines.push("");
+  if (report.mode === "not-load-bearing") {
+    lines.push(
+      `Remedy: the test is the defect, not the implementation — re-run the test-writer for ${report.ac ?? "this AC"} ` +
+        "(or fix the test by hand) so it fails at its assertion when the behavior breaks, " +
+        "then re-run /dev-process-toolkit:tdd against the FR.",
+    );
+    lines.push(
+      `Context: skill=tdd, mode=${report.mode}, role=${report.role}` +
+        (report.ac ? `, ac=${report.ac}` : "") +
+        `, retries=${report.retryCount}`,
+    );
+    return lines.join("\n");
+  }
   lines.push(
     "Remedy: inspect the report above and resume manually. " +
       "Re-run /dev-process-toolkit:tdd against the FR after fixing the " +
