@@ -1,0 +1,46 @@
+---
+milestone: M_bae31f
+status: active
+archived_at: null
+kickoff_branch: null
+frozen_at: null
+migration: none
+codename: Off Switch
+---
+
+# Implementation Plan
+
+## M_bae31f — Per-user relief for the tracker write gate {#M_bae31f}
+
+**Goal:** Answer GitHub issue #118. A user can switch pre-tracker-write-gate off for themselves through the plugin's userConfig, loudly and never silently. With the gate on, a free-text answer that names the ticket key and says yes counts as adopting that ticket.
+
+**Prerequisites:** v2.100.1 merged at 5d2c0734 (PR #120), merged main green 19402/0/16.
+
+**Release target:** a minor release after v2.100.1: one Added FR and one Changed FR. Verify against CHANGELOG.md before shipping.
+
+**Operator rulings.** 2026-10-22 brainstorm: scope is the free-text re-ask and a per-user escape hatch; the hatch is a full off (approach 1, userConfig only); free text counts only when it names the key, starts affirmative and carries no negation. Out of scope: the VS Code transcript gap and a lighter ritual for comments.
+
+**Migration:** none — the option defaults to enforce, so no consumer artifact changes.
+
+### FRs
+
+| FR | Title | Tracker |
+|----|-------|---------|
+| STE-693 | A user can switch the tracker write gate off for themselves | linear:`STE-693` |
+| STE-694 | A typed answer naming the key adopts the ticket | linear:`STE-694` |
+
+### Tasks
+
+- [ ] Measure live how Claude Code delivers a plugin userConfig value to a hook, at user and project scope
+  verify: the measurement and its transcript are recorded in the FR Notes before any gate code changes
+- [ ] Declare `tracker_write_gate` in plugin.json userConfig and honour `off` in the hook with one stderr line
+  verify: off exits 0 with the line; enforce and absent are byte-identical to today
+- [ ] Report the switch from /gate-check and document it in the hooks reference
+  verify: the probe row names the setting and the docs name the scope rule
+- [ ] Teach the shared consent predicate the typed-answer rule and amend AC-STE-607.4 and AC-STE-650.8
+  verify: hook, grader and answeredAfter agree on every row of the consent matrix, D-8 negatives included
+
+### Gate
+
+- `bun test` from `plugins/dev-process-toolkit`: 0 fail, skip identities equal to the baseline
+- `/gate-check` clean
