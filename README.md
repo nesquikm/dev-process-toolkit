@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.100.0 — "Not Yet Numbered"** (M_7a948e, releases for repos whose tags own the version. An opt-in `changelog_unversioned` flag lets `/ship-milestone` close a milestone under `## [Unreleased]` with no version bump, every stamp reader accepts `shipped_in: unreleased` under that flag, and a numbered Jira milestone no longer needs a child listing)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.100.1 — "Second Look"** (M_262834, base-relative tests that survive their own merge. The STE-589 stamp guard reads both shipped stamp forms on main, and the STE-608 control copies its import closure from a pinned commit, so merged main is green again)
 
 ## Core Philosophy
 

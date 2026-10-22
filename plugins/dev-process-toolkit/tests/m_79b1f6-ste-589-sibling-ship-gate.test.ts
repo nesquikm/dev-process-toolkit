@@ -54,6 +54,7 @@ import * as siblingRelease from "../adapters/_shared/src/sibling_release";
 import { SpansReposError, readSpansReposDeclaration } from "../adapters/_shared/src/spans_repos";
 import { runNestedBunTest } from "./_nested_bun_test";
 import { type SpanFixture, makeSpanFixture } from "./_span_fixture";
+import { STAMP_LITERAL_RE, grownStampModules, stampLiteralCount, stampLiteralCountsAt } from "./_base_relative"; // Amended by AC-STE-692.3
 
 // ===========================================================================
 // Paths.
@@ -968,10 +969,11 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
   // differs from the shared one on STAMP_CORPUS (accept exactly `v<X.Y.Z>` and
   // `unreleased`, reject everything else); (3) a line the branch adds over main,
   // OTHER than its own definition line, carries a stamp-shaped regex literal
-  // (`/^v\d` or `/^v(\d`). "Added" is the multiset difference of lines, so a
+  // in either shipped form (`/^v\d`, `/^v(\d`, `/^(?:v\d`, `/^(?:v(\d`). Amended by AC-STE-692.3
+  // "Added" is the multiset difference of lines, so a
   // moved-but-unchanged line is not an addition.
   const STAMP_DEF_RE = /^\s*(?:export\s+)?const\s+STAMP_RE\s*=.*;\s*$/;
-  const STAMP_LITERAL_RE = /\/\^v\(?\\d/;
+  // STAMP_LITERAL_RE (both shipped forms) is imported from ./_base_relative. Amended by AC-STE-692.3
 
   /** The shared grammar's verdict on each probe string: true = a well-formed stamp. */ // Amended by AC-STE-690.1
   const STAMP_CORPUS: ReadonlyArray<readonly [string, boolean]> = [
@@ -1105,24 +1107,8 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
   // GAINS a second stamp-shaped regex literal. "Gains" is measured per module
   // against main: a module may carry its first (sibling_release.ts carries one
   // by Decision D), but none may grow past max(its count on main, 1).
-  const stampLiteralCount = (src: string): number =>
-    src.split("\n").filter((l) => STAMP_LITERAL_RE.test(l)).length;
-
-  const mainStampLiteralCounts = (): Map<string, number> => {
-    const proc = spawnSync(
-      "git",
-      ["grep", "-c", "-E", "/\\^v\\(?\\\\d", "main", "--", "adapters/_shared/src/*.ts"],
-      { cwd: PLUGIN_ROOT, encoding: "utf-8" },
-    );
-    // git grep exits 0 with matches and 1 with none; anything else is a broken read.
-    expect([0, 1], proc.stderr).toContain(proc.status);
-    const counts = new Map<string, number>();
-    for (const line of proc.stdout.split("\n").filter(Boolean)) {
-      const m = /^main:(?:.*\/)?adapters\/_shared\/src\/([^/:]+\.ts):(\d+)$/.exec(line);
-      if (m) counts.set(m[1]!, Number(m[2]));
-    }
-    return counts;
-  };
+  const mainStampLiteralCounts = (): Map<string, number> =>
+    stampLiteralCountsAt(PLUGIN_ROOT, "main", "adapters/_shared/src/*.ts"); // Amended by AC-STE-692.3
 
   test("no shared module GAINS a second stamp-shaped regex literal over main, beyond the three named files", () => {
     const { readdirSync } = require("node:fs") as typeof import("node:fs");
@@ -1133,10 +1119,7 @@ describe("AC-STE-589.8 — --partial stamps shipped_in: plus a bare ship_partial
     }
     const files = readdirSync(SHARED_SRC).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
     expect(files.length, "the sweep must see the shared modules").toBeGreaterThan(20);
-    const grown = files
-      .map((f) => ({ f, now: stampLiteralCount(read(join(SHARED_SRC, f))), was: onMain.get(f) ?? 0 }))
-      .filter(({ now, was }) => now > Math.max(was, 1))
-      .map(({ f, now, was }) => `${f}: ${was} on main -> ${now} now`);
+    const grown = grownStampModules(onMain, new Map(files.map((f) => [f, read(join(SHARED_SRC, f))]))); // Amended by AC-STE-692.3
     expect(grown, grown.join("\n")).toEqual([]);
     // Decision D's one copy is present and counted: exactly one in sibling_release.ts.
     expect(stampLiteralCount(read(join(SHARED_SRC, "sibling_release.ts")))).toBe(1);
