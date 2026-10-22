@@ -12,8 +12,12 @@
 //     export function typedAdopts(answer: string, key: string): boolean
 //       — true only when the answer names `key` as a whole word
 //         (case-insensitive), its first word is adopt|yes|approve|post|go
-//         (case-insensitive), and it holds none of skip|no|not|don't|dont|cancel
-//         as a whole word.
+//         (case-insensitive), it holds none of skip|no|not|don't|dont|cancel,
+//         never, or an n't contraction (won't, isn't, can't, … — straight or
+//         curly apostrophe) as a whole word, and it names no ticket key other
+//         than `key`. A whole word is read with quote characters (' " ‘ ’ “ ” `)
+//         and brackets stripped from its edges, so 'no', "won't" and (no) are
+//         the words no and won't.
 //     perQuestionConsent(questions, label, names, answer) accepts a typed
 //       answer through `typedAdopts` ONLY when `label` is `Adopt <KEY>`, with
 //       the key taken from the label, never from the answer.
@@ -352,4 +356,44 @@ describe("AC-STE-694.2 (amended) — the FR's added rows are all in the shared m
     expect(tags.has("never/n't")).toBe(true);
     expect(tags.has("other key")).toBe(true);
   });
+});
+
+// ===========================================================================
+// AC-STE-694.1 — a quoted negation still withholds. Quote characters at a
+// word's edges are not part of the word: 'no' is the word no.
+// ===========================================================================
+
+describe("AC-STE-694.1 — a quoted negation still withholds", () => {
+  const quoted: Array<[string, "negation" | "never/n't"]> = [
+    ["'no'", "negation"],
+    ['"no"', "negation"],
+    ["‘no’", "negation"],
+    ["“no”", "negation"],
+    ["`no`", "negation"],
+    ["(no)", "negation"],
+    ["[never]", "never/n't"],
+    ["'never'", "never/n't"],
+    ['"won\'t"', "never/n't"],
+    ["won't'", "never/n't"],
+    ["'skip'", "negation"],
+    ['"cancel"', "negation"],
+  ];
+  for (const [q, battery] of quoted) {
+    test(`AC-STE-694.8 [battery: ${battery}] typedAdopts("yes adopt ${KEY} ${q}") → withholds`, () => {
+      expect(typedAdopts(`yes adopt ${KEY} ${q}`, KEY)).toBe(false);
+    });
+    test(`AC-STE-694.8 [battery: ${battery}] perQuestionConsent on \`Adopt ${KEY}\` answered "go, adopt ${KEY} ${q}" → withholds`, () => {
+      expect(verdict("Adopt", KEY, `go, adopt ${KEY} ${q}`)).toBe(false);
+    });
+  }
+
+  // CONTROLS — quoting the key, or the whole command, is still consent.
+  for (const answer of [`yes, adopt '${KEY}'`, `go ahead: "adopt ${KEY}"`]) {
+    test(`CONTROL — ${JSON.stringify(answer)} → consents through typedAdopts`, () => {
+      expect(typedAdopts(answer, KEY)).toBe(true);
+    });
+    test(`CONTROL — perQuestionConsent on \`Adopt ${KEY}\` answered ${JSON.stringify(answer)} → consents`, () => {
+      expect(verdict("Adopt", KEY, answer)).toBe(true);
+    });
+  }
 });

@@ -156,7 +156,11 @@ const NEGATION_WORDS = new Set(["skip", "no", "not", "don't", "dont", "cancel"])
 export function typedAdopts(answer: string, key: string): boolean {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   if (!new RegExp(`(?<![A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_-])`, "i").test(answer)) return false;
-  const words = answer.replace(/\u2019/g, "'").toLowerCase().match(/[a-z0-9']+/g) ?? [];
+  // A word wrapped in quotes is still that word: strip quote characters from
+  // its edges, so an apostrophe inside a contraction (won't) still counts.
+  const words = (answer.replace(/[\u2018\u2019]/g, "'").toLowerCase().match(/[a-z0-9']+/g) ?? [])
+    .map((w) => w.replace(/^'+|'+$/g, ""))
+    .filter((w) => w !== "");
   if (words.length === 0 || !AFFIRMATIVE_FIRST_WORDS.has(words[0]!)) return false;
   if (words.some((w) => NEGATION_WORDS.has(w))) return false;
   if (words.includes("never")) return false;
