@@ -39,6 +39,8 @@ Before attempting any fix, ask:
    - Tests that fail intermittently often depend on `sleep()` or wall-clock time.
    - Replace `sleep(N)` with condition-based waiting: poll for the condition with a timeout.
    - Fixed sleeps are false gates — they pass on fast machines and fail on slow ones.
+   - Never stabilise a test by repeating the action under test until the assertion passes — that hides the bug. Re-issuing a fetch to observe an eventually consistent store is polling, and is fine when bounded and named.
+   - Measure the flake before fixing it: run the test N times and count the red runs. Re-run the same N after the fix and require N of N green. Put both tallies in the change description; one green run proves nothing about a flake.
 
 ## Phase 3: Hypothesis Testing
 
@@ -75,5 +77,6 @@ Continuing past 3 failed fixes without changing your mental model burns time and
 - Do NOT skip Phase 1 — "I know what's wrong" is how debugging sessions fail
 - Do NOT batch multiple hypotheses into one fix
 - Do NOT increase `sleep()` durations to fix flaky tests — find the condition and wait for it
+- Do NOT park or delete a flaky test to get the suite green — it is a bug in the test or the code
 - Do NOT claim the issue is fixed without running the gate and reading the actual output
 - After 3 failed fixes, escalate — do not attempt fix #4

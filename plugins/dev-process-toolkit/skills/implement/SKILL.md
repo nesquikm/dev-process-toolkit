@@ -143,7 +143,7 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    b. **Cross-module coverage check** — For every module created or significantly modified, verify direct test coverage. If an AC references a specific module without a dedicated test file, flag it as a gap.
 
-   c. **Assertion quality check** — Scan test files for shallow assertions: `expect(fn).not.toThrow()` / `assert not raises` as the sole assertion, `expect(result).toBeDefined()` / `assert result is not None` without checking the value, type-only checks (`isinstance()`, `typeof`) without verifying content. Tests using only these patterns aren't validating behavior — strengthen them.
+   c. **Assertion quality check** — Scan test files for shallow assertions: `expect(fn).not.toThrow()` / `assert not raises` as the sole assertion, `expect(result).toBeDefined()` / `assert result is not None` without checking the value, type-only checks (`isinstance()`, `typeof`) without verifying content. Also flag assertions that cannot fail: an expectation chosen from the output under test (`if (result.isEmpty) … else …`), a test that can finish without reaching its assertion (early `return`, `try`/`catch` around it, a loop over a possibly empty collection), an expected value computed through the code under test, and a fixed sleep where a bounded condition wait belongs. Tests using only these patterns aren't validating behavior — strengthen them. Every new or changed test carries a defect check (`docs/patterns.md` § Pattern 22): it goes RED at its assertion with the behavior broken.
 
    **If Stage A finds issues:** fix, re-run gate check, then proceed to Stage B.
 
@@ -330,7 +330,7 @@ Full skip-case table: `docs/implement-reference.md` § Phase 5.
 ## Rules
 
 - Do NOT proceed if the gate check fails — fix first
-- Do NOT skip tests — always write tests before implementation
+- Do NOT skip tests — always write tests before implementation. A test that cannot pass for a reason outside the code under test is parked at its declaration with the dated reason, what it waits on and the line that restores it — never left red, never deleted, never parked to turn a flaky suite green (`docs/patterns.md` § Pattern 18)
 - Do NOT commit without user approval
 - Do NOT self-review more than 2 rounds — escalate instead of looping
 - Do NOT silently work around a broken spec — update the spec first (Phase 2 step 9)
