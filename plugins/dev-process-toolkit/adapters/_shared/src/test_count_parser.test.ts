@@ -284,8 +284,10 @@ describe("parseTestOutput — pytest/flutter audit (STE-323 AC-323.5)", () => {
     expect(result.count.failures).toBe(3);
   });
 
-  // AC-STE-323.5: flutter emits a SINGLE `+N -F` line; first-match is safe.
-  test("AC-STE-323.5: flutter first-match harmless — single +N/-F line in real output", () => {
+  // AC-STE-323.5 assumed flutter emits a SINGLE `+N -F` line. A real capture
+  // prints one cumulative progress line per test, so `+N`/`-F` are last-match
+  // now too — through module-level `/g` constants, keeping this body audit.
+  test("AC-STE-323.5: flutter body stays free of matchAll and inline /g — a single +N/-F line parses", () => {
     const source = readFileSync(
       join(import.meta.dir, "test_count_parser.ts"),
       "utf8",
