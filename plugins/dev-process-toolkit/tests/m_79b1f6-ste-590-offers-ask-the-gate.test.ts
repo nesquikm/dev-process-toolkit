@@ -273,6 +273,11 @@ function expectUneditedBeyondSte609(suite: string, ref: string): void {
  * pin, each hunk adding a line marked `Amended by AC-STE-690.1`, and the narrowed
  * stampShippedIn pin, each hunk adding a line marked `Amended by AC-STE-690.2`.
  * An unmarked hunk is still an edit.
+ *
+ * Amended by AC-STE-692.3 (approved spec STE-692, M_262834; operator ruling 2026-10-22): admitted the same way.
+ * STE-692 widens the stamp-literal counter to both shipped forms and moves it into tests/_base_relative.ts,
+ * so tests/m_79b1f6-ste-589-sibling-ship-gate.test.ts carries the counter import, each hunk adding a line
+ * marked `Amended by AC-STE-692.<N>`. An unmarked hunk is still an edit.
  */
 function unmarkedHunks(diff: string): string[] {
   const hunks = diff.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ "));
@@ -284,7 +289,7 @@ function unmarkedHunks(diff: string): string[] {
   ).map((h) => h.split("\n")[0]!);
 }
 
-const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6|690\.1|690\.2)\b/;
+const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6|690\.1|690\.2|692\.\d+)\b/;
 
 /** The suite's working-tree bytes equal `ref`'s committed bytes. */
 function expectUnedited(suite: string, ref: "main" | "HEAD"): void {
