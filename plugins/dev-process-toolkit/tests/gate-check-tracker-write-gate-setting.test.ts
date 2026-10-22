@@ -119,8 +119,18 @@ describe("AC-STE-693.6 — tracker_write_gate_setting reports the effective sett
   });
 
   test("the variable set to enforce, empty, or an unknown value → `enforce`", async () => {
-    for (const v of ["enforce", "", "OFF", "disabled"]) {
+    for (const v of ["enforce", ""]) {
       expectOneRow(await probe(projectWith(null), { [VAR]: v, CLAUDE_CONFIG_DIR: userConfigDir(null) }), "enforce");
+    }
+    // Amended for the review fix "the row names an unrecognised value": an unknown value is still `enforce`, and the row names it.
+    for (const v of ["OFF", "disabled"]) {
+      const r = await probe(projectWith(null), { [VAR]: v, CLAUDE_CONFIG_DIR: userConfigDir(null) });
+      expect(r.setting).toBe("enforce");
+      expect(r.violations).toEqual([]);
+      expect(r.vacuous).toBe(false);
+      expect(r.notes.length).toBe(1);
+      expect(r.notes[0]!.startsWith(`${PROBE_ID}: enforce`)).toBe(true);
+      expect(r.notes[0]!).toContain(v);
     }
   });
 
@@ -278,5 +288,61 @@ describe("AC-STE-693.6 (amended) — the row warns when a project settings env b
     expect(line).toMatch(/`env`/);
     expect(line).toContain(".claude/settings.json");
     expect(line).toContain(".claude/settings.local.json");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-STE-693.6 (review fix) — an unrecognised value is named in the row
+// ---------------------------------------------------------------------------
+//
+// When the variable, or the user-settings fallback, holds a value other than
+// `enforce`, `off` or empty, the effective setting is `enforce` (fail closed),
+// and the ONE row says so AND names the ignored value, so the user sees why
+// their `disabled` did nothing. It never becomes a violation.
+//
+// NOTE: the earlier test "the variable set to enforce, empty, or an unknown
+// value → `enforce`" was amended with this fix: it still pins the plain row for
+// `enforce` and empty, and now requires the unknown values to be named.
+
+describe("AC-STE-693.6 (review fix) — the row names an unrecognised value", () => {
+  function expectIgnoredRow(r: Report, value: string): void {
+    expect(r.setting).toBe("enforce");
+    expect(r.violations).toEqual([]);
+    expect(r.vacuous).toBe(false);
+    expect(r.notes.length).toBe(1);
+    const row = r.notes[0]!;
+    expect(row.startsWith(`${PROBE_ID}: enforce`)).toBe(true);
+    expect(row).toContain(value);
+  }
+
+  for (const value of ["disabled", "OFF"]) {
+    test(`the variable set to \`${value}\` → one row \`enforce\` naming the ignored value \`${value}\``, async () => {
+      const r = await probe(projectWith(null), { [VAR]: value, CLAUDE_CONFIG_DIR: userConfigDir(null) });
+      expectIgnoredRow(r, value);
+    });
+
+    test(`no variable, user settings option set to \`${value}\` → one row \`enforce\` naming \`${value}\``, async () => {
+      const r = await probe(projectWith(null), { CLAUDE_CONFIG_DIR: userConfigDir(value) });
+      expectIgnoredRow(r, value);
+    });
+  }
+
+  test("CONTROL — `enforce`, empty and absent name no ignored value: the plain row", async () => {
+    expectOneRow(await probe(projectWith(null), { [VAR]: "enforce", CLAUDE_CONFIG_DIR: userConfigDir(null) }), "enforce");
+    expectOneRow(await probe(projectWith(null), { [VAR]: "", CLAUDE_CONFIG_DIR: userConfigDir(null) }), "enforce");
+    expectOneRow(await probe(projectWith(null), { CLAUDE_CONFIG_DIR: userConfigDir("enforce") }), "enforce");
+  });
+
+  test("front door — the unrecognised-value row is one line naming the value, exit 0", () => {
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+    env[VAR] = "disabled";
+    env.CLAUDE_CONFIG_DIR = userConfigDir(null);
+    const p = Bun.spawnSync(["bun", "run", MODULE_ABS, projectWith(null)], { env, stdout: "pipe", stderr: "pipe" });
+    expect(p.exitCode).toBe(0);
+    const lines = p.stdout.toString().split("\n").filter((l) => l.trim() !== "");
+    expect(lines.length).toBe(1);
+    expect(lines[0]!.startsWith(`${PROBE_ID}: enforce`)).toBe(true);
+    expect(lines[0]!).toContain("disabled");
   });
 });

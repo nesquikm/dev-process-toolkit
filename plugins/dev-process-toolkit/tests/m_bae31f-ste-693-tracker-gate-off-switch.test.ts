@@ -16,11 +16,20 @@
 // transcript, so no flush wait runs) and replayed byte-for-byte under every
 // variant, so any difference in exit code or stderr is the variable's doing.
 //
-// "Today" (AC-STE-693.4) is the hook module as it stood before this FR:
-// `git show <PRE_CHANGE_COMMIT>:<module>` written into a scratch mirror of the
-// plugin tree (its own file, the real `_lib/session.ts` and `adapters/`
-// symlinked beside it, so its relative imports resolve exactly as the shipped
-// module's do). A missing pre-change commit THROWS — it never skips.
+// Two baselines, one job each:
+//   - CURRENT — the live hook module, spawned with the variable DELETED from
+//     its env, over the same fixture stdin. Every comparison that grades the
+//     variable's effect (empty / enforce byte-identical, unknown = current plus
+//     one line, forgeries, the amended AC.5 `env`-file cases) uses it, so a
+//     deliberate change to the hook's wording elsewhere never reds this suite.
+//   - PRE-CHANGE — the hook module as it stood before this FR:
+//     `git show <PRE_CHANGE_COMMIT>:<module>` written into a scratch mirror of
+//     the plugin tree (its own file, the real `_lib/session.ts` and `adapters/`
+//     symlinked beside it, so its relative imports resolve exactly as the
+//     shipped module's do). It serves the fixture precondition and exactly ONE
+//     pinned test (variable absent), which permits only the named
+//     PERMITTED_WORDING_DELTAS below. A missing pre-change commit THROWS — it
+//     never skips.
 //
 // ---------------------------------------------------------------------------
 // CONTRACT this suite reads (the implementer satisfies it)
@@ -43,6 +52,7 @@
 
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -74,6 +84,27 @@ const MEASUREMENT = join(REPO_ROOT, "specs", "notes", "ste-693-userconfig-measur
 
 /** The merge-base of this FR's branch with main: the hook exactly as it stood before STE-693. */
 const PRE_CHANGE_COMMIT = "976e6b8e2fadba1210c5f8d9a1874865b05d7f0d";
+
+// RE-BASED (orchestrator ruling 2026-10-22, M_bae31f / STE-694): AC-STE-694.7
+// deliberately rewords the ticket-ownership refusal remedy, inserting a clause
+// after `the operator answered "Adopt <KEY>"`. That is drift against
+// PRE_CHANGE_COMMIT, not an effect of the variable, so every comparison that
+// grades the variable now uses the CURRENT hook (variable deleted) as its
+// baseline. The ONE remaining pin against PRE_CHANGE_COMMIT (AC-STE-693.4,
+// variable absent) admits exactly the substitutions listed here and nothing
+// else; a further wording change needs a fresh ruling and a new named entry.
+const STE_694_ADOPT_ANCHOR = 'the operator answered "Adopt <KEY>"';
+const STE_694_ADOPT_CLAUSE = " — a typed answer counts when it names the key and says yes —";
+const PERMITTED_WORDING_DELTAS: ReadonlyArray<{ id: string; from: string; to: string }> = [
+  { id: "AC-STE-694.7", from: STE_694_ADOPT_ANCHOR, to: STE_694_ADOPT_ANCHOR + STE_694_ADOPT_CLAUSE },
+];
+
+/** The pre-change stderr with every permitted wording delta applied. */
+function applyPermittedDeltas(stderr: string): string {
+  let out = stderr;
+  for (const d of PERMITTED_WORDING_DELTAS) out = out.split(d.from).join(d.to);
+  return out;
+}
 
 const VAR = "CLAUDE_PLUGIN_OPTION_TRACKER_WRITE_GATE";
 const OFF_PHRASE = "tracker write gate off for this user";
@@ -419,7 +450,10 @@ function spawnHook(module: string, stdin: string, option: string | undefined, ex
 
 const runHook = (f: Fixture, option: string | undefined, extraEnv?: Record<string, string>) =>
   spawnHook(MODULE_PATH, f.stdin, option, extraEnv);
+/** The pre-change hook (PRE_CHANGE_COMMIT): the fixture precondition and the one AC.4 pin only. */
 const runBaseline = (f: Fixture) => spawnHook(BASELINE_MODULE, f.stdin, undefined);
+/** The CURRENT hook with the variable deleted: the baseline every variable-effect comparison uses. */
+const runCurrent = (f: Fixture) => spawnHook(MODULE_PATH, f.stdin, undefined);
 
 function show(label: string, r: Run): string {
   return `${label}: exit=${r.exitCode}\n--- stdout ---\n${r.stdout}\n--- stderr ---\n${r.stderr}`;
@@ -430,12 +464,19 @@ const nonEmptyLines = (s: string) => s.split("\n").filter((l) => l.trim() !== ""
 // ---------------------------------------------------------------- baselines
 
 let FIXTURES: Fixture[];
+/** PRE_CHANGE_COMMIT's hook per fixture. */
 let BASELINE: Map<string, Run>;
+/** The current hook, variable deleted, per fixture. */
+let CURRENT: Map<string, Run>;
 
 beforeAll(async () => {
   FIXTURES = refusalFixtures();
-  const runs = await Promise.all(FIXTURES.map((f) => runBaseline(f)));
-  BASELINE = new Map(FIXTURES.map((f, i) => [f.name, runs[i]!]));
+  const [pre, cur] = await Promise.all([
+    Promise.all(FIXTURES.map((f) => runBaseline(f))),
+    Promise.all(FIXTURES.map((f) => runCurrent(f))),
+  ]);
+  BASELINE = new Map(FIXTURES.map((f, i) => [f.name, pre[i]!]));
+  CURRENT = new Map(FIXTURES.map((f, i) => [f.name, cur[i]!]));
 });
 
 describe("fixture precondition — the pre-change hook refuses every refusal fixture", () => {
@@ -586,11 +627,30 @@ describe("AC-STE-693.4 — absent, empty or enforce is byte-identical to the pre
   ] as const) {
     test(`variable ${label}: exit code, stdout and stderr equal the pre-change hook on every fixture`, async () => {
       const runs = await Promise.all(FIXTURES.map((f) => runHook(f, value)));
+      if (value === undefined) {
+        // THE ONE PIN against PRE_CHANGE_COMMIT (RE-BASED, STE-694): the current
+        // hook with the variable absent equals the pre-change hook after the
+        // named PERMITTED_WORDING_DELTAS, and every delta is exercised.
+        const exercised = new Set<string>();
+        FIXTURES.forEach((f, i) => {
+          const now = runs[i]!;
+          const then = BASELINE.get(f.name)!;
+          for (const d of PERMITTED_WORDING_DELTAS) if (then.stderr.includes(d.from)) exercised.add(d.id);
+          const want = applyPermittedDeltas(then.stderr);
+          if (now.exitCode !== then.exitCode || now.stderr !== want || now.stdout !== then.stdout) {
+            throw new Error(
+              `"${f.name}" with the variable ${label} drifted from the pre-change hook (after the permitted deltas):\n${show("now", now)}\n${show("pre-change", then)}`,
+            );
+          }
+        });
+        expect([...exercised].sort()).toEqual(PERMITTED_WORDING_DELTAS.map((d) => d.id).sort());
+        return;
+      }
       FIXTURES.forEach((f, i) => {
         const now = runs[i]!;
-        const then = BASELINE.get(f.name)!;
+        const then = CURRENT.get(f.name)!;
         if (now.exitCode !== then.exitCode || now.stderr !== then.stderr || now.stdout !== then.stdout) {
-          throw new Error(`"${f.name}" with the variable ${label} drifted from the pre-change hook:\n${show("now", now)}\n${show("pre-change", then)}`);
+          throw new Error(`"${f.name}" with the variable ${label} drifted from the variable-absent hook:\n${show("now", now)}\n${show("absent", then)}`);
         }
       });
     });
@@ -599,7 +659,7 @@ describe("AC-STE-693.4 — absent, empty or enforce is byte-identical to the pre
   test("CONTROL — a permitted write stays silent under absent / empty / enforce, as before", async () => {
     const w = makeWorld();
     const f = fixture("transition own key", JIRA("transitionJiraIssue"), transition("GK-111"), w.be, w.scratch, ["GK-111"]);
-    const then = await runBaseline(f);
+    const then = await runCurrent(f);
     expect(then).toEqual({ exitCode: 0, stdout: "", stderr: "" });
     for (const v of [undefined, "", "enforce"]) expect(await runHook(f, v)).toEqual(then);
   });
@@ -613,7 +673,7 @@ describe("AC-STE-693.4 — any other value is treated as enforce and named once"
       const runs = await Promise.all(FIXTURES.map((f) => runHook(f, v)));
       FIXTURES.forEach((f, i) => {
         const r = runs[i]!;
-        if (r.exitCode !== BASELINE.get(f.name)!.exitCode) throw new Error(`"${f.name}" with ${VAR}=${v}:\n${show("now", r)}`);
+        if (r.exitCode !== CURRENT.get(f.name)!.exitCode) throw new Error(`"${f.name}" with ${VAR}=${v}:\n${show("now", r)}`);
         expect(r.stderr).not.toContain(OFF_PHRASE);
       });
     }
@@ -624,10 +684,10 @@ describe("AC-STE-693.4 — any other value is treated as enforce and named once"
       const runs = await Promise.all(FIXTURES.map((f) => runHook(f, v)));
       FIXTURES.forEach((f, i) => {
         const r = runs[i]!;
-        const then = BASELINE.get(f.name)!;
+        const then = CURRENT.get(f.name)!;
         expect(r.stdout).toBe(then.stdout);
         const at = r.stderr.indexOf(then.stderr);
-        if (at === -1) throw new Error(`"${f.name}" with ${VAR}=${v} lost the pre-change refusal text:\n${show("now", r)}\n${show("pre-change", then)}`);
+        if (at === -1) throw new Error(`"${f.name}" with ${VAR}=${v} lost the variable-absent refusal text:\n${show("now", r)}\n${show("absent", then)}`);
         const extra = nonEmptyLines(r.stderr.slice(0, at) + r.stderr.slice(at + then.stderr.length));
         if (extra.length !== 1) throw new Error(`"${f.name}" with ${VAR}=${v} added ${extra.length} lines:\n${show("now", r)}`);
         expect(extra[0]!).toContain(v);
@@ -653,7 +713,10 @@ describe("AC-STE-693.4 — any other value is treated as enforce and named once"
 
 describe("AC-STE-693.5 — the STE-607 forgery rule: only the harness-set variable counts", () => {
   let forged: Fixture[];
+  /** PRE_CHANGE_COMMIT's hook: the fixture precondition only. */
   let forgedBaseline: Run[];
+  /** The current hook, variable deleted: the baseline the forgery decisions are graded against. */
+  let forgedCurrent: Run[];
 
   beforeAll(async () => {
     // Repo files naming the option, committed into BE (the write's own target).
@@ -705,7 +768,10 @@ describe("AC-STE-693.5 — the STE-607 forgery rule: only the harness-set variab
       ),
       fixture("forged create with no receipt", JIRA("createJiraIssue"), jiraCreate(), w.be, w.scratch, [], forge),
     ];
-    forgedBaseline = await Promise.all(forged.map((f) => runBaseline(f)));
+    [forgedBaseline, forgedCurrent] = await Promise.all([
+      Promise.all(forged.map((f) => runBaseline(f))),
+      Promise.all(forged.map((f) => runCurrent(f))),
+    ]);
   });
 
   test("every forged fixture is still refused by the pre-change hook (the forgery is not a permit on its own)", () => {
@@ -718,9 +784,9 @@ describe("AC-STE-693.5 — the STE-607 forgery rule: only the harness-set variab
     const runs = await Promise.all(forged.map((f) => runHook(f, undefined)));
     forged.forEach((f, i) => {
       const now = runs[i]!;
-      const then = forgedBaseline[i]!;
-      if (now.exitCode !== then.exitCode || now.stderr !== then.stderr) {
-        throw new Error(`"${f.name}" — a forgery changed the decision:\n${show("now", now)}\n${show("pre-change", then)}`);
+      const then = forgedCurrent[i]!;
+      if (now.exitCode !== 2 || now.exitCode !== then.exitCode || now.stderr !== then.stderr) {
+        throw new Error(`"${f.name}" — a forgery changed the decision:\n${show("now", now)}\n${show("absent", then)}`);
       }
       expect(now.stderr).not.toContain(OFF_PHRASE);
     });
@@ -730,7 +796,7 @@ describe("AC-STE-693.5 — the STE-607 forgery rule: only the harness-set variab
     const runs = await Promise.all(forged.map((f) => runHook(f, "enforce")));
     forged.forEach((f, i) => {
       expect(runs[i]!.exitCode).toBe(2);
-      expect(runs[i]!.stderr).toBe(forgedBaseline[i]!.stderr);
+      expect(runs[i]!.stderr).toBe(forgedCurrent[i]!.stderr);
     });
   });
 
@@ -751,7 +817,7 @@ describe("AC-STE-693.5 — the STE-607 forgery rule: only the harness-set variab
 // can write that file, so when `.claude/settings.json` or
 // `.claude/settings.local.json` under the hook's git top level (of
 // `payload.cwd`) names the variable in `env`, the hook treats `off` as
-// `enforce`: the pre-change exit code and stderr, plus exactly ONE extra
+// `enforce`: the variable-absent exit code and stderr, plus exactly ONE extra
 // stderr line naming that file. A file whose `env` names some other variable
 // changes nothing.
 
@@ -789,10 +855,10 @@ describe("AC-STE-693.5 (amended) — a project settings env block naming the var
   /** `now` must be `then` plus exactly one extra non-empty stderr line; returns that line. */
   function oneExtraLine(name: string, now: Run, then: Run): string {
     if (now.exitCode !== then.exitCode || now.stdout !== then.stdout) {
-      throw new Error(`"${name}" — exit/stdout drifted from the pre-change hook:\n${show("now", now)}\n${show("pre-change", then)}`);
+      throw new Error(`"${name}" — exit/stdout drifted from the variable-absent hook:\n${show("now", now)}\n${show("absent", then)}`);
     }
     const at = now.stderr.indexOf(then.stderr);
-    if (at === -1) throw new Error(`"${name}" lost the pre-change stderr:\n${show("now", now)}\n${show("pre-change", then)}`);
+    if (at === -1) throw new Error(`"${name}" lost the variable-absent stderr:\n${show("now", now)}\n${show("absent", then)}`);
     const extra = nonEmptyLines(now.stderr.slice(0, at) + now.stderr.slice(at + then.stderr.length));
     if (extra.length !== 1) throw new Error(`"${name}" added ${extra.length} stderr lines (want exactly 1):\n${show("now", now)}`);
     return extra[0]!;
@@ -803,7 +869,7 @@ describe("AC-STE-693.5 (amended) — a project settings env block naming the var
       test(`variable off + .claude/${file} env names it (= ${value}) → every refusal fixture refuses as before, plus one line naming the file`, async () => {
         const w = worldWithProjectFile(file, { env: { [VAR]: value } });
         const { refused } = worldFixtures(w, `env-${file}-${value}`);
-        const thens = await Promise.all(refused.map((f) => runBaseline(f)));
+        const thens = await Promise.all(refused.map((f) => runCurrent(f)));
         const nows = await Promise.all(refused.map((f) => runHook(f, "off")));
         refused.forEach((f, i) => {
           expect(thens[i]!.exitCode).toBe(2);
@@ -818,7 +884,7 @@ describe("AC-STE-693.5 (amended) — a project settings env block naming the var
   test("variable off + .claude/settings.json env names it → a permitted write exits 0 with exactly one stderr line naming the file", async () => {
     const w = worldWithProjectFile("settings.json", { env: { [VAR]: "off" } });
     const { permitted } = worldFixtures(w, "env-permitted");
-    const then = await runBaseline(permitted);
+    const then = await runCurrent(permitted);
     expect(then).toEqual({ exitCode: 0, stdout: "", stderr: "" });
     const r = await runHook(permitted, "off");
     expect(r.exitCode).toBe(0);
@@ -840,8 +906,8 @@ describe("AC-STE-693.5 (amended) — a project settings env block naming the var
     });
     const { refused } = worldFixtures(w, "env-subdir", join(w.be, "src", "deep"));
     const f = refused[0]!;
-    const then = await runBaseline(f);
-    if (then.exitCode !== 2) throw new Error(`subdir fixture is not a refusal under the pre-change hook:\n${show("pre-change", then)}`);
+    const then = await runCurrent(f);
+    if (then.exitCode !== 2) throw new Error(`subdir fixture is not a refusal under the variable-absent hook:\n${show("absent", then)}`);
     const line = oneExtraLine(f.name, await runHook(f, "off"), then);
     expect(line).toContain(".claude/settings.json");
   });
@@ -855,7 +921,7 @@ describe("AC-STE-693.5 (amended) — a project settings env block naming the var
       },
     });
     const f = worldFixtures(w, "env-both").refused[0]!;
-    const then = await runBaseline(f);
+    const then = await runCurrent(f);
     const line = oneExtraLine(f.name, await runHook(f, "off"), then);
     expect(line).toMatch(/\.claude\/settings(\.local)?\.json/);
   });
@@ -901,12 +967,31 @@ describe("AC-STE-693.5 (amended) — a project settings env block naming the var
   });
 
   test("variable absent or enforce + project env naming it → byte-identical to the pre-change hook (no extra line)", async () => {
-    const w = worldWithProjectFile("settings.json", { env: { [VAR]: "off" } });
-    const f = worldFixtures(w, "env-absent").refused[0]!;
-    const then = await runBaseline(f);
-    for (const v of [undefined, "enforce"]) {
-      const now = await runHook(f, v);
-      expect(now).toEqual(then);
+    // ABSENT is graded against an INDEPENDENT expectation — the pre-change
+    // hook (PRE_CHANGE_COMMIT, which never read any settings file) after the
+    // named PERMITTED_WORDING_DELTAS — never against the current hook itself.
+    // ENFORCE is then graded against that same absent run.
+    for (const file of ["settings.json", "settings.local.json"]) {
+      const w = worldWithProjectFile(file, { env: { [VAR]: "off" } });
+      const { refused, permitted } = worldFixtures(w, `env-absent-${file}`);
+      const all = [...refused, permitted];
+      const [pres, absents, enforces] = await Promise.all([
+        Promise.all(all.map((f) => runBaseline(f))),
+        Promise.all(all.map((f) => runHook(f, undefined))),
+        Promise.all(all.map((f) => runHook(f, "enforce"))),
+      ]);
+      all.forEach((f, i) => {
+        const pre = pres[i]!;
+        const want: Run = { exitCode: pre.exitCode, stdout: pre.stdout, stderr: applyPermittedDeltas(pre.stderr) };
+        const absent = absents[i]!;
+        if (absent.exitCode !== want.exitCode || absent.stdout !== want.stdout || absent.stderr !== want.stderr) {
+          throw new Error(
+            `"${f.name}" (.claude/${file} env names the variable) with the variable absent drifted from the pre-change hook (after the permitted deltas):\n${show("now", absent)}\n${show("pre-change", want)}`,
+          );
+        }
+        expect(enforces[i]!).toEqual(absent);
+      });
+      refused.forEach((_, i) => expect(pres[i]!.exitCode).toBe(2));
     }
   });
 });
@@ -949,5 +1034,341 @@ describe("AC-STE-693.7 — docs/hooks-reference.md § pre-tracker-write-gate doc
     expect(s).toMatch(/project/i);
     expect(s).toMatch(/\.claude\/settings\.json/);
     expect(s).toMatch(/(never|not|do not|does not|doesn't)\b[^.\n]*reach/i);
+  });
+});
+
+// ===========================================================================
+// AC-STE-693.3 (backfilled clause) — no declared shared container: silent whatever the setting
+// ===========================================================================
+//
+// "Where no candidate repository declares a shared container, the hook stays
+// silent whatever the setting, exactly as AC-STE-607.1 requires: every stderr
+// line this FR adds speaks only when a declared shared target binds the call."
+//
+// Two undeclared worlds, each a plain git repo: one whose CLAUDE.md declares a
+// Jira tracker with NO repo_tag / min_dpt_version, one with no CLAUDE.md at
+// all. The same tracker write (a transition naming a key, and a create) must
+// exit 0 with empty stdout AND empty stderr under `off`, under an unknown
+// value, and under `off` with a project settings `env` block naming the
+// variable. A CONTROL in the declared world proves the `off` line exists, so
+// the silence is not vacuous.
+
+describe("AC-STE-693.3 (backfilled) — no candidate repository declares a shared container: silent whatever the setting", () => {
+  /** A plain git repo with no shared-container declaration; `withEnvFile` commits a project settings env block naming the variable. */
+  function undeclaredRepo(kind: "jira-no-tag" | "no-claude-md", withEnvFile: boolean): { root: string; scratch: string } {
+    const root = tempDir(`undeclared-${kind}${withEnvFile ? "-env" : ""}`);
+    if (kind === "jira-no-tag") declareJira(root, null);
+    else writeFileSync(join(root, "README.md"), "# plain repo\n");
+    if (withEnvFile) {
+      mkdirSync(join(root, ".claude"), { recursive: true });
+      writeFileSync(join(root, ".claude", "settings.json"), JSON.stringify({ env: { [VAR]: "off" } }, null, 2));
+    }
+    gitInit(root);
+    return { root, scratch: tempDir("undeclared-scratch") };
+  }
+
+  function undeclaredFixtures(kind: "jira-no-tag" | "no-claude-md", withEnvFile: boolean): Fixture[] {
+    const { root, scratch } = undeclaredRepo(kind, withEnvFile);
+    const label = `undeclared ${kind}${withEnvFile ? " +env" : ""}`;
+    return [
+      fixture(`${label} transition`, JIRA("transitionJiraIssue"), transition("GK-101"), root, scratch, ["GK-101"]),
+      fixture(`${label} create`, JIRA("createJiraIssue"), jiraCreate(), root, scratch, []),
+    ];
+  }
+
+  const SILENT: Run = { exitCode: 0, stdout: "", stderr: "" };
+
+  const CASES: ReadonlyArray<{ label: string; value: string; envFile: boolean }> = [
+    { label: "variable off", value: "off", envFile: false },
+    { label: "variable set to an unknown value (disabled)", value: "disabled", envFile: false },
+    { label: "variable off + project .claude/settings.json env naming it", value: "off", envFile: true },
+  ];
+
+  for (const kind of ["jira-no-tag", "no-claude-md"] as const) {
+    test(`precondition (${kind}) — with the variable absent the undeclared write is silent`, async () => {
+      for (const f of undeclaredFixtures(kind, false)) {
+        const r = await runCurrent(f);
+        if (r.exitCode !== 0 || r.stdout !== "" || r.stderr !== "") throw new Error(`"${f.name}" is not silent with the variable absent:\n${show("absent", r)}`);
+      }
+    });
+
+    for (const c of CASES) {
+      test(`${kind}: ${c.label} → exit 0, empty stdout, empty stderr`, async () => {
+        const fs = undeclaredFixtures(kind, c.envFile);
+        const runs = await Promise.all(fs.map((f) => runHook(f, c.value)));
+        fs.forEach((f, i) => {
+          const r = runs[i]!;
+          if (r.exitCode !== 0 || r.stdout !== "" || r.stderr !== "") {
+            throw new Error(`"${f.name}" with ${VAR}=${c.value} is not silent (no shared container is declared):\n${show("now", r)}`);
+          }
+          expect(r).toEqual(SILENT);
+        });
+      });
+    }
+  }
+
+  test("CONTROL — the same write in the declared world under off DOES print the gate-off line", async () => {
+    const w = makeWorld();
+    const f = fixture("declared transition FE key from BE", JIRA("transitionJiraIssue"), transition("GK-101"), w.be, w.scratch, ["GK-101"]);
+    const r = await runHook(f, "off");
+    expect(r.exitCode).toBe(0);
+    const lines = nonEmptyLines(r.stderr);
+    expect(lines.length).toBe(1);
+    expect(lines[0]!).toContain(OFF_PHRASE);
+  });
+});
+
+// ===========================================================================
+// Review fixes (AC-STE-693.3 / AC-STE-693.5) — fail closed on what the scan
+// cannot read, scan every directory between cwd and the git top, and never
+// refuse on the message-only path.
+// ===========================================================================
+
+/** `now` must be `then` plus exactly one extra non-empty stderr line; returns that line. */
+function oneExtraStderrLine(name: string, now: Run, then: Run): string {
+  if (now.exitCode !== then.exitCode || now.stdout !== then.stdout) {
+    throw new Error(`"${name}" — exit/stdout drifted from the variable-absent hook:\n${show("now", now)}\n${show("absent", then)}`);
+  }
+  const at = now.stderr.indexOf(then.stderr);
+  if (at === -1) throw new Error(`"${name}" lost the variable-absent stderr:\n${show("now", now)}\n${show("absent", then)}`);
+  const extra = nonEmptyLines(now.stderr.slice(0, at) + now.stderr.slice(at + then.stderr.length));
+  if (extra.length !== 1) throw new Error(`"${name}" added ${extra.length} stderr lines (want exactly 1):\n${show("now", now)}`);
+  return extra[0]!;
+}
+
+/** The refused + permitted fixtures of one BE world, the call running from `cwd`. */
+function reviewFixtures(w: World, label: string, cwd = w.be): { refused: Fixture[]; permitted: Fixture } {
+  return {
+    refused: [
+      fixture(`${label} transition FE key`, JIRA("transitionJiraIssue"), transition("GK-101"), cwd, w.scratch, ["GK-101"]),
+      fixture(
+        `${label} link FE to FE`,
+        JIRA("createIssueLink"),
+        { cloudId: CLOUD, inwardIssue: "GK-101", outwardIssue: "GK-102", type: "Relates" },
+        cwd,
+        w.scratch,
+        ["GK-101", "GK-102"],
+      ),
+      fixture(`${label} create with no receipt`, JIRA("createJiraIssue"), jiraCreate(), cwd, w.scratch, []),
+    ],
+    permitted: fixture(`${label} transition own key`, JIRA("transitionJiraIssue"), transition("GK-111"), cwd, w.scratch, ["GK-111"]),
+  };
+}
+
+/** Under off: every refused fixture refuses as before (variable-absent), plus one line naming `fileFragment`. */
+async function expectEnforcedNaming(refused: Fixture[], fileFragment: string): Promise<void> {
+  const thens = await Promise.all(refused.map((f) => runCurrent(f)));
+  const nows = await Promise.all(refused.map((f) => runHook(f, "off")));
+  refused.forEach((f, i) => {
+    if (thens[i]!.exitCode !== 2) throw new Error(`"${f.name}" is not a refusal under the variable-absent hook:\n${show("absent", thens[i]!)}`);
+    const line = oneExtraStderrLine(f.name, nows[i]!, thens[i]!);
+    expect(line).toContain(fileFragment);
+    expect(nows[i]!.stderr).not.toContain(OFF_PHRASE);
+  });
+}
+
+/** Under off: every fixture exits 0 with exactly the one gate-off line (AC.3), naming no settings file. */
+async function expectOffAsAc3(fixtures: Fixture[]): Promise<void> {
+  const runs = await Promise.all(fixtures.map((f) => runHook(f, "off")));
+  fixtures.forEach((f, i) => {
+    const r = runs[i]!;
+    if (r.exitCode !== 0) throw new Error(`"${f.name}" under off is not permitted:\n${show("off", r)}`);
+    expect(r.stdout).toBe("");
+    const lines = nonEmptyLines(r.stderr);
+    expect(lines.length).toBe(1);
+    expect(lines[0]!).toContain(OFF_PHRASE);
+    expect(lines[0]!).not.toContain(".claude/settings");
+  });
+}
+
+describe("AC-STE-693.5 (review fix) — an unparseable project settings file fails closed", () => {
+  const MALFORMED: Record<string, string> = {
+    "trailing comma": `{ "env": { "${VAR}": "off", } }\n`,
+    "comment lines": `// local overrides\n{\n  // switch the gate off\n  "env": { "${VAR}": "off" }\n}\n`,
+  };
+
+  /** A BE world whose `.claude/<file>` holds `raw` bytes verbatim (committed). */
+  function worldWithRawFile(file: string, raw: string): World {
+    return makeWorld({
+      beforeCommit: (be) => {
+        mkdirSync(join(be, ".claude"), { recursive: true });
+        writeFileSync(join(be, ".claude", file), raw);
+      },
+    });
+  }
+
+  for (const file of ["settings.json", "settings.local.json"]) {
+    for (const [shape, raw] of Object.entries(MALFORMED)) {
+      test(`variable off + unparseable .claude/${file} (${shape}) → every refusal fixture refuses as before, plus one line naming the file`, async () => {
+        const w = worldWithRawFile(file, raw);
+        await expectEnforcedNaming(reviewFixtures(w, `bad-${file}-${shape}`).refused, `.claude/${file}`);
+      });
+    }
+
+    test(`variable off + unparseable .claude/${file} → a permitted write exits 0 with exactly one stderr line naming the file`, async () => {
+      const w = worldWithRawFile(file, MALFORMED["trailing comma"]!);
+      const { permitted } = reviewFixtures(w, `bad-permitted-${file}`);
+      expect(await runCurrent(permitted)).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+      const r = await runHook(permitted, "off");
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toBe("");
+      const lines = nonEmptyLines(r.stderr);
+      expect(lines.length).toBe(1);
+      expect(lines[0]!).toContain(`.claude/${file}`);
+      expect(r.stderr).not.toContain(OFF_PHRASE);
+    });
+  }
+
+  test("variable off + an unparseable file that does not even mention the variable → still enforce (its contents cannot be known)", async () => {
+    const w = worldWithRawFile("settings.local.json", "{ this is not json\n");
+    await expectEnforcedNaming(reviewFixtures(w, "bad-opaque").refused.slice(0, 1), ".claude/settings.local.json");
+  });
+
+  test("variable off + an unreadable (mode 000) .claude/settings.json → enforce, one line naming the file", async () => {
+    const w = makeWorld();
+    const dir = join(w.be, ".claude");
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, "settings.json");
+    writeFileSync(path, JSON.stringify({ env: {} }));
+    chmodSync(path, 0o000);
+    cleanups.push(() => chmodSync(path, 0o644));
+    let readable = true;
+    try {
+      readFileSync(path);
+    } catch {
+      readable = false;
+    }
+    if (readable) return; // running as root: mode 000 does not stop the read, nothing to grade
+    await expectEnforcedNaming(reviewFixtures(w, "mode-000").refused.slice(0, 1), ".claude/settings.json");
+  });
+
+  test("CONTROL — variable off + a well-formed file that names nothing → off exactly as AC.3", async () => {
+    for (const [file, content] of [
+      ["settings.json", {}],
+      ["settings.local.json", { env: {} }],
+      ["settings.json", { env: { OTHER_VAR: "1" }, permissions: { allow: [] } }],
+    ] as const) {
+      const w = worldWithRawFile(file, JSON.stringify(content, null, 2));
+      const { refused, permitted } = reviewFixtures(w, `good-${file}-${Object.keys(content).join("-") || "empty"}`);
+      await expectOffAsAc3([...refused, permitted]);
+    }
+  });
+
+  test("variable off + an unparseable settings.json beside a MISSING settings.local.json → exactly one line, naming only the bad file", async () => {
+    const w = worldWithRawFile("settings.json", MALFORMED["trailing comma"]!);
+    const f = reviewFixtures(w, "bad-plus-missing").refused[0]!;
+    const then = await runCurrent(f);
+    const line = oneExtraStderrLine(f.name, await runHook(f, "off"), then);
+    expect(line).toContain(".claude/settings.json");
+    expect(line).not.toContain("settings.local.json");
+  });
+});
+
+describe("AC-STE-693.5 (review fix) — settings files between cwd and the git top are scanned too", () => {
+  test("variable off, cwd = <top>/sub, <top>/sub/.claude/settings.local.json env names it, nothing at the top → enforce, one line naming the sub file", async () => {
+    const w = makeWorld({
+      beforeCommit: (be) => {
+        mkdirSync(join(be, "sub", ".claude"), { recursive: true });
+        writeFileSync(join(be, "sub", ".claude", "settings.local.json"), JSON.stringify({ env: { [VAR]: "off" } }));
+      },
+    });
+    expect(existsSync(join(w.be, ".claude"))).toBe(false);
+    await expectEnforcedNaming(reviewFixtures(w, "sub-local", join(w.be, "sub")).refused, join("sub", ".claude", "settings.local.json"));
+  });
+
+  test("variable off, cwd = <top>/a/b, <top>/a/.claude/settings.json env names it (an intermediate directory) → enforce, one line naming it", async () => {
+    const w = makeWorld({
+      beforeCommit: (be) => {
+        mkdirSync(join(be, "a", ".claude"), { recursive: true });
+        mkdirSync(join(be, "a", "b"), { recursive: true });
+        writeFileSync(join(be, "a", "b", "keep.txt"), "x\n");
+        writeFileSync(join(be, "a", ".claude", "settings.json"), JSON.stringify({ env: { [VAR]: "off" } }));
+      },
+    });
+    const f = reviewFixtures(w, "intermediate", join(w.be, "a", "b")).refused[0]!;
+    await expectEnforcedNaming([f], join("a", ".claude", "settings.json"));
+  });
+
+  test("variable off, cwd = <top>/sub, an UNPARSEABLE <top>/sub/.claude/settings.json → enforce, one line naming the sub file", async () => {
+    const w = makeWorld({
+      beforeCommit: (be) => {
+        mkdirSync(join(be, "sub", ".claude"), { recursive: true });
+        writeFileSync(join(be, "sub", ".claude", "settings.json"), `{ "env": { "${VAR}": "off", } }\n`);
+      },
+    });
+    const f = reviewFixtures(w, "sub-bad", join(w.be, "sub")).refused[0]!;
+    await expectEnforcedNaming([f], join("sub", ".claude", "settings.json"));
+  });
+
+  test("CONTROL — a settings file BELOW cwd, or in a sibling directory off the cwd→top path, is not scanned → off exactly as AC.3", async () => {
+    const w = makeWorld({
+      beforeCommit: (be) => {
+        mkdirSync(join(be, "sub", "deeper", ".claude"), { recursive: true });
+        writeFileSync(join(be, "sub", "deeper", ".claude", "settings.json"), JSON.stringify({ env: { [VAR]: "off" } }));
+        mkdirSync(join(be, "sibling", ".claude"), { recursive: true });
+        writeFileSync(join(be, "sibling", ".claude", "settings.local.json"), JSON.stringify({ env: { [VAR]: "off" } }));
+      },
+    });
+    const { refused, permitted } = reviewFixtures(w, "below-cwd", join(w.be, "sub"));
+    await expectOffAsAc3([...refused, permitted]);
+  });
+});
+
+// AC-STE-693.3 / AC-STE-693.5 (review fix) — the message-only path never refuses.
+//
+// Under `off` the hook asks ONE question before speaking: does a declared
+// shared target bind this call (`declaredTargetBinds`)? The answer only decides
+// whether the gate-off line is printed; it must never turn the permit into a
+// refusal. If answering throws, the entry's `exitCodeFor` catch turns the throw
+// into exit 2 — a refusal on a path that only ever prints a message.
+//
+// WHICH THROW THIS USES: as of this writing no payload-reachable input makes
+// `declaredTargetBinds` throw. `readTranscriptLines` (templates/hooks/_lib/session.ts)
+// catches a read error and returns null, `scanAnnouncements` then sees no lines,
+// `readDeclarations` turns a throwing reader into `ok: false` (which counts as
+// binding), and `gitTopLevel` catches its spawn. The clearest reachable
+// "unreadable input" is therefore the transcript itself: `transcript_path` naming
+// a DIRECTORY (existsSync true, readFileSync EISDIR) and a mode-000 FILE
+// (EACCES). Both are what `unreadableInputsNote` reports on the enforce path.
+// These cases pin the outcome: exit 0, empty stdout, and the gate-off line
+// still printed — when the binding question cannot be answered from the
+// transcript, the declared world at the cwd top still binds, so the hook speaks.
+// They are expected GREEN against the current hook and guard a future change
+// that lets a read error escape this path.
+describe("AC-STE-693.3 / AC-STE-693.5 (review fix) — an unreadable transcript never turns off into a refusal", () => {
+  function withTranscript(f: Fixture, transcriptPath: string): Fixture {
+    const payload = JSON.parse(f.stdin) as Record<string, unknown>;
+    payload.transcript_path = transcriptPath;
+    return { ...f, name: `${f.name} [transcript ${transcriptPath}]`, stdin: JSON.stringify(payload) };
+  }
+
+  async function expectOffLineAndExit0(fixtures: Fixture[]): Promise<void> {
+    const runs = await Promise.all(fixtures.map((f) => runHook(f, "off")));
+    fixtures.forEach((f, i) => {
+      const r = runs[i]!;
+      if (r.exitCode !== 0) throw new Error(`"${f.name}" under off refused on the message-only path:\n${show("off", r)}`);
+      expect(r.stdout).toBe("");
+      const lines = nonEmptyLines(r.stderr);
+      expect(lines.length).toBe(1);
+      expect(lines[0]!).toContain(OFF_PHRASE);
+      expect(lines[0]!).toContain(f.bare);
+      for (const k of f.keys) expect(lines[0]!).toContain(k);
+    });
+  }
+
+  test("transcript_path names a directory (EISDIR) → exit 0 and the gate-off line, on every refusal fixture", async () => {
+    const w = makeWorld();
+    const dirTranscript = tempDir("transcript-dir");
+    const fixtures = reviewFixtures(w, "dir-transcript").refused.map((f) => withTranscript(f, dirTranscript));
+    await expectOffLineAndExit0(fixtures);
+  });
+
+  test("transcript_path names a mode-000 file (EACCES) → exit 0 and the gate-off line", async () => {
+    const w = makeWorld();
+    const f0 = reviewFixtures(w, "eacces-transcript").refused[0]!;
+    const path = String((JSON.parse(f0.stdin) as { transcript_path: string }).transcript_path);
+    chmodSync(path, 0o000);
+    cleanups.push(() => chmodSync(path, 0o644));
+    await expectOffLineAndExit0([f0]);
   });
 });
