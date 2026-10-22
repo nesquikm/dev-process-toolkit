@@ -213,7 +213,13 @@ Empirical research via the `claude-code-guide` agent confirmed the contract: `${
   Remedy: <the deciding command to run, or the fix to make>
   Context: mode=hook, ticket=unbound, skill=none, hook=pre-tracker-write-gate
   ```
-- **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-tracker-write-gate.sh`, edit, and register the local absolute path in the operator's `~/.claude/settings.json`. Removing the shared-container declaration from the repository's CLAUDE.md also silences it for that repository.
+- **Per-user option `tracker_write_gate`:** The values are `enforce` and `off`. The default is `enforce`. Set it with `/plugin configure dev-process-toolkit`, or with `claude plugin configure dev-process-toolkit --values-stdin`. The hook reads it as the variable `CLAUDE_PLUGIN_OPTION_TRACKER_WRITE_GATE`. With `off`, the hook permits every tracker write and prints one stderr line per call:
+  ```
+  pre-tracker-write-gate: tracker write gate off for this user — <tool> permitted unchecked (keys not checked: <keys>)
+  ```
+  Any other value enforces and prints `pre-tracker-write-gate: ignoring unrecognised tracker_write_gate value "<value>" — enforcing (accepted: enforce, off)`.
+  **Scope rule (measured):** only the user settings `pluginConfigs` reach the hook. An unset option arrives as no variable, so it reads as `enforce`. Project and local `pluginConfigs` never reach the hook. A project `env` block that names the variable does reach it. So when `.claude/settings.json` or `.claude/settings.local.json` names the variable in `env`, the hook treats `off` as `enforce` and prints `pre-tracker-write-gate: tracker_write_gate off ignored — <file> sets it in its env block, a file the model can write; enforcing`.
+- **Override pattern:** Set the per-user option above to `off`, disable the plugin, or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-tracker-write-gate.sh`, edit, and register the local absolute path in the operator's `~/.claude/settings.json`. Removing the shared-container declaration from the repository's CLAUDE.md also silences it for that repository.
 
 ### session-token-ledger
 

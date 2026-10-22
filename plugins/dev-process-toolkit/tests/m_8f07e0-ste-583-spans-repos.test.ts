@@ -801,12 +801,14 @@ describe("AC-STE-583.13 — no new probe, and the reachability ratchet holds", (
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("skills/gate-check/SKILL.md still numbers 88 probes", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("skills/gate-check/SKILL.md still numbers 89 probes", () => {
     const hits = read(GATE_CHECK_SKILL).match(/^[0-9]+\. \*\*/gm) ?? [];
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(hits.length).toBe(88);
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(hits.length).toBe(89);
   });
 
   test("spans_repos.ts carries an `import.meta.main` front door", () => {

@@ -928,7 +928,8 @@ describe("AC-STE-588.12 — skills/gate-check/SKILL.md probe #63 row", () => {
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("edited in place: 356 split-lines, probe #26 on line 81, probe #63 on line 150, 88 rows", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("edited in place: 356 split-lines, probe #26 on line 81, probe #63 on line 150, 89 rows", () => {
     const lines = body().split("\n");
     expect(lines.length).toBe(356);
     expect(lines[80]!).toMatch(/^26\. /);
@@ -936,8 +937,9 @@ describe("AC-STE-588.12 — skills/gate-check/SKILL.md probe #63 row", () => {
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(lines.filter((l) => /^\d+\. \*\*/.test(l)).length).toBe(88);
-    expect(lines.some((l) => /^89\. /.test(l))).toBe(false); // Amended by AC-STE-659.3: next-row tripwire #86 -> #87. Amended by AC-STE-673.6: #87 -> #88. Amended by AC-STE-680.6: #88 -> #89.
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(lines.filter((l) => /^\d+\. \*\*/.test(l)).length).toBe(89);
+    expect(lines.some((l) => /^90\. /.test(l))).toBe(false); // Amended by AC-STE-659.3: next-row tripwire #86 -> #87. Amended by AC-STE-673.6: #87 -> #88. Amended by AC-STE-680.6: #88 -> #89. Amended by AC-STE-693.6: #89 -> #90.
   });
 });
 

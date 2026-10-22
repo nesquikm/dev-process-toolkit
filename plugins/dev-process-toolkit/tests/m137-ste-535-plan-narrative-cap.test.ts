@@ -1598,25 +1598,29 @@ describe("STE-535 wiring — probe id, severity and NFR-1 cap are UNMOVED", () =
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("STE-535 minted no probe id of its own — the list ends where #88 left it", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("STE-535 minted no probe id of its own — the list ends where #89 left it", () => {
     const skill = readFileSync(GATE_CHECK_SKILL, "utf-8");
     const numbers = [...skill.matchAll(/^(\d+)\. \*\*`/gm)].map((m) => Number(m[1]));
     expect(numbers.length).toBeGreaterThan(0);
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(Math.max(...numbers)).toBe(88);
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(Math.max(...numbers)).toBe(89);
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("README advertises the live count — 88 since STE-680 landed probe #88", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("README advertises the live count — 89 since M_bae31f landed probe #89", () => {
     const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(readme).toContain("88 numbered `/gate-check` probes");
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(readme).toContain("89 numbered `/gate-check` probes");
     expect(readme).not.toMatch(/\b81\b numbered `\/gate-check` probes/);
   });
 
