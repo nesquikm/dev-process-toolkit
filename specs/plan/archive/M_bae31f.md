@@ -6,6 +6,7 @@ kickoff_branch: null
 frozen_at: null
 migration: none
 codename: Off Switch
+shipped_in: v2.101.0
 ---
 
 # Implementation Plan
@@ -44,3 +45,17 @@ codename: Off Switch
 
 - `bun test` from `plugins/dev-process-toolkit`: 0 fail, skip identities equal to the baseline
 - `/gate-check` clean
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| dev-process-toolkit:gate-check | claude-opus-5-5 | 44 | 13688 | 5327488 | 137143 |
+| dev-process-toolkit:implement | claude-opus-5-5 | 158 | 35510 | 10415681 | 298035 |
+| dev-process-toolkit:tdd | claude-opus-5-5 | 26 | 12438 | 3760938 | 17281 |
+| (main-loop) | claude-opus-5-5 | 732 | 206783 | 92042421 | 471351 |
+| total |  | 960 | 268419 | 111546528 | 923810 |
+
+<!-- token-stats:end -->

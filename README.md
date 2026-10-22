@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.100.1 — "Second Look"** (M_262834, base-relative tests that survive their own merge. The STE-589 stamp guard reads both shipped stamp forms on main, and the STE-608 control copies its import closure from a pinned commit, so merged main is green again)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.0 — "Off Switch"** (M_bae31f, per-user relief for the tracker write gate. A `tracker_write_gate` option set to `off` lets one user past the gate, loudly and never through a repo file, and a typed answer that names the key and says yes now adopts the ticket)
 
 ## Core Philosophy
 
