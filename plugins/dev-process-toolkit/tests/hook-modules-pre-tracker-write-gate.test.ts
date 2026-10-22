@@ -75,6 +75,7 @@ import { claudeMd, makeSpanFixture, pluginManifest } from "./_span_fixture";
 import { BE_TAG, FE_TAG, boundFr, declareJira, declareLinear } from "./_orphan_pages";
 import { deriveBlockingGates } from "./_blocking_gates";
 import { mutateInRegion } from "./_sited-mutation";
+import { TYPED_ADOPT_MATRIX } from "./_typed_adopt_matrix";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -1261,6 +1262,33 @@ describe("AC-STE-607.4 — a ticket write needs a subject its target owns", () =
       });
     }
 
+    // AC-STE-694.2 / .3 / .6 (amends the free-text pins above, which still
+    // hold): a typed answer counts as `Adopt <KEY>` only when it names the key,
+    // starts with an affirmative word and holds no negation. Only the Adopt
+    // label gains the rule — on an Import ask every typed row withholds.
+    for (const row of TYPED_ADOPT_MATRIX) {
+      const permits = c.verb === "Adopt" && row.consents;
+      const answer = row.answer(c.key);
+      const tag = row.battery ? `AC-STE-694.8 [battery: ${row.battery}] ` : "";
+      test(`${tag}AC-STE-694.2 ${c.kind} receipt with the ask answered typed ${JSON.stringify(answer)} → exit ${permits ? 0 : 2}`, async () => {
+        const s = new Session();
+        s.ask(c.key, c.verb, { answer });
+        announce(s);
+        const r = await act(s, c.key);
+        if (permits) expectPermit(r);
+        else expectRefusal(r, c.key);
+      });
+    }
+
+    test(`AC-STE-694.3 ${c.kind} receipt with the ask answered typed "yes ${c.verb.toLowerCase()} ${c.key}" → exit ${c.verb === "Adopt" ? 0 : 2}`, async () => {
+      const s = new Session();
+      s.ask(c.key, c.verb, { answer: `yes ${c.verb.toLowerCase()} ${c.key}` });
+      announce(s);
+      const r = await act(s, c.key);
+      if (c.verb === "Adopt") expectPermit(r);
+      else expectRefusal(r, c.key);
+    });
+
     test(`${c.kind} receipt with the answered ask positioned AFTER the announcement → exit 2`, async () => {
       const s = new Session();
       announce(s);
@@ -1289,6 +1317,11 @@ describe("AC-STE-607.4 — a ticket write needs a subject its target owns", () =
       ["the label quoted inside other text", `${c.verb} ${c.key}? not sure`, true],
       ["consent to another key", `${c.verb} GF-999`, true],
       ["the exact label without the auto-approve marker", `${c.verb} ${c.key}`, false],
+      // AC-STE-694.5 — the operator-text path keeps its exact-label rule: a
+      // typed answer the AskUserQuestion path would accept is not consent here.
+      ["AC-STE-694.5 a typed adopt naming the key", `${c.verb.toLowerCase()} ${c.key}`, true],
+      ["AC-STE-694.5 a typed yes naming the key", `yes, post to ${c.key}`, true],
+      ["AC-STE-694.5 the label in lower case", `${c.verb} ${c.key.toLowerCase()}`, true],
     ] as const) {
       test(`${c.kind} receipt with an answers block of ${label} → exit 2`, async () => {
         const s = new Session();
@@ -1298,6 +1331,13 @@ describe("AC-STE-607.4 — a ticket write needs a subject its target owns", () =
       });
     }
 
+    test(`AC-STE-694.5 ${c.kind} receipt with a plain operator message "yes, ${c.verb.toLowerCase()} ${c.key}" (no ask, no answers block) → exit 2`, async () => {
+      const s = new Session();
+      s.userText(`yes, ${c.verb.toLowerCase()} ${c.key}`);
+      announce(s);
+      expectRefusal(await act(s, c.key), c.key);
+    });
+
     test(`${c.kind} receipt with the answers block positioned AFTER the announcement → exit 2`, async () => {
       const s = new Session();
       announce(s);
@@ -1305,6 +1345,17 @@ describe("AC-STE-607.4 — a ticket write needs a subject its target owns", () =
       expectRefusal(await act(s, c.key), c.key);
     });
   }
+
+  test("AC-STE-694.7 — the unowned-ticket refusal's remedy says a typed answer counts when it names the key and says yes", async () => {
+    const s = new Session();
+    s.announce(CONFIRM, `confirm "${w.be}" GF-122 /tmp/ticket.json --adopt`, adoptReceipt(w.be, "GF-122"), '{"decision":"binding"}');
+    const r = await act(s, "GF-122");
+    expectRefusal(r, "GF-122");
+    const remedy = r.stderr.slice(r.stderr.indexOf("Remedy:"));
+    expect(remedy).toMatch(/typed answer/i);
+    expect(remedy).toMatch(/names the key/i);
+    expect(remedy).toMatch(/says yes/i);
+  });
 
   test("createIssueLink BE↔FE (one owned side) → exit 0", async () => {
     const r = await runHook(

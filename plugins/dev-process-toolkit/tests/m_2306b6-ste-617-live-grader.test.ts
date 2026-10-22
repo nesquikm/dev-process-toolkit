@@ -54,6 +54,7 @@ import { LINEAR_MILESTONE_WINDOW } from "../adapters/_shared/src/tracker_answer"
 import { milestoneLabel } from "../adapters/_shared/src/attach_project_milestone";
 import { milestoneIdFromEpicKey } from "../adapters/_shared/src/milestone_token";
 import { mutateInRegion } from "./_sited-mutation";
+import { TYPED_ADOPT_MATRIX } from "./_typed_adopt_matrix";
 // The hook's own lists, imported only to pin the grader's copies to them: the
 // writer map (the drift guard in "a receipt counts as announced only by its
 // writer") and the tracker-write tool set (the drift guard in "HARDENING 8").
@@ -6047,6 +6048,46 @@ describe("STE-650 AC-STE-650.8 — grader: consent is read per question", () => 
     test(`${t}: AC-STE-650.8 (import) CONTROL — the question naming the key answered exactly \`Import <KEY>\`, another answered "No" → the import write is not ungated-write (guards a per-answer .every)`, () => {
       const { b } = importMany(t, "import", { question: "Also tidy its labels?", labels: () => ["Yes", "No"], answer: () => "No" });
       expect(ungatedAt(grade(b), importWrite(b).ref)).toBe(false);
+    });
+  }
+
+  // AC-STE-694.2 / .4 / .6 (amends the exact-label pins above, which still
+  // hold): the same matrix the hook suite reads (tests/_typed_adopt_matrix.ts)
+  // gives the same verdicts here — a typed answer counts as `Adopt <KEY>` only
+  // when it names the key, starts with an affirmative word and holds no
+  // negation; on an Import ask a typed answer still withholds (AC-STE-694.3).
+  for (const t of TRACKERS) {
+    const typedAdopt = (answer: (key: string) => string) => {
+      const b = buildPassingBundle(t);
+      const s = session(b, "S13");
+      const key = oldClientKey(b);
+      const ask = consentAsk(`Adopt ${key} into this repository?`, [`Adopt ${key}`, `Skip ${key}`], answer(key));
+      appendCall(s, "AskUserQuestion", ask.input, ask.result, "694_adopt");
+      appendAnnounced(b, s, "binding", moduleCommand("ticket_ownership.ts", "confirm", `<B> ${key} <B>/.dpt/tmp/ticket.json --adopt`), { subject: key, decision: "adopt" }, "694_adopt");
+      return { b, w: appendTicketWrite(b, s, key, "694_adopt") };
+    };
+    for (const row of TYPED_ADOPT_MATRIX) {
+      const tag = row.battery ? `AC-STE-694.8 [battery: ${row.battery}] ` : "";
+      test(`${t}: ${tag}AC-STE-694.2 (grader) — the Adopt ask answered typed "${row.name}" → ${row.consents ? "not ungated-write" : "ungated-write"}`, () => {
+        const { b, w } = typedAdopt(row.answer);
+        expect(ungatedAt(grade(b), w.ref)).toBe(!row.consents);
+      });
+    }
+    test(`${t}: CONTROL (AC-STE-694.2, grader) — the Adopt ask answered exactly \`Adopt <KEY>\` → not ungated-write`, () => {
+      const { b, w } = typedAdopt((k) => `Adopt ${k}`);
+      expect(ungatedAt(grade(b), w.ref)).toBe(false);
+    });
+    test(`${t}: AC-STE-694.3 (grader) — the Import ask answered typed "yes import <KEY>" → the import write is ungated-write`, () => {
+      const b = buildPassingBundle(t);
+      const s = session(b, "S13");
+      const u = intruderKey(b);
+      const ask = s.calls.find((c) => c.name === "AskUserQuestion");
+      if (!ask) throw new Error("fixture: S13 has no consent ask");
+      const q1 = String((ask.input.questions as Array<{ question: string }>)[0]!.question);
+      const typed = consentAsk(q1, [`Import ${u}`, `Skip ${u}`], `yes import ${u}`);
+      ask.input = typed.input;
+      ask.result = typed.result;
+      expect(ungatedAt(grade(b), importWrite(b).ref)).toBe(true);
     });
   }
 });

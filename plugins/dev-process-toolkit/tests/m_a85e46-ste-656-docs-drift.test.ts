@@ -215,6 +215,37 @@ function soleInsertedClause(now: string, base: string): Inserted | null {
   return null;
 }
 
+// RE-BASED (orchestrator ruling 2026-10-22, M_bae31f / STE-694): AC-STE-694.6
+// required a second, sanctioned amendment on the archived STE-607 — the clause
+// `*(Amended by `STE-694`: …)*` at the end of the AC-STE-607.4 line. The freeze
+// still requires STE-649's clause to be the ONLY change against BASE_SHA,
+// apart from the LATER amendments named here: each listed clause (with its
+// leading space) is removed from `now` before `soleInsertedClause` runs, and
+// each must actually be present, so a stale entry fails. A further amendment
+// needs a fresh ruling and a new named entry.
+const LATER_AMENDMENTS: Readonly<Record<string, ReadonlyArray<{ id: string; clause: string }>>> = {
+  "specs/frs/archive/STE-607.md": [
+    {
+      id: "AC-STE-694.6",
+      clause:
+        "*(Amended by `STE-694`: an `Adopt <KEY>` ask also accepts a typed answer that names the key, starts affirmative and carries no negation.)*",
+    },
+  ],
+};
+
+/** `now` with every named later amendment removed; each one must be present exactly once. */
+function withoutLaterAmendments(rel: string, now: string): string {
+  let out = now;
+  for (const l of LATER_AMENDMENTS[rel] ?? []) {
+    const needle = ` ${l.clause}`;
+    const at = out.indexOf(needle);
+    expect(at, `${rel} no longer carries the later amendment ${l.id} the freeze names (stale LATER_AMENDMENTS entry)`).toBeGreaterThan(-1);
+    expect(out.indexOf(needle, at + 1), `${rel} carries the later amendment ${l.id} more than once`).toBe(-1);
+    out = out.slice(0, at) + out.slice(at + needle.length);
+  }
+  return out;
+}
+
 const AMENDED = [
   {
     rel: "specs/frs/archive/STE-603.md",
@@ -240,7 +271,7 @@ const AMENDED = [
 describe("AC-STE-656.5 — STE-603 and STE-607 each carry one amendment clause, and nothing else changes", () => {
   for (const a of AMENDED) {
     test(`AC-STE-656.5: ${a.rel} differs from the base by exactly one inserted amendment clause`, () => {
-      const now = readRepo(a.rel);
+      const now = withoutLaterAmendments(a.rel, readRepo(a.rel));
       const base = atBase(a.rel);
       expect(now, `${a.rel} is unchanged from the base`).not.toBe(base);
       const ins = soleInsertedClause(now, base);
@@ -248,7 +279,7 @@ describe("AC-STE-656.5 — STE-603 and STE-607 each carry one amendment clause, 
     });
 
     test(`AC-STE-656.5: the clause in ${a.rel} names ${a.amendingFr} and its version, and sits in ${a.where}`, () => {
-      const now = readRepo(a.rel);
+      const now = withoutLaterAmendments(a.rel, readRepo(a.rel));
       const ins = soleInsertedClause(now, atBase(a.rel));
       expect(ins).not.toBeNull();
       expect(ins!.clause).toMatch(new RegExp(`^\\*\\(Amended by \`${a.amendingFr}\` \\(v2\\.92\\.0\\)`));

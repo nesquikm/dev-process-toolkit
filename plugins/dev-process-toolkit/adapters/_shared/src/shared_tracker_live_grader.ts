@@ -2312,8 +2312,9 @@ function answerTo(text: string, question: string): string | null {
  * STE-650 AC-8 — the ONE per-question consent matcher: an answered
  * AskUserQuestion consents to `label` only when a question whose own text
  * names the subject (`names`) and offers `label` as an option was answered
- * exactly `label`, and every such question was. Another question's answer
- * neither grants nor withholds it.
+ * exactly `label` (or, on an `Adopt <KEY>` label only, a typed answer the
+ * shared `typedAdopts` accepts — STE-694), and every such question was.
+ * Another question's answer neither grants nor withholds it.
  * The hook reads the same rule through its `consentVerdict` (templates/hooks/_lib/hooks/pre-tracker-write-gate.ts).
  */
 function consentedPerQuestion(c: ToolCall, label: string, names: (question: string) => boolean): boolean {
@@ -2323,8 +2324,10 @@ function consentedPerQuestion(c: ToolCall, label: string, names: (question: stri
 /**
  * STE-655 AC-12 — the per-question verdict of one answered ask on `label`:
  * `null` when no question in it names the subject and offers the label, else
- * whether every such question was answered exactly `label`. The rule is the
- * shared `perQuestionConsent`; only the answer lookup is the grader's.
+ * whether every such question was answered exactly `label` (or, on an
+ * `Adopt <KEY>` label only, with a typed answer `typedAdopts` accepts —
+ * STE-694). The rule is the shared `perQuestionConsent`; only the answer
+ * lookup is the grader's.
  * Twin: `consentVerdict` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
  */
 function consentVerdict(c: ToolCall, label: string, names: (question: string) => boolean): boolean | null {
@@ -2335,7 +2338,8 @@ function consentVerdict(c: ToolCall, label: string, names: (question: string) =>
 /**
  * The times, in `s`, the operator consented to `label` (`Import DST-7`,
  * `Adopt DST-7`): an answered AskUserQuestion holding a question that names
- * the key, offers the label and was answered exactly that label (per question —
+ * the key, offers the label and was answered exactly that label, or for
+ * `Adopt` with a typed answer `typedAdopts` accepts (per question —
  * STE-650 AC-8, as the hook's `consentedBefore` reads it), or
  * the first user message's answers block giving exactly that label under
  * `ORPHAN_CONSENT_ANSWER_KEY` (the route a `claude -p` child has, where an
@@ -2588,7 +2592,8 @@ const rootOfPath = (p: string): Root | null => (/^<([AB])>\//.exec(p)?.[1] as Ro
  *     for the key's ownership route — only a key this session created
  *     (STE-650 AC.1, AC.2, AC.4).
  *   A consent (`Adopt <KEY>`, `Import <KEY>`) is an answered AskUserQuestion
- *   holding a question that names the key and was answered exactly that label,
+ *   holding a question that names the key and was answered exactly that label
+ *   (an `Adopt` ask also takes a typed answer `typedAdopts` accepts, STE-694),
  *   or the first user message's answers block giving exactly that label, before
  *   the announcing run (`answeredBefore`).
  * Other container writes (a project, a label, a status update, a document, a
