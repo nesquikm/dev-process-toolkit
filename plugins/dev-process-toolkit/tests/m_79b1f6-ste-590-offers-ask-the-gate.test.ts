@@ -278,6 +278,11 @@ function expectUneditedBeyondSte609(suite: string, ref: string): void {
  * STE-692 widens the stamp-literal counter to both shipped forms and moves it into tests/_base_relative.ts,
  * so tests/m_79b1f6-ste-589-sibling-ship-gate.test.ts carries the counter import, each hunk adding a line
  * marked `Amended by AC-STE-692.<N>`. An unmarked hunk is still an edit.
+ *
+ * Amended by AC-STE-693.6 (approved spec STE-693, M_bae31f): admitted the same way.
+ * STE-693 registers probe #89, so the 88 -> 89 probe-count move reaches
+ * tests/m_8f07e0-ste-584-awaiting-siblings.test.ts, each hunk adding a line marked
+ * `Amended by AC-STE-693.6`. An unmarked hunk is still an edit.
  */
 function unmarkedHunks(diff: string): string[] {
   const hunks = diff.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ "));
@@ -289,7 +294,7 @@ function unmarkedHunks(diff: string): string[] {
   ).map((h) => h.split("\n")[0]!);
 }
 
-const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6|690\.1|690\.2|692\.\d+)\b/;
+const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6|690\.1|690\.2|692\.\d+|693\.6)\b/;
 
 /** The suite's working-tree bytes equal `ref`'s committed bytes. */
 function expectUnedited(suite: string, ref: "main" | "HEAD"): void {

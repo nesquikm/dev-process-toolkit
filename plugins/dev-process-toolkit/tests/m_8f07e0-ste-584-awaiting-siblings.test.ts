@@ -634,16 +634,19 @@ describe("AC-STE-584.14 — probe count and the unreachable pin hold", () => {
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("gate-check lists 88 numbered probes, contiguous 1..88", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("gate-check lists 89 numbered probes, contiguous 1..89", () => {
     const numbers = [...read(skillPath("gate-check")).matchAll(/^(\d+)\. \*\*/gm)].map((m) =>
       Number(m[1]),
     );
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(numbers).toHaveLength(88);
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(numbers).toHaveLength(89);
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 88 }, (_, i) => i + 1));
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 89 }, (_, i) => i + 1));
   });
 
   test("module reachability reports orderedUnreachable === the shipped ORDERED_UNREACHABLE_PIN with ok: true", async () => {

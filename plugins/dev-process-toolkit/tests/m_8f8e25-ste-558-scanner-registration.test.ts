@@ -437,13 +437,15 @@ describe("AC-STE-558.3 — both scanners are numbered registrations", () => {
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("the registry is contiguous 1..88", () => {
+  test("the registry is contiguous 1..89", () => {
     const registrations = probeRegistrationLines();
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(liveProbeCount()).toBe(88);
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(liveProbeCount()).toBe(89);
     expect(registrations.map((r) => r.number)).toEqual(
       // Amended by AC-STE-680.6: probe count 87 -> 88.
-      Array.from({ length: 88 }, (_, i) => i + 1),
+      // Amended by AC-STE-693.6: probe count 88 -> 89.
+      Array.from({ length: 89 }, (_, i) => i + 1),
     );
   });
 
@@ -599,12 +601,14 @@ describe("AC-STE-558.4 — each registration is an order a reader can carry out"
 // Amended by AC-STE-659.3: the previous count is now 85 (probe #86 landed), so the staleness half stays live.
 // Amended by AC-STE-673.6: the previous count is now 86 (probe #87 landed), so the staleness half stays live.
 // Amended by AC-STE-680.6: the previous count is now 87 (probe #88 landed), so the staleness half stays live.
-const STALE_PROBE_COUNT = 87;
+// Amended by AC-STE-693.6: probe count 88 -> 89.
+const STALE_PROBE_COUNT = 88;
 /** The count after this FR registers both scanners. */
 // Amended by AC-STE-659.3: probe count 85 -> 86.
 // Amended by AC-STE-673.6: probe count 86 -> 87.
 // Amended by AC-STE-680.6: probe count 87 -> 88.
-const NEW_PROBE_COUNT = 88;
+// Amended by AC-STE-693.6: probe count 88 -> 89.
+const NEW_PROBE_COUNT = 89;
 
 /**
  * Every surface carrying the probe count, as `[plugin-relative-or-README path,
@@ -713,7 +717,8 @@ describe("AC-STE-558.5 — the probe-count cascade moved as one", () => {
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("the live count is 88 and the numbers are contiguous 1..88", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("the live count is 89 and the numbers are contiguous 1..89", () => {
     expect(liveProbeCount()).toBe(NEW_PROBE_COUNT);
     expect(probeRegistrationLines().map((r) => r.number)).toEqual(
       Array.from({ length: NEW_PROBE_COUNT }, (_, i) => i + 1),
@@ -747,7 +752,8 @@ describe("AC-STE-558.5 — the probe-count cascade moved as one", () => {
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("README's TWO pins read 88, each on its own unique measured line", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("README's TWO pins read 89, each on its own unique measured line", () => {
     const readme = read(README);
     expect(onlyLine(readme, /numbered `\/gate-check` probes/).line).toContain(
       `${NEW_PROBE_COUNT} numbered \`/gate-check\` probes`,

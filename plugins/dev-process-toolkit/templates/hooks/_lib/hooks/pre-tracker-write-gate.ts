@@ -42,6 +42,7 @@ import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shar
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
 // the two gates came to disagree about the one rule.
+import { projectSettingsNamingGate, trackerWriteGateSetting } from "../../../../adapters/_shared/src/tracker_write_gate_setting.ts";
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
 import { listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
@@ -2609,6 +2610,28 @@ export function run(stdin: string): ExitCode {
   if (!payload) return 0; // §6 — fail-open outside a session
   const call = identifyTrackerCall(payload);
   if (!call) return 0;
+  // STE-693 — the user switched the gate off for themselves: permit, loudly.
+  const gateSetting = trackerWriteGateSetting();
+  if (gateSetting.ignored !== null) {
+    process.stderr.write(
+      `${HOOK_NAME}: ignoring unrecognised tracker_write_gate value ${JSON.stringify(gateSetting.ignored)} — enforcing (accepted: enforce, off)\n`,
+    );
+  }
+  const forgedRoute = gateSetting.effective === "off" ? projectSettingsNamingGate(gitTopLevel(payload.cwd)) : null;
+  if (forgedRoute !== null) {
+    // AC-STE-693.5 — a repo file the model can write names the variable: enforce.
+    process.stderr.write(
+      `${HOOK_NAME}: tracker_write_gate off ignored — ${forgedRoute} sets it in its env block, a file the model can write; enforcing\n`,
+    );
+  }
+  if (gateSetting.effective === "off" && forgedRoute === null) {
+    const keys = subjectKeys(call);
+    process.stderr.write(
+      `${HOOK_NAME}: tracker write gate off for this user — ${call.tool} permitted unchecked` +
+        `${keys.length > 0 ? ` (keys not checked: ${keys.join(", ")})` : ""}\n`,
+    );
+    return 0;
+  }
 
   let transcript = readTranscriptLines(payload);
   const sessionId = sessionIdOf(payload);
