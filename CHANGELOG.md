@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.100.1] — 2026-10-22 — "Second Look"
+
+### Fixed
+
+- Base-relative tests read the shipped grammar and imports (STE-692). The sibling ship gate's stamp guard counts a stamp literal in either shipped form, `v<X.Y.Z>` alone or the shared grammar that admits `unreleased`, through one regex on main and in the tree, so merged main no longer fails a guard about its own previous self. The numeric-door control copies the transitive relative-import closure of its modules from a pinned commit, never from `merge-base HEAD main`, which equals HEAD once merged. A merged-tree simulation and mutation controls keep both honest.
+
+Total test count at release: 19418 tests, 0 failures, 0 errors.
+
 ## [2.100.0] — 2026-10-22 — "Not Yet Numbered"
 
 ### Added
