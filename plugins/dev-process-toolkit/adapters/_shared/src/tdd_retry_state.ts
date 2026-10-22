@@ -19,13 +19,18 @@
 // the semantic-failure budget (the retry is a cheaper class of fix —
 // "re-emit your last message with a valid tdd-result block").
 //
+// not-load-bearing (a failed defect check) halts on its first attempt and
+// spends neither budget: the implementer reached GREEN, planted a bug in the
+// end state its AC's test reads, and the test stayed GREEN. The test is the
+// defect, the implementer may not edit tests, so a retry cannot change it.
+//
 // Keying:
 //   test-writer / refactorer  ⇒ key = role         (run once per FR)
 //   implementer               ⇒ key = role + ac    (run per AC)
 
 import type { TddRole } from "./tdd_result";
 
-export type FailureMode = "A" | "B" | "C" | "D" | "E" | "spec-gap";
+export type FailureMode = "A" | "B" | "C" | "D" | "E" | "spec-gap" | "not-load-bearing";
 
 export interface RetryKey {
   role: TddRole;
@@ -94,6 +99,14 @@ export function recordTddFailure(
   key: RetryKey,
   mode: FailureMode,
 ): RetryDecision {
+  const acFragment = key.role === "implementer" && key.ac ? ` for ${key.ac}` : "";
+  if (mode === "not-load-bearing") {
+    return {
+      decision: "halt",
+      attemptNumber: 1,
+      reason: `mode ${mode} on ${key.role}${acFragment} — the test stayed GREEN with the behavior broken; a retry cannot fix a test, halt`,
+    };
+  }
   const k = keyToString(key);
   const isFormat = isFormatMode(mode);
   const map = isFormat ? budget.format : budget.semantic;
@@ -102,7 +115,6 @@ export function recordTddFailure(
   const attemptNumber = prior + 1;
   map.set(k, attemptNumber);
   const decision: "retry" | "halt" = attemptNumber >= cap ? "halt" : "retry";
-  const acFragment = key.role === "implementer" && key.ac ? ` for ${key.ac}` : "";
   const reason = decision === "retry"
     ? `mode ${mode} on ${key.role}${acFragment} — attempt ${attemptNumber}/${cap}, retry queued`
     : `mode ${mode} on ${key.role}${acFragment} — attempt ${attemptNumber}/${cap}, halt`;
