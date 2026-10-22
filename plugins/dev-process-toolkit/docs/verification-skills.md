@@ -157,17 +157,21 @@ sentinel exception: a project with no suite owes no test and no rationale, so it
 emits `end_to_end_none_needed` with a null reason. None of this is a fifth key —
 it is a consequence of the four already in the table above.
 
-A suite run that executed no test — every test skipped — is not
-evidence either: it parses, counts zero passes and zero failures, and would
-otherwise read as green. `resolveE2eAuthoring` refuses it, and the refusal
-names the skips, since an absent secret or device that makes every test skip
-itself is the usual cause. It is a refusal, not a red suite: the capability
-token stays the one the authoring decision earned.
+A suite run that executed no test is not evidence either. When the captured
+run parses to zero passes and zero failures — usually every test skipped
+itself for want of a secret or a device — `resolveE2eAuthoring` refuses it and
+states the skip count it parsed. It is a refusal, not a red suite: the
+capability token stays the one the authoring decision earned. Two limits. A
+runner whose all-skipped summary carries no pass or fail counter (pytest's bare
+`N skipped`) does not parse, so that run is refused as unparseable rather than
+as zero-executed. And the refusal belongs to the `/implement` end-to-end hook
+alone: the shared evidence renderer other stages use does not apply it.
 
 Whether a change *has* an end-to-end observable surface is a tier question, so
 answer it the way the testing-spec template's *Which tier a check belongs in*
-section does: an end-to-end test earns its cost only when the answer depends on the app, its
-backend and a real session being live at once. A change whose every check
+section does: an end-to-end test earns its cost only when the answer depends on
+the real parts of the system working together — processes, services, storage,
+a device or a real session — that no lower tier can stand in for. A change whose every check
 passes or fails for reasons that never leave one component is covered one tier
 down, and that is a legitimate none-needed reason to record. An end-to-end test
 that is authored owes the same defect check as any other (`docs/patterns.md` §

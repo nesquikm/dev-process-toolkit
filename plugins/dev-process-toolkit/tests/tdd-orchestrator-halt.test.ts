@@ -166,11 +166,20 @@ describe("defect check — not-load-bearing halt report", () => {
   });
 
   test("does not claim an exhausted retry budget", () => {
-    expect(report()).not.toContain("bounded retry budget exhausted");
+    const out = report();
+    expect(out).not.toContain("bounded retry budget exhausted");
+    expect(out.split("\n")[0]).toBe(
+      "/dev-process-toolkit:tdd: halt — a test does not guard its acceptance criterion.",
+    );
   });
 
-  test("the remedy points at the test, not the implementation", () => {
+  // The test-writer is not user-invocable and /tdd takes only an FR id, so
+  // the remedy can only be a hand fix to the test, then a re-run of the FR.
+  test("the remedy points at the test, by hand, and names the AC", () => {
     const remedy = report().split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
-    expect(remedy).toContain("re-run the test-writer for AC-X.2");
+    expect(remedy).toContain("fix the test for AC-X.2 by hand");
+    expect(remedy).toContain("fails at its assertion when the behavior breaks");
+    expect(remedy).toContain("re-run /dev-process-toolkit:tdd against the FR");
+    expect(remedy).not.toContain("test-writer");
   });
 });

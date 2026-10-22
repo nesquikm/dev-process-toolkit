@@ -39,7 +39,7 @@ Before attempting any fix, ask:
    - Tests that fail intermittently often depend on `sleep()` or wall-clock time.
    - Replace `sleep(N)` with condition-based waiting: poll for the condition with a timeout.
    - Fixed sleeps are false gates — they pass on fast machines and fail on slow ones.
-   - Never stabilise a test by repeating the action under test until the assertion passes — that hides the bug. Re-issuing a fetch to observe an eventually consistent store is polling, and is fine when bounded and named.
+   - Never stabilise a test by repeating the action under test (a call, a request, a user action) until the assertion passes — that hides the bug. Re-issuing a read to observe an eventually consistent store is polling, and is fine when bounded and named.
    - Measure the flake before fixing it: run the test N times and count the red runs. Re-run the same N after the fix and require N of N green. Put both tallies in the change description; one green run proves nothing about a flake.
 
 ## Phase 3: Hypothesis Testing
