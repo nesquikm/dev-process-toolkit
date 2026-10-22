@@ -1722,3 +1722,80 @@ describe("HARDENING GAP 4 — docs/verification-skills.md owns the closed key ta
     expect(rows.length).toBe(4);
   });
 });
+
+// A run that EXECUTED nothing parses cleanly and counts zero passes and zero
+// failures, so every ground above reads it as clean — and the change is then
+// declared green on a suite that proved nothing. The usual cause is an
+// environment that made every test skip itself (a missing secret, no device),
+// which is why the refusal names the skips. One executed test is enough: the
+// ground is "nothing ran", not "something skipped".
+describe("an end-to-end run that executed no test is not evidence", () => {
+  const E2E_ALL_SKIPPED = [
+    "bun test v1.1.29",
+    "",
+    " 0 pass",
+    " 16 skip",
+    " 0 fail",
+    "Ran 16 tests across 4 files. [3.10s]",
+  ].join("\n");
+
+  const E2E_ONE_RAN = [
+    "bun test v1.1.29",
+    "",
+    " 1 pass",
+    " 15 skip",
+    " 0 fail",
+    "Ran 16 tests across 4 files. [4.20s]",
+  ].join("\n");
+
+  test("an all-skipped run REFUSES, and the refusal names the skips", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun("zero-ran", E2E_ALL_SKIPPED),
+    });
+
+    expect(outcome.counts).toEqual(
+      expect.objectContaining({ pass: 0, fail: 0, skip: 16 }),
+    );
+    expect(outcome.ok).toBe(false);
+    const reasons = outcome.reasons.join("\n");
+    expect(reasons).toContain("executed no test");
+    expect(reasons).toContain("16 skipped");
+  });
+
+  test("a none-needed record does not excuse a run that executed nothing", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      noneNeeded: { reason: "the change is a config key with no journey" },
+      run: capturedRun("zero-ran-none-needed", E2E_ALL_SKIPPED),
+    });
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.authoring).toBe("none_needed");
+  });
+
+  test("ONE executed test is enough — the ground is zero executed, not skips", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun("one-ran", E2E_ONE_RAN),
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.reasons).toEqual([]);
+  });
+
+  test("the refusal leaves the decision and the token alone — it is not a red suite", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun("zero-ran-token", E2E_ALL_SKIPPED),
+    });
+
+    expect(outcome.authoring).toBe("authored");
+    expect(outcome.suiteRed).toBe(false);
+    expect(outcome.capabilityToken).toBe(mod.E2E_CAPABILITY_TOKENS.authored);
+  });
+});

@@ -50,7 +50,9 @@ The child fork runs in isolation with `tools: Read, Grep, Glob, Write, Edit, Bas
 For each AC in order:
 
 - Pass the implementer **only** that AC's text + the failing-test command target.
-- The child fork runs in isolation, writes the minimum code to turn the failing test GREEN, re-runs the command, and ends with a single `tdd-result` fenced block.
+- The child fork runs in isolation, writes the minimum code to turn the failing test GREEN, re-runs the command, runs the **defect check**, and ends with a single `tdd-result` fenced block.
+
+The defect check is what makes RED load-bearing. A test that failed before the code existed may have failed only because a symbol was missing; the check plants the smallest bug in the end state the AC's test reads and requires that test to go RED **at its assertion**, then restores the source. The implementer records it in `notes` as `defect check: <plant> → red at <test>`. A `status: failed` whose `notes` reads `defect check: … → still GREEN` is a test that does not guard its AC: it is **not retried** under mode B, because the implementer may not edit tests and a second attempt cannot change the outcome — the orchestrator halts with the halt report and the operator decides (usually a test-writer re-run for that AC).
 
 The orchestrator dispatches **N forks for N ACs** — each implementer invocation sees one AC, never the full list. This per-AC isolation is the load-bearing property: it stops the implementer from optimizing across ACs in ways the test-writer didn't anticipate.
 
@@ -163,3 +165,5 @@ The halt path **does** pause for the operator. This is intentional — the bound
 - "I'll write the implementation alongside the tests for speed" → no — write tests in the test-writer fork only.
 - "I'll skip the format-violation retry, just re-spawn the child" → no — single targeted retry, halt after that.
 - "I'll feed the child my analysis of why its last attempt failed" → no — retry prompt injects only raw failing-test output.
+- "The test was RED before the code existed, so it guards the behavior" → no — RED from a missing symbol proves the code was absent; only the defect check proves the assertion.
+- "The defect check failed, retry the implementer" → no — a test that stays GREEN with the behavior broken is a test problem; halt and let the operator decide.
