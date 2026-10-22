@@ -39,7 +39,7 @@ notes: optional one-liner
 - a test that can finish without reaching its assertion — an early `return`, a `try`/`catch` around the assertion, a loop over a possibly empty collection as the only assertion site
 - an expected value computed through the code path under test (the same helper, lookup table or localization bundle)
 
-If the only viable assertion you can produce is one of these, mark `status: failed` and explain in `notes`. The orchestrator will halt rather than ship a shallow test. A precondition the test cannot control is a declared skip that says why, never a quiet exit.
+If the only viable assertion you can produce is one of these, mark `status: failed` and explain in `notes`. The orchestrator will halt rather than ship a shallow test. A precondition the test cannot control is a declared skip that says why, never a quiet exit; an AC whose only test would skip never goes RED, so report it with `status: failed`.
 
 **Waits and scope.** Wait on a condition with a timeout and a message naming it — never a fixed sleep, never a user action repeated until the assertion passes (re-issuing a fetch to observe an eventually consistent store is polling, bounded and named). One independent check per test; a linear flow where step N needs step N-1 stays one test.
 

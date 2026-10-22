@@ -143,3 +143,34 @@ describe("AC-STE-296.7 — spec-gap halt mode (audit failure)", () => {
     expect(out).toMatch(/audit|spec.review|missing/i);
   });
 });
+
+// A failed defect check halts on its first attempt, so the report must not
+// claim a retry budget ran out, and it must say what to do instead: the test
+// is the defect, which the implementer was not allowed to touch.
+describe("defect check — not-load-bearing halt report", () => {
+  const report = () =>
+    formatHaltReport({
+      mode: "not-load-bearing",
+      role: "implementer",
+      ac: "AC-X.2",
+      retryCount: 0,
+      lastBlock:
+        "```tdd-result\nrole: implementer\nstatus: failed\nfiles:\n  - src/x.ts\ncommand: bun test\noutput_excerpt: |\n  PASS\nnotes: defect check: dropped save() → still GREEN\n```",
+    });
+
+  test("names the mode with its own description", () => {
+    const out = report();
+    // The description, not the echoed notes line, has to name the check.
+    expect(out).toMatch(/failure mode: not-load-bearing \([^)\n]*defect check[^)\n]*\)/);
+    expect(out).toContain("AC: AC-X.2");
+  });
+
+  test("does not claim an exhausted retry budget", () => {
+    expect(report()).not.toContain("bounded retry budget exhausted");
+  });
+
+  test("the remedy points at the test, not the implementation", () => {
+    const remedy = report().split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+    expect(remedy).toContain("re-run the test-writer for AC-X.2");
+  });
+});
