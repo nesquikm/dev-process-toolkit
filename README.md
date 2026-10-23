@@ -12,7 +12,7 @@ A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** wor
 - **End-to-end delivery pipeline** — `/deliver` takes a feature request from idea to merged milestones: it runs `/brainstorm` and `/spec-write` with you, then drives each milestone's `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible worker, relaying every approval gate back to you
 - **Multi-agent TDD orchestrator** — `/tdd` runs RED → GREEN → REFACTOR → AUDIT via four forked subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) with context isolation, a strict `tdd-result` YAML hand-off, and bounded retries; `/implement` invokes it inline per FR
 - **Bounded three-stage self-review** — Stage A spec compliance → Stage B two-pass `code-reviewer` agent (Pass 1 spec compliance, Pass 2 code quality, fail-fast) → Stage C hardening, capped before human escalation
-- **Deterministic quality gates** — 88 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
+- **Deterministic quality gates** — 89 numbered `/gate-check` probes (typecheck + lint + test + spec/plan/frontmatter/branch hygiene) override LLM judgment
 - **Universal pre-commit branch gate** — every commit-producing skill calls `requireCommittableBranch`; trunk-OK narrows to `ci` only, so `chore`/`docs`/`feat` cannot land on `main` accidentally
 - **Non-technical drafting (`--no-tech`)** — `/brainstorm` and `/spec-write` skip the technical-design + testing interviews; FR ships with `needs_technical_review: true` and `/implement` refuses until a reviewer fills it in
 - **Topic-aware spec retrieval** — `spec-researcher` Read-only Haiku subagent (invoked by `/brainstorm` and `/spec-write` via the `spec-research` fork) returns related FRs from active + archived specs as a fixed-shape ≤ 25-line block, no parent-context pollution
@@ -108,7 +108,7 @@ flowchart LR
     Build --> Ship
 ```
 
-Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 88 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit` and then `/docs --full` — the flags are mutually exclusive — to fold staged fragments into the canonical docs tree and regenerate it before cutting the release commit.
+Under the hood, `/implement` invokes the `/tdd` orchestrator inline per FR — `/tdd` forks four subagents (`tdd-test-writer`, `tdd-implementer`, `tdd-refactorer`, `tdd-spec-reviewer`) into isolated contexts and parses their `tdd-result` YAML hand-off. It runs gate commands inline (e.g., `bun test`) rather than invoking the `/gate-check` skill (which layers 89 probes on top of those commands), and invokes `/docs --quick` once per FR for the Phase 4b doc fragment. `/brainstorm` and `/spec-write` similarly fork the read-only `spec-research` skill (paired with the `spec-researcher` Haiku subagent) for topic-aware retrieval of related active + archived FRs. After self-review and human approval, `/implement` commits and stops — you open the PR via `/pr` separately. `/ship-milestone` invokes `/docs --commit` and then `/docs --full` — the flags are mutually exclusive — to fold staged fragments into the canonical docs tree and regenerate it before cutting the release commit.
 
 Spine skills (bold, stadium-shaped) are the recommended invoke path; secondary skills (muted rectangles) are auxiliary tools and auto-invoked helpers. `/deliver` wraps the whole Plan → Build → Ship path into one supervised pipeline: it runs `/brainstorm` and `/spec-write` inline with you, then drives each milestone's `/implement` → `/ship-milestone` → `/pr` chain in a fresh visible spawned worker, relaying every approval gate back to you (like `/deps` and `/best-practices`, it is table-only above — it is the pipeline around the phases, not a fifth phase).
 
@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.100.1 — "Second Look"** (M_262834, base-relative tests that survive their own merge. The STE-589 stamp guard reads both shipped stamp forms on main, and the STE-608 control copies its import closure from a pinned commit, so merged main is green again)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.0 — "Off Switch"** (M_bae31f, per-user relief for the tracker write gate. A `tracker_write_gate` option set to `off` lets one user past the gate, loudly and never through a repo file, and a typed answer that names the key and says yes now adopts the ticket)
 
 ## Core Philosophy
 

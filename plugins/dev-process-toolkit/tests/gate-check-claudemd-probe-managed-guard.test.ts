@@ -372,29 +372,34 @@ describe("AC-STE-434.5 — vacuous without the shared adapter layer", () => {
 // Amended by AC-STE-659.3: probe count 85 -> 86.
 // Amended by AC-STE-673.6: probe count 86 -> 87.
 // Amended by AC-STE-680.6: probe count 87 -> 88.
-describe("AC-STE-434.6 — README documents 88 probes", () => {
+// Amended by AC-STE-693.6: probe count 88 -> 89.
+describe("AC-STE-434.6 — README documents 89 probes", () => {
   // Recalibrated 82 → 83: M140 added #83 external_link_verdicts on top
   // of M137's #82 stage_block_adoption.
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("the Features bullet documents 88 numbered /gate-check probes (README.md:14)", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("the Features bullet documents 89 numbered /gate-check probes (README.md:14)", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b88\b.*numbered/);
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(onlyLine(readme, /numbered `\/gate-check` probes/)).toMatch(/\b89\b.*numbered/);
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("the /implement-invokes-/tdd aside documents 88 probes (README.md:109)", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("the /implement-invokes-/tdd aside documents 89 probes (README.md:109)", () => {
     const readme = readFileSync(join(repoRoot, "README.md"), "utf-8");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b88\b\s+probes/);
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(onlyLine(readme, /which layers \d+ probes on top/)).toMatch(/\b89\b\s+probes/);
   });
 
   test("runPublicSurfaceCountDriftProbe returns zero violations on this repo", async () => {

@@ -112,9 +112,10 @@ export function relationTargets(tool: string, input: unknown): unknown[] {
  *
  * `null` when no question in `questions` names the subject (`names`) and
  * offers `label` as an option — the ask says nothing about it. Otherwise true
- * only when every such question was answered exactly `label`: a "no" to one of
- * them is never overridden by a "yes" to another (review FO-2), and a question
- * about something else neither grants nor withholds it.
+ * only when every such question was answered exactly `label` — or, for an
+ * `Adopt <KEY>` label only, with a typed answer `typedAdopts` accepts (STE-694):
+ * a "no" to one of them is never overridden by a "yes" to another (review
+ * FO-2), and a question about something else neither grants nor withholds it.
  */
 export function perQuestionConsent(
   questions: unknown,
@@ -130,5 +131,41 @@ export function perQuestionConsent(
     return Array.isArray(options) && options.some((o) => (o as { label?: unknown } | null)?.label === label);
   });
   if (relevant.length === 0) return null;
-  return relevant.every((q) => answer((q as { question: string }).question) === label);
+  // STE-694: only `Adopt <KEY>` also takes a typed answer, and the key is read
+  // from the label, never from the answer.
+  const adoptKey = /^Adopt (\S+)$/.exec(label)?.[1] ?? null;
+  return relevant.every((q) => {
+    const a = answer((q as { question: string }).question);
+    if (a === label) return true;
+    return adoptKey !== null && a !== null && typedAdopts(a, adoptKey);
+  });
+}
+
+/** STE-694 AC.1: the first words that make a typed answer affirmative. */
+const AFFIRMATIVE_FIRST_WORDS = new Set(["adopt", "yes", "approve", "post", "go"]);
+
+/** STE-694 AC.1: whole words that withhold consent wherever they appear. */
+const NEGATION_WORDS = new Set(["skip", "no", "not", "don't", "dont", "cancel"]);
+
+/**
+ * STE-694 AC.1: true only when a typed `answer` to an `Adopt <key>` question
+ * names `key` as a whole word (case-insensitive), opens with an affirmative
+ * word, and holds no negation word, no "never", no n't contraction and no
+ * ticket key other than `key`.
+ */
+export function typedAdopts(answer: string, key: string): boolean {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!new RegExp(`(?<![A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_-])`, "i").test(answer)) return false;
+  // A word wrapped in quotes is still that word: strip quote characters from
+  // its edges, so an apostrophe inside a contraction (won't) still counts.
+  const words = (answer.replace(/[\u2018\u2019]/g, "'").toLowerCase().match(/[a-z0-9']+/g) ?? [])
+    .map((w) => w.replace(/^'+|'+$/g, ""))
+    .filter((w) => w !== "");
+  if (words.length === 0 || !AFFIRMATIVE_FIRST_WORDS.has(words[0]!)) return false;
+  if (words.some((w) => NEGATION_WORDS.has(w))) return false;
+  if (words.includes("never")) return false;
+  if (words.some((w) => w.endsWith("n't"))) return false;
+  const keys = answer.match(/(?<![A-Za-z0-9_-])[A-Za-z][A-Za-z0-9_]*-\d+(?![A-Za-z0-9_-])/g) ?? [];
+  if (keys.some((k) => k.toLowerCase() !== key.toLowerCase())) return false;
+  return true;
 }

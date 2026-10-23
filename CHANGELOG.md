@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.101.0] — 2026-10-22 — "Off Switch"
+
+### Added
+
+- A user can switch the tracker write gate off for themselves (STE-693). The plugin declares a `userConfig` option, `tracker_write_gate`, with the values `enforce` and `off`; the default is `enforce`. Set it with `/plugin configure dev-process-toolkit`. With `off`, the hook permits the write and prints one stderr line naming the tool and every key it did not check. Any other value enforces and is named. Measured live on Claude Code 2.1.308: only user settings reach the hook. A project settings `env` block naming the variable also reaches it, so the hook treats `off` as `enforce` there and names the file, and an unreadable settings file counts too. It looks in the session's launch directory (`CLAUDE_PROJECT_DIR`) as well as the working directory, since Claude Code loads project settings from the launch directory. A repository with no shared container stays silent whatever the setting. `/gate-check` probe #89, `tracker_write_gate_setting`, reports the effective setting in one row.
+
+### Changed
+
+- A typed answer naming the key adopts the ticket (STE-694). On an `Adopt <KEY>` question, a typed answer counts as consent when it names the key as a whole word, opens with adopt, yes, approve, post or go, and holds none of skip, no, not, don't, dont, cancel, never or an n't contraction (won't, isn't …). An answer naming any other ticket key withholds too. The rule lives once, in `typedAdopts`, which the hook and the live grader both reach through `perQuestionConsent`. `Import`, `Join`, `Create`, `Skip` and the answers block keep the exact label, and the refusal remedy says so.
+
+Total test count at release: 19646 tests, 0 failures, 0 errors.
+
 ## [2.100.1] — 2026-10-22 — "Second Look"
 
 ### Fixed

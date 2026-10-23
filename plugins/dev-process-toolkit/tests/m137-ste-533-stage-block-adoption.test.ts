@@ -2073,7 +2073,8 @@ describe("AC-STE-533.8 — the adoption grader is registered on a runtime path",
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(numbers).toEqual(Array.from({ length: 88 }, (_, i) => i + 1));
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(numbers).toEqual(Array.from({ length: 89 }, (_, i) => i + 1));
     const mine = registrations.filter((r) =>
       r.line.includes(`\`${ADOPTION_PROBE_ID}\``),
     );
@@ -2388,7 +2389,8 @@ const PROBE_COUNT_PINS: readonly (readonly [string, string])[] = [
 // Amended by AC-STE-659.3: the previous count is now 85 (probe #86 landed), so the staleness half stays live.
 // Amended by AC-STE-673.6: the previous count is now 86 (probe #87 landed), so the staleness half stays live.
 // Amended by AC-STE-680.6: the previous count is now 87 (probe #88 landed), so the staleness half stays live.
-const STALE_PROBE_COUNT = 87;
+// Amended by AC-STE-693.6: probe count 88 -> 89.
+const STALE_PROBE_COUNT = 88;
 
 const fill = (template: string, n: number): string =>
   template.split("{N}").join(String(n));
@@ -2402,12 +2404,14 @@ describe("AC-STE-533.8 — the probe-count cascade moved as one", () => {
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("the live count is 88 and README advertises it in BOTH places", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("the live count is 89 and README advertises it in BOTH places", () => {
     const live = liveProbeCount();
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
-    expect(live).toBe(88);
+    // Amended by AC-STE-693.6: probe count 88 -> 89.
+    expect(live).toBe(89);
     const readme = read(README);
     expect(readme).toContain(`${live} numbered \`/gate-check\` probes`);
     expect(readme).toMatch(new RegExp(`layers ${live} probes`));

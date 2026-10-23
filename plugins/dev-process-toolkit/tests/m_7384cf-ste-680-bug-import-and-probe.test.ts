@@ -836,6 +836,8 @@ function probeRegistrationLines(): { number: number; line: string }[] {
 
 /** The count before this FR registered its probe — no surface may still read it. */
 const PREVIOUS_PROBE_COUNT = 87;
+/** The live registry count. Amended by AC-STE-693.6: probe count 88 -> 89 (probe #89 landed after #88). */
+const LIVE_PROBE_COUNT = 89;
 
 /** Probe-count pins (the STE-673.6 table): after #88, none may still read 87. */
 const PINS: readonly (readonly [string, string])[] = [
@@ -870,9 +872,10 @@ const fill = (template: string, n: number): string => template.split("{N}").join
 const surfaceAbs = (rel: string): string => (rel === "README.md" ? README : join(PLUGIN_ROOT, ...rel.split("/")));
 
 describe("AC-STE-680.6 — registered as probe #88 behind an `import.meta.main` front door", () => {
-  test("the registry is contiguous 1..88", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("the registry is contiguous 1..89", () => {
     expect(probeRegistrationLines().map((r) => r.number)).toEqual(
-      Array.from({ length: PROBE_NUMBER }, (_, i) => i + 1),
+      Array.from({ length: LIVE_PROBE_COUNT }, (_, i) => i + 1),
     );
   });
 
@@ -916,9 +919,10 @@ describe("AC-STE-680.6 — registered as probe #88 behind an `import.meta.main` 
     expect(records.filter((r) => !r.reachable)).toEqual([]);
   });
 
-  test("the front-door warning names the NEXT unregistered number (#89)", () => {
+  // Amended by AC-STE-693.6: the next unregistered number is #90 at 89 live registrations.
+  test("the front-door warning names the NEXT unregistered number (#90)", () => {
     const skill = read(GATE_CHECK_SKILL);
-    expect(skill).toContain(`registering probe #${PROBE_NUMBER + 1} will turn probe #81 red`);
+    expect(skill).toContain(`registering probe #${LIVE_PROBE_COUNT + 1} will turn probe #81 red`);
     expect(skill).not.toContain(`registering probe #${PROBE_NUMBER} will turn probe #81 red`);
   });
 
@@ -937,9 +941,10 @@ describe("AC-STE-680.6 — registered as probe #88 behind an `import.meta.main` 
     expect(stale).toEqual([]);
   });
 
-  test("the prose surfaces (README, workflow overview) state 88 probes", () => {
+  // Amended by AC-STE-693.6: probe count 88 -> 89.
+  test("the prose surfaces (README, workflow overview) state 89 probes", () => {
     for (const [rel, template] of PINS.filter(([rel]) => !rel.startsWith("tests/"))) {
-      expect({ rel, has: read(surfaceAbs(rel)).includes(fill(template, PROBE_NUMBER)) }).toEqual({ rel, has: true });
+      expect({ rel, has: read(surfaceAbs(rel)).includes(fill(template, LIVE_PROBE_COUNT)) }).toEqual({ rel, has: true });
     }
   });
 

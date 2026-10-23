@@ -42,6 +42,7 @@ import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shar
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
 // the two gates came to disagree about the one rule.
+import { forgedSettingsFiles, trackerWriteGateSetting } from "../../../../adapters/_shared/src/tracker_write_gate_setting.ts";
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
 import { listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
@@ -1690,7 +1691,9 @@ function answerTo(p: ParsedLine, block: ContentBlock, question: string): string 
  * STE-655 AC-12 — the per-question verdict of one answered ask on `label`:
  * `null` when no question in it names the subject and offers the label (the
  * ask says nothing about it), else whether every such question was answered
- * exactly `label` (the STE-650 AC-8 / FO-2 per-question rule). The rule is the
+ * exactly `label` (the STE-650 AC-8 / FO-2 per-question rule) — or, on an
+ * `Adopt <KEY>` label only, with a typed answer `typedAdopts` accepts
+ * (STE-694); the operator-text path below keeps the exact label. The rule is the
  * shared `perQuestionConsent`; only the answer lookup is this hook's.
  * Twin: `consentVerdict` in adapters/_shared/src/shared_tracker_live_grader.ts
  */
@@ -1868,7 +1871,7 @@ function gateTicket(
     // STE-649 AC.8 — `decide` writes no receipt, so its shape is spelled
     // literally: acceptedShape() would print `confirm decide`.
     // STE-649 AC.10 — `--adopt` is conditional, never an unconditional `[--adopt]`.
-    `first run ${DECIDE_OWNERSHIP_SHAPE} to read the ticket's ownership verdict, then run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} (only when decide's verdict is unowned and the operator answered "Adopt <KEY>" append \`--adopt\`; or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry. ` +
+    `first run ${DECIDE_OWNERSHIP_SHAPE} to read the ticket's ownership verdict, then run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} (only when decide's verdict is unowned and the operator answered "Adopt <KEY>" — a typed answer counts when it names the key and says yes — append \`--adopt\`; or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry. ` +
       // STE-649 AC.9 — the verdicts no receipt can clear, and their routes.
       `A foreign-repo verdict (the ticket carries another repository's tag) or a container verdict (the ticket is an Epic) is refused by both confirm and consent, and on Linear confirm also refuses another project's ticket in the same team: make that write from the owning repository, or relabel the ticket to this repository first.`,
   );
@@ -2604,11 +2607,51 @@ function gradeRead(payload: HookPayload, call: TrackerCall, lines: string[], ses
   return { scan, declared, cwdTop };
 }
 
+/**
+ * AC-STE-693.3 — whether a declared shared target binds this call, so the
+ * STE-693 stderr lines speak only then (AC-STE-607.1's undeclared silence).
+ * An unreadable declaration counts as binding: enforcing would refuse on it.
+ */
+function declaredTargetBinds(payload: HookPayload, call: TrackerCall): boolean {
+  const scan = scanAnnouncements(readTranscriptLines(payload) ?? [], sessionIdOf(payload));
+  const declarations = readDeclarations(candidateRootsFrom(gitTopLevel(payload.cwd), scan.announcements), call.adapter);
+  return declarations.some((d) => !d.ok || (d.binding.shared && bindsCall(call, d)));
+}
+
 export function run(stdin: string): ExitCode {
   const payload = parseHookPayload(stdin);
   if (!payload) return 0; // §6 — fail-open outside a session
   const call = identifyTrackerCall(payload);
   if (!call) return 0;
+  // STE-693 — the user switched the gate off for themselves: permit, loudly.
+  const gateSetting = trackerWriteGateSetting();
+  const speaks =
+    (gateSetting.ignored !== null || gateSetting.effective === "off") && declaredTargetBinds(payload, call);
+  if (gateSetting.ignored !== null && speaks) {
+    process.stderr.write(
+      `${HOOK_NAME}: ignoring unrecognised tracker_write_gate value ${JSON.stringify(gateSetting.ignored)} — enforcing (accepted: enforce, off)\n`,
+    );
+  }
+  const forgedRoute =
+    gateSetting.effective === "off"
+      ? (forgedSettingsFiles(gitTopLevel(payload.cwd), payload.cwd, process.env, gitTopLevel)[0] ?? null)
+      : null;
+  if (forgedRoute !== null && speaks) {
+    // AC-STE-693.5 — a repo file the model can write names the variable: enforce.
+    process.stderr.write(
+      `${HOOK_NAME}: tracker_write_gate off ignored — ${forgedRoute} names it in its env block, or cannot be read, and is a file the model can write; enforcing\n`,
+    );
+  }
+  if (gateSetting.effective === "off" && forgedRoute === null) {
+    const keys = subjectKeys(call);
+    if (speaks) {
+      process.stderr.write(
+        `${HOOK_NAME}: tracker write gate off for this user — ${call.tool} permitted unchecked` +
+          `${keys.length > 0 ? ` (keys not checked: ${keys.join(", ")})` : ""}\n`,
+      );
+    }
+    return 0;
+  }
 
   let transcript = readTranscriptLines(payload);
   const sessionId = sessionIdOf(payload);

@@ -1,6 +1,6 @@
 {
   "name": "dev-process-toolkit",
-  "version": "2.100.1",
+  "version": "2.101.0",
   "description": "Portable skills, agents, and templates that add Spec-Driven Development and TDD workflows to any Claude Code project.",
   "author": {
     "name": "nesquikm",
@@ -9,6 +9,14 @@
   "homepage": "https://github.com/nesquikm/dev-process-toolkit",
   "repository": "https://github.com/nesquikm/dev-process-toolkit",
   "license": "MIT",
+  "userConfig": {
+    "tracker_write_gate": {
+      "type": "string",
+      "title": "Tracker write gate",
+      "description": "enforce (default) or off. enforce: the pre-tracker-write-gate hook refuses shared-container tracker writes that skipped the deciding commands. off: the tracker write gate stops refusing for this user and allows those writes, printing one stderr line naming the unchecked tickets. Any other value is treated as enforce.",
+      "default": "enforce"
+    }
+  },
   "keywords": [
     "sdd",
     "tdd",
