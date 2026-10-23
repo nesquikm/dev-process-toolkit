@@ -29,20 +29,12 @@ export function trackerWriteGateSetting(
 }
 
 /**
- * AC-STE-693.5 — the first of `.claude/settings.json` / `.claude/settings.local.json`
- * in `from` or any directory up to and including `top` whose `env` block names
- * the variable, or null. A file the model can write is a measured route to the
- * variable, so its presence turns `off` back into `enforce`. A file that exists
- * but cannot be read or parsed counts as naming it (fail closed).
- */
-export function projectSettingsNamingGate(top: string | null, from: string | null = top): string | null {
-  return projectSettingsFilesNamingGate(top, from)[0] ?? null;
-}
-
-/**
- * Every settings file that names the variable (or exists but cannot be read
- * or parsed), scanning `from` and each ancestor up to and including `top` —
- * never below `from`, never siblings. A `from` outside `top` scans `top` only.
+ * AC-STE-693.5 — every `.claude/settings.json` / `.claude/settings.local.json`
+ * whose `env` block names the variable (or that exists but cannot be read or
+ * parsed — fail closed), scanning `from` and each ancestor up to and including
+ * `top` — never below `from`, never siblings. A `from` outside `top` scans
+ * `top` only. A file the model can write is a measured route to the variable,
+ * so its presence turns `off` back into `enforce`.
  */
 export function projectSettingsFilesNamingGate(top: string | null, from: string | null = top): string[] {
   if (!top) return [];
@@ -61,17 +53,57 @@ export function projectSettingsFilesNamingGate(top: string | null, from: string 
   return found;
 }
 
+/**
+ * AC-STE-693.5 (amended) — every forged settings file the hook must honour.
+ * Claude Code loads project settings from the session's launch directory,
+ * which hooks receive as `CLAUDE_PROJECT_DIR`, so the scan runs from there up
+ * to its git top level (the directory itself outside a repository) AND from
+ * `cwd` up to `cwdTop` as before; either naming the variable is enough (fail
+ * closed). An unset or empty `CLAUDE_PROJECT_DIR` leaves the cwd scan alone.
+ * Launch-directory files come first; a file both scans reach is listed once.
+ */
+export function forgedSettingsFiles(
+  cwdTop: string | null,
+  cwd: string | null,
+  env: Record<string, string | undefined> = process.env,
+  topOf: (dir: string) => string | null = gitTopLevelOf,
+): string[] {
+  const projectDir = env.CLAUDE_PROJECT_DIR;
+  const files = [
+    ...(projectDir ? projectSettingsFilesNamingGate(topOf(projectDir) ?? projectDir, projectDir) : []),
+    ...projectSettingsFilesNamingGate(cwdTop, cwd),
+  ];
+  const seen = new Set<string>();
+  return files.filter((p) => {
+    const key = realOrResolved(p);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function gitTopLevelOf(dir: string): string | null {
+  try {
+    const p = Bun.spawnSync(["git", "-C", dir, "rev-parse", "--show-toplevel"], { stdout: "pipe", stderr: "pipe" });
+    const top = p.exitCode === 0 ? p.stdout.toString().trim() : "";
+    return top.length > 0 ? top : null;
+  } catch {
+    return null;
+  }
+}
+
+function realOrResolved(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+}
+
 /** `from` and each of its ancestors up to and including `top`, nearest first, spelled under `top`. */
 function dirsUpTo(top: string, from: string | null): string[] {
-  const real = (p: string): string => {
-    try {
-      return realpathSync(p);
-    } catch {
-      return resolve(p);
-    }
-  };
   if (!from) return [top];
-  const rel = relative(real(top), real(from));
+  const rel = relative(realOrResolved(top), realOrResolved(from));
   if (rel.startsWith("..") || isAbsolute(rel)) return [top];
   const parts = rel === "" ? [] : rel.split(sep);
   const dirs: string[] = [];
@@ -130,7 +162,10 @@ export async function runTrackerWriteGateSettingProbe(
 ): Promise<Report> {
   const raw = env[TRACKER_WRITE_GATE_ENV] ?? userSettingsOption(env);
   const { effective, ignored } = trackerWriteGateSetting({ [TRACKER_WRITE_GATE_ENV]: raw });
-  const forged = projectSettingsFilesNamingGate(projectRoot, process.cwd()).map((p) => relative(projectRoot, p).split(sep).join("/"));
+  const forged = forgedSettingsFiles(projectRoot, process.cwd(), env).map((p) => {
+    const rel = relative(projectRoot, p);
+    return rel.startsWith("..") || isAbsolute(rel) ? p : rel.split(sep).join("/");
+  });
   if (forged.length > 0) {
     return {
       violations: [],

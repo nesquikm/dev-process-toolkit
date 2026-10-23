@@ -346,3 +346,80 @@ describe("AC-STE-693.6 (review fix) — the row names an unrecognised value", ()
     expect(lines[0]!).toContain("disabled");
   });
 });
+
+// ---------------------------------------------------------------------------
+// AC-STE-693.6 (amended, post-release fix) — the row scans the same roots the hook does
+// ---------------------------------------------------------------------------
+//
+// Claude Code loads project settings from CLAUDE_PROJECT_DIR (the session's
+// launch directory), so AC-STE-693.5's scan is rooted there as well as at the
+// cwd. The row mirrors it: a launch project's `env` block naming the variable
+// warns even when projectRoot is clean, a file outside projectRoot is named by
+// its absolute path, and an unset or empty CLAUDE_PROJECT_DIR leaves the row as before.
+
+describe("AC-STE-693.6 (amended) — the row scans CLAUDE_PROJECT_DIR as the hook does", () => {
+  function gitRepo(label: string, files: Record<string, unknown>): string {
+    const root = tempDir(label);
+    writeFileSync(join(root, "README.md"), "x\n");
+    if (Object.keys(files).length > 0) mkdirSync(join(root, ".claude"), { recursive: true });
+    for (const [name, content] of Object.entries(files)) writeFileSync(join(root, ".claude", name), JSON.stringify(content, null, 2));
+    for (const args of [["init", "-q", "-b", "main"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "x"]]) {
+      const p = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+      if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${p.stderr.toString()}`);
+    }
+    return root;
+  }
+
+  test("(c) clean projectRoot, CLAUDE_PROJECT_DIR's .claude/settings.json env names the variable → `enforce` with a warning naming the launch file", async () => {
+    const launch = gitRepo("launch", { "settings.json": { env: { [VAR]: "off" } } });
+    const r = await probe(projectWith(null), { [VAR]: "off", CLAUDE_PROJECT_DIR: launch, CLAUDE_CONFIG_DIR: userConfigDir(null) });
+    expect(r.setting).toBe("enforce");
+    expect(r.violations).toEqual([]);
+    expect(r.notes.length).toBe(1);
+    expect(r.notes[0]!.startsWith(`${PROBE_ID}: enforce`)).toBe(true);
+    expect(r.notes[0]!).toMatch(/warn/i);
+    expect(r.notes[0]!).toContain(join(launch, ".claude", "settings.json"));
+  });
+
+  test("(c) CLAUDE_PROJECT_DIR is a subdirectory of the repo whose top carries the file → warning", async () => {
+    const launch = gitRepo("launch-sub", { "settings.local.json": { env: { [VAR]: "off" } } });
+    mkdirSync(join(launch, "pkg"), { recursive: true });
+    const r = await probe(projectWith(null), { CLAUDE_PROJECT_DIR: join(launch, "pkg"), CLAUDE_CONFIG_DIR: userConfigDir("off") });
+    expect(r.setting).toBe("enforce");
+    expect(r.notes[0]!).toContain(join(launch, ".claude", "settings.local.json"));
+  });
+
+  test("CLAUDE_PROJECT_DIR = projectRoot naming it → the file is named once, relative as before", async () => {
+    const root = gitRepo("same", { "settings.json": { env: { [VAR]: "off" } } });
+    const r = await probe(root, { CLAUDE_PROJECT_DIR: root, CLAUDE_CONFIG_DIR: userConfigDir(null) });
+    expect(r.setting).toBe("enforce");
+    expect(r.notes[0]!.split(".claude/settings.json").length - 1).toBe(1);
+    expect(r.notes[0]!).not.toContain(root);
+  });
+
+  test("(c) CLAUDE_PROJECT_DIR unset or empty → a launch-like repo elsewhere is never read: the plain row", async () => {
+    gitRepo("elsewhere", { "settings.json": { env: { [VAR]: "off" } } });
+    expectOneRow(await probe(projectWith(null), { [VAR]: "off", CLAUDE_CONFIG_DIR: userConfigDir(null) }), "off (per-user)");
+    expectOneRow(await probe(projectWith(null), { [VAR]: "off", CLAUDE_PROJECT_DIR: "", CLAUDE_CONFIG_DIR: userConfigDir(null) }), "off (per-user)");
+  });
+
+  test("CONTROL — CLAUDE_PROJECT_DIR names a clean repo → the plain row", async () => {
+    const launch = gitRepo("launch-clean", { "settings.json": { env: { OTHER_VAR: "off" } } });
+    expectOneRow(await probe(projectWith(null), { [VAR]: "off", CLAUDE_PROJECT_DIR: launch, CLAUDE_CONFIG_DIR: userConfigDir(null) }), "off (per-user)");
+  });
+
+  test("front door — CLAUDE_PROJECT_DIR is read from the process environment", () => {
+    const launch = gitRepo("launch-fd", { "settings.json": { env: { [VAR]: "off" } } });
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+    env[VAR] = "off";
+    env.CLAUDE_PROJECT_DIR = launch;
+    env.CLAUDE_CONFIG_DIR = userConfigDir(null);
+    const p = Bun.spawnSync(["bun", "run", MODULE_ABS, projectWith(null)], { env, stdout: "pipe", stderr: "pipe" });
+    expect(p.exitCode).toBe(0);
+    const lines = p.stdout.toString().split("\n").filter((l) => l.trim() !== "");
+    expect(lines.length).toBe(1);
+    expect(lines[0]!.startsWith(`${PROBE_ID}: enforce`)).toBe(true);
+    expect(lines[0]!).toContain(join(launch, ".claude", "settings.json"));
+  });
+});
