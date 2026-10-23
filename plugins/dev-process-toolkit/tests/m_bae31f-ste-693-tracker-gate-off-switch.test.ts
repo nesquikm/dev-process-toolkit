@@ -1372,3 +1372,158 @@ describe("AC-STE-693.3 / AC-STE-693.5 (review fix) — an unreadable transcript 
     await expectOffLineAndExit0([f0]);
   });
 });
+
+// ===========================================================================
+// AC-STE-693.5 (amended, post-release fix) — the scan is rooted where Claude
+// Code loads project settings from
+// ===========================================================================
+//
+// Claude Code loads `.claude/settings.json` and `.claude/settings.local.json`
+// from the session's LAUNCH directory, which hooks receive as
+// CLAUDE_PROJECT_DIR — not from the call's cwd. After the session `cd`s into
+// another repository, a forged `env` entry in the launch project still reaches
+// the hook as the variable. So the forged-settings scan runs from
+// CLAUDE_PROJECT_DIR up to its git top level (the directory itself when it is
+// not in a repository), AND from the cwd up to the cwd's git top level as
+// before; either naming the variable is enough (fail closed). An unset or empty
+// CLAUDE_PROJECT_DIR leaves the cwd scan exactly as it was.
+
+describe("AC-STE-693.5 (amended) — the forged-settings scan is rooted at CLAUDE_PROJECT_DIR", () => {
+  /** The session's launch project: its own git repo, `.claude/<file>` carrying `content` when given. */
+  function launchProject(file: string | null, content: unknown, opts: { git?: boolean } = {}): string {
+    const root = tempDir("launch");
+    writeFileSync(join(root, "README.md"), "launch project\n");
+    if (file !== null) {
+      mkdirSync(join(root, ".claude"), { recursive: true });
+      writeFileSync(join(root, ".claude", file), JSON.stringify(content, null, 2));
+    }
+    if (opts.git !== false) gitInit(root);
+    return root;
+  }
+
+  /** Under off with `env`: every refused fixture refuses as the variable-absent hook does, plus one line naming `fileFragment`. */
+  async function expectEnforcedNamingWith(refused: Fixture[], env: Record<string, string>, fileFragment: string): Promise<void> {
+    const thens = await Promise.all(refused.map((f) => spawnHook(MODULE_PATH, f.stdin, undefined, env)));
+    const nows = await Promise.all(refused.map((f) => runHook(f, "off", env)));
+    refused.forEach((f, i) => {
+      if (thens[i]!.exitCode !== 2) throw new Error(`"${f.name}" is not a refusal under the variable-absent hook:\n${show("absent", thens[i]!)}`);
+      const line = oneExtraStderrLine(f.name, nows[i]!, thens[i]!);
+      expect(line).toContain(fileFragment);
+      expect(nows[i]!.stderr).not.toContain(OFF_PHRASE);
+    });
+  }
+
+  /** Under off with `env`: exit 0 and exactly the one gate-off line (AC.3), naming no settings file. */
+  async function expectOffAsAc3With(fixtures: Fixture[], env: Record<string, string>): Promise<void> {
+    const runs = await Promise.all(fixtures.map((f) => runHook(f, "off", env)));
+    fixtures.forEach((f, i) => {
+      const r = runs[i]!;
+      if (r.exitCode !== 0) throw new Error(`"${f.name}" under off is not permitted:\n${show("off", r)}`);
+      expect(r.stdout).toBe("");
+      const lines = nonEmptyLines(r.stderr);
+      expect(lines.length).toBe(1);
+      expect(lines[0]!).toContain(OFF_PHRASE);
+      expect(lines[0]!).not.toContain(".claude/settings");
+    });
+  }
+
+  for (const file of ["settings.json", "settings.local.json"]) {
+    test(`(a) cwd in a DIFFERENT repo, CLAUDE_PROJECT_DIR's .claude/${file} env names it = off → enforce, one line naming the launch file`, async () => {
+      const launch = launchProject(file, { env: { [VAR]: "off" } });
+      const w = makeWorld();
+      expect(existsSync(join(w.be, ".claude"))).toBe(false);
+      await expectEnforcedNamingWith(reviewFixtures(w, `launch-${file}`).refused, { CLAUDE_PROJECT_DIR: launch }, join(launch, ".claude", file));
+    });
+  }
+
+  test("(a) a permitted write from the other repo exits 0 with exactly one stderr line naming the launch file", async () => {
+    const launch = launchProject("settings.json", { env: { [VAR]: "off" } });
+    const { permitted } = reviewFixtures(makeWorld(), "launch-permitted");
+    const env = { CLAUDE_PROJECT_DIR: launch };
+    expect(await spawnHook(MODULE_PATH, permitted.stdin, undefined, env)).toEqual({ exitCode: 0, stdout: "", stderr: "" });
+    const r = await runHook(permitted, "off", env);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe("");
+    const lines = nonEmptyLines(r.stderr);
+    expect(lines.length).toBe(1);
+    expect(lines[0]!).toContain(join(launch, ".claude", "settings.json"));
+    expect(r.stderr).not.toContain(OFF_PHRASE);
+  });
+
+  test("CLAUDE_PROJECT_DIR is a subdirectory of its repo, the file sits at that repo's top → enforce", async () => {
+    const launch = launchProject("settings.local.json", { env: { [VAR]: "off" } }, { git: false });
+    mkdirSync(join(launch, "pkg"), { recursive: true });
+    writeFileSync(join(launch, "pkg", "keep.txt"), "x\n");
+    gitInit(launch);
+    const f = reviewFixtures(makeWorld(), "launch-subdir").refused[0]!;
+    await expectEnforcedNamingWith([f], { CLAUDE_PROJECT_DIR: join(launch, "pkg") }, join(launch, ".claude", "settings.local.json"));
+  });
+
+  test("CLAUDE_PROJECT_DIR outside any git repository → its own .claude files are still scanned", async () => {
+    const launch = launchProject("settings.json", { env: { [VAR]: "off" } }, { git: false });
+    const f = reviewFixtures(makeWorld(), "launch-nogit").refused[0]!;
+    await expectEnforcedNamingWith([f], { CLAUDE_PROJECT_DIR: launch }, join(launch, ".claude", "settings.json"));
+  });
+
+  test("an unparseable launch settings file fails closed → enforce", async () => {
+    const launch = launchProject(null, null);
+    mkdirSync(join(launch, ".claude"), { recursive: true });
+    writeFileSync(join(launch, ".claude", "settings.json"), `{ "env": { "${VAR}": "off", } }\n`);
+    const f = reviewFixtures(makeWorld(), "launch-bad").refused[0]!;
+    await expectEnforcedNamingWith([f], { CLAUDE_PROJECT_DIR: launch }, join(launch, ".claude", "settings.json"));
+  });
+
+  test("both roots resolve and differ, only the CWD repo names it → still enforce (both are scanned)", async () => {
+    const launch = launchProject(null, null);
+    const w = makeWorld({
+      beforeCommit: (be) => {
+        mkdirSync(join(be, ".claude"), { recursive: true });
+        writeFileSync(join(be, ".claude", "settings.json"), JSON.stringify({ env: { [VAR]: "off" } }));
+      },
+    });
+    await expectEnforcedNamingWith(reviewFixtures(w, "cwd-only-names").refused, { CLAUDE_PROJECT_DIR: launch }, join(".claude", "settings.json"));
+  });
+
+  test("(b) CLAUDE_PROJECT_DIR unset or empty → today's cwd scan: the cwd repo's file still enforces", async () => {
+    const w = makeWorld({
+      beforeCommit: (be) => {
+        mkdirSync(join(be, ".claude"), { recursive: true });
+        writeFileSync(join(be, ".claude", "settings.local.json"), JSON.stringify({ env: { [VAR]: "off" } }));
+      },
+    });
+    const { refused } = reviewFixtures(w, "pd-unset");
+    await expectEnforcedNamingWith(refused, {}, join(w.be, ".claude", "settings.local.json"));
+    await expectEnforcedNamingWith(refused, { CLAUDE_PROJECT_DIR: "" }, join(w.be, ".claude", "settings.local.json"));
+  });
+
+  test("(b) CLAUDE_PROJECT_DIR unset or empty, a launch-like repo elsewhere names it → off exactly as AC.3 (nothing outside cwd's repo is read)", async () => {
+    launchProject("settings.json", { env: { [VAR]: "off" } });
+    const { refused, permitted } = reviewFixtures(makeWorld(), "pd-empty");
+    await expectOffAsAc3With([...refused, permitted], {});
+    await expectOffAsAc3With([...refused, permitted], { CLAUDE_PROJECT_DIR: "" });
+  });
+
+  test("CONTROL — CLAUDE_PROJECT_DIR names a clean repo and the cwd repo is clean → off exactly as AC.3", async () => {
+    for (const content of [null, { env: { OTHER_VAR: "off" } }]) {
+      const launch = launchProject(content === null ? null : "settings.json", content);
+      const { refused, permitted } = reviewFixtures(makeWorld(), `pd-clean-${content === null ? "none" : "other"}`);
+      await expectOffAsAc3With([...refused, permitted], { CLAUDE_PROJECT_DIR: launch });
+    }
+  });
+
+  test("CLAUDE_PROJECT_DIR set, variable absent or enforce → byte-identical to the variable-absent hook (the scan never speaks)", async () => {
+    const launch = launchProject("settings.json", { env: { [VAR]: "off" } });
+    const { refused, permitted } = reviewFixtures(makeWorld(), "pd-absent");
+    const all = [...refused, permitted];
+    const env = { CLAUDE_PROJECT_DIR: launch };
+    const [currents, absents, enforces] = await Promise.all([
+      Promise.all(all.map((f) => runCurrent(f))),
+      Promise.all(all.map((f) => runHook(f, undefined, env))),
+      Promise.all(all.map((f) => runHook(f, "enforce", env))),
+    ]);
+    all.forEach((f, i) => {
+      expect(absents[i]!).toEqual(currents[i]!);
+      expect(enforces[i]!).toEqual(currents[i]!);
+    });
+  });
+});

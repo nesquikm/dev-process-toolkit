@@ -42,7 +42,7 @@ import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shar
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
 // the two gates came to disagree about the one rule.
-import { projectSettingsNamingGate, trackerWriteGateSetting } from "../../../../adapters/_shared/src/tracker_write_gate_setting.ts";
+import { forgedSettingsFiles, trackerWriteGateSetting } from "../../../../adapters/_shared/src/tracker_write_gate_setting.ts";
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
 import { listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
@@ -2632,7 +2632,10 @@ export function run(stdin: string): ExitCode {
       `${HOOK_NAME}: ignoring unrecognised tracker_write_gate value ${JSON.stringify(gateSetting.ignored)} — enforcing (accepted: enforce, off)\n`,
     );
   }
-  const forgedRoute = gateSetting.effective === "off" ? projectSettingsNamingGate(gitTopLevel(payload.cwd), payload.cwd) : null;
+  const forgedRoute =
+    gateSetting.effective === "off"
+      ? (forgedSettingsFiles(gitTopLevel(payload.cwd), payload.cwd, process.env, gitTopLevel)[0] ?? null)
+      : null;
   if (forgedRoute !== null && speaks) {
     // AC-STE-693.5 — a repo file the model can write names the variable: enforce.
     process.stderr.write(
