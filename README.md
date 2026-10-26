@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.0 — "Off Switch"** (M_bae31f, per-user relief for the tracker write gate. A `tracker_write_gate` option set to `off` lets one user past the gate, loudly and never through a repo file, and a typed answer that names the key and says yes now adopts the ticket)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.1 — "Said Twice"** (M_b1c081, a tool call written twice is read as one call. The commit gates no longer close a /tdd run's window on the untimed copy of its own Skill call, and a duplicated receipt run is graded once)
 
 ## Core Philosophy
 
