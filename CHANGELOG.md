@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.101.1] — 2026-10-26 — "Said Twice"
+
+### Fixed
+
+- A tool call written twice is read as one call (STE-695). Claude Code can write one tool_use as two records under the same id, one stamped and one not. The commit gates read the untimed copy as a second call, so a /tdd run's window closed before its own receipt and a valid commit was refused as `between-windows`. `scanSkillCalls` now merges Skill-call records that share an id into one call, at the earliest line and the first parseable stamp; id-less calls are never merged. A duplicated receipt mint keeps its first line, and each mint result is graded once per tool_use_id. All three command gates (commit gate-check, commit TDD, PR spec-review) read duplicates this way, and the session library still reads the transcript once. The tracker-write gate's own reader is unchanged.
+
+Total test count at release: 19829 tests, 0 failures, 0 errors.
+
 ## [2.101.0] — 2026-10-22 — "Off Switch"
 
 ### Added

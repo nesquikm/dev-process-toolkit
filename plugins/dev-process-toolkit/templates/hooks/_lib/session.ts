@@ -616,13 +616,22 @@ function recordTimestamp(value: unknown): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** One Skill call for the subject: its pairing id and when the transcript put it. */
+/**
+ * One Skill call for the subject: its pairing id and when the transcript put it.
+ *
+ * One CALL, not one record (STE-695): every record carrying the same `id` is
+ * the same call and folds into a single entry. Id-less records cannot be told
+ * apart, so each stays its own call.
+ */
 interface SkillCall {
   /** `null` when the call carries no id, so nothing can retire it. */
   id: string | null;
-  /** Epoch ms, or `null` when the record carried no parseable timestamp. */
+  /**
+   * Epoch ms, or `null` when no record of the call carried a parseable
+   * timestamp — the first stamped copy fills it.
+   */
   at: number | null;
-  /** The transcript line it sits on — the forge-proof ordering key. */
+  /** The line of the call's FIRST record — the forge-proof ordering key. */
   line: number;
 }
 
@@ -674,6 +683,12 @@ function announcementsIn(text: string): Array<{ path: string; digest: string }> 
  * WHILE the skill runs, before its result is written). A Skill call carrying no
  * `id` cannot be paired with anything, so nothing can retire it either.
  *
+ * STE-695 — Claude Code can write one tool call as more than one record under
+ * the same `tool_use` id. Records sharing an id are ONE call: a Skill call is
+ * kept at its first record's line (a later copy only supplies a missing
+ * stamp), a minting Bash call likewise, and a mint's result is graded once —
+ * the first result for that id decides, later copies add nothing.
+ *
  * Fail-open (`found: true`) when the transcript is missing or unreadable, via
  * the ONE shared reader (`readTranscriptLines`).
  */
@@ -697,16 +712,21 @@ function scanSkillCalls(
   }
 
   const calls: SkillCall[] = [];
+  /** Each id's first Skill call, so a second record of the same call merges into it. */
+  const callsById = new Map<string, SkillCall>();
   const erroredIds = new Set<string>();
   /**
    * Bash `tool_use` ids whose command ran the receipt front door, and the line
-   * each call sits on.
+   * each call's FIRST record sits on.
    *
    * A MAP, not a set, because a run with no result has no result line to name
    * and the CALL's line is the only thing there is to report it by.
    */
   const minting = new Map<string, { line: number; command: string }>();
-  /** Minting calls something in the transcript answered, however it answered. */
+  /**
+   * Minting calls something in the transcript answered, however it answered —
+   * and so already graded: a later result for the same id is a copy.
+   */
   const resolved = new Set<string>();
   const announcements: ReceiptAnnouncement[] = [];
   const misreads: AnnouncementMisread[] = [];
@@ -726,7 +746,18 @@ function scanSkillCalls(
         block.input.skill === skill
       ) {
         const id = typeof block.id === "string" && block.id !== "" ? block.id : null;
-        calls.push({ id, at, line: index });
+        // STE-695 — one call can be written as more than one record under the
+        // same id (one stamped, one not). It is still ONE call: the first record
+        // keeps its line, and a missing stamp is filled from a later copy, so a
+        // copy can neither close its own call's window nor open a second one.
+        const earlier = id === null ? undefined : callsById.get(id);
+        if (earlier !== undefined) {
+          if (earlier.at === null) earlier.at = at;
+        } else {
+          const call: SkillCall = { id, at, line: index };
+          calls.push(call);
+          if (id !== null) callsById.set(id, call);
+        }
       } else if (
         block.type === "tool_result" &&
         block.is_error === true &&
@@ -739,7 +770,14 @@ function scanSkillCalls(
       // non-error result it printed its `dpt-receipt:` line into.
       if (block.type === "tool_use" && block.name === "Bash" && typeof block.id === "string") {
         const command = block.input === null || typeof block.input !== "object" ? undefined : block.input.command;
-        if (target !== undefined && typeof command === "string" && target.announcesReceipts(command)) {
+        // STE-695 — a mint written twice under one id is one call: the first
+        // record keeps its line, so an unanswered one is reported there, once.
+        if (
+          target !== undefined &&
+          typeof command === "string" &&
+          !minting.has(block.id) &&
+          target.announcesReceipts(command)
+        ) {
           minting.set(block.id, { line: index, command });
         }
       } else if (
@@ -747,6 +785,9 @@ function scanSkillCalls(
         typeof block.tool_use_id === "string" &&
         minting.has(block.tool_use_id)
       ) {
+        // STE-695 — a result is graded once per call: the first one decides,
+        // and a later copy of it adds no announcement, misread or incomplete run.
+        if (resolved.has(block.tool_use_id)) continue;
         // Whatever it says, the transcript ANSWERED this call, so nothing below
         // may report it as still running.
         resolved.add(block.tool_use_id);
