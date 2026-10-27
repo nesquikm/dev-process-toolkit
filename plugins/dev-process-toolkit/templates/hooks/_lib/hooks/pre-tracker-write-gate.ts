@@ -21,7 +21,7 @@
 
 import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { emitNFR10, parseHookPayload, readTranscriptLines, RECEIPT_RESULT_WAIT_MS, type HookPayload } from "../session.ts";
+import { emitNFR10, firstCopies, parseHookPayload, readTranscriptLines, RECEIPT_RESULT_WAIT_MS, type HookPayload } from "../session.ts";
 import {
   readWorkspaceBinding,
   type WorkspaceAdapterKey,
@@ -547,34 +547,36 @@ export function scanAnnouncements(lines: string[], sessionId: string): Announcem
   const out: Announcement[] = [];
   const rejected: string[] = [];
   const foreign: Array<{ path: string; session: string }> = [];
-  lines.forEach((line, idx) => {
-    for (const b of contentBlocks(line)) {
-      if (b.type === "tool_use" && b.name === "Bash" && typeof b.id === "string") {
-        const cmd = b.input?.command;
-        if (typeof cmd !== "string") continue;
-        const module = invokedDecidingModule(cmd);
-        if (module !== null) announcingBash.set(b.id, module);
-        else if (rejectedDecidingCommand(cmd)) rejected.push(cmd);
-      } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
-        if (b.is_error === true || !announcingBash.has(b.tool_use_id)) continue;
-        const found = resultText(b.content)
-          .split("\n")
-          .map((l) => parseReceiptAnnouncement(l))
-          .filter((a): a is { path: string; digest: string | null } => a !== null);
-        if (found.length !== 1) continue;
-        const a = found[0]!;
-        if (a.digest === null || !a.path.startsWith("/") || !sessionId) continue;
-        const receiptPath = resolve(a.path);
-        const root = receiptRootOf(receiptPath, sessionId);
-        if (root !== null) {
-          out.push({ root, module: announcingBash.get(b.tool_use_id)!, receiptPath, line: idx, intact: stillAnnounced(receiptPath, a.digest) });
-        } else {
-          const session = foreignSessionOf(receiptPath, sessionId);
-          if (session !== null) foreign.push({ path: receiptPath, session });
-        }
+  // STE-696 — a call or result written twice under one id is read once: the
+  // first result copy decides, so one deciding run announces one receipt.
+  const records = parseLines(lines).map((p) => p?.raw ?? null);
+  for (const { block, line: idx } of firstCopies(records)) {
+    const b = block as ContentBlock;
+    if (b.type === "tool_use" && b.name === "Bash" && typeof b.id === "string") {
+      const cmd = b.input?.command;
+      if (typeof cmd !== "string") continue;
+      const module = invokedDecidingModule(cmd);
+      if (module !== null) announcingBash.set(b.id, module);
+      else if (rejectedDecidingCommand(cmd)) rejected.push(cmd);
+    } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+      if (b.is_error === true || !announcingBash.has(b.tool_use_id)) continue;
+      const found = resultText(b.content)
+        .split("\n")
+        .map((l) => parseReceiptAnnouncement(l))
+        .filter((a): a is { path: string; digest: string | null } => a !== null);
+      if (found.length !== 1) continue;
+      const a = found[0]!;
+      if (a.digest === null || !a.path.startsWith("/") || !sessionId) continue;
+      const receiptPath = resolve(a.path);
+      const root = receiptRootOf(receiptPath, sessionId);
+      if (root !== null) {
+        out.push({ root, module: announcingBash.get(b.tool_use_id)!, receiptPath, line: idx, intact: stillAnnounced(receiptPath, a.digest) });
+      } else {
+        const session = foreignSessionOf(receiptPath, sessionId);
+        if (session !== null) foreign.push({ path: receiptPath, session });
       }
     }
-  });
+  }
   return { announcements: out, rejected, foreign };
 }
 
@@ -869,21 +871,22 @@ function createsBefore(
   gatedId: string | undefined,
   kind: CreateKind = TICKET_CREATES,
 ): Array<{ line: number; shape: CreateShape }> {
+  // STE-696 — a create written twice under one id is one create at its first
+  // line, so it spends one receipt; the first result copy decides.
+  const view = firstCopies(parsed.map((p) => p?.raw ?? null));
   const neverReached = new Set<string>();
-  for (const p of parsed) {
-    if (!p) continue;
-    for (const b of p.blocks) {
-      if (b.type === "tool_result" && typeof b.tool_use_id === "string" && b.is_error === true && neverRan(p, b)) neverReached.add(b.tool_use_id);
-    }
+  for (const { block, record } of view) {
+    const b = block as ContentBlock;
+    if (b.type === "tool_result" && typeof b.tool_use_id === "string" && b.is_error === true && neverRan(record, b)) neverReached.add(b.tool_use_id);
   }
   const out: Array<{ line: number; shape: CreateShape }> = [];
-  for (let idx = 0; idx < parsed.length; idx++) {
-    for (const b of parsed[idx]?.blocks ?? []) {
-      if (gatedId !== undefined && b.id === gatedId) return out;
-      if (typeof b.id === "string" && neverReached.has(b.id)) continue;
-      const c = kind.pick(b, adapter);
-      if (c) out.push({ line: idx, shape: kind.shape(c) });
-    }
+  for (const { block, line: idx } of view) {
+    const b = block as ContentBlock;
+    if (b.type !== "tool_use") continue;
+    if (gatedId !== undefined && b.id === gatedId) return out;
+    if (typeof b.id === "string" && neverReached.has(b.id)) continue;
+    const c = kind.pick(b, adapter);
+    if (c) out.push({ line: idx, shape: kind.shape(c) });
   }
   return out;
 }
@@ -898,8 +901,8 @@ const NEVER_RAN_DENIALS: ReadonlySet<string> = new Set(["permission-rule", "auto
  * A timeout, a server error or an interrupt proves nothing: the create may
  * have made the ticket.
  */
-function neverRan(p: ParsedLine, b: ContentBlock): boolean {
-  const kind = p.raw.toolDenialKind;
+function neverRan(record: Record<string, unknown>, b: ContentBlock): boolean {
+  const kind = record.toolDenialKind;
   if (typeof kind === "string") return NEVER_RAN_DENIALS.has(kind);
   const text = resultText(b.content).trimStart();
   return (
@@ -941,9 +944,9 @@ interface PriorCreate extends LostCreate {
   key: string;
 }
 
-/** The assistant message id a transcript line carries, or "". */
-function messageIdOf(p: ParsedLine): string {
-  const m = p.raw.message as { id?: unknown } | undefined;
+/** The assistant message id a transcript record carries, or "". */
+function messageIdOf(record: Record<string, unknown>): string {
+  const m = record.message as { id?: unknown } | undefined;
   return m && typeof m.id === "string" ? m.id : "";
 }
 
@@ -994,29 +997,29 @@ function priorCreates(
   const outcome = new Map<string, string | null>(); // id → why it is lost, or null when it is settled
   const keys = new Map<string, string>(); // id → the key a settled create returned
   const succeeded = new Set<string>(); // ids whose result was not an error
-  parsed.forEach((p, idx) => {
-    if (!p) return;
-    for (const b of p.blocks) {
-      if (b.type === "tool_use") ordinal++;
-      if (b.type === "tool_use" && gatedId !== undefined && b.id === gatedId && gatedOrdinal < 0) {
-        gatedOrdinal = ordinal;
-        gatedLine = idx;
-        gatedMessage = messageIdOf(p);
-      }
-      if (b.type === "tool_use" && typeof b.id === "string" && b.id !== gatedId) {
-        const c = kind.pick(b, adapter);
-        if (c) creates.set(b.id, { ordinal, line: idx, message: messageIdOf(p), shape: kind.shape(c), call: c });
-      } else if (b.type === "tool_result" && typeof b.tool_use_id === "string" && creates.has(b.tool_use_id)) {
-        const lost = b.is_error === true && !neverRan(p, b);
-        outcome.set(b.tool_use_id, lost ? `its result was an error: ${resultText(b.content).trim().split("\n")[0]!.slice(0, 120)}` : null);
-        const made = creates.get(b.tool_use_id)!;
-        const text = resultText(b.content).trim();
-        const key = b.is_error === true ? null : createdKeyOf(text, made.call) ?? (kind === MILESTONE_CREATES && adapter === "linear" ? createdMilestoneIdOf(text) : null);
-        if (key !== null) keys.set(b.tool_use_id, key);
-        if (b.is_error !== true) succeeded.add(b.tool_use_id);
-      }
+  // STE-696 — a create written twice is ordered by its FIRST copy, and its
+  // first result copy decides its state.
+  for (const { block, record, line: idx } of firstCopies(parsed.map((p) => p?.raw ?? null))) {
+    const b = block as ContentBlock;
+    if (b.type === "tool_use") ordinal++;
+    if (b.type === "tool_use" && gatedId !== undefined && b.id === gatedId && gatedOrdinal < 0) {
+      gatedOrdinal = ordinal;
+      gatedLine = idx;
+      gatedMessage = messageIdOf(record);
     }
-  });
+    if (b.type === "tool_use" && typeof b.id === "string" && b.id !== gatedId) {
+      const c = kind.pick(b, adapter);
+      if (c) creates.set(b.id, { ordinal, line: idx, message: messageIdOf(record), shape: kind.shape(c), call: c });
+    } else if (b.type === "tool_result" && typeof b.tool_use_id === "string" && creates.has(b.tool_use_id)) {
+      const lost = b.is_error === true && !neverRan(record, b);
+      outcome.set(b.tool_use_id, lost ? `its result was an error: ${resultText(b.content).trim().split("\n")[0]!.slice(0, 120)}` : null);
+      const made = creates.get(b.tool_use_id)!;
+      const text = resultText(b.content).trim();
+      const key = b.is_error === true ? null : createdKeyOf(text, made.call) ?? (kind === MILESTONE_CREATES && adapter === "linear" ? createdMilestoneIdOf(text) : null);
+      if (key !== null) keys.set(b.tool_use_id, key);
+      if (b.is_error !== true) succeeded.add(b.tool_use_id);
+    }
+  }
   const out: PriorCreate[] = [];
   for (const [id, c] of creates) {
     if (gatedOrdinal >= 0 && c.ordinal >= gatedOrdinal) continue;

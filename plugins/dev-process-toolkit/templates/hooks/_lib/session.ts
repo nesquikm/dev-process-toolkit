@@ -517,40 +517,23 @@ interface TranscriptBlock {
 }
 
 /**
- * The content blocks one JSONL line carries, as OBJECTS — never as substrings.
+ * One JSONL line as a parsed record — an OBJECT, never a substring — or `null`.
  *
- * Two shapes reach this: the real Claude Code record, whose blocks sit under
- * `message.content[]`, and the bare block a fixture writes at top level. Both
- * are returned, so one reader serves both and neither needs a second rule.
+ * `firstCopies` reads its blocks: the real Claude Code record, whose blocks sit
+ * under `message.content[]`, and the bare block a fixture writes at top level.
  *
  * A line that does not parse is SKIPPED, never thrown on (STE-614 NF-3): a
  * transcript is an append-only log that can be truncated mid-write, and a
  * guard that throws on one bad line decides nothing at all — which, in a
  * PreToolUse hook, is an unexplained interruption rather than a verdict.
  */
-function transcriptBlocks(line: string): TranscriptBlock[] {
-  if (!line || line.trim() === "") {
-    return [];
-  }
-  let raw: unknown;
+function parseRecord(line: string): unknown {
+  if (!line || line.trim() === "") return null;
   try {
-    raw = JSON.parse(line);
+    return JSON.parse(line);
   } catch {
-    return [];
+    return null;
   }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return [];
-  }
-  const blocks: TranscriptBlock[] = [raw as TranscriptBlock];
-  const content = (raw as { message?: { content?: unknown } }).message?.content;
-  if (Array.isArray(content)) {
-    for (const b of content) {
-      if (b !== null && typeof b === "object" && !Array.isArray(b)) {
-        blocks.push(b as TranscriptBlock);
-      }
-    }
-  }
-  return blocks;
 }
 
 /**
@@ -614,6 +597,81 @@ function recordTimestamp(value: unknown): number | null {
   }
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
+}
+
+/** One content block of a transcript, read once per call (see `firstCopies`). */
+export interface FirstCopy {
+  /** The FIRST copy's content block. */
+  block: Record<string, unknown>;
+  /** The record that first copy sits in. */
+  record: Record<string, unknown>;
+  /** That record's index in the records handed in. */
+  line: number;
+  /**
+   * Epoch ms of the record's stamp; for a `tool_use`, the stamp of the first
+   * copy (in line order) whose record carries a parseable one, else `null`.
+   */
+  at: number | null;
+}
+
+/**
+ * Every record's `message.content` object blocks in transcript order, each
+ * tool call and each tool result read ONCE (STE-695, STE-696).
+ *
+ * Claude Code can write one tool call — or one tool result — twice in the log
+ * under the same id, one copy stamped and one not. Those copies are one call:
+ *   - a `tool_use` whose non-empty `id` an earlier yielded `tool_use` carries is
+ *     a copy and is not yielded; it only fills a missing `at` on the first one;
+ *   - a `tool_use` with no id, or an empty one, cannot be told apart and is
+ *     never merged;
+ *   - a `tool_result` whose `tool_use_id` an earlier yielded `tool_result`
+ *     carries is a copy and is not yielded — the first copy decides.
+ *
+ * `records[i]` is transcript line i, already parsed; anything that is not a
+ * plain object carries no blocks but still occupies its index.
+ *
+ * `topLevel: true` also reads each record ITSELF as a block, ahead of its
+ * content — the bare top-level block shape the Skill-call scanner has always
+ * accepted. Off by default, so the tracker write gate reads exactly the
+ * `message.content` blocks it read before this helper existed: a reader that
+ * decides what authorises a write must not widen what counts as evidence.
+ */
+export function firstCopies(records: ReadonlyArray<unknown>, options: { topLevel?: boolean } = {}): FirstCopy[] {
+  const out: FirstCopy[] = [];
+  /** Each id's first `tool_use`, so a later copy folds into it. */
+  const uses = new Map<string, FirstCopy>();
+  /** `tool_use_id`s whose first result was already yielded. */
+  const results = new Set<string>();
+  records.forEach((raw, index) => {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return;
+    const record = raw as Record<string, unknown>;
+    const at = recordTimestamp(record.timestamp);
+    // Under `topLevel`, the record itself comes first, then its content blocks.
+    const content = (record as { message?: { content?: unknown } }).message?.content;
+    const blocks: unknown[] = [...(options.topLevel === true ? [record] : []), ...(Array.isArray(content) ? content : [])];
+    for (const b of blocks) {
+      if (b === null || typeof b !== "object" || Array.isArray(b)) continue;
+      const block = b as Record<string, unknown>;
+      if (block.type === "tool_use") {
+        const id = typeof block.id === "string" && block.id !== "" ? block.id : null;
+        const earlier = id === null ? undefined : uses.get(id);
+        if (earlier !== undefined) {
+          if (earlier.at === null) earlier.at = at;
+          continue;
+        }
+        const entry: FirstCopy = { block, record, line: index, at };
+        if (id !== null) uses.set(id, entry);
+        out.push(entry);
+        continue;
+      }
+      if (block.type === "tool_result" && typeof block.tool_use_id === "string") {
+        if (results.has(block.tool_use_id)) continue;
+        results.add(block.tool_use_id);
+      }
+      out.push({ block, record, line: index, at });
+    }
+  });
+  return out;
 }
 
 /**
@@ -712,8 +770,6 @@ function scanSkillCalls(
   }
 
   const calls: SkillCall[] = [];
-  /** Each id's first Skill call, so a second record of the same call merges into it. */
-  const callsById = new Map<string, SkillCall>();
   const erroredIds = new Set<string>();
   /**
    * Bash `tool_use` ids whose command ran the receipt front door, and the line
@@ -723,102 +779,82 @@ function scanSkillCalls(
    * and the CALL's line is the only thing there is to report it by.
    */
   const minting = new Map<string, { line: number; command: string }>();
-  /**
-   * Minting calls something in the transcript answered, however it answered —
-   * and so already graded: a later result for the same id is a copy.
-   */
+  /** Minting calls something in the transcript answered, however it answered. */
   const resolved = new Set<string>();
   const announcements: ReceiptAnnouncement[] = [];
   const misreads: AnnouncementMisread[] = [];
   const incomplete: IncompleteRun[] = [];
 
-  lines.forEach((line, index) => {
-    const blocks = transcriptBlocks(line);
-    // The stamp belongs to the RECORD, which `transcriptBlocks` returns first;
-    // the `tool_use` nested under it has none of its own.
-    const at = blocks.length === 0 ? null : recordTimestamp(blocks[0]!.timestamp);
-    for (const block of blocks) {
-      if (
-        block.type === "tool_use" &&
-        block.name === "Skill" &&
-        block.input !== null &&
-        typeof block.input === "object" &&
-        block.input.skill === skill
-      ) {
-        const id = typeof block.id === "string" && block.id !== "" ? block.id : null;
-        // STE-695 — one call can be written as more than one record under the
-        // same id (one stamped, one not). It is still ONE call: the first record
-        // keeps its line, and a missing stamp is filled from a later copy, so a
-        // copy can neither close its own call's window nor open a second one.
-        const earlier = id === null ? undefined : callsById.get(id);
-        if (earlier !== undefined) {
-          if (earlier.at === null) earlier.at = at;
-        } else {
-          const call: SkillCall = { id, at, line: index };
-          calls.push(call);
-          if (id !== null) callsById.set(id, call);
-        }
-      } else if (
-        block.type === "tool_result" &&
-        block.is_error === true &&
-        typeof block.tool_use_id === "string"
-      ) {
-        erroredIds.add(block.tool_use_id);
-      }
-      // The announcement half: a Bash call that RAN the front door (the target's
-      // own injected reading — see `EvidenceTarget.announcesReceipts`), and the
-      // non-error result it printed its `dpt-receipt:` line into.
-      if (block.type === "tool_use" && block.name === "Bash" && typeof block.id === "string") {
-        const command = block.input === null || typeof block.input !== "object" ? undefined : block.input.command;
-        // STE-695 — a mint written twice under one id is one call: the first
-        // record keeps its line, so an unanswered one is reported there, once.
-        if (
-          target !== undefined &&
-          typeof command === "string" &&
-          !minting.has(block.id) &&
-          target.announcesReceipts(command)
-        ) {
-          minting.set(block.id, { line: index, command });
-        }
-      } else if (
-        block.type === "tool_result" &&
-        typeof block.tool_use_id === "string" &&
-        minting.has(block.tool_use_id)
-      ) {
-        // STE-695 — a result is graded once per call: the first one decides,
-        // and a later copy of it adds no announcement, misread or incomplete run.
-        if (resolved.has(block.tool_use_id)) continue;
-        // Whatever it says, the transcript ANSWERED this call, so nothing below
-        // may report it as still running.
-        resolved.add(block.tool_use_id);
-        if (block.is_error === true) {
-          // The call came back errored — ESC during the mint, or one of the
-          // front door's five named exit-1 refusals. There is no output to read
-          // an announcement out of, and that is a fact about the RUN, not about
-          // whether a command was read as one. Recorded, for the same reason a
-          // misread result is: the leg cannot otherwise tell this session from
-          // one where the gate was never run.
-          incomplete.push({ outcome: "errored", line: index });
-          continue;
-        }
-        // The rule is graded per RESULT, not per run: THIS result is kept only
-        // when IT carries exactly one announcement, and a result carrying any
-        // other number announces none of them. (One run writes one receipt is
-        // why the number is one; what is counted is one result's lines.) The
-        // sibling tracker-write gate's rule, and the reason a replayed line
-        // appended to a genuine run's output cannot ride along on it —
-        // including the genuine line: a result someone added to cannot be told
-        // from one they did not.
-        //
-        // A result that fails the rule is RECORDED rather than dropped: it was
-        // read as a front-door run, so "nothing was read as a run" is false of
-        // this session, and only a record says so.
-        const found = announcementsIn(resultText(block.content));
-        if (found.length === 1) announcements.push({ ...found[0]!, line: index });
-        else misreads.push({ count: found.length, line: index });
-      }
+  // STE-695 / STE-696 — one call (or one result) written as more than one
+  // record under the same id is read ONCE, through the shared view: a Skill
+  // call keeps its first record's line (a later copy only supplies a missing
+  // stamp), a mint likewise, and a mint's result is graded once — the first
+  // copy decides. The rule lives in `firstCopies`, not here.
+  for (const { block: raw, line: index, at } of firstCopies(lines.map(parseRecord), { topLevel: true })) {
+    const block = raw as TranscriptBlock;
+    if (
+      block.type === "tool_use" &&
+      block.name === "Skill" &&
+      block.input !== null &&
+      typeof block.input === "object" &&
+      block.input.skill === skill
+    ) {
+      // An empty or missing id cannot be paired, so the call carries none.
+      calls.push({ id: (typeof block.id === "string" && block.id) || null, at, line: index });
+    } else if (
+      block.type === "tool_result" &&
+      block.is_error === true &&
+      typeof block.tool_use_id === "string"
+    ) {
+      erroredIds.add(block.tool_use_id);
     }
-  });
+    // The announcement half: a Bash call that RAN the front door (the target's
+    // own injected reading — see `EvidenceTarget.announcesReceipts`), and the
+    // non-error result it printed its `dpt-receipt:` line into.
+    if (block.type === "tool_use" && block.name === "Bash" && typeof block.id === "string") {
+      const command = block.input === null || typeof block.input !== "object" ? undefined : block.input.command;
+      if (
+        target !== undefined &&
+        typeof command === "string" &&
+        target.announcesReceipts(command)
+      ) {
+        minting.set(block.id, { line: index, command });
+      }
+    } else if (
+      block.type === "tool_result" &&
+      typeof block.tool_use_id === "string" &&
+      minting.has(block.tool_use_id)
+    ) {
+      // Whatever it says, the transcript ANSWERED this call, so nothing below
+      // may report it as still running.
+      resolved.add(block.tool_use_id);
+      if (block.is_error === true) {
+        // The call came back errored — ESC during the mint, or one of the
+        // front door's five named exit-1 refusals. There is no output to read
+        // an announcement out of, and that is a fact about the RUN, not about
+        // whether a command was read as one. Recorded, for the same reason a
+        // misread result is: the leg cannot otherwise tell this session from
+        // one where the gate was never run.
+        incomplete.push({ outcome: "errored", line: index });
+        continue;
+      }
+      // The rule is graded per RESULT, not per run: THIS result is kept only
+      // when IT carries exactly one announcement, and a result carrying any
+      // other number announces none of them. (One run writes one receipt is
+      // why the number is one; what is counted is one result's lines.) The
+      // sibling tracker-write gate's rule, and the reason a replayed line
+      // appended to a genuine run's output cannot ride along on it —
+      // including the genuine line: a result someone added to cannot be told
+      // from one they did not.
+      //
+      // A result that fails the rule is RECORDED rather than dropped: it was
+      // read as a front-door run, so "nothing was read as a run" is false of
+      // this session, and only a record says so.
+      const found = announcementsIn(resultText(block.content));
+      if (found.length === 1) announcements.push({ ...found[0]!, line: index });
+      else misreads.push({ count: found.length, line: index });
+    }
+  }
 
   // The runs nothing ever answered. A PreToolUse hook fires WHILE the session
   // is being written, so a mint whose result has not been flushed yet is an
