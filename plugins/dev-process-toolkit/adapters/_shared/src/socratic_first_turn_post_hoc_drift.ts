@@ -6,7 +6,8 @@
 // (`chore(specs): write FR <tracker-id>` OR
 // `docs(specs): edit cross-cutting specs`) AND the body contains NEITHER
 // an audit-row marker (`spec_write_draft_default_applied` /
-// `spec_write_commit_default_applied`) NOR a refusal NFR-10 block
+// `spec_write_commit_default_applied` / `spec_write_commit_operator_approved`)
+// NOR a refusal NFR-10 block
 // (`Verdict: ... Refused` shape), surface
 // `socratic_first_turn_post_hoc_drift_violation` and hard-fail the gate.
 //
@@ -15,10 +16,12 @@
 // model can fire AskUserQuestion (so first-turn passes), see "dismissed"
 // responses, self-rationalize "picked safe defaults", and land a real
 // commit + tracker writes without operator consent. The legitimate paths
-// always leave one of the two markers in the body — the audit row when
-// default-apply is exercised, or the refusal NFR-10 block when the
-// operator was surfaced the failure. A commit on this subject pattern
-// with neither marker is the bypass shape and the probe fails it.
+// always leave a legitimacy marker in the body — the default-applied audit
+// row when default-apply is exercised, the operator-approved line when the
+// operator answered `y` at the interactive commit prompt (STE-697), or the
+// refusal NFR-10 block when the operator was surfaced the failure. A commit
+// on this subject pattern with none of them is the bypass shape and the
+// probe fails it.
 //
 // Vacuous on commits that don't match the canonical /spec-write subject
 // patterns — the probe is targeted, not blanket. Vacuous when no commits
@@ -59,10 +62,14 @@ const SUBJECT_PATTERNS: ReadonlyArray<RegExp> = [
   /^docs\(specs\): edit cross-cutting specs\b/,
 ];
 
-/** Literal capability keys written into legitimate /spec-write commit bodies. */
+/**
+ * Literal capability keys written into legitimate /spec-write commit bodies:
+ * the two default-applied audit rows plus the interactive-`y` approval line.
+ */
 const AUDIT_ROW_MARKERS: ReadonlyArray<string> = [
   "spec_write_draft_default_applied",
   "spec_write_commit_default_applied",
+  "spec_write_commit_operator_approved",
 ];
 
 /**
@@ -94,11 +101,11 @@ export function inspectCommit(
 }
 
 function buildMessage(commit: string, subject: string): string {
+  const markers = AUDIT_ROW_MARKERS.map((m) => `\`${m}\``).join(" / ");
   return [
     `socratic_first_turn_post_hoc_drift_violation: ${commit}:1 — commit ` +
       `subject matches the canonical /spec-write shape ("${subject}") but the ` +
-      `body carries NEITHER an audit-row marker (\`spec_write_draft_default_applied\` ` +
-      `/ \`spec_write_commit_default_applied\`) NOR a refusal NFR-10 block ` +
+      `body carries NEITHER an audit-row marker (${markers}) NOR a refusal NFR-10 block ` +
       `(\`Verdict: ... Refused\` shape). This is the F2 silent-commit shape: ` +
       `under \`claude -p\` non-tty stdin the model self-rationalized "safe ` +
       `defaults" and committed without operator consent.`,
@@ -107,7 +114,7 @@ function buildMessage(commit: string, subject: string): string {
       `(\`--tracker=<mode>\` and friends) so the requireOrRefuse(...) helper ` +
       `at adapters/_shared/src/requires_input.ts records the audit row. If ` +
       `the original commit was legitimate but missing markers, amend the body ` +
-      `to include the matching capability row before merging. Full contract: ` +
+      `to include the matching capability row (${markers}) before merging. Full contract: ` +
       `\`docs/auto-mode-protocol.md § Socratic Loop Contract\`.`,
     `Context: commit=${commit}, probe=socratic_first_turn_post_hoc_drift, severity=error`,
   ].join("\n");
@@ -140,7 +147,8 @@ function readLatestCommit(
  * Run the post-hoc-drift probe against `projectRoot`. Vacuous when no git
  * directory is present or no commits are reachable; otherwise inspects the
  * latest commit's subject + body and returns a violation row when the
- * canonical /spec-write subject ships without either legitimacy marker.
+ * canonical /spec-write subject ships with no legitimacy marker (no audit-row
+ * marker from AUDIT_ROW_MARKERS and no refusal block).
  */
 export async function runSocraticFirstTurnPostHocDriftProbe(
   projectRoot: string,
