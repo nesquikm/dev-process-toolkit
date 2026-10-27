@@ -377,7 +377,10 @@ export function filterRowsForFR(
  * via `filterRowsForFR`, and — when that run changed any row's claim, whether
  * by claiming it or by demoting it to the design bucket (AC-STE-396.2) —
  * persist the `claimed_by` marks back to `.dpt/ledger/token-ledger.jsonl` so
- * no other FR double-counts them across separate runs. Fail-open: absent or
+ * no other FR double-counts them across separate runs. The marks also survive
+ * a later capture of a still-live session: `writeSessionRows` carries each
+ * claim onto the re-derived row of the same skill and model (STE-698), so
+ * claiming mid-session is durable. Fail-open: absent or
  * unreadable ledger returns `[]` with no write; a ledger containing malformed
  * lines is selected from but never rewritten (claims stay in-memory rather
  * than persisting over bytes we could not fully parse); no claim changes ⇒
