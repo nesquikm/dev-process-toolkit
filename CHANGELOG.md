@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.101.2] — 2026-10-27 — "Single Copy"
+
+### Fixed
+
+- The tracker write gate reads a call written twice as one call (STE-696). Claude Code can write one tool call or one tool result twice under the same id. The commit gates already read the copies as one call, but the tracker write gate had its own reader and counted each copy, so one decide receipt could authorise two creates and one create could spend two receipts. The STE-695 merge-by-id rule now lives in one exported session-library helper, `firstCopies`: earliest line, first parseable stamp, id-less records never merged, first result copy decides. `scanSkillCalls` and the gate's `scanAnnouncements`, `createsBefore` and `priorCreates` all read through it, and a Skill call's later `is_error` copy no longer retires a call whose first result succeeded. The gate still reads message content only; the bare top-level record stays opt-in for the Skill scan.
+- An interactively approved spec commit passes the post-hoc drift probe (STE-697). Probe #45 accepted only the two markers the headless path writes, so a spec commit the operator approved by hand failed the gate. /spec-write now writes `spec_write_commit_operator_approved` into the commit body on an interactive `y`, and on no other path; the probe accepts it as a third legitimacy marker and names all three in its message and remedy.
+- A token claim survives the next session-end capture (STE-698). The capture hook re-derives a live session's ledger rows on every Stop and SessionEnd, and `writeSessionRows` dropped their `claimed_by` along the way, so the release rollup found no rows for an FR claimed mid-session. Each fresh row now inherits the claim of the dropped row with the same skill and model, design-bucket demotions included; other sessions' rows stay byte-identical.
+
+Total test count at release: 19924 tests, 0 failures, 0 errors.
+
 ## [2.101.1] — 2026-10-26 — "Said Twice"
 
 ### Fixed

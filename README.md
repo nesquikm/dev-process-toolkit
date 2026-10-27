@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.1 — "Said Twice"** (M_b1c081, a tool call written twice is read as one call. The commit gates no longer close a /tdd run's window on the untimed copy of its own Skill call, and a duplicated receipt run is graded once)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.2 — "Single Copy"** (M_46b121, every reader counts a call once. The tracker write gate reads a tool call written twice as one call, a hand-approved spec commit passes the drift probe, and a token claim survives its session's next capture)
 
 ## Core Philosophy
 

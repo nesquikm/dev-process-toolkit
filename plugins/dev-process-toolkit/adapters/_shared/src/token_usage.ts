@@ -9,8 +9,10 @@
 // literal sentinel `(main-loop)`.
 //
 // Write semantics (`writeSessionRows`): read ledger → drop rows matching
-// `session_id` → append fresh rows → write. Append-only across sessions,
-// replace within a session (so a SessionEnd re-fire never duplicates).
+// `session_id` → append fresh rows, each carrying the `claimed_by` of the
+// dropped row with the same skill and model (STE-698) → write. Append-only
+// across sessions, replace within a session (so a SessionEnd re-fire never
+// duplicates), and a claim made mid-session survives the re-derive.
 
 import {
   existsSync,
@@ -58,7 +60,10 @@ export function ledgerPath(projectRoot: string): string {
  * Persist one session's aggregates: read the ledger, drop any rows already
  * recorded for `sessionId`, append the fresh rows, and write the file back.
  * Rows from other sessions are preserved verbatim (append-only across
- * sessions, replace within a session).
+ * sessions, replace within a session). Token counts are replaced, but claims
+ * are not: each fresh row inherits the `claimed_by` of the dropped row with
+ * the same skill and model (a design-bucket demotion included), because the
+ * transcript the rows are re-derived from knows nothing of claims (STE-698).
  */
 export function writeSessionRows(
   projectRoot: string,
@@ -72,20 +77,39 @@ export function writeSessionRows(
   // capture write is mandatory, so malformed lines are dropped here
   // (self-heal) — unlike claimRowsForFR, which has no obligation to write
   // and therefore declines to persist over bytes it could not fully parse.
-  const existing = readLedgerRows(projectRoot).filter(
-    (row) => row.session_id !== sessionId,
-  );
+  const all = readLedgerRows(projectRoot);
+  const existing = all.filter((row) => row.session_id !== sessionId);
 
-  const next = [...existing, ...rows];
+  // STE-698: carry each prior row's claim onto the fresh row of the same
+  // session, skill and model — the re-derive must not erase a claim. A fresh
+  // row with no prior twin stays unclaimed, and other sessions' claims are
+  // never consulted. The ledger holds one row per (session, skill, model), so
+  // each key names at most one prior claim.
+  const claims = new Map<string, string>();
+  for (const row of all) {
+    if (row.session_id === sessionId && row.claimed_by !== undefined) {
+      claims.set(`${row.skill}\u0000${row.model}`, row.claimed_by);
+    }
+  }
+  const fresh = rows.map((row) => {
+    const claim = claims.get(`${row.skill}\u0000${row.model}`);
+    return claim === undefined ? row : { ...row, claimed_by: claim };
+  });
+
+  const next = [...existing, ...fresh];
   atomicWriteLedger(path, next);
 }
 
 /**
  * Whole-ledger write via temp-file + rename so a crash or concurrent reader
  * never observes a torn (half-written) file. Concurrent read-modify-write
- * cycles can still lose the slower writer's rows (last writer wins) — an
- * accepted limitation for this advisory, self-correcting ledger: every
- * SessionEnd/Stop fire re-derives its whole session from the transcript.
+ * cycles can still lose the slower writer's update (last writer wins) — an
+ * accepted limitation for this advisory ledger. Token counts self-correct
+ * (every SessionEnd/Stop fire re-derives its whole session from the
+ * transcript); a claim does not, so a claim written between a capture's read
+ * and its write is lost until the next `claimRowsForFR` run re-claims it.
+ * Claims already on disk at a capture's read are carried forward by
+ * `writeSessionRows`.
  */
 function atomicWriteLedger(path: string, rows: TokenLedgerRow[]): void {
   mkdirSync(dirname(path), { recursive: true });
