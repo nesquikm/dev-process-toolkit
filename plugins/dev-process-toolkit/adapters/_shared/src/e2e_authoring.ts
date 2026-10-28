@@ -145,8 +145,8 @@ function recordedReason(input: E2eAuthoringInput): string | null {
  * Resolve the end-to-end authoring decision for one change.
  *
  * Total, pure, and fail-closed: a declared project reaches `ok: true` only when
- * the suite really ran, its bytes really parsed, no count indicates failure,
- * and the change either touched an end-to-end test or recorded — retrievably —
+ * the suite really ran, its bytes really parsed, at least one test executed,
+ * no count indicates failure, and the change either touched an end-to-end test or recorded — retrievably —
  * why none was needed.
  */
 export function resolveE2eAuthoring(input: E2eAuthoringInput): E2eAuthoringOutcome {
@@ -217,6 +217,19 @@ export function resolveE2eAuthoring(input: E2eAuthoringInput): E2eAuthoringOutco
   const counts = evidence.counts.e2e;
   const suiteRed = counts !== null && counts.fail > 0;
   reasons.push(...evidence.reasons);
+
+  // A run that EXECUTED nothing parses, counts zero and zero, and every ground
+  // above reads it as clean. It proves nothing about the change. The usual
+  // cause is an environment that made every test skip itself (no secret, no
+  // device), so the refusal states the skip count rather than letting zero
+  // read as green. Not a red suite: the token is left to the authoring decision.
+  if (counts !== null && counts.pass === 0 && counts.fail === 0) {
+    reasons.push(
+      `\`e2e\`: the suite ran but executed no test (${counts.skip} skipped) — ` +
+        "a run with no executed test is not evidence; when its tests skipped, " +
+        "make the suite's prerequisites available so they run",
+    );
+  }
 
   // Precedence, pinned rather than left to whichever branch runs first: a red
   // suite outranks every authoring token, on all three authoring paths.

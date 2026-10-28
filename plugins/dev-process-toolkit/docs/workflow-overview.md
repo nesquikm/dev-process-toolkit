@@ -265,7 +265,7 @@ flowchart TD
 | TDD semantic retry | /tdd modes A/B/C/E | max 2 per role per AC | 2nd fail → halt report, exit non-zero |
 | TDD format-violation retry | /tdd result parse | single targeted re-emit (mode D) | 2nd → halt |
 | TDD audit-fix loop | /tdd AUDIT → RED/GREEN | 1 audit round (cap=1) | 2nd miss → halt w/ list |
-| RED/GREEN/REFACTOR gates | /tdd re-runs command | RED→GREEN→still-GREEN | false-RED→A; RED-rerun→B/E; broken→C |
+| RED/GREEN/REFACTOR gates | /tdd re-runs command | RED→GREEN→still-GREEN | false-RED→A; RED-rerun→B/E; broken→C; GREEN with a planted bug→not-load-bearing |
 | AUDIT spec-trace (audit) | tdd-spec-reviewer (sonnet) | gate = missing_acs==0 | one bounded retry then halt |
 | Phase 3 self-review loop | /implement Stage A→B→C | max 2 rounds (Stage C round 1 only) | round-2 → escalate to human |
 | Stage B per-pass re-invoke | /implement Stage B Pass1/2 | round 1 re-invoke failing pass | Pass1 critical → fail-fast skip Pass2 |
