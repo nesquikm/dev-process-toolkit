@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.101.3] — 2026-11-02 — "Closing Time"
+
+### Fixed
+
+- A shipped milestone's Epic can be closed from the repository that planned it (STE-699). `/ship-milestone` ordered closing an Epic-keyed milestone's Epic, but the tracker write gate refuses any write to an Epic, so the step could never run. A new receipt front door, `epic_close.ts <projectRoot> <EPIC-KEY> --children <listing>`, writes an `epic-close` receipt only when four checks hold: the plan is tracked in the git index, it shipped by the plan/ship coherence rule (read from the index), every `spans_repos` sibling is idle, and every child in the listing is done and parented to that Epic. With the receipt announced, the gate and the live grader admit a status-only `transitionJiraIssue` on that key and nothing else; the container refusal now routes to `epic_close.ts`, and the `/ship-milestone` close step runs the listing, the front door, then the transition.
+- An archive-only commit or pull request needs no fresh gate or review run (STE-700). A shared classifier, `archive_only_change.ts`, says a change set is archive-only when every change is an FR or plan rename into `archive/` carrying only the archive edits (status and `archived_at`, plan ticks, an appended Implementation notes section, the token-stats block) or traceability rows appended to `specs/requirements.md`. The commit gate passes a plain `git commit` of such an index when the working tree matches it, and the PR gate passes when the branch diff from its merge-base is archive-only; everything else is graded as before. The classifier forces rename detection and full context, fails closed on anything it cannot grade, and now owns the spec-path rule the `/tdd` commit hook used to keep privately.
+
+Total test count at release: 20087 tests, 0 failures, 0 errors.
+
 ## [2.101.2] — 2026-10-27 — "Single Copy"
 
 ### Fixed

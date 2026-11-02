@@ -6,6 +6,7 @@ kickoff_branch: null
 frozen_at: null
 migration: none
 codename: Closing Time
+shipped_in: v2.101.3
 ---
 
 # Implementation Plan
@@ -48,3 +49,19 @@ codename: Closing Time
 
 - `bun test` from `plugins/dev-process-toolkit`: 0 fail, skip identities equal to the baseline
 - `/gate-check` clean
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| agent-toolkit:spawn-agent | claude-opus-5-5 | 90 | 20663 | 18791716 | 185555 |
+| dev-process-toolkit:gate-check | claude-opus-5-5 | 216 | 65598 | 40252644 | 494940 |
+| dev-process-toolkit:implement | claude-opus-5-5 | 104 | 15705 | 5497230 | 209940 |
+| dev-process-toolkit:ship-milestone | claude-opus-5-5 | 22 | 7007 | 3241495 | 63633 |
+| dev-process-toolkit:tdd | claude-opus-5-5 | 26 | 5982 | 2036448 | 20030 |
+| (main-loop) | claude-opus-5-5 | 844 | 193618 | 82272396 | 467124 |
+| total |  | 1302 | 308573 | 152091929 | 1441222 |
+
+<!-- token-stats:end -->

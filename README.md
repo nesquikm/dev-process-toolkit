@@ -196,7 +196,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.2 — "Single Copy"** (M_46b121, every reader counts a call once. The tracker write gate reads a tool call written twice as one call, a hand-approved spec commit passes the drift probe, and a token claim survives its session's next capture)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.3 — "Closing Time"** (M_a5dc12, a shipped milestone can be closed out. A shipped milestone's Jira Epic closes through one checked front door, and an archive-only commit or pull request no longer needs a fresh gate or review run)
 
 ## Core Philosophy
 
