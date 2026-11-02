@@ -34,7 +34,7 @@ import { cwdToSlug } from "./find_current_session";
 
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
-import { exemptsJoinConsent, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets, type OwnershipRoute } from "./join_consent_ownership";
+import { exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets, type OwnershipRoute } from "./join_consent_ownership";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
 import { listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
 import { isCanonicalContainerListing, milestoneIdFromEpicKey, milestoneIdFromLinearMilestone, normalizeMilestoneTitle } from "./milestone_token";
@@ -2067,6 +2067,7 @@ export const RECEIPT_WRITERS: Readonly<Record<string, { module: string; subcomma
   binding: { module: "ticket_ownership.ts", subcommand: "confirm" },
   import: { module: "container_ownership.ts", subcommand: "consent" },
   "attach-target": { module: "attach_project_milestone.ts", subcommand: null },
+  "epic-close": { module: "epic_close.ts", subcommand: null },
   repoint: { module: "repoint_tracker_binding.ts", subcommand: null },
 };
 
@@ -2856,7 +2857,21 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
             if (!exempt && !forbiddenDecisionConsented(s, latest.join, latest.a.index, i)) return false;
             return readMerged(latest.join);
           };
-          const ok = isLinkTool(c) && !linkNeedsEverySide(c.input) ? keys.some(owned) : keys.every(owned);
+          /**
+           * STE-699 AC.4/AC.5 — the Epic close: a status-only `transitionJiraIssue`
+           * on `k` after an `epic-close` receipt for `k` announced by its writer.
+           * Twin: `epicClosed` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+           */
+          const epicClosed = (k: string): boolean =>
+            tracker === "jira" &&
+            bareTool(c.name) === "transitionJiraIssue" &&
+            isStatusOnlyTransition(c.input) &&
+            before.some((a) => {
+              const r = receiptOf(a, "epic-close");
+              return r !== null && r.subject.toUpperCase() === k;
+            });
+          const permitted = (k: string): boolean => owned(k) || epicClosed(k);
+          const ok = isLinkTool(c) && !linkNeedsEverySide(c.input) ? keys.some(permitted) : keys.every(permitted);
           if (!ok) why = `write on ${keys.join(", ")} follows no receipt, creation or FR binding in this session that makes the key its repository's`;
         }
       }

@@ -10,7 +10,8 @@
 //
 // STE-655 adds the other rules the hook and the grader must read alike: the
 // labels-write envelope, the link-comment side rule, Linear relation targets,
-// and the per-question consent verdict. Each is imported by both callers; this
+// and the per-question consent verdict; STE-699 adds the status-only Epic-close
+// transition shape. Each is imported by both callers; this
 // module imports nothing, so the hook stays import-light.
 
 /** The route by which a session owns a ticket key. */
@@ -168,4 +169,16 @@ export function typedAdopts(answer: string, key: string): boolean {
   const keys = answer.match(/(?<![A-Za-z0-9_-])[A-Za-z][A-Za-z0-9_]*-\d+(?![A-Za-z0-9_-])/g) ?? [];
   if (keys.some((k) => k.toLowerCase() !== key.toLowerCase())) return false;
   return true;
+}
+
+/** The only input keys a status-only `transitionJiraIssue` carries (STE-699 AC.4). */
+const STATUS_ONLY_KEYS: ReadonlySet<string> = new Set(["cloudId", "issueIdOrKey", "transition"]);
+
+/**
+ * STE-699 AC.4 — true when a `transitionJiraIssue` input carries nothing but
+ * the issue key and the transition: the only shape an `epic-close` receipt
+ * permits on a key the session does not otherwise own.
+ */
+export function isStatusOnlyTransition(input: Record<string, unknown>): boolean {
+  return Object.keys(input).every((k) => STATUS_ONLY_KEYS.has(k));
 }

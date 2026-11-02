@@ -31,11 +31,11 @@ codename: Closing Time
 
 ### Tasks
 
-- [ ] Add the epic-close front door with its four checks and register it as a receipt-writing module
+- [x] Add the epic-close front door with its four checks and register it as a receipt-writing module
   verify: each failing check refuses with no receipt; all four passing writes one receipt
-- [ ] Teach the tracker write gate to admit a status-only Epic transition on an epic-close receipt, and fix its remedy text
+- [x] Teach the tracker write gate to admit a status-only Epic transition on an epic-close receipt, and fix its remedy text
   verify: permit leg and every forbid leg through the shipped wrapper; amended refusal pins green
-- [ ] Mirror the Epic-close rule in the live grader and point the ship-milestone close step at the front door
+- [x] Mirror the Epic-close rule in the live grader and point the ship-milestone close step at the front door
   verify: hook/grader parity test green
 - [ ] Add the shared archive-only classifier
   verify: permit and forbid twins for every allowed and disallowed edit
