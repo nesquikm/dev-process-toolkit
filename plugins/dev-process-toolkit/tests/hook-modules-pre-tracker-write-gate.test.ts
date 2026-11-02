@@ -1546,11 +1546,13 @@ describe("AC-STE-607.7 — RECEIPT_ANNOUNCING_MODULES", () => {
   test("holds exactly the three deciding modules plus the milestone decision front door, appended last", async () => {
     const { RECEIPT_ANNOUNCING_MODULES } = await hookModule();
     // Amended by AC-STE-611.3: the attach front door is appended after it.
+    // Amended by AC-STE-699.1: the Epic close is appended after that.
     expect([...RECEIPT_ANNOUNCING_MODULES].sort()).toEqual(
-      [CONSENT, DECIDE, CONFIRM, "resolve_milestone_identity.ts", "attach_project_milestone.ts"].sort(),
+      [CONSENT, DECIDE, CONFIRM, "resolve_milestone_identity.ts", "attach_project_milestone.ts", "epic_close.ts"].sort(),
     );
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 2]).toBe("resolve_milestone_identity.ts");
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe("attach_project_milestone.ts");
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 3]).toBe("resolve_milestone_identity.ts");
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 2]).toBe("attach_project_milestone.ts");
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe("epic_close.ts");
   });
 });
 
@@ -3903,7 +3905,9 @@ function withAttachTarget(
 describe("AC-STE-611.3 — the hook announces the attach front door's receipts", () => {
   test("attach_project_milestone.ts is APPENDED to RECEIPT_ANNOUNCING_MODULES", async () => {
     const { RECEIPT_ANNOUNCING_MODULES } = await hookModule();
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe(ATTACH);
+    // Amended by AC-STE-699.1: epic_close.ts is appended after it.
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 2]).toBe(ATTACH);
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe("epic_close.ts");
     expect(RECEIPT_ANNOUNCING_MODULES.slice(0, 4)).toEqual([DECIDE, CONSENT, CONFIRM, RESOLVE]);
   });
 });
@@ -6000,10 +6004,10 @@ describe("AC-STE-649.8 .. .11 — the ownership refusal routes through `ticket_o
     }
   }, 30_000);
 
-  test("AC-STE-649.9 — the remedy says confirm and consent both refuse another repository's tag and an Epic, that confirm refuses another project's ticket in the same team on Linear, and names the owning-repository and relabel routes (both reads)", async () => {
+  test("AC-STE-649.9 — the remedy says confirm and consent both refuse another repository's tag and an Epic, that confirm refuses another project's ticket in the same team on Linear, and names the relabel route and, amended by AC-STE-699.6, epic_close.ts for a shipped milestone's Epic (both reads)", async () => {
     for (const { read, r } of await both()) {
       const remedy = lineOf(r, "Remedy: ");
-      for (const needle of [/foreign-repo/, /\bcontainer\b/, /another repository'?s tag/i, /\bEpic\b/, /\bLinear\b/, /another project/i, /same team/i, /owning repository/i, /relabel/i]) {
+      for (const needle of [/foreign-repo/, /\bcontainer\b/, /another repository'?s tag/i, /\bEpic\b/, /\bLinear\b/, /another project/i, /same team/i, /relabel/i, /epic_close\.ts/]) {
         expect({ read, needle: String(needle), hit: needle.test(remedy) }).toEqual({ read, needle: String(needle), hit: true });
       }
     }

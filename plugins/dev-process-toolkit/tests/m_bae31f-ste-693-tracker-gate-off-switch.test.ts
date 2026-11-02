@@ -95,8 +95,22 @@ const PRE_CHANGE_COMMIT = "976e6b8e2fadba1210c5f8d9a1874865b05d7f0d";
 // else; a further wording change needs a fresh ruling and a new named entry.
 const STE_694_ADOPT_ANCHOR = 'the operator answered "Adopt <KEY>"';
 const STE_694_ADOPT_CLAUSE = " — a typed answer counts when it names the key and says yes —";
+// RULING (delegated operator, 2026-11-02, M_a5dc12 / STE-699): AC-STE-699.6
+// rewords the container half of the ownership refusal — an Epic's route is
+// epic_close.ts, never "the owning repository" — so the one combined sentence
+// splits into two. Spelled out literally, as the STE-694 entry is.
+const STE_699_PLAIN_RULE =
+  "as ONE plain command — no `cd … &&`, `;`, `|`, redirection such as `2>&1`, `~`, a variable other than the plugin root (`$VAR`), command substitution (`$(…)`), or `$`, backtick or backslash inside double quotes (a title that needs them goes in a file passed with `--title-file <path>`); the plugin path may be spelled `${CLAUDE_PLUGIN_ROOT}/…`, `\"${CLAUDE_PLUGIN_ROOT}/…\"`, `\"${CLAUDE_PLUGIN_ROOT}\"/…` or absolute. A receipt announced by any other command shape is ignored";
+const STE_699_FROM =
+  "A foreign-repo verdict (the ticket carries another repository's tag) or a container verdict (the ticket is an Epic) is refused by both confirm and consent, and on Linear confirm also refuses another project's ticket in the same team: make that write from the owning repository, or relabel the ticket to this repository first.";
+const STE_699_TO =
+  "A foreign-repo verdict (the ticket carries another repository's tag) is refused by both confirm and consent, and on Linear confirm also refuses another project's ticket in the same team: make that write from the owning repository, or relabel the ticket to this repository first. " +
+  'A container verdict (the ticket is an Epic) is refused by both confirm and consent too: to close a shipped milestone\'s Epic, save its children listing and run bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/epic_close.ts" <projectRoot> <EPIC-KEY> --children <listing> ' +
+  STE_699_PLAIN_RULE +
+  ", then retry.";
 const PERMITTED_WORDING_DELTAS: ReadonlyArray<{ id: string; from: string; to: string }> = [
   { id: "AC-STE-694.7", from: STE_694_ADOPT_ANCHOR, to: STE_694_ADOPT_ANCHOR + STE_694_ADOPT_CLAUSE },
+  { id: "AC-STE-699.6", from: STE_699_FROM, to: STE_699_TO },
 ];
 
 /** The pre-change stderr with every permitted wording delta applied. */

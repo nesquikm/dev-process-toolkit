@@ -37,7 +37,7 @@ import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_own
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
 import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
-import { exemptsJoinConsent, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
+import { exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
@@ -198,8 +198,8 @@ export const UNGATED_WRITE_TOOLS: Readonly<Record<string, string>> = {
  * argv check to `NO_SUBCOMMAND_ARGV`; a module writing receipts the gate must
  * not trust is never listed.
  *
- * `null` marks a module with NO subcommand — the decision front door (STE-608)
- * and the attach front door (STE-611): its whole CLI is the one receipt-writing
+ * `null` marks a module with NO subcommand — the decision front door (STE-608),
+ * the attach front door (STE-611) and the Epic close (STE-699): its whole CLI is the one receipt-writing
  * front door, so its argv is checked by `NO_SUBCOMMAND_ARGV` instead. A module
  * listed with a subcommand never announces without it.
  */
@@ -209,6 +209,7 @@ export const RECEIPT_WRITING_SUBCOMMANDS: Readonly<Record<string, string | null>
   "ticket_ownership.ts": "confirm",
   "resolve_milestone_identity.ts": null,
   "attach_project_milestone.ts": null,
+  "epic_close.ts": null,
 };
 
 export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = Object.keys(RECEIPT_WRITING_SUBCOMMANDS);
@@ -219,7 +220,9 @@ export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = Object.keys(RECEIPT
  * `<projectRoot> <jira|linear> <project> <listingFile> --title|--join-key <v>`,
  * optionally followed by exactly `--sibling <path>` (STE-610 AC-STE-610.4), and
  * the attach front door's exact
- * `<projectRoot> <jira|linear> <project> <planFile> <listingFile>` (STE-611).
+ * `<projectRoot> <jira|linear> <project> <planFile> <listingFile>` (STE-611),
+ * and the Epic close's exact `<projectRoot> <EPIC-KEY> --children <listing>`
+ * (STE-699).
  */
 const NO_SUBCOMMAND_ARGV: Readonly<Record<string, (args: string[]) => boolean>> = {
   "resolve_milestone_identity.ts": (a) =>
@@ -227,6 +230,7 @@ const NO_SUBCOMMAND_ARGV: Readonly<Record<string, (args: string[]) => boolean>> 
     (a[1] === "jira" || a[1] === "linear") &&
     (a[4] === "--title" || a[4] === "--join-key"),
   "attach_project_milestone.ts": (a) => a.length === 5 && (a[1] === "jira" || a[1] === "linear"),
+  "epic_close.ts": (a) => a.length === 4 && a[2] === "--children",
 };
 
 /**
@@ -1794,6 +1798,25 @@ function owns(ctx: OwnershipContext, root: string, key: string): boolean {
   return false;
 }
 
+/** STE-699 — the Epic close: the ONE module whose `epic-close` receipt permits a status-only close. */
+const EPIC_CLOSE_MODULE = "epic_close.ts";
+
+/**
+ * STE-699 AC.4 — a `transitionJiraIssue` carrying only the issue key and the
+ * transition, on `key`, after an intact `epic-close` receipt for `key` in
+ * `root` announced by a run of `epic_close.ts` itself.
+ */
+function epicClosed(call: TrackerCall, ctx: OwnershipContext, root: string, key: string): boolean {
+  if (call.adapter !== "jira" || call.tool !== "transitionJiraIssue") return false;
+  if (!isStatusOnlyTransition(call.input)) return false;
+  for (const a of ctx.announcements) {
+    if (a.module !== EPIC_CLOSE_MODULE || a.root !== root || !a.intact) continue;
+    const r = readSessionReceipt(a.receiptPath, ctx.sessionId, ctx.adapter);
+    if (r && r.kind === "epic-close" && typeof r.subject === "string" && r.subject.toUpperCase() === key) return true;
+  }
+  return false;
+}
+
 function gateTicket(
   call: TrackerCall,
   sessionId: string,
@@ -1847,7 +1870,7 @@ function gateTicket(
     tracked: new Map(),
   };
   const ownedKey = (k: { key: string; targets: DeclaredTarget[] }) =>
-    k.targets.length === 0 || k.targets.some((t) => owns(ctx, t.root, k.key));
+    k.targets.length === 0 || k.targets.some((t) => owns(ctx, t.root, k.key) || epicClosed(call, ctx, t.root, k.key));
   const isLink = isLinkTool(call.tool);
   const bound = inScope.filter((k) => k.targets.length > 0);
   const unowned = inScope.filter((k) => !ownedKey(k));
@@ -1876,7 +1899,9 @@ function gateTicket(
     // STE-649 AC.10 — `--adopt` is conditional, never an unconditional `[--adopt]`.
     `first run ${DECIDE_OWNERSHIP_SHAPE} to read the ticket's ownership verdict, then run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} (only when decide's verdict is unowned and the operator answered "Adopt <KEY>" — a typed answer counts when it names the key and says yes — append \`--adopt\`; or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry. ` +
       // STE-649 AC.9 — the verdicts no receipt can clear, and their routes.
-      `A foreign-repo verdict (the ticket carries another repository's tag) or a container verdict (the ticket is an Epic) is refused by both confirm and consent, and on Linear confirm also refuses another project's ticket in the same team: make that write from the owning repository, or relabel the ticket to this repository first.`,
+      // STE-699 AC.6 — an Epic's route is epic_close.ts, never "the owning repository".
+      `A foreign-repo verdict (the ticket carries another repository's tag) is refused by both confirm and consent, and on Linear confirm also refuses another project's ticket in the same team: make that write from the owning repository, or relabel the ticket to this repository first. ` +
+      `A container verdict (the ticket is an Epic) is refused by both confirm and consent too: to close a shipped milestone's Epic, save its children listing and run ${acceptedShape("epic_close.ts", "<projectRoot> <EPIC-KEY> --children <listing>")} ${PLAIN_RULE}, then retry.`,
   );
 }
 
