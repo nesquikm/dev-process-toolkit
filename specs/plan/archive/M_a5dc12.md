@@ -1,7 +1,7 @@
 ---
 milestone: M_a5dc12
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-11-02T19:37:02Z
 kickoff_branch: null
 frozen_at: null
 migration: none
