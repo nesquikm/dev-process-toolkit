@@ -18,7 +18,7 @@
 //                        the session transcript (exit 2 on miss).
 //
 // Spec-only carve-out fires iff the staged set is NON-EMPTY, EVERY path
-// matches one of the SPEC_PATTERNS below, AND NO path matches the
+// matches one of the SPEC_PATTERNS (shared, archive_only_change.ts), AND NO path matches the
 // src/test patterns (`src/**`, `**/__tests__/**`, `*.{test,spec}.{ts,tsx,js}`).
 // Mixed spec+src or spec+test still requires /tdd (preserves STE-290 semantics).
 //
@@ -50,6 +50,7 @@ import {
   gateEvidenceTarget,
 } from "../../../../adapters/_shared/src/gate_receipt.ts";
 import { uncoveredOperation, waivedMergePaths } from "../../../../adapters/_shared/src/merge_provenance.ts";
+import { isSpecPath } from "../../../../adapters/_shared/src/archive_only_change.ts";
 
 // ---------------------------------------------------------------------------
 // Pure classifier — exported for unit tests (AC-STE-295.1).
@@ -68,20 +69,8 @@ import { uncoveredOperation, waivedMergePaths } from "../../../../adapters/_shar
 // Archived records are frozen history, the same rule every other walk applies.
 const FR_RE = /^specs\/frs\/(?!archive\/)[^/]*\.md$/;
 
-// Spec-only carve-out patterns. Every staged path must match at least one of
-// these AND none may match the src/test patterns below for `spec-only`.
-const SPEC_PATTERNS: RegExp[] = [
-  /^specs\/frs\/[^/]+\.md$/, // specs/frs/*.md (excludes subdirs except archive below)
-  /^specs\/frs\/archive\/[^/]+\.md$/, // specs/frs/archive/*.md
-  /^specs\/plan\/M[^/]*\.md$/, // specs/plan/M*.md
-  /^specs\/plan\/archive\/[^/]+\.md$/, // specs/plan/archive/*.md
-  /^specs\/requirements\.md$/,
-  /^specs\/technical-spec\.md$/,
-  /^specs\/testing-spec\.md$/,
-];
-
-const isSpecPath = (p: string): boolean =>
-  SPEC_PATTERNS.some((re) => re.test(p));
+// Spec-only carve-out: `isSpecPath` (shared, STE-700) — every staged path
+// must match it AND none may match the src/test patterns below for `spec-only`.
 
 /**
  * The predicates for a RESOLVED table entry — one place, so the verdict below

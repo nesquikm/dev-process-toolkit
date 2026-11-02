@@ -37,11 +37,11 @@ codename: Closing Time
   verify: permit leg and every forbid leg through the shipped wrapper; amended refusal pins green
 - [x] Mirror the Epic-close rule in the live grader and point the ship-milestone close step at the front door
   verify: hook/grader parity test green
-- [ ] Add the shared archive-only classifier
+- [x] Add the shared archive-only classifier
   verify: permit and forbid twins for every allowed and disallowed edit
-- [ ] Wire the classifier into the commit gate and the PR gate, and document the carve-out
+- [x] Wire the classifier into the commit gate and the PR gate, and document the carve-out
   verify: archive-only commit and PR pass with no evidence; every forbid twin still refuses
-- [ ] Mutation controls for each rule
+- [x] Mutation controls for each rule
   verify: removing each rule reds at least one named test
 
 ### Gate

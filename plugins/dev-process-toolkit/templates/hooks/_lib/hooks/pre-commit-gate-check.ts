@@ -39,6 +39,7 @@ import {
   checkoutRootOf,
   gateEvidenceTarget,
 } from "../../../../adapters/_shared/src/gate_receipt.ts";
+import { isStagedArchiveOnly, isWorkingTreeClean } from "../../../../adapters/_shared/src/archive_only_change.ts";
 
 /** An NFR-10 `Reminder:`, then exit 1: visible and non-blocking (the sibling /tdd hook's idiom). */
 function remind(sentence: string, remedy: string): never {
@@ -66,6 +67,20 @@ if (!target.isCommit) {
       "run /dev-process-toolkit:gate-check yourself if this changes what you are about to ship.",
     );
   }
+  process.exit(0);
+}
+// AC-STE-700.4 — a commit placed in exactly one checkout whose staged set is
+// archive-only (FR/plan moves into archive/, traceability rows) needs no
+// gate-check evidence: it carries no code for the gate to grade. Only a plain
+// `git commit` over a tracked working tree that matches its index qualifies, so
+// no `-a` / pathspec can carry content outside the graded staged set.
+if (
+  !target.unplaced &&
+  target.repoRoots.length === 1 &&
+  target.subcommand === "commit" &&
+  isWorkingTreeClean(target.repoRoots[0]!) &&
+  isStagedArchiveOnly(target.repoRoots[0]!)
+) {
   process.exit(0);
 }
 // STE-614 AC.9 — WHERE this commit writes, described for the one rule to grade.

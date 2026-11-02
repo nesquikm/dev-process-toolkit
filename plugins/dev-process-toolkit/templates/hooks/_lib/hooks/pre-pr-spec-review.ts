@@ -37,6 +37,7 @@ import {
   checkoutRootOf,
   gateEvidenceTarget,
 } from "../../../../adapters/_shared/src/gate_receipt.ts";
+import { isBranchArchiveOnly } from "../../../../adapters/_shared/src/archive_only_change.ts";
 
 // The Skill this gate demands and the gate's own registered name are spelled
 // out at every use, as both commit gates spell theirs. `tests/_blocking_gates.ts`
@@ -94,6 +95,14 @@ if (target.foreign !== null) {
     "pre-pr-spec-review",
   );
   process.exit(2);
+}
+// AC-STE-700.5 — a request placed in exactly one checkout whose branch diff
+// against the PR base (from their merge-base) is archive-only needs no
+// spec-review evidence: there is no implementation for the review to audit.
+// The pass grades the CHECKED-OUT branch, so a request naming `--head`/`-H`
+// (another branch, possibly carrying code) gets none.
+if (!target.unplaced && !target.headNamed && target.repoRoots.length === 1 && isBranchArchiveOnly(target.repoRoots[0]!, target.base)) {
+  process.exit(0);
 }
 // STE-614 AC.9 — WHERE this request is opened from, described for the one rule
 // to grade. Which roots that becomes, and which count as vouching peers, is

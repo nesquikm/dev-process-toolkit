@@ -98,6 +98,17 @@ export interface PrTarget {
    * guessed would get one of them wrong in silence.
    */
   foreign: string | null;
+  /**
+   * The `-B`/`--base` branch the request names, when every creation in the
+   * command names the same one; null otherwise (the default branch applies).
+   */
+  base: string | null;
+  /**
+   * True when any creation in the command names a `-H`/`--head` branch. Such a
+   * request opens from a branch other than (or not provably) the checked-out
+   * one, so the checkout's own diff cannot vouch for it.
+   */
+  headNamed: boolean;
 }
 
 /** Directory → checkout root lookup. Returns null for "inside no checkout". */
@@ -259,6 +270,12 @@ const REPO_OPTS: ReadonlySet<string> = new Set(["-R", "--repo"]);
 /** The options that make gh PRINT HELP and run nothing at all. */
 const HELP_OPTS: ReadonlySet<string> = new Set(["-h", "--help"]);
 
+/** `gh pr create`'s options naming the base branch. */
+const BASE_OPTS: ReadonlySet<string> = new Set(["-B", "--base"]);
+
+/** `gh pr create`'s options naming the head branch. */
+const HEAD_OPTS: ReadonlySet<string> = new Set(["-H", "--head"]);
+
 /** A gh command line, read as its option-free words plus the facts its flags carry. */
 interface GhInvocation {
   /** The non-option words, in order: `["pr", "create"]` for a bare creation. */
@@ -267,6 +284,10 @@ interface GhInvocation {
   repoSlug: string | null;
   /** True when a help option stands anywhere in the argv. */
   help: boolean;
+  /** The base branch `-B` / `--base` named, when one was given. */
+  base: string | null;
+  /** True when `-H` / `--head` names a head branch, in any spelling. */
+  headNamed: boolean;
 }
 
 /**
@@ -287,6 +308,8 @@ function parseGh(tokens: readonly string[]): GhInvocation | null {
   const words: string[] = [];
   let repoSlug: string | null = null;
   let help = false;
+  let base: string | null = null;
+  let headNamed = false;
   for (let i = 1; i < tokens.length; i += 1) {
     const token = tokens[i] as string;
     if (!token.startsWith("-") || token === "-") {
@@ -313,8 +336,30 @@ function parseGh(tokens: readonly string[]): GhInvocation | null {
       repoSlug = token.slice(2);
       continue;
     }
+    if (BASE_OPTS.has(flag)) {
+      if (equals > 0) base = token.slice(equals + 1);
+      else {
+        base = tokens[i + 1] ?? null;
+        i += 1;
+      }
+      continue;
+    }
+    if (token.startsWith("-B") && token.length > 2 && !token.startsWith("--")) {
+      base = token.slice(2);
+      continue;
+    }
+    // `--head x`, `--head=x`, `-H x`, `-Hx`: only THAT a head was named matters.
+    if (HEAD_OPTS.has(flag)) {
+      headNamed = true;
+      if (equals <= 0) i += 1;
+      continue;
+    }
+    if (token.startsWith("-H") && token.length > 2 && !token.startsWith("--")) {
+      headNamed = true;
+      continue;
+    }
   }
-  return { words, repoSlug, help };
+  return { words, repoSlug, help, base, headNamed };
 }
 
 /**
@@ -381,6 +426,10 @@ interface PrOccurrence {
   word: string | null;
   /** The repository slug the invocation names, when it names one. */
   slug: string | null;
+  /** The base branch the invocation names, when it names one. */
+  base: string | null;
+  /** True when the invocation names a head branch. */
+  headNamed: boolean;
 }
 
 const NO_PR: PrTarget = {
@@ -391,6 +440,8 @@ const NO_PR: PrTarget = {
   unplaced: false,
   candidateRoots: [],
   foreign: null,
+  base: null,
+  headNamed: false,
 };
 
 /**
@@ -416,7 +467,7 @@ export function resolvePrTarget(
     // silent permission this module exists to refuse.
     if (invocation.nestingExceeded) {
       if (LITERAL_PR.test(invocation.argv.slice(1).join(" "))) {
-        occurrences.push({ dir: null, word: `nesting deeper than ${MAX_NESTING}`, slug: null });
+        occurrences.push({ dir: null, word: `nesting deeper than ${MAX_NESTING}`, slug: null, base: null, headNamed: false });
       }
       continue;
     }
@@ -426,6 +477,8 @@ export function resolvePrTarget(
       dir: invocation.dir,
       word: invocation.dir === null ? invocation.unexpanded : null,
       slug: repoSlugOf(gh, invocation.assignments),
+      base: gh.base,
+      headNamed: gh.headNamed,
     });
   }
 
@@ -517,11 +570,14 @@ function verdict(
   }
 
   const distinct = unique(resolvedRoots);
+  const bases = unique(occurrences.map((o) => o.base ?? ""));
   return {
     ...NO_PR,
     isPr: true,
     repoRoot: distinct.length === 1 ? (distinct[0] as string) : null,
     repoRoots: distinct,
+    base: bases.length === 1 && bases[0] !== "" ? (bases[0] as string) : null,
+    headNamed: occurrences.some((o) => o.headNamed),
   };
 }
 
