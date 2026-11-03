@@ -104,6 +104,12 @@ export interface PrTarget {
    */
   base: string | null;
   /**
+   * STE-702 AC.4 — every distinct base the command's creations name, in first
+   * appearance order; `null` stands for a creation naming none (the default
+   * branch). Empty when the command creates no request.
+   */
+  bases: (string | null)[];
+  /**
    * True when any creation in the command names a `-H`/`--head` branch. Such a
    * request opens from a branch other than (or not provably) the checked-out
    * one, so the checkout's own diff cannot vouch for it.
@@ -441,6 +447,7 @@ const NO_PR: PrTarget = {
   candidateRoots: [],
   foreign: null,
   base: null,
+  bases: [],
   headNamed: false,
 };
 
@@ -570,13 +577,16 @@ function verdict(
   }
 
   const distinct = unique(resolvedRoots);
-  const bases = unique(occurrences.map((o) => o.base ?? ""));
+  // One computation feeds both fields: `bases` lists every distinct base
+  // (null = the default branch), and `base` is its sole entry when there is one.
+  const bases = unique(occurrences.map((o) => o.base ?? "")).map((b) => (b === "" ? null : b));
   return {
     ...NO_PR,
     isPr: true,
     repoRoot: distinct.length === 1 ? (distinct[0] as string) : null,
     repoRoots: distinct,
-    base: bases.length === 1 && bases[0] !== "" ? (bases[0] as string) : null,
+    base: bases.length === 1 ? (bases[0] as string | null) : null,
+    bases,
     headNamed: occurrences.some((o) => o.headNamed),
   };
 }

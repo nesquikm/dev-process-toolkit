@@ -921,12 +921,12 @@ describe("AC-STE-699.2(d) [security] S7 — every listed child must name THIS Ep
     expectClosed(closeEpic(w, DONE_CHILDREN()), w);
   });
 
-  test("AC-STE-699.2(d) [security] S7 PERMIT CONTROL — rows with no parent field remain accepted → closed, one receipt", () => {
+  test("AC-STE-699.2(d) [security] S7 — rows with no parent field are refused (amended by AC-STE-701.2)", () => {
     const w = makeWorld();
     const listing = {
       issues: [withParent(child(FE_FR, "done", [FE_TAG]), null), withParent(child(BE_FR, "done", [BE_TAG]), null)],
       isLast: true,
     };
-    expectClosed(closeEpic(w, listing), w);
+    expectRefused(closeEpic(w, listing), w, new RegExp(FE_FR), new RegExp(BE_FR), /\bparent\b[^\n]*\bmissing\b|\bmissing\b[^\n]*\bparent\b|\bno parent\b/i);
   });
 });

@@ -194,6 +194,9 @@ export function upsertTokenStatsBlock(
 /** Skill name whose detached rows are eligible for FR bridging. */
 const BRAINSTORM_SKILL = "dev-process-toolkit:brainstorm";
 
+/** Skill whose presence in a session marks it as having written its own specs. */
+const SPEC_WRITE_SKILL = "dev-process-toolkit:spec-write";
+
 /** Milestone-rollup bucket for brainstorm rows never claimed by any FR. */
 const DESIGN_BUCKET = "design/exploration";
 
@@ -297,7 +300,8 @@ export interface FilterRowsForFROptions {
  *   claimed (and unselected); an unclaimed one falls through to bridging below
  *   or to the milestone rollup.
  * - **Bridging** — when no brainstorm row is attached yet, the most-recent
- *   **unclaimed** detached `brainstorm` session on the FR's branch is claimed:
+ *   **unclaimed** detached `brainstorm` session on the FR's branch — one that
+ *   wrote no `spec-write` row of its own (STE-703) — is claimed:
  *   its rows are selected and marked `claimed_by = brainstormClaim` so no
  *   other FR double-counts them. Older / off-branch / non-brainstorm detached
  *   rows are left alone (they fall through to the milestone "design" bucket).
@@ -341,12 +345,18 @@ export function filterRowsForFR(
   // same-session nor previously claimed) — bridging is a fallback.
   const hasBrainstorm = selected.some((row) => row.skill === BRAINSTORM_SKILL);
   if (!hasBrainstorm) {
+    // STE-703 — a session that ran spec-write itself is not detached: its
+    // design work belongs to the specs it wrote, never to another FR.
+    const wroteOwnSpecs = new Set(
+      ledger.filter((row) => row.skill === SPEC_WRITE_SKILL).map((row) => row.session_id),
+    );
     const candidates = ledger.filter(
       (row) =>
         row.skill === BRAINSTORM_SKILL &&
         row.git_branch === branch &&
         row.claimed_by === undefined &&
-        !lineage.has(row.session_id),
+        !lineage.has(row.session_id) &&
+        !wroteOwnSpecs.has(row.session_id),
     );
 
     // Most-recent unclaimed session wins (ISO-8601 `ts` compares

@@ -292,7 +292,8 @@ async function isExemptPlaceholder(
 if (import.meta.main) {
   const stdin = await Bun.stdin.text();
   const payload = parseHookPayload(stdin);
-  // STE-614 AC.2 — the ONE fail-open leg, asked BEFORE any other verdict. The
+  // STE-614 AC.2 — one of two evidence-free legs (the other: the archive-only
+  // pass of the commit and pull request gates), asked BEFORE any other verdict. The
   // advisory `Reminder:` legs below all exit 1, which is stderr shown to an
   // operator; with no harness there is no operator and no session to grade.
   if (!payload || harnessAbsent(payload)) {

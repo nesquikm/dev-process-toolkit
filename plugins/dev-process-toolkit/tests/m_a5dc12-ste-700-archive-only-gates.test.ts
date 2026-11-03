@@ -98,13 +98,25 @@ function expectRefused(r: Run, skill: string): void {
 }
 
 /**
- * Give the checkout a remote whose default branch is `main`, WITHOUT the
- * network: `refs/remotes/origin/HEAD` points at `refs/remotes/origin/main`.
+ * Give the checkout a REAL remote whose default branch is `main`, WITHOUT the
+ * network (AC-STE-702.5): a `file://` bare repository beside the checkout,
+ * `main` pushed to it, fetched back, and `refs/remotes/origin/HEAD` set from
+ * it by `git remote set-head`. A branch the request opens from is pushed with
+ * `pushBranch`, so the archive-only pass can see the remote head equal HEAD.
  */
 function setDefaultBranchMain(repo: string): void {
-  git(repo, "remote", "add", "origin", "https://github.com/fixture-org/fixture-repo");
-  git(repo, "update-ref", "refs/remotes/origin/main", "main");
-  git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+  const bare = `${repo}.remote.git`;
+  mkdirSync(bare, { recursive: true });
+  git(bare, "init", "-q", "--bare", "-b", "main");
+  git(repo, "remote", "add", "origin", `file://${bare}`);
+  git(repo, "push", "-q", "origin", "main");
+  git(repo, "fetch", "-q", "origin");
+  git(repo, "remote", "set-head", "origin", "main");
+}
+
+/** Push the checked-out branch to `origin` and track it there. */
+function pushBranch(repo: string): void {
+  git(repo, "push", "-q", "-u", "origin", "HEAD");
 }
 
 // ---------------------------------------------------------------- forbid twins
@@ -231,11 +243,27 @@ describe("AC-STE-700.5 — pre-pr-spec-review passes an archive-only branch diff
       git(repo, "checkout", "-q", "-b", "feature");
       applyArchiveMove(repo);
       git(repo, "commit", "-q", "-m", "chore: archive");
+      pushBranch(repo);
       const r = await runPrGate(repo);
       expect({ code: r.exitCode, refusing: r.stderr.includes("Refusing:") }).toEqual({
         code: 0,
         refusing: false,
       });
+    },
+    T,
+  );
+
+  test(
+    "AC-STE-702.6 FORBID — the permit leg after `git remote set-head origin -d`, no --base → refused for want of evidence",
+    async () => {
+      const repo = makeArchiveRepo(join(tmpRoot, "pr-forbid-no-origin-head"));
+      setDefaultBranchMain(repo);
+      git(repo, "checkout", "-q", "-b", "feature");
+      applyArchiveMove(repo);
+      git(repo, "commit", "-q", "-m", "chore: archive");
+      pushBranch(repo);
+      git(repo, "remote", "set-head", "origin", "-d");
+      expectRefused(await runPrGate(repo), "spec-review");
     },
     T,
   );
@@ -252,6 +280,7 @@ describe("AC-STE-700.5 — pre-pr-spec-review passes an archive-only branch diff
       git(repo, "commit", "-q", "-am", "feat: main moves on");
       setDefaultBranchMain(repo);
       git(repo, "checkout", "-q", "feature");
+      pushBranch(repo);
       const r = await runPrGate(repo);
       expect({ code: r.exitCode, refusing: r.stderr.includes("Refusing:") }).toEqual({
         code: 0,
@@ -273,6 +302,7 @@ describe("AC-STE-700.5 — pre-pr-spec-review passes an archive-only branch diff
     git(repo, "checkout", "-q", "-b", "feature");
     applyArchiveMove(repo);
     git(repo, "commit", "-q", "-m", "chore: archive");
+    pushBranch(repo);
     return repo;
   }
 
@@ -320,6 +350,9 @@ describe("AC-STE-700.6 — pre-pr-spec-review refuses every forbid twin through 
         git(repo, "checkout", "-q", "-b", "feature");
         twin(repo);
         git(repo, "commit", "-q", "-m", "chore: twin");
+        // Pushed, so the remote head equals HEAD (STE-702) and the refusal
+        // comes from the archive-only classifier alone.
+        pushBranch(repo);
         expectRefused(await runPrGate(repo), "spec-review");
       },
       T,
@@ -398,6 +431,7 @@ describe("AC-STE-700.5 [security] — a request naming another head, or a flag-s
     git(repo, "checkout", "-q", "-b", "feature");
     applyArchiveMove(repo);
     git(repo, "commit", "-q", "-m", "chore: archive");
+    pushBranch(repo);
     return repo;
   }
 

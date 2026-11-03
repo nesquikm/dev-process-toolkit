@@ -9,7 +9,7 @@
 // Public API:
 //   parseHookPayload(stdin) => HookPayload | null
 //   readTranscriptLines(payload) => string[] | null           (THE reader)
-//   harnessAbsent(payload) => boolean                         (the ONE fail-open leg)
+//   harnessAbsent(payload) => boolean                         (one of two evidence-free legs)
 //   findSkillToolUse(skill, payload) => { found: boolean }   (no stderr emit)
 //   requireSkillToolUse(skill, hook, payload) => { found: boolean }
 //   findRedBeforeProof(payload, requiredPaths) => { found, uncovered }
@@ -175,7 +175,8 @@ export function readTranscriptLines(payload: HookPayload): string[] | null {
 }
 
 /**
- * The ONE fail-open leg (STE-614 AC.2), named so it is a DECISION rather than an
+ * One of two evidence-free legs (STE-614 AC.2; the other is the archive-only
+ * pass of the commit and pull request gates), named so it is a DECISION rather than an
  * accident of where each hook happens to consult the transcript.
  *
  * True when no harness spoke to this hook at all: stdin was empty or

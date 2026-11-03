@@ -181,7 +181,9 @@ dev-process-toolkit/
 │       │                            #   pre-commit-tdd-orchestrator block `git commit`,
 │       │                            #   pre-pr-spec-review blocks `gh pr create`,
 │       │                            #   pre-tracker-write-gate blocks shared-container
-│       │                            #   tracker writes that skipped the deciding commands
+│       │                            #   tracker writes that skipped the deciding commands;
+│       │                            #   an archive-only commit or PR passes its gate with no
+│       │                            #   fresh run; docs/hooks-reference.md lists what counts
 │       │                            #   (the hook scripts live in templates/hooks/process/)
 │       ├── scripts/                 # One-shot migration helpers named by probe remedies (/upgrade uses adapters/_shared/src/migrations/)
 │       ├── tests/                   # The `bun test` gate root — Pattern 9 regression fixture + capture/verify scripts + MCP/project fixtures
@@ -196,7 +198,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.3 — "Closing Time"** (M_a5dc12, a shipped milestone can be closed out. A shipped milestone's Jira Epic closes through one checked front door, and an archive-only commit or pull request no longer needs a fresh gate or review run)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.4 — "Loose Ends"** (M_9261c7, close-out guards check what they trust. An Epic closes only on children that name it, the pull request gate's archive-only pass grades the branch the pull request opens, and a ticket create is decided from the searches the session actually ran)
 
 ## Core Philosophy
 

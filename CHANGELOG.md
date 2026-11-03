@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.101.4] — 2026-11-03 — "Loose Ends"
+
+### Fixed
+
+- The Epic close checks that every listed child belongs to the Epic (STE-701). `epic_close.ts` check (d) now accepts a child row only when its `fields.parent.key` names the Epic, compared without case; a row with no parent, a null or keyless parent, or a bare-string parent is refused as parent-missing and named apart from rows naming another Epic, with no receipt written. `isStatusOnlyTransition` now also requires a string `issueIdOrKey` and a present `transition`, the `/ship-milestone` close step names the children query (`parent = <P>-<N>` with `parent` requested), and one test pins the tracker-write hook and the live grader to the same verdict on one session.
+- The pull request gate's archive-only pass grades the branch the pull request opens (STE-702). The pass now also needs `git ls-remote` to show the remote branch at exactly the local `HEAD`, so code pushed from another clone no longer rides a stale local archive-only diff; a detached HEAD, a missing or diverged remote branch, or a failed lookup withholds it. `pr_target_repo.ts` exposes every distinct base a command names and the hook grades each one. The lookup runs last, bounded to 4 s and non-interactive, so a silent remote cannot hang the hook.
+- The token-stats bridge claims only a brainstorm that wrote no specs of its own (STE-703). `claimRowsForFR` skips any session holding a `dev-process-toolkit:spec-write` row, so a fresh spec run no longer adopts earlier sessions' design work; an older eligible brainstorm is still bridged.
+- A ticket create is decided from the searches the session actually ran (STE-704). `create_idempotency_probe.ts decide` takes `--from-transcript <transcript_path> <tool_use_id>...`, reads each named search call and its result from the session log through the shared reader, and accepts only calls whose input equals the printed query (plus the page cursor, and `cloudId` on Jira); anything else refuses with `page-violates-query`, and page files beside the flag are refused unread. The adapters and `/spec-write` order the transcript form; the file form stays for callers outside a session.
+- The docs name the archive-only pass and stop calling the session-blind leg the only one (STE-705). Every surface describing the commit or pull request gate now names the archive-only pass and points to `docs/hooks-reference.md`, the two false "only" claims are rewritten to name both evidence-free legs, and the allowed-edit list matches the classifier.
+
+Total test count at release: 20186 tests, 0 failures, 0 errors.
+
 ## [2.101.3] — 2026-11-02 — "Closing Time"
 
 ### Fixed

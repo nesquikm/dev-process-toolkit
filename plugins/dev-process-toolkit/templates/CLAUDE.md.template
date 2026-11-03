@@ -89,8 +89,11 @@ npm run typecheck && npm run lint && npm run test
 tool call never runs. Each reads the current session's transcript for evidence —
 by default a `Skill` tool_use of the skill it names, so running the equivalent
 commands by hand does not satisfy it. One of them accepts a second form of
-evidence, noted on its own line below. They fail open only when they cannot see
-the session at all: no transcript, an unreadable one, or stdin they cannot parse.
+evidence, noted on its own line below. They fail open when they cannot see the
+session at all: no transcript, an unreadable one, or stdin they cannot parse.
+There is one more way through without evidence: a commit or pull request whose
+changes only archive specs passes the commit gate or the spec-review gate with no
+fresh run — the archive-only pass; `docs/hooks-reference.md` lists what counts.
 
 **The evidence is the Skill call PLUS its receipt in the repository you are
 committing to or raising the PR from.** The transcript only says the gate ran

@@ -332,6 +332,62 @@ export function isBranchArchiveOnly(root: string, base: string | null): boolean 
   return ref !== null && isArchiveOnly(readBranchChanges(root, ref));
 }
 
+/** Bound on the one network call this module makes; well under any hook budget. */
+const LS_REMOTE_TIMEOUT_MS = 4000;
+
+/**
+ * `git ls-remote` is the only call here that may leave the machine, so it runs
+ * bounded and non-interactive: a slow or dead remote, a credential prompt or an
+ * ssh host-key/password prompt reads as a failure (no pass) instead of hanging
+ * the hook. A timeout or kill yields a null exit code, which reads as failure.
+ */
+function lsRemoteOut(root: string, remote: string, ref: string): string | null {
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "echo",
+    SSH_ASKPASS: "echo",
+    GCM_INTERACTIVE: "never",
+  };
+  // BatchMode only when the user configured no ssh command of their own: the env
+  // var outranks core.sshCommand and GIT_SSH, and overriding a custom key or
+  // jump host would silently withhold the pass. The timeout still bounds those.
+  if (!env.GIT_SSH_COMMAND && !env.GIT_SSH && gitOut(root, ["config", "--get", "core.sshCommand"]) === null) {
+    env.GIT_SSH_COMMAND = "ssh -o BatchMode=yes";
+  }
+  const r = Bun.spawnSync(["git", "-C", root, "ls-remote", "--end-of-options", remote, ref], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    env,
+    timeout: LS_REMOTE_TIMEOUT_MS,
+    killSignal: "SIGKILL",
+  });
+  return r.exitCode === 0 ? r.stdout.toString() : null;
+}
+
+/**
+ * AC-STE-702.1/.3 — true when the branch the pull request opens holds exactly
+ * the graded commit: HEAD is on a branch `<b>`, and `git ls-remote <remote>
+ * refs/heads/<b>` (the remote from `branch.<b>.remote`, else `origin`) names
+ * HEAD's sha. A detached HEAD, a missing remote branch, a different sha or a
+ * failed ls-remote all read as false.
+ */
+export function isRemoteHeadEqualToHead(root: string): boolean {
+  const branch = gitOut(root, ["symbolic-ref", "-q", "--short", "HEAD"])?.trim();
+  if (!branch) return false;
+  const head = gitOut(root, ["rev-parse", "--verify", "-q", "HEAD^{commit}"])?.trim();
+  if (!head) return false;
+  const remote = gitOut(root, ["config", "--get", `branch.${branch}.remote`])?.trim() || "origin";
+  if (remote.startsWith("-")) return false;
+  const out = lsRemoteOut(root, remote, `refs/heads/${branch}`);
+  if (out === null) return false;
+  const lines = out.split("\n").filter((l) => l.trim() !== "");
+  if (lines.length !== 1) return false;
+  const [sha, ref] = lines[0]!.split("\t");
+  return sha === head && ref === `refs/heads/${branch}`;
+}
+
 /** True when the checkout's staged set is non-empty and archive-only. */
 export function isStagedArchiveOnly(root: string): boolean {
   return isArchiveOnly(readStagedChanges(root));

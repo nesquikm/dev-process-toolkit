@@ -633,6 +633,17 @@ describe("AC-STE-700.9 — docs/hooks-reference.md documents the archive-only pa
       expect({ needle, found: md.includes(needle) }).toEqual({ needle, found: true });
     }
   });
+
+  // AC-STE-705.6 — the appended-block wording of AC-STE-705.4.
+  test("the doc names the appended blocks the classifier accepts (AC-STE-705.6)", () => {
+    const flat = md.replace(/\s+/g, " ");
+    for (const needle of [
+      "followed only by blank lines or a token-stats block",
+      "a complete new token-stats block appended at the end of the file",
+    ]) {
+      expect({ needle, found: flat.includes(needle) }).toEqual({ needle, found: true });
+    }
+  });
 });
 
 // ===========================================================================
