@@ -25,7 +25,9 @@ plugins/dev-process-toolkit/             → The plugin
                                            pre-commit-tdd-orchestrator block `git commit`,
                                            pre-pr-spec-review blocks `gh pr create`,
                                            pre-tracker-write-gate blocks shared-container
-                                           tracker writes that skipped the deciding commands
+                                           tracker writes that skipped the deciding commands;
+                                           an archive-only commit or PR passes its gate with no
+                                           fresh run; docs/hooks-reference.md lists what counts
 ├── scripts/                             → One-shot migration helpers named by probe remedies. NOT by /upgrade:
                                            that skill owns no migration list and walks the registry at
                                            adapters/_shared/src/migrations/ instead

@@ -60,8 +60,10 @@ function remind(sentence: string, remedy: string): never {
 
 const stdin = await Bun.stdin.text();
 const payload = parseHookPayload(stdin);
-// STE-614 AC.2 — the ONE fail-open leg, asked BEFORE any other verdict: empty
-// or unparseable stdin, or a `transcript_path` naming a file that is not there.
+// STE-614 AC.2 — one of two evidence-free legs (the other: the
+// archive-only pass of the commit and pull request gates), asked BEFORE any
+// other verdict: empty or unparseable stdin, or a `transcript_path` naming a
+// file that is not there.
 if (!payload || harnessAbsent(payload)) {
   process.exit(0);
 }

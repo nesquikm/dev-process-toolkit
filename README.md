@@ -181,7 +181,9 @@ dev-process-toolkit/
 │       │                            #   pre-commit-tdd-orchestrator block `git commit`,
 │       │                            #   pre-pr-spec-review blocks `gh pr create`,
 │       │                            #   pre-tracker-write-gate blocks shared-container
-│       │                            #   tracker writes that skipped the deciding commands
+│       │                            #   tracker writes that skipped the deciding commands;
+│       │                            #   an archive-only commit or PR passes its gate with no
+│       │                            #   fresh run; docs/hooks-reference.md lists what counts
 │       │                            #   (the hook scripts live in templates/hooks/process/)
 │       ├── scripts/                 # One-shot migration helpers named by probe remedies (/upgrade uses adapters/_shared/src/migrations/)
 │       ├── tests/                   # The `bun test` gate root — Pattern 9 regression fixture + capture/verify scripts + MCP/project fixtures
