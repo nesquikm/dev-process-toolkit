@@ -37,7 +37,7 @@ import {
   checkoutRootOf,
   gateEvidenceTarget,
 } from "../../../../adapters/_shared/src/gate_receipt.ts";
-import { isBranchArchiveOnly } from "../../../../adapters/_shared/src/archive_only_change.ts";
+import { isBranchArchiveOnly, isRemoteHeadEqualToHead } from "../../../../adapters/_shared/src/archive_only_change.ts";
 
 // The Skill this gate demands and the gate's own registered name are spelled
 // out at every use, as both commit gates spell theirs. `tests/_blocking_gates.ts`
@@ -101,7 +101,14 @@ if (target.foreign !== null) {
 // spec-review evidence: there is no implementation for the review to audit.
 // The pass grades the CHECKED-OUT branch, so a request naming `--head`/`-H`
 // (another branch, possibly carrying code) gets none.
-if (!target.unplaced && !target.headNamed && target.repoRoots.length === 1 && isBranchArchiveOnly(target.repoRoots[0]!, target.base)) {
+if (!target.unplaced && !target.headNamed && target.repoRoots.length === 1 &&
+  // STE-702 AC.2 — EVERY distinct base the command's creations name is graded.
+  target.bases.length > 0 &&
+  target.bases.every((base) => isBranchArchiveOnly(target.repoRoots[0]!, base)) &&
+  // STE-702 — the pass grades the branch the pull request opens: the REMOTE
+  // branch must hold exactly the checked-out commit. Asked last: it is the one
+  // network call, paid only by a branch that is otherwise archive-only.
+  isRemoteHeadEqualToHead(target.repoRoots[0]!)) {
   process.exit(0);
 }
 // STE-614 AC.9 — WHERE this request is opened from, described for the one rule
