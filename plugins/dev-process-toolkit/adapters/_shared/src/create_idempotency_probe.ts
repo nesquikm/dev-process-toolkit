@@ -519,39 +519,69 @@ function commandQuery({ mode, binding }: CommandBinding, args: QueryArgs): Decis
  */
 async function runQueryCommand(args: QueryArgs): Promise<string> {
   const loaded = await loadCommandBinding(args.root, "query");
-  const { mode, binding } = loaded;
+  return JSON.stringify(printedSearch(loaded, args));
+}
 
+/**
+ * The one search object `query` prints. `decide --from-transcript` compares
+ * every named call's input against THIS object, so the two cannot drift.
+ */
+function printedSearch(loaded: CommandBinding, args: QueryArgs): Record<string, unknown> {
+  const { mode, binding } = loaded;
   if (mode === "jira") {
     const jql = buildIdempotencyJql(commandQuery(loaded, args), { excludeEpics: true });
-    return JSON.stringify({ jql, fields: [...JIRA_QUERY_FIELDS] });
+    return { jql, fields: [...JIRA_QUERY_FIELDS] };
   }
   // Linear: never `query` (full-text widens), never `projectMilestone` (checked
   // client-side by `decide`).
-  return JSON.stringify({
+  return {
     ...(binding.team ? { team: binding.team } : {}),
     project: binding.project,
     ...(binding.repoTag ? { label: binding.repoTag } : {}),
     fields: [...LINEAR_QUERY_FIELDS],
     limit: LINEAR_QUERY_LIMIT,
-  });
+  };
 }
 
 // ------------------------------------------------------------ the decide door
 
 interface DecideArgs extends QueryArgs {
   pages: string[];
+  /** STE-704 — `--from-transcript <path> <tool_use_id>...`: the searches the session ran. */
+  transcript?: { path: string; ids: string[] };
   attempt: IdempotencyAttempt;
   /** STE-679 — `--bug`: the create carries the resolved bug type / label. */
   bug?: boolean;
 }
 
-/** Parse `<root> <page.json>... --title <t> [container] --attempt <a> [--bug]`. */
+/** Page files and `--from-transcript` together: refused before anything is read. */
+export class MixedDecideSources extends Error {}
+
+/**
+ * Parse `<root> <page.json>... --title <t> [container] --attempt <a> [--bug]`
+ * or `<root> --from-transcript <path> <tool_use_id>... --title <t> ...`.
+ */
 function parseDecideArgs(argv: readonly string[]): DecideArgs | null {
   const [root, ...rest] = argv;
   if (!root || root.startsWith("--")) return null;
   const pages: string[] = [];
   let i = 0;
   while (i < rest.length && !rest[i]!.startsWith("--")) pages.push(rest[i++]!);
+  let transcript: DecideArgs["transcript"];
+  if (rest[i] === "--from-transcript") {
+    const path = rest[i + 1];
+    if (path === undefined || path.startsWith("--")) return null;
+    i += 2;
+    const ids: string[] = [];
+    while (i < rest.length && !rest[i]!.startsWith("--")) ids.push(rest[i++]!);
+    if (ids.length === 0) return null;
+    if (pages.length > 0) {
+      throw new MixedDecideSources(
+        "decide: page files cannot be passed with --from-transcript — the decision reads the named search calls only.",
+      );
+    }
+    transcript = { path, ids };
+  }
   const allFlags = rest.slice(i);
   const flags = allFlags.filter((f) => f !== "--bug");
   const bug = flags.length !== allFlags.length;
@@ -560,8 +590,8 @@ function parseDecideArgs(argv: readonly string[]): DecideArgs | null {
   const attempt = flags[at + 1] as IdempotencyAttempt | undefined;
   if (!attempt || !IDEMPOTENCY_ATTEMPTS.includes(attempt)) return null;
   const q = parseQueryArgs([root, ...flags.slice(0, at), ...flags.slice(at + 2)]);
-  if (!q || pages.length === 0) return null;
-  return { ...q, pages, attempt, ...(bug ? { bug: true } : {}) };
+  if (!q || (pages.length === 0 && transcript === undefined)) return null;
+  return { ...q, pages, ...(transcript ? { transcript } : {}), attempt, ...(bug ? { bug: true } : {}) };
 }
 
 /** A page the decision cannot read. Never "no match". */
@@ -681,6 +711,117 @@ function readLinearPages(
   return { candidates, capped };
 }
 
+/** A named search call whose input is not the printed search. */
+class PageViolatesQuery extends Error {}
+
+/** The search tool a mode's printed query is run with (any MCP server prefix). */
+const SEARCH_TOOL: Record<"jira" | "linear", RegExp> = {
+  jira: /^mcp__[^_].*__searchJiraIssuesUsingJql$/,
+  linear: /^mcp__[^_].*__list_issues$/,
+};
+
+/** JSON with sorted object keys: two values are equal iff their canonical forms are. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
+  if (isObj(v)) {
+    return `{${Object.keys(v)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(v) ?? "undefined";
+}
+
+/** The text a tool_result `content` carries: a string, or an array of text blocks. */
+function resultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((b) => (isObj(b) && b.type === "text" && typeof b.text === "string" ? b.text : ""))
+      .join("");
+  }
+  throw new UnreadablePage("a tool result with no readable content");
+}
+
+/**
+ * STE-704 — read each named search call and its result out of the session
+ * transcript (through the ONE transcript reader), in the order given. A call
+ * is accepted only when its input equals the printed search exactly — plus the
+ * page cursor after the first page, plus `cloudId` on Jira. A narrowed search
+ * (an extra `query`, a changed label) is never read as a complete miss.
+ */
+async function readTranscriptPages(
+  mode: "jira" | "linear",
+  t: { path: string; ids: string[] },
+  printed: Record<string, unknown>,
+): Promise<unknown[]> {
+  const { readTranscriptLines } = await import("../../../templates/hooks/_lib/session");
+  const { listingRequestCursor, withoutListingRequestPaging } = await import("./tracker_answer");
+  const lines = readTranscriptLines({ transcript_path: t.path } as Parameters<typeof readTranscriptLines>[0]);
+  if (lines === null) throw new UnreadablePage(`transcript ${t.path} is missing or unreadable`);
+
+  const calls = new Map<string, { name: unknown; input: unknown }>();
+  const results = new Map<string, { content: unknown; isError: boolean }>();
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    let rec: unknown;
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const content = isObj(rec) && isObj(rec.message) ? rec.message.content : undefined;
+    if (!Array.isArray(content)) continue;
+    for (const b of content) {
+      if (!isObj(b)) continue;
+      if (b.type === "tool_use" && typeof b.id === "string") calls.set(b.id, { name: b.name, input: b.input });
+      if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+        results.set(b.tool_use_id, { content: b.content, isError: b.is_error === true });
+      }
+    }
+  }
+
+  const expected = canonical(printed);
+  return t.ids.map((id, n) => {
+    const call = calls.get(id);
+    if (!call) throw new UnreadablePage(`no tool call ${id} in the transcript`);
+    if (typeof call.name !== "string" || !SEARCH_TOOL[mode].test(call.name)) {
+      throw new UnreadablePage(`tool call ${id} is not the ${mode} search`);
+    }
+    if (!isObj(call.input)) throw new PageViolatesQuery(`tool call ${id} carries no input object`);
+    const cursor = listingRequestCursor(mode, call.input);
+    if (n === 0 && cursor !== null) throw new PageViolatesQuery(`tool call ${id} is a later page, named first`);
+    const input = withoutListingRequestPaging(mode, call.input);
+    if (mode === "jira" && typeof input.cloudId === "string") delete input.cloudId;
+    if (canonical(input) !== expected) {
+      throw new PageViolatesQuery(`tool call ${id} did not run the printed search`);
+    }
+    const result = results.get(id);
+    if (!result) throw new UnreadablePage(`tool call ${id} has no result in the transcript`);
+    if (result.isError) throw new UnreadablePage(`tool call ${id} answered with an error`);
+    let page: unknown;
+    try {
+      page = JSON.parse(resultText(result.content));
+    } catch (e) {
+      if (e instanceof UnreadablePage) throw e;
+      throw new UnreadablePage(`tool call ${id}: the result is not JSON`);
+    }
+    return n > 0 && isObj(page) && cursor !== null ? { ...page, requestCursor: cursor } : page;
+  });
+}
+
+/** The saved-page form of `decide`: each file is one page, verbatim. */
+async function readPageFiles(paths: readonly string[]): Promise<unknown[]> {
+  const { readFileSync } = await import("node:fs");
+  return paths.map((p) => {
+    try {
+      return JSON.parse(readFileSync(p, "utf-8")) as unknown;
+    } catch (e) {
+      throw new UnreadablePage(`page ${p}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  });
+}
+
 /** The create a `create` decision authorises, carrying its container. */
 function buildCreatePayload(
   mode: "jira" | "linear",
@@ -714,25 +855,23 @@ function buildCreatePayload(
  * builds, then print the one decision as one JSON line.
  */
 async function runDecideCommand(args: DecideArgs): Promise<string> {
-  const { readFileSync } = await import("node:fs");
   const loaded = await loadCommandBinding(args.root, "decide");
   const { mode, binding } = loaded;
   const query = commandQuery(loaded, args);
 
   let decision: CreateDecision;
   try {
-    const raw = args.pages.map((p) => {
-      try {
-        return JSON.parse(readFileSync(p, "utf-8")) as unknown;
-      } catch (e) {
-        throw new UnreadablePage(`page ${p}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    });
+    // Both sources yield the same raw pages; the chain / cap / match logic
+    // below never knows which one it read.
+    const raw = args.transcript
+      ? await readTranscriptPages(mode, args.transcript, printedSearch(loaded, args))
+      : await readPageFiles(args.pages);
     const page = mode === "jira" ? readJiraPages(raw, query) : readLinearPages(raw, query);
     decision = decideCreate(query, page, args.attempt);
   } catch (e) {
-    if (!(e instanceof UnreadablePage)) throw e;
-    decision = refusal("page-unreadable");
+    if (e instanceof PageViolatesQuery) decision = refusal("page-violates-query");
+    else if (e instanceof UnreadablePage) decision = refusal("page-unreadable");
+    else throw e;
   }
 
   let bugType: string | null = null;
@@ -791,7 +930,14 @@ if (import.meta.main) {
     }
   }
   if (sub === "decide") {
-    const args = parseDecideArgs(rest);
+    let args: DecideArgs | null;
+    try {
+      args = parseDecideArgs(rest);
+    } catch (e) {
+      if (!(e instanceof MixedDecideSources)) throw e;
+      console.error(e.message);
+      process.exit(2);
+    }
     if (args) {
       try {
         console.log(await runDecideCommand(await resolveTitleFile(args)));
@@ -822,6 +968,7 @@ if (import.meta.main) {
     "usage: bun create_idempotency_probe.ts normalize <title>\n" +
       "       bun create_idempotency_probe.ts query <projectRoot> (--title <t> | --title-file <path>) [--parent <EpicKey> | --milestone-label <label> | --linear-milestone <id>]\n" +
       "       bun create_idempotency_probe.ts decide <projectRoot> <page.json>... (--title <t> | --title-file <path>) [container] --attempt <fast|retry-1|retry-2|retry-3> [--bug]\n" +
+      "       bun create_idempotency_probe.ts decide <projectRoot> --from-transcript <transcript.jsonl> <tool_use_id>... (--title <t> | --title-file <path>) [container] --attempt <a> [--bug]\n" +
       "       bun create_idempotency_probe.ts jql <projectKey> <title> [parentKey] [repoTag]",
   );
   process.exit(2);

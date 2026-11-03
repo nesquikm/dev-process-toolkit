@@ -319,9 +319,12 @@ the canonical form (no round-trip loop).
         by hand) and refuses, non-zero, a tag the create would not forward.
      2. `mcp__atlassian__searchJiraIssuesUsingJql` with exactly that `jql`
         and those `fields` — no edits to either.
-     3. Save every returned page verbatim as a JSON file (each page after the first with its `requestCursor`, the cursor it was fetched with), then
+     3. In a session, `create_idempotency_probe.ts decide` takes `--from-transcript <transcript_path> <tool_use_id>...` in place of the page files:
+        the `transcript_path` from the hook payload, then the `tool_use` id
+        of every search call, in page order.
+        Outside a session, save every returned page verbatim as a JSON file (each page after the first with its `requestCursor`, the cursor it was fetched with), then
         `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [container] --attempt fast`
-        — prints ONE JSON line `{ outcome, key?, reason?, capability?, createPayload? }`.
+        — either form prints ONE JSON line `{ outcome, key?, reason?, capability?, createPayload? }`.
         Run it as ONE plain command (no `cd … &&`, `;`, pipe or redirection):
         in a shared repository the tracker-write gate ignores the receipt of
         any other shape. A title with a backtick, `$` or `\` goes in a file
@@ -408,7 +411,11 @@ the canonical form (no round-trip loop).
 
      1. `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts query <projectRoot> --title <title> [container]`;
      2. `mcp__atlassian__searchJiraIssuesUsingJql` with the printed `jql` and `fields`;
-     3. save the page(s), then
+     3. in a session, `create_idempotency_probe.ts decide` takes
+        `--from-transcript <transcript_path> <tool_use_id>...` in place of the
+        page files (the `transcript_path` from the hook payload, then this
+        attempt's search call ids, in page order); outside a session, save
+        the page(s), then
         `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [container] --attempt retry-<N>`;
      4. act on `outcome`: `reused` → return `key`; `miss` (attempts 1-2
         only) → wait and run the next attempt; `refused` → stop with

@@ -252,9 +252,12 @@ observed status; operators fix either by transitioning the ticket to
         forward.
      2. `mcp__linear__list_issues` with exactly those arguments, following
         the top-level `cursor` page by page until `hasNextPage: false`.
-     3. Save every returned page verbatim as a JSON file (each page after the first with its `requestCursor`, the cursor it was fetched with), then
+     3. In a session, `create_idempotency_probe.ts decide` takes `--from-transcript <transcript_path> <tool_use_id>...` in place of the page files:
+        the `transcript_path` from the hook payload, then the `tool_use` id
+        of every search call, in page order.
+        Outside a session, save every returned page verbatim as a JSON file (each page after the first with its `requestCursor`, the cursor it was fetched with), then
         `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [--linear-milestone <id>] --attempt fast`
-        — prints ONE JSON line `{ outcome, key?, reason?, capability?, createPayload? }`.
+        — either form prints ONE JSON line `{ outcome, key?, reason?, capability?, createPayload? }`.
         Run it as ONE plain command (no `cd … &&`, `;`, pipe or redirection):
         in a shared repository the tracker-write gate ignores the receipt of
         any other shape. A title with a backtick, `$` or `\` goes in a file
@@ -350,7 +353,11 @@ Idempotent binding from a Linear issue to a project milestone named by the local
 > 1. `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts query <projectRoot> --title <title> [--linear-milestone <id>]`;
 > 2. `mcp__linear__list_issues` with the printed arguments, cursor-paginated
 >    to `hasNextPage: false`;
-> 3. save the page(s), then
+> 3. in a session, `create_idempotency_probe.ts decide` takes
+>    `--from-transcript <transcript_path> <tool_use_id>...` in place of the
+>    page files (the `transcript_path` from the hook payload, then this
+>    attempt's search call ids, in page order); outside a session, save
+>    the page(s), then
 >    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts decide <projectRoot> <page.json>... --title <title> [--linear-milestone <id>] --attempt retry-<N>`;
 > 4. act on `outcome`: `reused` → return `key`; `miss` (attempts 1-2 only)
 >    → wait and run the next attempt; `refused` → stop with

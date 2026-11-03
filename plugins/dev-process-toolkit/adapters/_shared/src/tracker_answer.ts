@@ -172,6 +172,17 @@ export function listingRequestCursor(tracker: TrackerKind, input: unknown): stri
   return (typeof at === "number" && at !== 0) || (nonEmpty(at) && at !== "0") ? `startAt=${String(at)}` : null;
 }
 
+/**
+ * STE-704 — a listing request's input with its paging fields removed (the
+ * fields `listingRequestCursor` reads, plus a zero `startAt`), so a caller can
+ * compare what remains against the search it was meant to run.
+ */
+export function withoutListingRequestPaging(tracker: TrackerKind, input: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...input };
+  for (const k of tracker === "linear" ? ["cursor", "after"] : ["nextPageToken", "startAt"]) delete out[k];
+  return out;
+}
+
 /** Read one item answer (a create's, an update's, a fetch's) into the item itself. */
 export function readTrackerItem(tracker: TrackerKind, answer: unknown): ItemRead {
   if (!isObj(answer)) return { ok: false, reason: "the answer is not a JSON object" };
