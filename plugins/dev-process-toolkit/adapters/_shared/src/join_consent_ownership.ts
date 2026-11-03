@@ -180,5 +180,7 @@ const STATUS_ONLY_KEYS: ReadonlySet<string> = new Set(["cloudId", "issueIdOrKey"
  * permits on a key the session does not otherwise own.
  */
 export function isStatusOnlyTransition(input: Record<string, unknown>): boolean {
+  if (typeof input.issueIdOrKey !== "string") return false;
+  if (input.transition === undefined || input.transition === null) return false;
   return Object.keys(input).every((k) => STATUS_ONLY_KEYS.has(k));
 }

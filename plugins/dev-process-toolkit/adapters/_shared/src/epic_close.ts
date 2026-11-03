@@ -155,11 +155,25 @@ export async function closeEpic(args: EpicCloseArgs): Promise<string> {
   const childRemedy = `save ${epicKey}'s children as the tracker returns them, every page through the last, and pass the file as --children <listing>`;
   if (!read.ok) throw new EpicCloseRefusal(`the --children listing cannot be read: ${read.reason}`, childRemedy, listingContext);
   if (!read.last) throw new EpicCloseRefusal("the --children listing's final page does not prove it is the last page", childRemedy, listingContext);
-  const foreign = read.items.flatMap((row) => {
+  // A row proves it belongs to the Epic only through a string fields.parent.key;
+  // a missing, null, keyless or bare-string parent proves nothing (parentless),
+  // and a string naming another key proves it belongs elsewhere (foreign).
+  const foreign: string[] = [];
+  const parentless: string[] = [];
+  for (const row of read.items) {
     const r = row as { key?: unknown; fields?: { parent?: { key?: unknown } | null } | null } | null;
     const parent = r?.fields?.parent?.key;
-    return typeof parent === "string" && parent.toUpperCase() !== epicKey.toUpperCase() ? [`${String(r?.key)} (parent ${parent})`] : [];
-  });
+    if (typeof parent !== "string") parentless.push(String(r?.key));
+    else if (parent.toUpperCase() !== epicKey.toUpperCase()) foreign.push(`${String(r?.key)} (parent ${parent})`);
+  }
+  if (parentless.length > 0) {
+    const also = foreign.length > 0 ? `; ${foreign.length} row(s) name another parent than ${epicKey}: ${foreign.join(", ")}` : "";
+    throw new EpicCloseRefusal(
+      `${parentless.length} row(s) of the --children listing have their parent missing (no fields.parent.key naming ${epicKey}): ${parentless.join(", ")}${also}`,
+      `list ${epicKey}'s children with the parent field requested (JQL \`parent = ${epicKey}\`, fields including parent) and pass the file as --children <listing>`,
+      `${listingContext}, parent_missing=${parentless.join(",")}${foreign.length > 0 ? `, foreign=${foreign.join(",")}` : ""}`,
+    );
+  }
   if (foreign.length > 0) {
     throw new EpicCloseRefusal(
       `${foreign.length} row(s) of the --children listing name another parent than ${epicKey}: ${foreign.join(", ")}`,
