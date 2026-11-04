@@ -22,6 +22,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { detectSettingsSource, loadProjectSettings, settingsKeyLine } from "./project_settings";
+import { DOCS_HEADING_PREFIX_RE } from "./project_settings_legacy";
 import { SETUP_MARKER, detectManagedSignals } from "./toolkit_managed";
 
 const AUDIT_HEADING = "## /setup audit";
@@ -51,8 +53,27 @@ export function hasDefaultApplicableOutcomes(content: string): boolean {
   // file could legitimately have been produced by a fully-interactive
   // run with no defaults.
   if (/^branch_template:\s*\S/m.test(content)) return true;
-  if (/^##\s+Docs\b/m.test(content)) return true;
+  if (DOCS_HEADING_PREFIX_RE.test(content)) return true;
   return false;
+}
+
+/**
+ * STE-709 — on a settings-file tree the default-applied outcomes are read
+ * through the loader (`task_tracking.branch_template` populated, a `docs`
+ * section emitted); on a legacy tree, from CLAUDE.md as before. A settings
+ * file the loader refuses falls back to the CLAUDE.md read.
+ */
+function hasOutcomes(projectRoot: string, content: string): boolean {
+  if (detectSettingsSource(projectRoot) === "settings") {
+    try {
+      const bt = loadProjectSettings(projectRoot).settings.task_tracking.branch_template;
+      if (typeof bt === "string" && bt.trim().length > 0) return true;
+      return settingsKeyLine(projectRoot, "docs") !== null;
+    } catch {
+      // the loader's refusal is graded by the probes that read the values
+    }
+  }
+  return hasDefaultApplicableOutcomes(content);
 }
 
 export async function runSetupAuditSectionPresenceProbe(
@@ -72,7 +93,7 @@ export async function runSetupAuditSectionPresenceProbe(
 
   // Vacuous pass: toolkit-managed but no default-applied outcomes to
   // require an audit trail for.
-  if (!hasDefaultApplicableOutcomes(content)) return { violations: [] };
+  if (!hasOutcomes(projectRoot, content)) return { violations: [] };
 
   // Required: the audit section.
   if (content.includes(AUDIT_HEADING)) return { violations: [] };

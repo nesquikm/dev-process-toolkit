@@ -129,6 +129,24 @@ const CLAUDE_MD_JOIN_RE = /join\s*\([^)]*["']CLAUDE\.md["']/;
 /** A body COMPLIES when it pulls the shared predicate in from `./toolkit_managed`. */
 const TOOLKIT_MANAGED_IMPORT_RE = /from\s+["']\.\/toolkit_managed(?:\.[jt]s)?["']/;
 
+/**
+ * STE-709 — a body ALSO enters scope when it resolves the settings file path:
+ * the whole path as one string literal, or split into its two segments.
+ */
+const SETTINGS_FILE_PATH_RE = /["']specs\/settings\.yaml["']|["']specs["']\s*,\s*["']settings\.yaml["']/;
+
+/** A settings-file reader COMPLIES when it imports the loader. */
+const LOADER_IMPORT_RE = /from\s+["']\.\/project_settings(?:\.[jt]s)?["']/;
+
+/** The only modules that may open the settings file themselves: the loader and its legacy module. */
+const SETTINGS_FILE_OWNERS: ReadonlySet<string> = new Set(["project_settings", "project_settings_legacy"]);
+
+/**
+ * Modules that resolve the settings file path without importing the loader,
+ * each with a recorded reason. Empty: only the loader opens the file.
+ */
+export const SETTINGS_FILE_READ_EXEMPT: Record<string, string> = {};
+
 /** Candidate adapter-source roots, in resolution order (first existing wins). */
 const ADAPTER_SRC_CANDIDATES: ReadonlyArray<ReadonlyArray<string>> = [
   ["plugins", "dev-process-toolkit", "adapters", "_shared", "src"],
@@ -234,11 +252,30 @@ export async function runClaudeMdProbeManagedGuardProbe(
       continue;
     }
 
+    const moduleId = name.slice(0, -".ts".length);
+
+    // ── settings-file arm (STE-709): selection + compliance ──
+    if (
+      SETTINGS_FILE_PATH_RE.test(body) &&
+      !SETTINGS_FILE_OWNERS.has(moduleId) &&
+      !LOADER_IMPORT_RE.test(body) &&
+      !Object.hasOwn(SETTINGS_FILE_READ_EXEMPT, moduleId)
+    ) {
+      pushViolation(
+        violations,
+        projectRoot,
+        absFile,
+        lineOfMatch(body, SETTINGS_FILE_PATH_RE),
+        `resolves the settings file path without importing the settings loader from ` +
+          `\`./project_settings\`, and \`${moduleId}\` is not a recorded entry in ` +
+          `\`SETTINGS_FILE_READ_EXEMPT\` — only the loader and its legacy module may open the settings file`,
+      );
+    }
+
     // ── selection ──
     if (!CLAUDE_MD_JOIN_RE.test(body)) continue;
 
     // ── compliance ──
-    const moduleId = name.slice(0, -".ts".length);
     if (TOOLKIT_MANAGED_IMPORT_RE.test(body)) continue;
     if (Object.hasOwn(CLAUDEMD_GUARD_EXEMPT, moduleId)) continue;
 

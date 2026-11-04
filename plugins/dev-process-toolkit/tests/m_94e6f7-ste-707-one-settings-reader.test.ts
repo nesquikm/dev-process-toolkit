@@ -132,15 +132,7 @@ function preV3Entries(): Record<string, string> {
   return out;
 }
 
-const TEMPORARY: Record<string, { owner: "STE-709" | "STE-710"; reason: string }> = {
-  // STE-709 — the probe modules that grade headings (probes #18, #19, #21, #25, #52, #87) and the managed-signal predicate.
-  "adapters/_shared/src/claudemd_docs_section.ts": { owner: "STE-709", reason: "probe #18 claudemd-docs-section-present grades the `## Docs` heading" },
-  "adapters/_shared/src/setup_audit_section_presence.ts": { owner: "STE-709", reason: "probe #19 setup-audit-section-presence greps `## Docs`" },
-  "adapters/_shared/src/task_tracking_canonical_keys.ts": { owner: "STE-709", reason: "probe #21 task-tracking-canonical-keys locates `## Task Tracking`" },
-  "adapters/_shared/src/task_tracking_workspace_binding_present.ts": { owner: "STE-709", reason: "probe #25 task-tracking-workspace-binding-present locates `## Task Tracking`" },
-  "adapters/_shared/src/tracker_config_shape.ts": { owner: "STE-709", reason: "probe #52 tracker_config_shape grades specs/tracker-config.yaml" },
-  "adapters/_shared/src/video_tooling_uncommitted.ts": { owner: "STE-709", reason: "probe #87 video_tooling_uncommitted decides vacuity from the video config path" },
-  "adapters/_shared/src/toolkit_managed.ts": { owner: "STE-709", reason: "the managed-signal heading detectors move behind the legacy module with the settings_file signal" },
+const TEMPORARY: Record<string, { owner: "STE-710" | "STE-709"; reason: string }> = {
   // STE-710 — the writer modules.
   "adapters/_shared/src/repoint_tracker_binding.ts": { owner: "STE-710", reason: "writer: re-points the tracker binding and hashes specs/tracker-config.yaml" },
   "adapters/_shared/src/setup/tracker_binding_write.ts": { owner: "STE-710", reason: "writer: writeTrackerSubsection writes `### Linear` / `### Jira`" },

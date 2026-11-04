@@ -8,12 +8,27 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { detectSettingsSource, SETTINGS_FILE, settingsSectionKeys, settingsViolation } from "./project_settings";
+import { TASK_TRACKING_HEADING } from "./project_settings_legacy";
+
 export const CANONICAL_KEYS: ReadonlySet<string> = new Set([
   "mode",
   "mcp_server",
   "jira_ac_field",
   "branch_template",
 ]);
+
+/** STE-709 — the closed `task_tracking` key set on a settings-file tree. */
+export const SETTINGS_TASK_TRACKING_KEYS: readonly string[] = [
+  "mode",
+  "mcp_server",
+  "jira_ac_field",
+  "branch_template",
+  "milestone_scan_fetch",
+  "linear",
+  "jira",
+  "status_vocabulary",
+];
 
 export interface TaskTrackingCanonicalKeysViolation {
   file: string;
@@ -35,7 +50,7 @@ interface SectionScan {
 
 function locateSection(content: string): SectionScan | null {
   const lines = content.split("\n");
-  const startIdx = lines.findIndex((l) => l === "## Task Tracking");
+  const startIdx = lines.findIndex((l) => l === TASK_TRACKING_HEADING);
   if (startIdx < 0) return null;
   let endIdx = lines.length;
   for (let i = startIdx + 1; i < lines.length; i++) {
@@ -64,6 +79,8 @@ function buildMessage(reason: string, file: string): string {
 export async function runTaskTrackingCanonicalKeysProbe(
   projectRoot: string,
 ): Promise<TaskTrackingCanonicalKeysReport> {
+  if (detectSettingsSource(projectRoot) === "settings") return settingsArm(projectRoot);
+
   const claudeMd = join(projectRoot, "CLAUDE.md");
   if (!existsSync(claudeMd)) return { violations: [] };
 
@@ -126,4 +143,27 @@ export async function runTaskTrackingCanonicalKeysProbe(
   }
 
   return { violations };
+}
+
+/**
+ * STE-709 — on a settings-file tree: every direct key under `task_tracking`
+ * in `specs/settings.yaml` must be in `SETTINGS_TASK_TRACKING_KEYS`, cited as
+ * `specs/settings.yaml:<line>`. `secondary_tracker` is outside the set, as
+ * trunk's `CANONICAL_KEYS` reds it under `## Task Tracking` (trunk parity).
+ */
+function settingsArm(projectRoot: string): TaskTrackingCanonicalKeysReport {
+  const keys = settingsSectionKeys(projectRoot, "task_tracking");
+  if (keys === null) return { violations: [] };
+  const offenders = keys.filter((k) => !SETTINGS_TASK_TRACKING_KEYS.includes(k.key));
+  if (offenders.length === 0) return { violations: [] };
+  const closed = `{${SETTINGS_TASK_TRACKING_KEYS.join(", ")}}`;
+  const line = offenders[0]!.line;
+  const reason = `non-canonical keys under task_tracking: ${offenders.map((o) => o.key).join(", ")} — closed set is ${closed}`;
+  const message = [
+    `task_tracking_canonical_keys: ${reason}`,
+    `Remedy: keep only ${closed} under \`task_tracking\` in ${SETTINGS_FILE}. ` +
+      `Workspace binding keys (team, project, ...) belong under \`task_tracking.linear\` or \`task_tracking.jira\`.`,
+    `Context: file=${SETTINGS_FILE}, probe=task_tracking_canonical_keys`,
+  ].join("\n");
+  return { violations: [settingsViolation(projectRoot, line, reason, message)] };
 }

@@ -9,6 +9,7 @@
 //   - CLAUDE.md
 //   - .claude/settings.json (if present)
 //   - .mcp.json (if present)
+//   - specs/settings.yaml (if present; STE-709)
 //   - specs/requirements.md (if present)
 //   - specs/technical-spec.md (if present)
 //   - specs/testing-spec.md (if present)
@@ -31,6 +32,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { SETTINGS_FILE } from "./project_settings";
 import { SETUP_MARKER, detectManagedSignals } from "./toolkit_managed";
 
 export interface ToolkitBootstrapCommittedViolation {
@@ -94,6 +96,10 @@ function buildScanSet(projectRoot: string): string[] {
 
   const mcp = join(projectRoot, ".mcp.json");
   if (existsSync(mcp)) candidates.push(mcp);
+
+  // STE-709 — the settings file is toolkit-managed like CLAUDE.md.
+  const settingsFile = join(projectRoot, SETTINGS_FILE);
+  if (existsSync(settingsFile)) candidates.push(settingsFile);
 
   const specsDir = join(projectRoot, "specs");
   if (existsSync(specsDir)) {

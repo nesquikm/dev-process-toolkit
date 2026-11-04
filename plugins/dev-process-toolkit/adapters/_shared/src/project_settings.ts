@@ -23,6 +23,7 @@ import {
   readLegacyTracking,
   readLegacyVerification,
   readLegacyVideo,
+  sectionEnd,
   VERIFY_MODES,
 } from "./project_settings_legacy";
 import { VALID_KINDS } from "./release_config";
@@ -157,14 +158,12 @@ const TOP_KEYS = [
   "release",
   "video",
 ] as const;
-const TASK_TRACKING_KEYS = [
-  ...CANONICAL_KEYS,
-  "milestone_scan_fetch",
-  "secondary_tracker",
-  "linear",
-  "jira",
-  "status_vocabulary",
-];
+// A function, not a const: `CANONICAL_KEYS` may still be uninitialised while an
+// import cycle through probe #21 (which reads the settings file through this
+// module) evaluates this module.
+function taskTrackingKeys(): string[] {
+  return [...CANONICAL_KEYS, "milestone_scan_fetch", "secondary_tracker", "linear", "jira", "status_vocabulary"];
+}
 const BINDING_KEYS = [
   "team",
   "project",
@@ -259,7 +258,7 @@ function validateBinding(v: unknown, path: string): void {
 
 function validateTaskTracking(v: unknown): void {
   const tt = requireMap(v, "task_tracking");
-  closeKeys(tt, "task_tracking", TASK_TRACKING_KEYS);
+  closeKeys(tt, "task_tracking", taskTrackingKeys());
   for (const k of [...CANONICAL_KEYS, "secondary_tracker"]) checkString(tt, "task_tracking", k);
   checkBool(tt, "task_tracking", "milestone_scan_fetch");
   for (const adapter of ["linear", "jira"]) {
@@ -475,6 +474,108 @@ export function settingsKeyLine(projectRoot: string, key: string): number | null
   } catch {
     return null;
   }
+}
+
+/**
+ * STE-709 — the 1-based line of a dotted key path (`task_tracking.status_vocabulary`)
+ * in `specs/settings.yaml`, found by indentation; null when absent. Never throws.
+ */
+export function settingsKeyPathLine(projectRoot: string, dotted: string): number | null {
+  try {
+    const text = readSettingsText(projectRoot);
+    if (text === null) return null;
+    const lines = text.split("\n");
+    let from = 0;
+    let parentIndent = -1;
+    let found = -1;
+    for (const seg of dotted.split(".")) {
+      found = -1;
+      for (let i = from; i < lines.length; i++) {
+        const l = lines[i]!;
+        if (l.trim() === "" || l.trimStart().startsWith("#")) continue;
+        const indent = l.length - l.trimStart().length;
+        if (indent <= parentIndent) break;
+        if (l.trimStart().startsWith(`${seg}:`)) {
+          found = i;
+          parentIndent = indent;
+          from = i + 1;
+          break;
+        }
+      }
+      if (found < 0) return null;
+    }
+    return found + 1;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * STE-709 — the direct child keys of top-level section `section` in
+ * `specs/settings.yaml`, each with its 1-based line, read from the raw text
+ * (so a key the loader would refuse is still listed); null when the file or
+ * the section is absent. Never throws.
+ */
+export function settingsSectionKeys(projectRoot: string, section: string): { key: string; line: number }[] | null {
+  try {
+    const text = readSettingsText(projectRoot);
+    if (text === null) return null;
+    const lines = text.split("\n");
+    const start = lines.findIndex((l) => l.startsWith(`${section}:`));
+    if (start < 0) return null;
+    const out: { key: string; line: number }[] = [];
+    let childIndent = -1;
+    for (let i = start + 1; i < lines.length; i++) {
+      const l = lines[i]!;
+      if (l.trim() === "" || l.trimStart().startsWith("#")) continue;
+      const indent = l.length - l.trimStart().length;
+      if (indent === 0) break;
+      if (childIndent < 0) childIndent = indent;
+      if (indent !== childIndent) continue;
+      const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(l.trimStart());
+      if (m) out.push({ key: m[1]!, line: i + 1 });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** STE-709 — the CLAUDE.md section that carries the settings pointer (and a shared stop paragraph). */
+export const PROJECT_SETTINGS_HEADING = "## Project Settings";
+
+/**
+ * STE-709 — the `## Project Settings` section of CLAUDE.md text: the 1-based
+ * heading line and the lines up to the next `#`/`##` heading; null when absent.
+ */
+export function projectSettingsSection(claudeMdContent: string): { line: number; lines: string[] } | null {
+  const lines = claudeMdContent.split("\n").map((l) => l.replace(/\r$/, ""));
+  const start = lines.findIndex((l) => l === PROJECT_SETTINGS_HEADING);
+  if (start < 0) return null;
+  return { line: start + 1, lines: lines.slice(start + 1, sectionEnd(lines, start)) };
+}
+
+/** STE-709 — a probe violation cited as `specs/settings.yaml:<line>`. */
+export interface SettingsCitedViolation {
+  file: string;
+  line: number;
+  reason: string;
+  note: string;
+  message: string;
+}
+
+/** STE-709 — build a violation against the settings file, cited as `specs/settings.yaml:<line>`. */
+export function settingsViolation(projectRoot: string, line: number, reason: string, message: string): SettingsCitedViolation {
+  return { file: join(projectRoot, SETTINGS_FILE), line, reason, note: `${SETTINGS_FILE}:${line} — ${reason}`, message };
+}
+
+/**
+ * STE-709 — a loader refusal as probes report it: the full error `text` and a
+ * one-line `reason` (`specs/settings.yaml is refused by the loader: <first line>`).
+ */
+export function settingsRefusal(err: unknown): { text: string; reason: string } {
+  const text = err instanceof Error ? err.message : String(err);
+  return { text, reason: `${SETTINGS_FILE} is refused by the loader: ${text.split("\n")[0]}` };
 }
 
 /** The pointer line older CLAUDE.md homes carry once settings move to `specs/settings.yaml`. */

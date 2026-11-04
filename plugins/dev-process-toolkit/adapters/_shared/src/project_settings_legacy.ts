@@ -45,6 +45,12 @@ export const DOCS_HEADING = MOVED_HEADINGS[2];
 export const RELEASE_FILES_HEADING = MOVED_HEADINGS[5];
 /** The CLAUDE.md `## Release Files` heading line, as `parseReleaseFiles` locates it. */
 export const RELEASE_FILES_HEADING_RE = /^##\s+Release Files\s*$/m;
+/** The CLAUDE.md `## Task Tracking` heading line, anchored (the managed-signal pattern). */
+export const TASK_TRACKING_HEADING_RE = /^##\s+Task Tracking\s*$/m;
+/** The CLAUDE.md `## Docs` heading line, anchored — `## Documentation` is not a match. */
+export const DOCS_HEADING_RE = /^##\s+Docs\s*$/m;
+/** A CLAUDE.md line opening with the `## Docs` heading word (probe #19's looser match). */
+export const DOCS_HEADING_PREFIX_RE = /^##\s+Docs\b/m;
 /** The `## Task Tracking` workspace-binding subsection heading per adapter. */
 export const TRACKER_SUBSECTION_HEADINGS: Readonly<Record<"linear" | "jira", string>> = {
   linear: "### Linear",
@@ -936,4 +942,34 @@ export function renderTrackingStub(settings: { task_tracking: Record<string, unk
     for (const [k, v] of Object.entries(binding)) if (v !== undefined && v !== null) lines.push(`${k}: ${stubValue(v)}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * STE-709 — the index of the first `#`/`##` heading after `headingIdx`, or
+ * `lines.length`: where a CLAUDE.md section that starts at `headingIdx` ends.
+ */
+export function sectionEnd(lines: readonly string[], headingIdx: number): number {
+  for (let j = headingIdx + 1; j < lines.length; j++) {
+    if (/^#{1,2}\s/.test(lines[j]!)) return j;
+  }
+  return lines.length;
+}
+
+/**
+ * STE-709 — every `## Task Tracking` stub slot in CLAUDE.md text: the
+ * heading (with the marker line when it sits directly above) through the
+ * line before the next `#`/`##` heading, trailing blank lines dropped. `line`
+ * is the slot's first 1-based line.
+ */
+export function trackingStubSlots(claudeMdContent: string): { line: number; text: string; lines: string[] }[] {
+  const lines = claudeMdContent.split("\n").map((l) => l.replace(/\r$/, ""));
+  const out: { line: number; text: string; lines: string[] }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] !== TASK_TRACKING_HEADING) continue;
+    const start = i > 0 && lines[i - 1] === TRACKING_STUB_MARKER ? i - 1 : i;
+    const slot = lines.slice(start, sectionEnd(lines, i));
+    while (slot.length > 0 && slot[slot.length - 1]!.trim() === "") slot.pop();
+    out.push({ line: start + 1, text: slot.join("\n"), lines: slot });
+  }
+  return out;
 }
