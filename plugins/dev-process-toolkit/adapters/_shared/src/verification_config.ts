@@ -53,7 +53,6 @@ import {
   type ParsedVerificationSection,
   parseVerificationSection,
   VERIFICATION_DEFAULTS,
-  VERIFICATION_HEADING,
   type VerificationConfig,
   type VerifyMode,
 } from "./project_settings_legacy";
@@ -61,6 +60,7 @@ import {
 export {
   CLOSED_KEYS,
   MalformedVerificationConfigError,
+  renderVerificationSection,
   VERIFICATION_HEADING,
   type VerificationConfig,
   VERIFY_MODES,
@@ -194,34 +194,4 @@ export function resolveVerifyMode(claudeMdPath: string): VerifyMode {
   return isRunCmdAnswered(runCmd) && !isRunCmdNone(runCmd)
     ? "blocking"
     : config.verifyMode;
-}
-
-/**
- * Render a VerificationConfig back into a `## Verification` section body.
- *
- * Only DECLARED keys are emitted: a null `runCmd`/`e2eCmd`/`verifySkill`
- * produces no line at all, so an absent key round-trips as absent and the
- * literal `none` round-trips as `none`. `verifyMode` always has a value
- * (default `advisory`) and is always emitted.
- *
- * DO NOT USE THIS TO REWRITE AN EXISTING BLOCK. The always-emitted
- * `verify_mode` line is the trap: `readVerificationConfig` defaults that field
- * to `advisory`, so round-tripping a block that never declared the key STAMPS
- * `verify_mode: advisory` onto it — and `resolveVerifyMode` then returns that
- * written value instead of the `blocking` it owes a declared-runnable project.
- * The default would be defeated silently, on exactly the projects a rewrite
- * touches, and the operator's own comments and key order would be eaten with
- * it. A writer that edits a block someone already authored must SPLICE the
- * lines it needs (see `migrations/entries/verification_run_keys.ts`); this
- * renderer is for composing a section from scratch.
- */
-export function renderVerificationSection(config: VerificationConfig): string {
-  const lines: string[] = [VERIFICATION_HEADING, ""];
-  if (config.verifySkill !== null) {
-    lines.push(`verify_skill: ${config.verifySkill}`);
-  }
-  lines.push(`verify_mode: ${config.verifyMode}`);
-  if (config.runCmd !== null) lines.push(`run_cmd: ${config.runCmd}`);
-  if (config.e2eCmd !== null) lines.push(`e2e_cmd: ${config.e2eCmd}`);
-  return `${lines.join("\n")}\n`;
 }

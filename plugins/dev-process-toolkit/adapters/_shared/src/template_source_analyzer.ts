@@ -41,6 +41,7 @@ import {
   readManifest as readDepsManifest,
   type DepsEntry,
 } from "./deps_manifest";
+import { SETTINGS_FILE } from "./project_settings";
 
 // ---------------------------------------------------------------------------
 // Classifier vocabularies — exported consts shared with consumers.
@@ -55,6 +56,7 @@ export const PROCESS_CONFIG_FILES: readonly string[] = [
   "CLAUDE.md",
   ".claude/settings.json",
   ".mcp.json",
+  SETTINGS_FILE,
   // Git-hook templates: the installed hook and the toolkit template copy.
   ".git/hooks/commit-msg",
   "templates/git-hooks/commit-msg.sh",

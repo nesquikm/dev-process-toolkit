@@ -29,7 +29,7 @@
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { viewProjectSection } from "./project_settings";
+import { settingsWriteSource, viewProjectSection, writeProjectSettings } from "./project_settings";
 import { parseTrackerConfigFile, TRACKER_CONFIG_FILENAME } from "./project_settings_legacy";
 
 export type Role = "initial" | "in_progress" | "in_review" | "done";
@@ -351,6 +351,15 @@ export function readTrackerConfig(specsDir: string): TrackerConfig | null {
  */
 export function writeTrackerConfig(specsDir: string, config: TrackerConfig): void {
   validateTrackerConfig(config);
+  // STE-710 — a settings-file tree takes the vocabulary as
+  // `task_tracking.status_vocabulary`; every other tree keeps the v2.101.4 file.
+  const projectRoot = dirname(specsDir);
+  if (settingsWriteSource(projectRoot) === "settings") {
+    writeProjectSettings(projectRoot, {
+      task_tracking: { status_vocabulary: { tracker_key: config.tracker_key, statuses: [...config.statuses], roles: { ...config.roles } } },
+    });
+    return;
+  }
   const path = configPath(specsDir);
   writeFileSync(path, serializeConfig(config));
 }

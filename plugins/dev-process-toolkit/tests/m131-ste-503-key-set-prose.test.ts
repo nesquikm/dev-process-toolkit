@@ -69,6 +69,7 @@ const read = (...parts: string[]) =>
 const verificationGuide = read("docs", "verification-skills.md");
 const layoutReference = read("docs", "layout-reference.md");
 const claudeTemplate = read("templates", "CLAUDE.md.template");
+const settingsReference = read("docs", "settings-reference.md");
 
 const FOUR_KEYS = ["verify_skill", "verify_mode", "run_cmd", "e2e_cmd"] as const;
 
@@ -98,11 +99,18 @@ function markdownSection(body: string, headingMatch: RegExp): string {
   return start === -1 ? "" : lines.slice(start).join("\n");
 }
 
-/** The commented-out Verification guidance block inside the CLAUDE.md template. */
-function templateVerificationComment(body: string): string {
-  const start = body.indexOf("Optional: Verification section");
+/**
+ * The `verification` section of docs/settings-reference.md — the home the
+ * template's `## Project Settings` pointer sends a reader to.
+ *
+ * Amended by M_94e6f7/STE-710 (AC-.9): the commented Verification guidance
+ * left templates/CLAUDE.md.template; the four-key contract now ships in the
+ * settings reference, and the template only points at the settings file.
+ */
+function settingsVerificationSection(body: string): string {
+  const start = body.indexOf("### `verification`");
   if (start === -1) return "";
-  const end = body.indexOf("-->", start);
+  const end = body.indexOf("\n### ", start + 1);
   return end === -1 ? body.slice(start) : body.slice(start, end);
 }
 
@@ -189,11 +197,22 @@ const SURFACES = [
     retired: "exactly `{verify_skill, verify_mode}`",
   },
   {
-    label: "templates/CLAUDE.md.template (the file /setup copies out)",
-    region: templateVerificationComment(claudeTemplate),
+    // Amended by M_94e6f7/STE-710 (AC-.9): the /setup-shipped surface moved from the template comment to settings-reference § verification.
+    label: "docs/settings-reference.md § verification (the home the /setup template points to)",
+    region: settingsVerificationSection(settingsReference),
     retired: "exactly the two keys shown",
   },
 ] as const;
+
+describe("AC-STE-503.1 — the /setup template sends the reader to the four-key home", () => {
+  test("the template carries the settings pointer and no stale Verification key list of its own", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the template no longer documents the keys; it must point at specs/settings.yaml instead.
+    expect(claudeTemplate).not.toContain("Optional: Verification section");
+    expect(claudeTemplate).not.toContain("verify_mode");
+    expect(claudeTemplate).toMatch(/^## Project Settings$/m);
+    expect(claudeTemplate).toContain("specs/settings.yaml");
+  });
+});
 
 describe("AC-STE-503.1 — the documented key set is four, on every surface", () => {
   for (const surface of SURFACES) {

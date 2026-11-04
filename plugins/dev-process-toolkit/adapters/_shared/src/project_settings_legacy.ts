@@ -57,11 +57,20 @@ export const TRACKER_SUBSECTION_HEADINGS: Readonly<Record<"linear" | "jira", str
   jira: "### Jira",
 };
 
-const TRACKER_CONFIG = "specs/tracker-config.yaml";
+/** The legacy tracker status-vocabulary file, as a project-relative path. */
+export const TRACKER_CONFIG = "specs/tracker-config.yaml";
 // Derived from the shared path helpers, never retyped (AC-STE-663.1).
 /** The legacy video config and style files, as project-relative paths. */
 export const VIDEO_CONFIG = relative("/", videoConfigPath("/"));
 export const VIDEO_STYLE = relative("/", videoStylePath("/"));
+/** The legacy video config file under `projectRoot` (the `.dpt/video/` home a writer creates). */
+export function legacyVideoConfigPath(projectRoot: string): string {
+  return videoConfigPath(projectRoot);
+}
+/** The legacy video style file under `projectRoot`. */
+export function legacyVideoStylePath(projectRoot: string): string {
+  return videoStylePath(projectRoot);
+}
 /** The legacy homes that are whole files, as project-relative paths. */
 const LEGACY_FILES = [TRACKER_CONFIG, VIDEO_CONFIG, VIDEO_STYLE] as const;
 
@@ -427,6 +436,37 @@ export const CLOSED_KEYS = [
   "run_cmd",
   "e2e_cmd",
 ] as const;
+
+/**
+ * STE-710 — moved here from `verification_config.ts` (re-exported there).
+ * Render a VerificationConfig back into a `## Verification` section body.
+ *
+ * Only DECLARED keys are emitted: a null `runCmd`/`e2eCmd`/`verifySkill`
+ * produces no line at all, so an absent key round-trips as absent and the
+ * literal `none` round-trips as `none`. `verifyMode` always has a value
+ * (default `advisory`) and is always emitted.
+ *
+ * DO NOT USE THIS TO REWRITE AN EXISTING BLOCK. The always-emitted
+ * `verify_mode` line is the trap: `readVerificationConfig` defaults that field
+ * to `advisory`, so round-tripping a block that never declared the key STAMPS
+ * `verify_mode: advisory` onto it — and `resolveVerifyMode` then returns that
+ * written value instead of the `blocking` it owes a declared-runnable project.
+ * The default would be defeated silently, on exactly the projects a rewrite
+ * touches, and the operator's own comments and key order would be eaten with
+ * it. A writer that edits a block someone already authored must SPLICE the
+ * lines it needs (see `migrations/entries/verification_run_keys.ts`); this
+ * renderer is for composing a section from scratch.
+ */
+export function renderVerificationSection(config: VerificationConfig): string {
+  const lines: string[] = [VERIFICATION_HEADING, ""];
+  if (config.verifySkill !== null) {
+    lines.push(`verify_skill: ${config.verifySkill}`);
+  }
+  lines.push(`verify_mode: ${config.verifyMode}`);
+  if (config.runCmd !== null) lines.push(`run_cmd: ${config.runCmd}`);
+  if (config.e2eCmd !== null) lines.push(`e2e_cmd: ${config.e2eCmd}`);
+  return `${lines.join("\n")}\n`;
+}
 
 /** The resolved record plus the keys the author ACTUALLY WROTE. */
 export interface ParsedVerificationSection {

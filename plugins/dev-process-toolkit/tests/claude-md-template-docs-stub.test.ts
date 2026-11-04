@@ -1,42 +1,46 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { PROJECT_SETTINGS_HEADING, projectSettingsSection, renderSettingsPointer } from "../adapters/_shared/src/project_settings";
 
-// Regression guard for STE-68 AC-STE-68.6 + STE-107 AC-STE-107.5 —
-// `templates/CLAUDE.md.template` carries a literal `## Docs` block with
-// all-false defaults that downstream projects configure via `/setup` step
-// 7d.
+// Regression guard for STE-68 AC-STE-68.6 + STE-107 AC-STE-107.5 — the three
+// docs flags are advertised to a freshly set-up project with all-false
+// defaults that `/setup` step 7d configures.
 //
-// STE-107 supersedes the original "commented stub" rule (STE-68 AC-STE-68.6
-// pre-M29 wording): the section is now ALWAYS emitted as a real heading,
-// even when all three flags default to false, so `/docs` and the
-// `claudemd-docs-section-present` probe (gate-check #18) have something
-// to read. Absent section is the legacy form (still treated as all-false
-// by `readDocsConfig` for backward-compat) but `/setup`-generated files
-// must always carry the literal block.
+// Amended by M_94e6f7/STE-710 (AC-.9): the `## Docs` block left
+// `templates/CLAUDE.md.template`; the flags are now the `docs.*` keys of
+// `specs/settings.yaml`. The template advertises them through the
+// `## Project Settings` pointer, and `docs/settings-reference.md` documents
+// each key with its `false` default.
 
 const pluginRoot = join(import.meta.dir, "..");
 const templatePath = join(pluginRoot, "templates", "CLAUDE.md.template");
+const settingsReferencePath = join(pluginRoot, "docs", "settings-reference.md");
 
-describe("STE-68 AC-STE-68.6 — CLAUDE.md.template documents the ## Docs keys", () => {
-  test("template file contains all three documented keys", () => {
-    const body = readFileSync(templatePath, "utf-8");
-    expect(body).toContain("user_facing_mode:");
-    expect(body).toContain("packages_mode:");
-    expect(body).toContain("changelog_ci_owned:");
+describe("STE-68 AC-STE-68.6 — the docs keys are documented in their settings-file home", () => {
+  test("docs/settings-reference.md documents all three `docs.*` keys", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the keys moved from the template's `## Docs` block to `docs.*` in the settings file.
+    const body = readFileSync(settingsReferencePath, "utf-8");
+    expect(body).toContain("`docs.user_facing_mode`");
+    expect(body).toContain("`docs.packages_mode`");
+    expect(body).toContain("`docs.changelog_ci_owned`");
   });
 
-  test("template carries a literal `## Docs` heading (STE-107 AC-STE-107.5)", () => {
+  test("template carries a live `## Project Settings` heading holding the pointer (STE-107 AC-STE-107.5)", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the live `## Docs` heading is replaced by the `## Project Settings` pointer.
     const body = readFileSync(templatePath, "utf-8");
-    const lines = body.split("\n");
-    const liveHeadingIdx = lines.findIndex((l) => l === "## Docs");
-    expect(liveHeadingIdx).toBeGreaterThanOrEqual(0);
+    expect(body.split("\n").findIndex((l) => l === PROJECT_SETTINGS_HEADING)).toBeGreaterThanOrEqual(0);
+    expect(body.split("\n").findIndex((l) => l === "## Docs")).toBe(-1);
+    const section = projectSettingsSection(body);
+    expect(section).not.toBeNull();
+    expect(`${section!.lines.join("\n")}\n`).toContain(renderSettingsPointer("3.0.0"));
   });
 
-  test("template seeds all three flags to lowercase literal `false`", () => {
-    const body = readFileSync(templatePath, "utf-8");
-    expect(body).toMatch(/^user_facing_mode: false$/m);
-    expect(body).toMatch(/^packages_mode: false$/m);
-    expect(body).toMatch(/^changelog_ci_owned: false$/m);
+  test("all three flags default to lowercase literal `false`", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the `false` seeds moved from template lines to the settings-reference defaults.
+    const body = readFileSync(settingsReferencePath, "utf-8");
+    expect(body).toMatch(/^\| `docs\.user_facing_mode` \| boolean \| `false` \|/m);
+    expect(body).toMatch(/^\| `docs\.packages_mode` \| boolean \| `false` \|/m);
+    expect(body).toMatch(/^\| `docs\.changelog_ci_owned` \| boolean \| `false` \|/m);
   });
 });

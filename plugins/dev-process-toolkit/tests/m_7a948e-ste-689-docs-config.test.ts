@@ -123,33 +123,41 @@ describe("AC-STE-689.2 — the docs-section probe and the docs know the key", ()
     }
   });
 
-  test("the CLAUDE.md template's emitted `## Docs` block carries only the three flags /setup sets", () => {
-    const tpl = readFileSync(join(PLUGIN_ROOT, "templates", "CLAUDE.md.template"), "utf-8");
-    const start = tpl.search(/^## Docs\s*$/m);
+  /** docs/settings-reference.md § `docs` — the home the template's `## Project Settings` pointer leads to. */
+  const settingsDocsSection = (): string => {
+    const ref = readFileSync(join(PLUGIN_ROOT, "docs", "settings-reference.md"), "utf-8");
+    const start = ref.indexOf("### `docs`");
     expect(start).toBeGreaterThanOrEqual(0);
-    const after = tpl.slice(start + "## Docs".length);
-    const end = after.search(/^#{1,4} |^<!--/m);
-    const block = end < 0 ? after : after.slice(0, end);
-    expect(block).not.toMatch(/changelog_unversioned/);
-    expect(block.match(/^[a-z_]+: false$/gm)).toEqual([
-      "user_facing_mode: false",
-      "packages_mode: false",
-      "changelog_ci_owned: false",
+    const end = ref.indexOf("\n### ", start + 1);
+    return end < 0 ? ref.slice(start) : ref.slice(start, end);
+  };
+
+  test("the docs keys /setup writes are only the three flags it sets", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the emitted `## Docs` block left the template; /setup writes the
+    // `docs` keys to specs/settings.yaml, and settings-reference § docs names exactly the three it writes.
+    const tpl = readFileSync(join(PLUGIN_ROOT, "templates", "CLAUDE.md.template"), "utf-8");
+    expect(tpl).not.toMatch(/^## Docs\s*$/m);
+    expect(tpl).toContain("specs/settings.yaml");
+    const writes = settingsDocsSection().split("\n").find((l) => l.startsWith("`/setup` writes these three flags:"));
+    expect(writes).toBeDefined();
+    expect(writes!).not.toMatch(/changelog_unversioned/);
+    expect(writes!.match(/`docs\.[a-z_]+`/g)).toEqual([
+      "`docs.user_facing_mode`",
+      "`docs.packages_mode`",
+      "`docs.changelog_ci_owned`",
     ]);
   });
 
-  test("the CLAUDE.md template's Docs comment documents the key as optional, default false, outside the emitted list", () => {
+  test("the settings reference documents the key as optional, default false, outside the written list", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the template's Docs comment moved to settings-reference § docs.
     const tpl = readFileSync(join(PLUGIN_ROOT, "templates", "CLAUDE.md.template"), "utf-8");
-    const keysIdx = tpl.indexOf("Keys `/setup` emits:");
-    expect(keysIdx).toBeGreaterThanOrEqual(0);
-    const comment = tpl.slice(keysIdx, tpl.indexOf("-->", keysIdx));
-    const optionalIdx = comment.indexOf("Optional key, not emitted:");
+    expect(tpl).not.toContain("changelog_unversioned");
+    const section = settingsDocsSection();
+    const optionalIdx = section.indexOf("Optional key, not written by `/setup`:");
     expect(optionalIdx).toBeGreaterThan(0);
-    // The emitted list (before the optional note) no longer names the key.
-    expect(comment.slice(0, optionalIdx)).not.toMatch(/changelog_unversioned/);
-    const optional = comment.slice(optionalIdx);
-    expect(optional).toMatch(/changelog_unversioned: true \| false \(default false;/);
-    expect(optional).toMatch(/absent reads false/);
+    const optional = section.slice(optionalIdx);
+    expect(optional).toMatch(/`docs\.changelog_unversioned` \(default `false`;/);
+    expect(optional).toMatch(/absent reads `false`/);
     expect(optional).toMatch(/by hand when git tags or CI own the version/);
   });
 

@@ -1,4 +1,6 @@
-# `## Release Files` block for a Claude Code plugin / marketplace project.
+# `release.files` entries for a Claude Code plugin / marketplace project, which
+# /setup writes into specs/settings.yaml (on a legacy tree, the CLAUDE.md
+# `## Release Files` block).
 # Five entries: two manifest JSON files, CHANGELOG, the README banner, and the
 # `Latest shipped release:` line in specs/requirements.md.
 #

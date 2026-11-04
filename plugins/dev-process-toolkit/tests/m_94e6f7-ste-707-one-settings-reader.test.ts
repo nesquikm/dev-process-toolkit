@@ -133,10 +133,6 @@ function preV3Entries(): Record<string, string> {
 }
 
 const TEMPORARY: Record<string, { owner: "STE-710" | "STE-709"; reason: string }> = {
-  // STE-710 — the writer modules.
-  "adapters/_shared/src/repoint_tracker_binding.ts": { owner: "STE-710", reason: "writer: re-points the tracker binding and hashes specs/tracker-config.yaml" },
-  "adapters/_shared/src/setup/tracker_binding_write.ts": { owner: "STE-710", reason: "writer: writeTrackerSubsection writes `### Linear` / `### Jira`" },
-  "adapters/_shared/src/video_init.ts": { owner: "STE-710", reason: "writer: videoInit writes .dpt/video/config.yaml and style.yaml" },
 };
 
 // ---------------------------------------------------------------------------

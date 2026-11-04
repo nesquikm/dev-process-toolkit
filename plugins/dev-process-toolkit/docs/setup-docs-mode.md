@@ -27,7 +27,7 @@ a toolkit-managed CLAUDE.md that lacks the heading.
   `user_facing_mode` and `packages_mode`, surface the NFR-10 refusal
   below and re-ask those two prompts only. `changelog_ci_owned` from the
   first pass is preserved across the re-ask.
-- **Atomic re-run writes.** Re-running `/setup` on a project that already
+- **Atomic re-run writes.** Re-running `/setup` on a legacy project that already
   has a `## Docs` section shows current values inline and overwrites the
   full block in a single file write — no per-line edits.
 
@@ -83,7 +83,7 @@ Context: mode=<tracker-mode>, skill=setup
 ```
 
 If the user declines both on the re-ask, **still emit** the `## Docs`
-section with all-false defaults — matching `docs/setup-reference.md`
+section with all-false defaults (legacy tree; `docs` through `writeProjectSettings` otherwise) — matching `docs/setup-reference.md`
 § Step 7d and `skills/setup/SKILL.md` step 7d. The refusal literal above
 predates probe #18 and is preserved byte-identically because it is quoted
 in two places; read its closing parenthetical as describing `/docs` going

@@ -11,7 +11,9 @@
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { dptEnvPath, videoConfigPath, videoScenariosDir, videoStylePath } from "./dpt_paths";
+import { settingsWriteSource, loadProjectSettings, writeProjectSettings } from "./project_settings";
+import { dptEnvPath, videoConfigPath, videoScenariosDir } from "./dpt_paths";
+import { legacyVideoConfigPath, legacyVideoStylePath } from "./project_settings_legacy";
 import { writeDptGitignore } from "./setup/dpt_gitignore";
 import { parseVideoConfig, type TtsProvider } from "./video/config";
 import { requiredVideoKeys } from "./video/readiness";
@@ -83,7 +85,10 @@ export interface VideoInitResult {
 
 /** Initialise the video workspace; throws an NFR-10 shaped Error on refusal, having written nothing. */
 export function videoInit(projectRoot: string, provider: string, recorder: string, music: string): VideoInitResult {
-  const configPath = videoConfigPath(projectRoot);
+  // STE-710 — a settings-file tree takes `video.config` / `video.style`; every
+  // other tree (an unmanaged one included) keeps the v2.101.4 `.dpt/video/` files.
+  if (settingsWriteSource(projectRoot) === "settings") return videoInitSettings(projectRoot, provider, recorder, music);
+  const configPath = legacyVideoConfigPath(projectRoot);
   const configDisplay = displayPath(videoConfigPath);
   if (existsSync(configPath)) {
     throw nfr10Refusal(
@@ -97,11 +102,30 @@ export function videoInit(projectRoot: string, provider: string, recorder: strin
 
   mkdirSync(dirname(configPath), { recursive: true });
   writeFileSync(configPath, configBody);
-  const stylePath = videoStylePath(projectRoot);
+  const stylePath = legacyVideoStylePath(projectRoot);
   if (!existsSync(stylePath)) writeFileSync(stylePath, renderVideoStyle());
   mkdirSync(videoScenariosDir(projectRoot), { recursive: true });
   writeDptGitignore(projectRoot);
 
+  return { keyVars: requiredVideoKeys(config).map((k) => k.name) };
+}
+
+function videoInitSettings(projectRoot: string, provider: string, recorder: string, music: string): VideoInitResult {
+  const { video } = loadProjectSettings(projectRoot).settings;
+  if (video.config !== null) {
+    throw nfr10Refusal(
+      "video.config already exists in specs/settings.yaml; video_init never overwrites it.",
+      "edit video.config in specs/settings.yaml by hand, or remove it and re-run video_init.",
+      "mode=video-init, file=specs/settings.yaml, key=video.config",
+    );
+  }
+  const configBody = renderVideoConfig(provider, recorder, music);
+  const config = parseVideoConfig(configBody); // refuses an unknown provider / recorder / music
+  const update: Record<string, unknown> = { config: Bun.YAML.parse(configBody) };
+  if (video.style === null) update.style = Bun.YAML.parse(renderVideoStyle());
+  writeProjectSettings(projectRoot, { video: update });
+  mkdirSync(videoScenariosDir(projectRoot), { recursive: true });
+  writeDptGitignore(projectRoot);
   return { keyVars: requiredVideoKeys(config).map((k) => k.name) };
 }
 

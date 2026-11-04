@@ -664,7 +664,7 @@ See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract
 
 **Where**: CLAUDE.md `## Task Tracking` (Schema L) and all tracker-write code paths (`/setup --migrate`, `/spec-write` tracker push, `/implement` claimLock/releaseLock, bidirectional AC resolution).
 
-**ADR**: the authoritative audit trail for sync, migration, and resolution events is `git log` on the repo and `git blame` on the specific FR file. An earlier append-only bulleted subsection under `## Task Tracking` recorded each event; that subsection is retired.
+**ADR**: the authoritative audit trail for sync, migration, and resolution events is `git log` on the repo and `git blame` on the specific FR file. An earlier append-only bulleted subsection under the legacy `## Task Tracking` recorded each event; that subsection is retired.
 
 **What is lost**: the legacy subsection offered per-AC conflict-resolution granularity (`- <ISO> — 2 AC conflicts resolved on LIN-123`). `git log` captures the commit but not the per-AC resolution count; `git blame` on the FR file recovers per-AC detail (which commit introduced which AC) at the cost of one extra lookup.
 

@@ -16,6 +16,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { renderSettingsPointer } from "../adapters/_shared/src/project_settings";
 
 const pluginRoot = join(import.meta.dir, "..");
 const templatePath = join(pluginRoot, "templates", "CLAUDE.md.template");
@@ -24,21 +25,6 @@ const setupSkillPath = join(pluginRoot, "skills", "setup", "SKILL.md");
 
 function read(path: string): string {
   return readFileSync(path, "utf-8");
-}
-
-/**
- * Return the slice of `body` from the `## Token Stats` heading up to (but not
- * including) the next `## ` heading — the live config block. Empty string
- * when the heading is absent.
- */
-function tokenStatsBlock(body: string): string {
-  const lines = body.split("\n");
-  const start = lines.findIndex((l) => l === "## Token Stats");
-  if (start < 0) return "";
-  const rest = lines.slice(start + 1);
-  const nextHeading = rest.findIndex((l) => /^## /.test(l));
-  const end = nextHeading < 0 ? rest.length : nextHeading;
-  return rest.slice(0, end).join("\n");
 }
 
 /**
@@ -58,16 +44,22 @@ function tokenStatsSetupStep(body: string): string {
   return rest.slice(0, end).join("\n");
 }
 
-describe("AC-STE-378.1 — CLAUDE.md.template carries the always-emitted `## Token Stats` block", () => {
-  test("template has a literal `## Token Stats` heading at column 0", () => {
+describe("AC-STE-378.1 — the always-emitted Token Stats default lives in the settings file", () => {
+  // Amended by M_94e6f7/STE-710 (AC-.9): the `## Token Stats` block left the template;
+  // the flag is `tracking.token_stats` in specs/settings.yaml, reached through the
+  // template's `## Project Settings` pointer and documented in docs/settings-reference.md.
+  test("template carries the `## Project Settings` pointer at column 0 in place of `## Token Stats`", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the column-0 heading the reader finds is now the settings pointer.
     const body = read(templatePath);
-    expect(body).toMatch(/^## Token Stats$/m);
+    expect(body).toMatch(/^## Project Settings$/m);
+    expect(body).not.toMatch(/^## Token Stats$/m);
+    expect(body).toContain(renderSettingsPointer("3.0.0"));
   });
 
-  test("template seeds `enabled: false` (default-off) inside the `## Token Stats` block", () => {
-    const body = read(templatePath);
-    const block = tokenStatsBlock(body);
-    expect(block).toMatch(/^enabled: false$/m);
+  test("`tracking.token_stats` defaults to `{ enabled: false }` (default-off)", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the `enabled: false` seed is the settings-reference default of `tracking.token_stats`.
+    const body = read(join(pluginRoot, "docs", "settings-reference.md"));
+    expect(body).toMatch(/^\| `tracking\.token_stats` \| block `\{ enabled: boolean \}` \| `\{ enabled: false \}` \|/m);
   });
 });
 

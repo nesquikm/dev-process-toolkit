@@ -1,4 +1,6 @@
-# Default `## Release Files` block for a Flutter / Dart project.
+# Default `release.files` entries for a Flutter / Dart project, which /setup
+# writes into specs/settings.yaml (on a legacy tree, the CLAUDE.md
+# `## Release Files` block).
 # `pubspec.yaml` versions carry an optional `+<build>` suffix; the yaml
 # bumper preserves it on rewrite.
 files:

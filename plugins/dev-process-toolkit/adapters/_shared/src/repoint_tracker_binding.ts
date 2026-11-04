@@ -25,7 +25,9 @@
 // last. A row whose input is absent, unreadable or malformed REFUSES; it
 // never passes on an input it could not read.
 //
-// `--verify` re-reads `specs/tracker-config.yaml` against the status snapshot
+// `--verify` re-reads the status vocabulary (`specs/tracker-config.yaml` on a
+// legacy tree, the serialized `task_tracking.status_vocabulary` on a
+// settings-file tree — STE-710) against the status snapshot
 // and config sha256 of this session's latest `repoint` receipt and prints
 // `verify UNCHANGED` (byte-identical to the recorded config), `verify PASS`
 // (rewritten, every status kept) or `verify FAIL` (a status dropped, exit 1).
@@ -82,6 +84,8 @@ import {
   mdFiles,
   runTaskTrackingWorkspaceBindingPresentProbe,
 } from "./task_tracking_workspace_binding_present";
+import { detectSettingsSource, SETTINGS_FILE } from "./project_settings";
+import { TRACKER_CONFIG } from "./project_settings_legacy";
 import { readTrackerConfig } from "./tracker_config";
 import { announceReceipt, assertReceiptSession, oneLine, printable, readSessionReceipts, receiptDigest, writeReceipt } from "./tracker_receipts";
 import {
@@ -311,12 +315,39 @@ function readMcpServers(root: string): Input<Record<string, unknown>> {
   return { ok: true, value: v.mcpServers };
 }
 
-/** `specs/tracker-config.yaml` statuses, through the one config reader. Absent refuses. */
+/** True when the tree keeps its status vocabulary in the settings file (STE-710). */
+function onSettingsFile(root: string): boolean {
+  return detectSettingsSource(root) === "settings";
+}
+
+/** Where the status vocabulary lives: the settings key on a settings-file tree, the legacy file otherwise. */
+function vocabularyLabel(root: string): string {
+  return onSettingsFile(root) ? `${SETTINGS_FILE} task_tracking.status_vocabulary` : TRACKER_CONFIG;
+}
+
+/**
+ * The bytes a `repoint` receipt hashes for the status vocabulary: the
+ * serialized `task_tracking.status_vocabulary` on a settings-file tree, the
+ * `specs/tracker-config.yaml` file on a legacy tree; undefined when absent.
+ */
+function vocabularyBytes(root: string): Buffer | undefined {
+  if (onSettingsFile(root)) {
+    const vocab = readTrackerConfig(join(root, "specs"));
+    return vocab === null ? undefined : Buffer.from(JSON.stringify(vocab));
+  }
+  const path = join(root, TRACKER_CONFIG);
+  return existsSync(path) ? readFileSync(path) : undefined;
+}
+
+/** The tracker status vocabulary, through the one config reader. Absent refuses. */
 function readConfigStatuses(root: string): Input<string[]> {
   const specs = join(root, "specs");
-  if (!existsSync(join(specs, "tracker-config.yaml"))) return failed("specs/tracker-config.yaml is absent");
+  const settings = onSettingsFile(root);
+  if (!settings && !existsSync(join(root, TRACKER_CONFIG))) return failed(`${TRACKER_CONFIG} is absent`);
   try {
-    return { ok: true, value: readTrackerConfig(specs)!.statuses };
+    const config = readTrackerConfig(specs);
+    if (config === null) return failed(`${vocabularyLabel(root)} is absent`);
+    return { ok: true, value: config.statuses };
   } catch (e) {
     return failed(firstLine(e));
   }
@@ -949,8 +980,8 @@ export function writeRepoint(args: RepointArgs, oldProject: string, rows: RowRes
   const commit = (): void => {
     try {
       // The config's bytes at write time, so `--verify` can tell UNCHANGED from rewritten (AC-STE-646.11).
-      const configPath = join(args.projectRoot, "specs", "tracker-config.yaml");
-      const trackerConfigSha256 = existsSync(configPath) ? receiptDigest(readFileSync(configPath)) : undefined;
+      const vocab = vocabularyBytes(args.projectRoot);
+      const trackerConfigSha256 = vocab !== undefined ? receiptDigest(vocab) : undefined;
       receipt = writeReceipt(args.projectRoot, {
         kind: "repoint",
         adapter: args.mode,
@@ -962,7 +993,7 @@ export function writeRepoint(args: RepointArgs, oldProject: string, rows: RowRes
           newProject: args.newProject,
           ...(args.team !== undefined ? { team: args.team } : {}),
           statusSnapshot,
-          trackerConfig: join("specs", "tracker-config.yaml"),
+          trackerConfig: TRACKER_CONFIG,
           ...(trackerConfigSha256 !== undefined ? { trackerConfigSha256 } : {}),
           rows: rows.map((r) => ({ row: r.row, verdict: r.verdict })),
           // Each input whose completeness the session asserted rather than the
@@ -1169,11 +1200,12 @@ export function verifyRepoint(projectRoot: string): { dropped: string[]; unchang
   }
   const config = readConfigStatuses(root);
   if (!config.ok) {
-    throw new RepointRefusal(`Refusing: cannot read the tracker config — ${config.reason}.`, "restore specs/tracker-config.yaml, then re-run --verify.", context);
+    throw new RepointRefusal(`Refusing: cannot read the tracker config — ${config.reason}.`, `restore ${vocabularyLabel(root)}, then re-run --verify.`, context);
   }
   const present = new Set(config.value);
   const dropped = latest.filter((s) => !present.has(s));
-  const unchanged = latestSha !== undefined && receiptDigest(readFileSync(join(root, "specs", "tracker-config.yaml"))) === latestSha;
+  const bytes = vocabularyBytes(root);
+  const unchanged = latestSha !== undefined && bytes !== undefined && receiptDigest(bytes) === latestSha;
   return { dropped, unchanged };
 }
 
@@ -1227,15 +1259,16 @@ if (import.meta.main) {
     const argv = process.argv.slice(2);
     if (argv.length === 2 && argv[1] === "--verify") {
       const { dropped, unchanged } = verifyRepoint(argv[0]!);
+      const label = vocabularyLabel(resolve(argv[0]!));
       if (unchanged) {
-        process.stdout.write("verify UNCHANGED specs/tracker-config.yaml is byte-identical to the one the repoint recorded\n");
+        process.stdout.write(`verify UNCHANGED ${label} is byte-identical to the one the repoint recorded\n`);
         process.exit(0);
       }
       if (dropped.length === 0) {
-        process.stdout.write("verify PASS specs/tracker-config.yaml carries every status in the repoint snapshot\n");
+        process.stdout.write(`verify PASS ${label} carries every status in the repoint snapshot\n`);
         process.exit(0);
       }
-      process.stdout.write(`verify FAIL specs/tracker-config.yaml dropped: ${dropped.map(printable).join(", ")}\n`);
+      process.stdout.write(`verify FAIL ${label} dropped: ${dropped.map(printable).join(", ")}\n`);
       process.exit(1);
     }
     const args = parseRepointArgs(argv);

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runClaudeMdDocsSectionProbe } from "../adapters/_shared/src/claudemd_docs_section";
 import { SETUP_MARKER, detectManagedSignals } from "../adapters/_shared/src/toolkit_managed";
+import { projectSettingsSection, renderSettingsPointer } from "../adapters/_shared/src/project_settings";
 
 // STE-107 AC-STE-107.4 / AC-STE-107.6 — `claudemd-docs-section-present` probe.
 //
@@ -389,21 +390,29 @@ describe("AC-STE-107 — gate-check SKILL.md prose declares the probe", () => {
   });
 });
 
-describe("AC-STE-107.5 — CLAUDE.md.template advertises ## Docs default block", () => {
+describe("AC-STE-107.5 — the fresh-setup Docs default is advertised through the settings pointer", () => {
+  // Amended by M_94e6f7/STE-710 (AC-.9): the `## Docs` block left the template;
+  // probe #18 now reads `docs` in specs/settings.yaml plus the `## Project Settings`
+  // pointer, so the template must carry that pointer and the reference doc the defaults.
   const template = readFileSync(
     join(pluginRoot, "templates", "CLAUDE.md.template"),
     "utf-8",
   );
-  test("template carries a literal ## Docs heading at the top level", () => {
-    // The probe matches `^## Docs\b` outside HTML comments; the template
-    // must emit the section as a real heading.
-    expect(template).toMatch(/^## Docs$/m);
+  const reference = readFileSync(join(pluginRoot, "docs", "settings-reference.md"), "utf-8");
+  test("template carries a live ## Project Settings heading holding the pointer probe #18 grades", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the live heading probe #18 reads is `## Project Settings`, not `## Docs`.
+    expect(template).toMatch(/^## Project Settings$/m);
+    expect(template).not.toMatch(/^## Docs$/m);
+    const section = projectSettingsSection(template);
+    expect(section).not.toBeNull();
+    expect(`${section!.lines.join("\n")}\n`).toContain(renderSettingsPointer("3.0.0"));
   });
 
-  test("template seeds all three Schema-D defaults to false", () => {
-    expect(template).toMatch(/user_facing_mode: false/);
-    expect(template).toMatch(/packages_mode: false/);
-    expect(template).toMatch(/changelog_ci_owned: false/);
+  test("all three Schema-D keys default to false in their settings-file home", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the false seeds are the `docs.*` defaults in docs/settings-reference.md.
+    expect(reference).toMatch(/^\| `docs\.user_facing_mode` \| boolean \| `false` \|/m);
+    expect(reference).toMatch(/^\| `docs\.packages_mode` \| boolean \| `false` \|/m);
+    expect(reference).toMatch(/^\| `docs\.changelog_ci_owned` \| boolean \| `false` \|/m);
   });
 });
 

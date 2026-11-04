@@ -85,7 +85,7 @@ The read-side parser is `readVerificationConfig` in `adapters/_shared/src/verifi
 
 ## Token Stats
 
-Per-skill token-usage stats (M92) are opt-in and default-off, gated by an **always-emitted** `## Token Stats` section in CLAUDE.md. `/setup` writes the section unconditionally — like `## Docs`, it is present even when the feature is off — so the bundled token-stats hook and the read-side parser always have something to read. The section's top-level key set is **closed** — exactly `{enabled}`; any other key inside the section is a config error, never silently ignored.
+Per-skill token-usage stats (M92) are opt-in and default-off, gated by an **always-emitted** `## Token Stats` section in CLAUDE.md. On a legacy tree `/setup` writes the section unconditionally (a settings-file tree takes `tracking.token_stats` through `writeProjectSettings`) — like `## Docs`, it is present even when the feature is off — so the bundled token-stats hook and the read-side parser always have something to read. The section's top-level key set is **closed** — exactly `{enabled}`; any other key inside the section is a config error, never silently ignored.
 
 - `enabled` — one of `true | false`, lowercase literal (no quoting, no `yes`/`no`). Defaults to `false`. When `false`, the bundled hook reads the flag and no-ops (fail-off), and no capture or render happens.
 

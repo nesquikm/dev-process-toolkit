@@ -27,16 +27,18 @@
 // the running version was read from.
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { FIRST_GATED_DPT_VERSION, nfr10Message, runningDptManifestPath, runningDptVersion } from "../dpt_version";
 import { compareSemver } from "../migrations/coverage";
+import { settingsWriteSource, loadProjectSettings, PROJECT_SETTINGS_HEADING, SETTINGS_FILE, writeProjectSettings } from "../project_settings";
+import { sectionEnd as legacySectionEnd, TASK_TRACKING_HEADING, TRACKER_SUBSECTION_HEADINGS, TRACKING_STUB_MARKER } from "../project_settings_legacy";
 import { LINEAR_TEAM_KEY } from "../tracker_answer";
 import { readWorkspaceBinding, type WorkspaceAdapterKey } from "../workspace_binding";
 
 export const SHARED_TRACKER_MARKER = "> **Shared tracker container — stop before any tracker write.**";
 
 const REPO_TAG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-const SECTION_HEADING = "## Task Tracking";
+const SECTION_HEADING = TASK_TRACKING_HEADING;
 
 /** STE-603 — a refused write. NFR-10 three-line message; the file is unchanged. */
 export class TrackerBindingWriteError extends Error {
@@ -382,6 +384,54 @@ export function writeTrackerSubsection(
     );
   }
 
+  // STE-710 — a settings-file tree takes the binding as `task_tracking.<adapter>`
+  // and the stop paragraph in CLAUDE.md `## Project Settings`; every other
+  // tree keeps the v2.101.4 `### Linear` / `### Jira` edit below.
+  const projectRoot = dirname(claudeMdPath);
+  if (settingsWriteSource(projectRoot) === "settings") return writeSettingsBinding(claudeMdPath, projectRoot, adapter, opts, context, before);
+
+  const { after, floorChange } = rewriteSubsection(before, adapter, opts, context);
+  const diff = unifiedDiff(claudeMdPath, before, after);
+  const floorNote = floorChange !== undefined ? { floorChange } : {};
+  if (after === before) return { changed: false, before, after, diff, ...floorNote };
+
+  writeFileSync(claudeMdPath, after);
+  verifyOrRestore(claudeMdPath, adapter, opts, [[claudeMdPath, before]]);
+  return { changed: true, before, after, diff, ...floorNote };
+}
+
+/**
+ * Re-read the binding just written and run the caller's commit; on any throw,
+ * put every `[path, bytes]` back and rethrow (a failed restore throws
+ * `TrackerBindingRestoreError`).
+ */
+function verifyOrRestore(
+  claudeMdPath: string,
+  adapter: WorkspaceAdapterKey,
+  opts: TrackerSubsectionOptions,
+  restore: ReadonlyArray<readonly [string, string]>,
+): void {
+  try {
+    readWorkspaceBinding(claudeMdPath, adapter);
+    opts.commit?.();
+  } catch (e) {
+    try {
+      for (const [path, bytes] of restore) writeFileSync(path, bytes);
+    } catch (restoreError) {
+      throw new TrackerBindingRestoreError(e, restoreError);
+    }
+    throw e;
+  }
+}
+
+/** The sub-section edit over CLAUDE.md-shaped text: the guards, the keys, the stop paragraph. Writes nothing. */
+function rewriteSubsection(
+  before: string,
+  adapter: WorkspaceAdapterKey,
+  opts: TrackerSubsectionOptions,
+  context: string,
+): { after: string; floorChange?: FloorChange } {
+  const shared = opts.shared;
   const lines = before.split("\n");
   const sectionStart = lines.indexOf(SECTION_HEADING);
   if (sectionStart < 0) {
@@ -408,7 +458,7 @@ export function writeTrackerSubsection(
     );
   }
 
-  const subTitle = adapter === "linear" ? "### Linear" : "### Jira";
+  const subTitle = TRACKER_SUBSECTION_HEADINGS[adapter];
   let subStart = -1;
   for (let i = sectionStart + 1; i < sectionEnd; i++) {
     if (lines[i] === subTitle) {
@@ -545,23 +595,106 @@ export function writeTrackerSubsection(
   const newSub = [...sub, ...(trailing.length > 0 ? trailing : subEnd < lines.length ? [""] : [])];
 
   const after = [...lines.slice(0, subStart + 1), ...newSub, ...lines.slice(subEnd)].join("\n");
-  const diff = unifiedDiff(claudeMdPath, before, after);
-  const floorNote = floorChange !== undefined ? { floorChange } : {};
-  if (after === before) return { changed: false, before, after, diff, ...floorNote };
+  return floorChange !== undefined ? { after, floorChange } : { after };
+}
 
-  writeFileSync(claudeMdPath, after);
-  try {
-    readWorkspaceBinding(claudeMdPath, adapter);
-    opts.commit?.();
-  } catch (e) {
-    try {
-      writeFileSync(claudeMdPath, before);
-    } catch (restoreError) {
-      throw new TrackerBindingRestoreError(e, restoreError);
-    }
-    throw e;
+function stubValue(v: unknown): string {
+  return Array.isArray(v) ? `[${v.map(String).join(", ")}]` : String(v);
+}
+
+/**
+ * STE-710 — the settings-file route. The binding is rendered into the
+ * v2.101.4 sub-section shape (with any stop paragraph from `## Project
+ * Settings`), run through the same `rewriteSubsection` guards and edits, and
+ * the result is written back: the keys to `task_tracking.<adapter>` through
+ * `writeProjectSettings`, the stop paragraph to `## Project Settings`.
+ */
+function writeSettingsBinding(
+  claudeMdPath: string,
+  projectRoot: string,
+  adapter: WorkspaceAdapterKey,
+  opts: TrackerSubsectionOptions,
+  context: string,
+  claudeBefore: string,
+): TrackerSubsectionResult {
+  const tt = loadProjectSettings(projectRoot).settings.task_tracking as Record<string, unknown> & { mode: string };
+  const binding = (tt[adapter] ?? {}) as Record<string, unknown>;
+  const subTitle = TRACKER_SUBSECTION_HEADINGS[adapter];
+  const mdLines = claudeBefore.split("\n");
+  const oldParagraph = stopParagraphIn(mdLines);
+  const virtualBefore = [
+    SECTION_HEADING,
+    "",
+    `mode: ${tt.mode ?? "none"}`,
+    "",
+    subTitle,
+    ...Object.entries(binding)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .map(([k, v]) => `${k}: ${stubValue(v)}`),
+    ...(oldParagraph.length > 0 ? ["", ...oldParagraph] : []),
+    "",
+  ].join("\n");
+  const { after: virtualAfter, floorChange } = rewriteSubsection(virtualBefore, adapter, opts, context);
+  const floorNote = floorChange !== undefined ? { floorChange } : {};
+
+  const subLines = virtualAfter.split("\n");
+  const sub = subLines.slice(subLines.indexOf(subTitle) + 1);
+  const paragraph = stopParagraphIn(sub);
+  const next: Record<string, unknown> = {};
+  for (const line of stripParagraph(sub)) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/.exec(line);
+    if (!m) continue;
+    next[m[1]!] = m[1] === "default_labels" ? parseLabels(line) : m[2]!.trim();
   }
-  return { changed: true, before, after, diff, ...floorNote };
+  const delta: Record<string, unknown> = {};
+  for (const k of Object.keys(binding)) if (!(k in next)) delta[k] = undefined;
+  for (const [k, v] of Object.entries(next)) if (stubValue(binding[k]) !== stubValue(v) || !(k in binding)) delta[k] = v;
+
+  const settingsPath = join(projectRoot, SETTINGS_FILE);
+  const settingsBefore = readFileSync(settingsPath, "utf-8");
+  if (Object.keys(delta).length > 0) writeProjectSettings(projectRoot, { task_tracking: { [adapter]: delta } });
+  const mdAfterSettings = readFileSync(claudeMdPath, "utf-8");
+  const claudeAfter = placeStopParagraph(mdAfterSettings, paragraph);
+  if (claudeAfter !== mdAfterSettings) writeFileSync(claudeMdPath, claudeAfter);
+  const settingsAfter = readFileSync(settingsPath, "utf-8");
+
+  const diff = unifiedDiff(settingsPath, settingsBefore, settingsAfter) + unifiedDiff(claudeMdPath, claudeBefore, claudeAfter);
+  if (settingsAfter === settingsBefore && claudeAfter === claudeBefore) {
+    return { changed: false, before: claudeBefore, after: claudeAfter, diff, ...floorNote };
+  }
+  verifyOrRestore(claudeMdPath, adapter, opts, [
+    [settingsPath, settingsBefore],
+    [claudeMdPath, claudeBefore],
+  ]);
+  return { changed: true, before: claudeBefore, after: claudeAfter, diff, ...floorNote };
+}
+
+/** The first stop paragraph in `lines`: its marker line through its last contiguous `>` line; [] when absent. */
+function stopParagraphIn(lines: string[]): string[] {
+  const start = lines.indexOf(SHARED_TRACKER_MARKER);
+  if (start < 0) return [];
+  let end = start + 1;
+  while (end < lines.length && lines[end]!.startsWith(">") && lines[end] !== SHARED_TRACKER_MARKER) end++;
+  return lines.slice(start, end);
+}
+
+/**
+ * CLAUDE.md text with every stop paragraph removed and `paragraph` (when
+ * non-empty) placed as the last block of `## Project Settings`, above the
+ * binding stub's marker line when the stub follows the section.
+ */
+function placeStopParagraph(text: string, paragraph: string[]): string {
+  let lines = stripParagraph(text.split("\n"));
+  if (paragraph.length > 0) {
+    const heading = lines.indexOf(PROJECT_SETTINGS_HEADING);
+    if (heading >= 0) {
+      let at = legacySectionEnd(lines, heading);
+      if (at > heading + 1 && lines[at - 1] === TRACKING_STUB_MARKER) at--;
+      while (at > heading + 1 && lines[at - 1]!.trim() === "") at--;
+      lines = [...lines.slice(0, at), "", ...paragraph, ...lines.slice(at)];
+    }
+  }
+  return lines.join("\n");
 }
 
 function usage(reason?: string): never {

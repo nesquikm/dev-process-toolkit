@@ -31,6 +31,7 @@ import { CANONICAL_KEYS } from "./task_tracking_canonical_keys";
 import { type TrackerConfig, validateTrackerConfig } from "./tracker_config";
 import { parseVideoConfig, type VideoConfig } from "./video/config";
 import { parseVideoStyle, type VideoStyle } from "./video/style";
+import { writeProjectSettings } from "./project_settings_writer";
 
 export const SETTINGS_FILE = "specs/settings.yaml";
 
@@ -118,6 +119,15 @@ export function detectSettingsSource(projectRoot: string): SettingsSource {
   return "none";
 }
 
+/**
+ * STE-710 — the home a writer writes: the source `loadProjectSettings(projectRoot)`
+ * reports, resolved without parsing a legacy home (so a legacy or empty tree
+ * keeps its v2.101.5 writer bytes). A both-homes tree refuses, as the loader does.
+ */
+export function settingsWriteSource(projectRoot: string): Exclude<SettingsSource, "both"> {
+  return resolveSingleSource(projectRoot);
+}
+
 /** The both-homes refusal (AC-STE-706.7): the loader never merges two homes. */
 function bothHomesError(projectRoot: string): SettingsShapeError {
   const legacy = legacyHomesBesideSettings(projectRoot, recognisedHeadingKeys());
@@ -191,6 +201,28 @@ function recognisedHeadingKeys(): Readonly<Record<string, readonly string[]>> {
     [tokenStats]: ["enabled"],
     [releaseFiles]: ["files"],
   };
+}
+
+/** STE-710 — the fixed key order of the map at dotted `path` (`[]` marks a list item); [] when unordered. */
+export function settingsKeyOrder(path: string): readonly string[] {
+  const orders: Record<string, readonly string[]> = {
+    "": TOP_KEYS,
+    task_tracking: taskTrackingKeys(),
+    "task_tracking.linear": BINDING_KEYS,
+    "task_tracking.jira": BINDING_KEYS,
+    "task_tracking.status_vocabulary": STATUS_VOCABULARY_KEYS,
+    verification: VERIFICATION_KEYS,
+    docs: DOCS_KEYS,
+    orchestration: ORCHESTRATION_KEYS,
+    tracking: ["token_stats"],
+    "tracking.token_stats": ["enabled"],
+    close_out: ["upgrade_offer"],
+    "close_out.upgrade_offer": ["enabled"],
+    release: ["files"],
+    "release.files[]": RELEASE_ENTRY_KEYS,
+    video: ["config", "style"],
+  };
+  return orders[path] ?? [];
 }
 
 function shapeError(path: string, reason: string): SettingsShapeError {
@@ -293,7 +325,7 @@ function validateRelease(v: unknown): void {
 }
 
 /** Whole-file shape check of a parsed settings file (AC-STE-706.2). */
-function validateSettingsShape(parsed: Record<string, unknown>): void {
+export function validateSettingsShape(parsed: Record<string, unknown>): void {
   closeKeys(parsed, "", TOP_KEYS);
   if (!("schema_version" in parsed)) throw shapeError("schema_version", "is required (set `schema_version: 1`)");
   if (parsed.schema_version !== 1) throw shapeError("schema_version", "must be 1");
@@ -580,10 +612,14 @@ export function settingsRefusal(err: unknown): { text: string; reason: string } 
 
 /** The pointer line older CLAUDE.md homes carry once settings move to `specs/settings.yaml`. */
 export function renderSettingsPointer(floor: string): string {
-  return `Project settings live in \`${SETTINGS_FILE}\` (requires dev-process-toolkit >= ${floor}).\n`;
+  return `Project settings live in \`${SETTINGS_FILE}\`, which requires dev-process-toolkit ${floor} or newer. If the installed plugin is older than ${floor}, or you cannot tell its version, stop and ask the operator to upgrade the plugin before reading or writing any setting.\n`;
 }
 
 export { renderTrackingStub } from "./project_settings_legacy";
+export { writeProjectSettings } from "./project_settings_writer";
+
+/** STE-710 — the closed list of dotted keys the front door's `set` verb writes. */
+export const SETTABLE_KEYS: readonly string[] = ["verification.verify_skill"];
 
 // ---------------------------------------------------------------------------
 // Front door (AC-STE-706.10): `mode <projectRoot>` / `get <section> <projectRoot>`.
@@ -591,16 +627,46 @@ export { renderTrackingStub } from "./project_settings_legacy";
 
 const FOREIGN_NOTE = `note: ${SETTINGS_FILE} ignored: not a toolkit settings file`;
 
+/**
+ * STE-710 — `set <dotted key> <value> <projectRoot>`. A settings-file tree gets
+ * the write; a legacy or empty tree gets none (the caller writes the legacy
+ * home); a both-homes tree and a key outside `SETTABLE_KEYS` refuse (NFR-10).
+ */
+function runSet(key: string, value: string, projectRoot: string): string {
+  if (!SETTABLE_KEYS.includes(key)) {
+    throw new SettingsShapeError(
+      `\`${key}\` is not a key the set verb writes`,
+      `set one of: ${SETTABLE_KEYS.join(", ")}; edit ${SETTINGS_FILE} by hand for any other key.`,
+      `key=${key}`,
+    );
+  }
+  const source = resolveSingleSource(projectRoot);
+  if (source === "settings") {
+    const [section, leaf] = key.split(".") as [string, string];
+    writeProjectSettings(projectRoot, { [section]: { [leaf]: value } });
+  }
+  return `source: ${source}\n`;
+}
+
 function runFrontDoor(argv: readonly string[]): number {
   const [verb, ...rest] = argv;
   const projectRoot = rest[rest.length - 1];
-  if ((verb !== "mode" && verb !== "get") || projectRoot === undefined || (verb === "get" && rest.length < 2)) {
-    process.stderr.write("usage: project_settings.ts mode <projectRoot> | get <section> <projectRoot>\n");
+  if (
+    (verb !== "mode" && verb !== "get" && verb !== "set") ||
+    projectRoot === undefined ||
+    (verb === "get" && rest.length < 2) ||
+    (verb === "set" && rest.length !== 3)
+  ) {
+    process.stderr.write(
+      "usage: project_settings.ts mode <projectRoot> | get <section> <projectRoot> | set <dotted key> <value> <projectRoot>\n",
+    );
     return 2;
   }
   try {
     let out: string;
-    if (verb === "mode") {
+    if (verb === "set") {
+      out = runSet(rest[0]!, rest[1]!, projectRoot);
+    } else if (verb === "mode") {
       const source = resolveSingleSource(projectRoot);
       const mode =
         source === "settings"

@@ -38,6 +38,10 @@ const templateBody = readFileSync(
   join(pluginRoot, "templates", "CLAUDE.md.template"),
   "utf8",
 );
+const settingsRefBody = readFileSync(
+  join(pluginRoot, "docs", "settings-reference.md"),
+  "utf8",
+);
 const layoutRefBody = readFileSync(
   join(pluginRoot, "docs", "layout-reference.md"),
   "utf8",
@@ -227,27 +231,30 @@ describe("AC-STE-347.6 — spec-write § 7 static capability map", () => {
   }
 });
 
-describe("AC-STE-347.1 — templates/CLAUDE.md.template documents ## Verification", () => {
-  test("template carries a ## Verification block with both keys and the resolved default", () => {
-    const start = templateBody.indexOf("## Verification");
+describe("AC-STE-347.1 — the setup-shipped Verification contract lives in its settings-file home", () => {
+  // Amended by M_94e6f7/STE-710 (AC-.9): the commented `## Verification` block
+  // left templates/CLAUDE.md.template; the template points at specs/settings.yaml
+  // and docs/settings-reference.md § `verification` documents the keys.
+  test("the template points to the settings file and the reference documents both keys and the resolved default", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): same key and resolved-default pins, now against settings-reference § verification.
+    expect(templateBody).not.toContain("## Verification");
+    expect(templateBody).toMatch(/^## Project Settings$/m);
+    expect(templateBody).toContain("specs/settings.yaml");
+    const start = settingsRefBody.indexOf("### `verification`");
     expect(start).toBeGreaterThan(-1);
-    const next = templateBody.indexOf("\n## ", start + 1);
+    const next = settingsRefBody.indexOf("\n### ", start + 1);
     const region =
-      next === -1 ? templateBody.slice(start) : templateBody.slice(start, next);
+      next === -1 ? settingsRefBody.slice(start) : settingsRefBody.slice(start, next);
     expect(region).toContain("verify_skill");
     expect(region).toContain("verify_mode");
     expect(region).toContain("advisory");
     expect(region).toMatch(/default/i);
-    // STRENGTHENED (M131): {advisory, /default/i} alone was satisfied by the
-    // retired unconditional claim "Absent key ⇒ default `advisory`", which the
-    // run_cmd-keyed default made false — a green test resting on wrong text.
-    // The default is now RESOLVED, so the verify_mode entry ITSELF (not the
-    // block around it, where the neighbouring run_cmd bullet would vouch for
-    // it) must name the key the resolution turns on and both of its outcomes.
-    const keyStart = region.indexOf("- verify_mode:");
+    // STRENGTHENED (M131): the verify_mode entry ITSELF must name the key the
+    // resolution turns on and both of its outcomes.
+    const keyStart = region.indexOf("- `verify_mode`:");
     expect(keyStart).toBeGreaterThan(-1);
     const rest = region.slice(keyStart + 1);
-    const keyEnd = rest.search(/\n\s*- [a-z0-9_]+:/);
+    const keyEnd = rest.search(/\n\s*- `?[a-z0-9_]+(?:: none)?`?/);
     const entry = (keyEnd === -1 ? rest : rest.slice(0, keyEnd)).replace(
       /\s+/g,
       " ",

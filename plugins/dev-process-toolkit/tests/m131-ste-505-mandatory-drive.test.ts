@@ -86,6 +86,10 @@ const templateBody = readFileSync(
   join(pluginRoot, "templates", "CLAUDE.md.template"),
   "utf8",
 );
+const settingsRefBody = readFileSync(
+  join(pluginRoot, "docs", "settings-reference.md"),
+  "utf8",
+);
 
 // "Phase 4b″" — U+2033 DOUBLE PRIME, same anchor
 // tests/m93-ste-347-verification-convention.test.ts uses.
@@ -712,35 +716,52 @@ describe("surface parity — docs/layout-reference.md ## Verification", () => {
   });
 });
 
-describe("surface parity — templates/CLAUDE.md.template ## Verification", () => {
-  // This is the file /setup copies into EVERY consuming project, so a retired
-  // rule here does not merely mis-document the toolkit — it ships as authoring
-  // guidance to every new project.
-  const section = () =>
-    verificationSection(templateBody, "templates/CLAUDE.md.template");
+describe("surface parity — the /setup-shipped Verification contract (docs/settings-reference.md § verification)", () => {
+  // Amended by M_94e6f7/STE-710 (AC-.9): the commented `## Verification`
+  // block left templates/CLAUDE.md.template. /setup now writes
+  // specs/settings.yaml and the template's `## Project Settings` pointer sends
+  // every new project to docs/settings-reference.md, so a retired rule THERE
+  // ships as authoring guidance to every new project.
+  const section = () => {
+    const start = settingsRefBody.indexOf("### `verification`");
+    if (start < 0) throw new Error("docs/settings-reference.md has no `verification` section");
+    const next = settingsRefBody.indexOf("\n### ", start + 1);
+    return next === -1 ? settingsRefBody.slice(start) : settingsRefBody.slice(start, next);
+  };
+
+  test("the template points at the settings file instead of carrying its own Verification block", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the template surface is now the pointer.
+    expect(templateBody).not.toContain("## Verification");
+    expect(templateBody).toMatch(/^## Project Settings$/m);
+    expect(templateBody).toContain("specs/settings.yaml");
+  });
 
   test("the verify_mode key comment states the run_cmd-keyed default", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): same pin, against the settings-reference section.
     expectUnitWithAll(
       section(),
       ["verify_mode", "run_cmd", "blocking"],
-      "the template's verify_mode comment must key the default on run_cmd",
+      "the settings reference's verify_mode entry must key the default on run_cmd",
     );
   });
 
   test("it still states advisory for the none / absent case", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): same pin, against the settings-reference section.
     expectUnitWithAll(
       section(),
       ["verify_mode", "run_cmd", /advisory/],
-      "the corrected comment must still tell a non-runnable project what it gets",
+      "the corrected entry must still tell a non-runnable project what it gets",
     );
   });
 
   test("the retired `Absent key ⇒ default advisory` claim is GONE", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): same pin, against the settings-reference section.
     const s = section().replace(/\s+/g, " ");
     expect(s).not.toMatch(/Absent key ⇒ default `?advisory/i);
   });
 
   test("no unit of the section states an unqualified advisory default", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): same pin, against the settings-reference section.
     expect(
       unitsWithAll(section(), [
         /advisory/,
@@ -911,7 +932,8 @@ describe("sweep — no shipped surface teaches the retired verify_mode default",
       "skills/implement/SKILL.md",
       "docs/verification-skills.md",
       "docs/layout-reference.md",
-      "templates/CLAUDE.md.template",
+      // Amended by M_94e6f7/STE-710 (AC-.9): the /setup-shipped surface is now the settings reference the template points to.
+      "docs/settings-reference.md",
     ]) {
       expect(rels).toContain(required);
     }

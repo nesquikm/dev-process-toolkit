@@ -16,7 +16,8 @@ default) never reads this document — the `mode: none` branch runs unchanged.
   `skills/setup/SKILL.md`, just before spec-file generation (step 8). It has
   **no default** (`requires-input`): the operator answers it, and an
   autonomous run must pre-bake the answer (`--tracker=<mode>`) or be refused.
-- **Recording.** A recorded mode adds a `## Task Tracking` section to
+- **Recording.** A recorded mode writes `task_tracking` through `writeProjectSettings`;
+  on a legacy tree it adds a `## Task Tracking` section to
   `CLAUDE.md` per Schema L (technical-spec §3 Cross-Skill Schema Definitions). Absence ≡ `none`
  — `/setup` never writes a `mode: none` line.
 - **Never silent writes.** Every `settings.json` and `CLAUDE.md` edit is
@@ -56,7 +57,7 @@ generated CLAUDE.md; a tracker answer is written into it by step 7f:
 > [1-4, no default]:
 > ```
 
-If the user picks `1`, do NOT add `## Task Tracking` to CLAUDE.md.
+If the user picks `1`, do NOT add `## Task Tracking` to a legacy CLAUDE.md (nor `task_tracking` to the settings file).
 Continue the existing fresh-setup flow. If the user picks 2–4,
 proceed through the remaining tracker-mode steps in order.
 
@@ -128,8 +129,8 @@ Remedy: <actionable — e.g., "complete OAuth in the MCP UI, then re-run /setup"
 Context: mode=<picked>, ticket=unbound, skill=setup
 ```
 
-Only on test-call success does `/setup` write the `## Task Tracking`
-section to CLAUDE.md.
+Only on test-call success does `/setup` write `task_tracking` through
+`writeProjectSettings` (the `## Task Tracking` section on a legacy tree).
 
 ## Per-tenant discovery
 
@@ -158,7 +159,8 @@ After visibility passes, run one-time AC-field discovery:
    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` with
    `{"fields": <response>}` on stdin.
 3. On `{ok: true, gid: "customfield_XXXXX"}`, append
-   `jira_ac_field: customfield_XXXXX` to the `## Task Tracking` section.
+   `jira_ac_field: customfield_XXXXX` to the `## Task Tracking` section
+   (legacy tree; `writeProjectSettings` sets `task_tracking.jira_ac_field` otherwise).
 4. On `{ok: false}` — common on team-managed Kanban templates that ship
    without an AC custom field — prompt the operator to choose between two
    recorded outcomes (no silent fallback):
@@ -178,12 +180,12 @@ After visibility passes, run one-time AC-field discovery:
 
    On `1`, abort the tracker-mode portion cleanly so the operator can
    create the field and re-run `/setup`. On `2`, append
-   `jira_ac_field: description` to `## Task Tracking` and continue.
+   `jira_ac_field: description` to `## Task Tracking` (legacy tree; `writeProjectSettings` otherwise) and continue.
 
 The recorded value is the dispatch key for `pull_acs` / `push_ac_toggle`
 (see `adapters/jira.md` § Operations).
 
-## Writing `## Task Tracking` to CLAUDE.md
+## Writing `## Task Tracking` to a legacy CLAUDE.md
 
 On successful completion of all the above, append this section to the
 bottom of CLAUDE.md (Schema L):
@@ -221,7 +223,7 @@ prompt once:
 
 **Single seeded default**
 
-`{type}/m{N}-{slug}` — the one default value; the per-mode split in the *value* is retired. It is **seeded (written) only in tracker mode**: Schema L is the `## Task Tracking` section and a `mode: none` project emits none, so there is nowhere to seed it. See § Skip conditions.
+`{type}/m{N}-{slug}` — the one default value; the per-mode split in the *value* is retired. It is **seeded (written) only in tracker mode**: Schema L is `task_tracking` (the `## Task Tracking` section on a legacy tree) and a `mode: none` project emits none, so there is nowhere to seed it. See § Skip conditions.
 
 **Placeholders (substituted by `/implement` at prompt-time)**
 

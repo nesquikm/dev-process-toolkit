@@ -338,35 +338,26 @@ describe("CRLF/BOM normalization (AC-STE-463.5)", () => {
   });
 });
 
-describe("templates/CLAUDE.md.template stub (AC-STE-463.6)", () => {
-  const templatePath = join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "templates",
-    "CLAUDE.md.template",
-  );
+describe("templates/CLAUDE.md.template points to the orchestration settings (AC-STE-463.6)", () => {
+  // Amended by M_94e6f7/STE-710 (AC-.9): the commented `## Orchestration` stub
+  // left the template; both keys and defaults live in docs/settings-reference.md
+  // § orchestration, reached through the template's `## Project Settings` pointer.
+  const pluginRoot = join(import.meta.dir, "..", "..", "..");
+  const templatePath = join(pluginRoot, "templates", "CLAUDE.md.template");
 
-  test("template carries a commented `## Orchestration` stub documenting both keys and defaults", () => {
+  test("the template points to the settings file, whose reference documents both keys and defaults", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): same key and default pins, against the settings-file home.
     const template = readFileSync(templatePath, "utf8");
-    const idx = template.indexOf("## Orchestration");
-    expect(idx).toBeGreaterThan(-1);
+    expect(template).not.toContain("## Orchestration");
+    expect(template).toMatch(/^## Project Settings$/m);
+    expect(template).toContain("specs/settings.yaml");
 
-    // Commented stub (STE-167 shape): the heading sits inside an HTML
-    // comment — the nearest `<!--` before it is not yet closed by a `-->`.
-    const lastOpen = template.lastIndexOf("<!--", idx);
-    const lastClose = template.lastIndexOf("-->", idx);
-    expect(lastOpen).toBeGreaterThan(-1);
-    expect(lastOpen).toBeGreaterThan(lastClose);
-
-    // The stub documents both keys and both defaults.
-    const commentEnd = template.indexOf("-->", idx);
-    expect(commentEnd).toBeGreaterThan(-1);
-    const stub = template.slice(lastOpen, commentEnd);
-    expect(stub).toContain("default_effort");
-    expect(stub).toContain("merge_policy");
-    expect(stub).toContain("ultracode");
-    expect(stub).toContain("offer");
+    const reference = readFileSync(join(pluginRoot, "docs", "settings-reference.md"), "utf8");
+    const start = reference.indexOf("### `orchestration`");
+    expect(start).toBeGreaterThan(-1);
+    const end = reference.indexOf("\n### ", start + 1);
+    const section = end === -1 ? reference.slice(start) : reference.slice(start, end);
+    expect(section).toMatch(/^\| `orchestration\.default_effort` \|.*\| `ultracode` \|/m);
+    expect(section).toMatch(/^\| `orchestration\.merge_policy` \|.*\| `offer` \|/m);
   });
 });

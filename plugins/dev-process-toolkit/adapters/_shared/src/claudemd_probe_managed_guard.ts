@@ -52,6 +52,8 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "the settings loader (M_94e6f7/STE-706) reads CLAUDE.md only to decide the settings source and to parse the legacy homes; it decides no applicability, and every caller keeps its own managed-tree guard.",
   project_settings_legacy:
     "the loader's legacy module (M_94e6f7/STE-706) parses the v2.101.x CLAUDE.md homes for values; it decides no applicability, and every caller keeps its own managed-tree guard.",
+  project_settings_writer:
+    "the settings writer (M_94e6f7/STE-710) edits CLAUDE.md only to keep the `## Task Tracking` stub byte-equal to its render over the written settings file; applicability is the settings file it just wrote, not managed-ness.",
   attach_project_milestone:
     "the attach target's front door reads the tracker binding through `readWorkspaceBinding` for `repo_tag` alone (the provenance check); applicability is the tracker mode its caller passes, and an undeclared tree resolves exactly as before in managed and unmanaged trees alike.",
   bun_zero_match_placeholder:

@@ -54,6 +54,8 @@ One sub-map per adapter; either or both may be present. Each replaces the CLAUDE
 | `jira_bug_issue_type` | string | absent | `### Jira` `jira_bug_issue_type:` |
 | `jira_issue_type` | string | absent | `### Jira` `jira_issue_type:` |
 
+In a tracker mode the binding is required: `/gate-check` probe #25 (`task-tracking-workspace-binding-present`) hard-fails without it. `task_tracking.linear` needs `team` and `project`; `task_tracking.jira` needs `project`. A missing sub-map, a missing key or an empty value all fail. Tickets created without `project` silently landed on the wrong board, which is why the probe exists.
+
 #### `task_tracking.status_vocabulary`
 
 The same document `specs/tracker-config.yaml` held, validated by `validateTrackerConfig`.
@@ -66,12 +68,18 @@ The same document `specs/tracker-config.yaml` held, validated by `validateTracke
 
 ### `verification`
 
+The key set is closed: exactly the four keys `verify_skill`, `verify_mode`, `run_cmd` and `e2e_cmd`. Any other key under `verification` is a config error.
+
 | Key | Type | Default | Replaces |
 | --- | --- | --- | --- |
 | `verification.verify_skill` | string | absent | `## Verification` `verify_skill:` |
-| `verification.verify_mode` | `advisory` \| `blocking` \| `manual` | `advisory` | `## Verification` `verify_mode:` |
+| `verification.verify_mode` | `advisory` \| `blocking` \| `manual` | resolved from `run_cmd`: `blocking` when `run_cmd` declares a real command, `advisory` when `run_cmd` is `none`, empty or absent | `## Verification` `verify_mode:` |
 | `verification.run_cmd` | string | absent | `## Verification` `run_cmd:` |
 | `verification.e2e_cmd` | string | absent | `## Verification` `e2e_cmd:` |
+
+- `verify_mode`: a written value always wins. An absent key is resolved from `run_cmd`: `blocking` when `run_cmd` declares a real command, so a failing check blocks the commit, and `advisory` when `run_cmd` is `none`, empty or absent, so the outcome is reported and never blocks the commit.
+- `run_cmd: none` declares that the project cannot be run. `none` is an answer, distinct from an absent key, which is no answer at all.
+- `e2e_cmd: none` answers "no end-to-end suite" under the same convention; an absent key answers nothing.
 
 ### `docs`
 
@@ -81,6 +89,10 @@ The same document `specs/tracker-config.yaml` held, validated by `validateTracke
 | `docs.packages_mode` | boolean | `false` | `## Docs` `packages_mode:` |
 | `docs.changelog_ci_owned` | boolean | `false` | `## Docs` `changelog_ci_owned:` |
 | `docs.changelog_unversioned` | boolean | `false` | `## Docs` `changelog_unversioned:` |
+
+`/setup` writes these three flags: `docs.user_facing_mode`, `docs.packages_mode`, `docs.changelog_ci_owned`.
+
+Optional key, not written by `/setup`: `docs.changelog_unversioned` (default `false`; absent reads `false`). Add it by hand when git tags or CI own the version; if `true`, `/ship-milestone` writes no version and entries go under `## [Unreleased]`.
 
 ### `orchestration`
 
@@ -106,6 +118,20 @@ The same document `specs/tracker-config.yaml` held, validated by `validateTracke
 | Key | Type | Default | Replaces |
 | --- | --- | --- | --- |
 | `release.files` | list of release-file entries, same entry shape | `[]` | `## Release Files` |
+
+`/setup` seeds `release.files` from the per-stack default in `examples/<stack>/release.yml`. Each entry takes these keys:
+
+- `path`: repo-relative path.
+- `kind`: `json`, `toml`, `yaml`, `changelog` or `regex`.
+- `field`: per kind, and not interchangeable:
+  - json — any dot-path, array index included: `version`, `package.version`, `plugins[0].version`.
+  - toml — top-level or one-level-dotted only: `version`, `project.version`. `plugins[0].version` throws at bump time.
+  - yaml — top-level scalar only, no dots: `version`. `project.version` is refused at parse time.
+- `pattern`: a regex with a named `(?<version>...)` group, `regex` kind only. Every occurrence it matches is rewritten.
+- `replace`: a template using `{version}` and `{codename}`, `regex` kind only, written literally.
+- `optional`: boolean, default `false`. A missing path or a pattern that matches nothing is `n/a`, not an error.
+
+Full schema and per-kind worked examples: `docs/ship-milestone-reference.md`.
 
 ### `video`
 
