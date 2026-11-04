@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [2.101.5] — 2026-11-04 — "Borrowed Time"
+
+### Fixed
+
+- The token-stats bridge stays off when the session's own brainstorm was shared (STE-726). `filterRowsForFR` now decides whether to bridge from the session lineage instead of from the rows it has just selected: any lineage `dev-process-toolkit:brainstorm` row, in any claim state (unset, another FR's id, or `design/exploration`), turns the bridge off. A spec run that writes several FRs from one session no longer borrows unrelated earlier brainstorm sessions for its second and later FRs; a lineage with no brainstorm row is bridged as before.
+- The legs-selector spawn test keeps its stub legs alive until the fence counts them (STE-727). The `runSpawnFence` harness in `tests/m121-ste-447-legs-selector.test.ts` holds its `claude` stub on a release file that the script touches after the Phase A fence prints its `launched=` line (capped under 10 s), and every spawn case asserts `launched=<k> live=<k>`. Instant-exit stubs had made the fence's live-count read `live=0`, abort and delete every pidfile, which turned two tests red on trunk; the fence itself is unchanged.
+
+Total test count at release: 20192 tests, 0 failures, 0 errors.
+
 ## [2.101.4] — 2026-11-03 — "Loose Ends"
 
 ### Fixed

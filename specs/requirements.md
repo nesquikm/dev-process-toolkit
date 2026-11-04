@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v2.101.4 ("Loose Ends")**.
+**Latest shipped release:** **v2.101.5 ("Borrowed Time")**.
 
 ### Shipped milestones
 
@@ -614,4 +614,6 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-703.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/token_stats_render.ts, plugins/dev-process-toolkit/skills/spec-write/SKILL.md | plugins/dev-process-toolkit/tests/m_9261c7-STE-703-brainstorm-bridge-foreign.test.ts |
 | AC-STE-704.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/create_idempotency_probe.ts, plugins/dev-process-toolkit/adapters/_shared/src/tracker_answer.ts, plugins/dev-process-toolkit/adapters/jira.md, plugins/dev-process-toolkit/adapters/linear.md, plugins/dev-process-toolkit/skills/spec-write/SKILL.md | plugins/dev-process-toolkit/tests/m_9261c7-STE-704-decide-from-transcript.test.ts |
 | AC-STE-705.1..8 | CLAUDE.md, README.md, plugins/dev-process-toolkit/docs/honored-contracts.md, plugins/dev-process-toolkit/docs/hooks-reference.md, plugins/dev-process-toolkit/docs/setup-reference.md, plugins/dev-process-toolkit/docs/workflow-overview.md, plugins/dev-process-toolkit/skills/pr/SKILL.md, plugins/dev-process-toolkit/templates/CLAUDE.md.template, plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-commit-gate-check.ts, plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-commit-tdd-orchestrator.ts, plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-pr-spec-review.ts, plugins/dev-process-toolkit/templates/hooks/_lib/session.ts | plugins/dev-process-toolkit/tests/m_9261c7-STE-705-archive-only-docs.test.ts, plugins/dev-process-toolkit/tests/m_a5dc12-ste-700-archive-only-classifier.test.ts |
+| AC-STE-726.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/token_stats_render.ts | plugins/dev-process-toolkit/tests/m_4489fc-ste-726-bridge-shared-session.test.ts |
+| AC-STE-727.1..6 | — | plugins/dev-process-toolkit/tests/m121-ste-447-legs-selector.test.ts |
 

@@ -326,6 +326,19 @@ describeIfLoop("AC-STE-447.1 — the spawn fence spawns only the selected legs",
     logs: string[];
     /** Legs whose `.pid` the fence actually wrote. */
     pids: string[];
+    /** The fence script's stdout, which carries its `launched=<k> live=<k>` count line. */
+    stdout: string;
+  }
+
+  /**
+   * AC-STE-727.3: the fence counts its live legs right after launching them and
+   * aborts (deleting every pidfile) when fewer are alive than launched. Assert
+   * the count line itself, so a stub that dies early fails naming `live=0`
+   * rather than as an empty pidfile list.
+   */
+  function expectAllLegsLive(r: SpawnRun, k: number): void {
+    const line = r.stdout.split("\n").find((l) => l.startsWith("launched=")) ?? "(no launched= line)";
+    expect(line).toBe(`launched=${k} live=${k}`);
   }
 
   let spawnSeq = 0;
@@ -335,9 +348,22 @@ describeIfLoop("AC-STE-447.1 — the spawn fence spawns only the selected legs",
     try {
       // Stub every external the fence reaches for. They must succeed, so a
       // missing artifact can only mean the group did not run.
+      //
+      // AC-STE-727.2: the `claude` stub stays alive until the test releases it,
+      // because the fence counts live legs right after launching them and an
+      // instantly-exiting stub reads as `live=0` on a fast machine. The release
+      // is a file the script touches only after the fence printed its
+      // `launched=` line; the stub gives up by itself in under 10 s (80 polls of 0.1 s), so a
+      // fence that aborts before the release cannot hang the suite.
+      const release = join(bin, "release");
+      const holdUntilReleased = [
+        "i=0",
+        `while [ ! -e ${JSON.stringify(release)} ] && [ "$i" -lt 80 ]; do sleep 0.1; i=$((i + 1)); done`,
+      ].join("\n");
       for (const cmd of ["claude", "bun"]) {
         const p = join(bin, cmd);
-        writeFileSync(p, "#!/bin/sh\ncat >/dev/null 2>&1 || true\nexit 0\n", { mode: 0o755 });
+        const hold = cmd === "claude" ? `${holdUntilReleased}\n` : "";
+        writeFileSync(p, `#!/bin/sh\ncat >/dev/null 2>&1 || true\n${hold}exit 0\n`, { mode: 0o755 });
       }
       const script = [
         "set -u",
@@ -346,15 +372,17 @@ describeIfLoop("AC-STE-447.1 — the spawn fence spawns only the selected legs",
         "JIRA_PROJECT=DST",
         `SELECTED_LEGS=${JSON.stringify(selected.join(" "))}`,
         spawnFenceWith(token),
+        `touch ${JSON.stringify(release)}`,
         "wait",
       ].join("\n");
-      Bun.spawnSync(["bash", "-c", script], { cwd: repoRoot });
+      const proc = Bun.spawnSync(["bash", "-c", script], { cwd: repoRoot });
+      const stdout = proc.stdout.toString();
 
       const seen = (ext: string) =>
         SMOKE_LEGS.filter((leg) =>
           existsSync(`/tmp/dpt-conformance-loop-${token}-iter-1-${leg}.${ext}`),
         );
-      const out = { logs: seen("log"), pids: seen("pid") };
+      const out = { logs: seen("log"), pids: seen("pid"), stdout };
       for (const leg of SMOKE_LEGS) {
         for (const ext of ["log", "pid", "rc"]) {
           rmSync(`/tmp/dpt-conformance-loop-${token}-iter-1-${leg}.${ext}`, { force: true });
@@ -379,6 +407,7 @@ describeIfLoop("AC-STE-447.1 — the spawn fence spawns only the selected legs",
     // Without this the restriction assertions below could pass because the
     // fence produces nothing under any input.
     const r = runSpawnFence(SMOKE_LEGS);
+    expectAllLegsLive(r, SMOKE_LEGS.length);
     expect(r.logs).toEqual([...SMOKE_LEGS]);
     expect(r.pids).toEqual([...SMOKE_LEGS]);
   });
@@ -387,6 +416,7 @@ describeIfLoop("AC-STE-447.1 — the spawn fence spawns only the selected legs",
     // The assertion the FR's title promised and the earlier tests did not make.
     const only = SMOKE_LEGS[0]!;
     const r = runSpawnFence([only]);
+    expectAllLegsLive(r, 1);
     expect(r.logs).toEqual([only]);
     expect(r.pids).toEqual([only]);
     for (const leg of SMOKE_LEGS.filter((l) => l !== only)) {
@@ -398,6 +428,7 @@ describeIfLoop("AC-STE-447.1 — the spawn fence spawns only the selected legs",
   test("a two-leg selection spawns exactly those two", () => {
     const subset = SMOKE_LEGS.slice(0, 2);
     const r = runSpawnFence(subset);
+    expectAllLegsLive(r, subset.length);
     expect(r.pids).toEqual([...subset]);
   });
 

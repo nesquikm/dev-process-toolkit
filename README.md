@@ -198,7 +198,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.4 — "Loose Ends"** (M_9261c7, close-out guards check what they trust. An Epic closes only on children that name it, the pull request gate's archive-only pass grades the branch the pull request opens, and a ticket create is decided from the searches the session actually ran)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.5 — "Borrowed Time"** (M_4489fc, a shared design session stays with its own specs. The token-stats bridge no longer borrows an unrelated earlier brainstorm once the session's own brainstorm moved to the shared design bucket, and the legs-selector spawn test keeps its stub legs alive until the fence counts them, so trunk is green again)
 
 ## Core Philosophy
 
