@@ -2,7 +2,11 @@
 // up non-canonical Schema L keys at the top level of `## Task Tracking`.
 //
 // Dry-run only. Reads CLAUDE.md, extracts non-canonical top-level keys, and
-// prints a unified diff that moves them under `### <Tracker>` subsection.
+// prints a unified diff that moves each key line, verbatim and prefixed `- `,
+// into a `## Tracker Notes` prose section inserted directly after the
+// `## Task Tracking` span (appending to an existing `## Tracker Notes`
+// instead of adding a second heading). Metadata never lands in a tracker
+// sub-section: the settings schema is closed and the settings move refuses it.
 // Operator pipes to `patch -p1` if they want to apply.
 
 import { readFileSync } from "node:fs";
@@ -37,10 +41,6 @@ function parse(content: string): ParsedSection | null {
     sectionLines: lines.slice(startIdx + 1, endIdx),
     afterLines: lines.slice(endIdx),
   };
-}
-
-function titleCase(mode: string): string {
-  return mode.charAt(0).toUpperCase() + mode.slice(1).toLowerCase();
 }
 
 function buildHunk(before: string[], after: string[]): string {
@@ -83,9 +83,13 @@ function buildHunk(before: string[], after: string[]): string {
   return [header, ...ops].join("\n");
 }
 
+const TRACKER_NOTES_HEADING = "## Tracker Notes";
+
 /**
  * Pure helper. Returns a unified diff string (suitable for `patch -p1`)
- * that moves non-canonical top-level keys under `### <Tracker>`.
+ * that moves non-canonical top-level keys into a `## Tracker Notes` prose
+ * section directly after the `## Task Tracking` span, each line verbatim
+ * and prefixed `- `. An existing `## Tracker Notes` is appended to.
  *
  * Returns the empty string when no migration is needed (no section, or
  * top-level keys already canonical-only).
@@ -94,86 +98,54 @@ export function computeMigrationDiff(content: string, claudeMdPath: string): str
   const parsed = parse(content);
   if (!parsed) return "";
 
-  // Identify mode + non-canonical keys + subsection presence.
-  let mode = "";
+  // Split the span into kept lines and offending top-level key lines.
+  // Sub-section contents are scoped out of the canonical-key check.
   const offenders: string[] = [];
-  let subsectionStart = -1;
-  let subsectionName = "";
-  let inSubsection = false;
-  for (let i = 0; i < parsed.sectionLines.length; i++) {
-    const line = parsed.sectionLines[i]!;
-    const subM = /^###\s+(.+?)\s*$/.exec(line);
-    if (subM) {
-      if (subsectionStart < 0) {
-        subsectionStart = i;
-        subsectionName = subM[1]!;
-      }
-      inSubsection = true;
-      continue;
-    }
-    if (inSubsection) continue;
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const m = /^([a-z_][a-z0-9_]*)\s*:\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const key = m[1]!;
-    if (key === "mode") mode = (m[2] ?? "").trim();
-    if (CANONICAL_KEYS.has(key)) continue;
-    offenders.push(line);
-  }
-  if (offenders.length === 0) return "";
-
-  const trackerLabel = subsectionName || titleCase(mode || "Tracker");
-
-  // Build the migrated section lines.
   const migratedSection: string[] = [];
-  inSubsection = false;
+  let inSubsection = false;
   for (const line of parsed.sectionLines) {
-    if (/^###\s/.test(line)) {
-      // Existing subsection — preserve verbatim; offenders appended below.
-      inSubsection = true;
-      migratedSection.push(line);
-      continue;
-    }
-    if (inSubsection) {
-      migratedSection.push(line);
-      continue;
-    }
-    const m = /^([a-z_][a-z0-9_]*)\s*:/.exec(line);
-    if (m && !CANONICAL_KEYS.has(m[1]!)) {
-      // Drop from top level — these go under the subsection.
-      continue;
+    if (/^###\s/.test(line)) inSubsection = true;
+    if (!inSubsection) {
+      const m = /^([a-z_][a-z0-9_]*)\s*:/.exec(line);
+      if (m && !CANONICAL_KEYS.has(m[1]!)) {
+        offenders.push(line);
+        continue;
+      }
     }
     migratedSection.push(line);
   }
-  // If a subsection already existed, append offenders to it; otherwise
-  // append a new `### <Tracker>` block.
-  if (subsectionStart >= 0) {
-    // Append offenders to the end of the section (they fall under the
-    // existing subsection, which is the last `###` block).
-    if (migratedSection[migratedSection.length - 1] !== "") {
-      migratedSection.push("");
+  if (offenders.length === 0) return "";
+  const bullets = offenders.map((o) => `- ${o}`);
+
+  const after = [...parsed.preamble, parsed.heading, ...migratedSection, ...parsed.afterLines];
+  const notesAt = after.indexOf(TRACKER_NOTES_HEADING);
+  if (notesAt >= 0) {
+    // Append to the existing notes section, before its trailing blank lines.
+    let end = after.length;
+    for (let i = notesAt + 1; i < after.length; i++) {
+      if (/^#{1,2}\s/.test(after[i]!)) {
+        end = i;
+        break;
+      }
     }
-    for (const o of offenders) migratedSection.push(o);
+    let insertAt = end;
+    while (insertAt - 1 > notesAt && after[insertAt - 1] === "") insertAt--;
+    const block = insertAt === notesAt + 1 ? ["", ...bullets] : [...bullets];
+    if (insertAt === end) block.push("");
+    after.splice(insertAt, 0, ...block);
   } else {
-    if (migratedSection.length > 0 && migratedSection[migratedSection.length - 1] !== "") {
-      migratedSection.push("");
-    }
-    migratedSection.push(`### ${trackerLabel}`);
-    migratedSection.push("");
-    for (const o of offenders) migratedSection.push(o);
+    // Insert a new notes section directly after the `## Task Tracking` span.
+    const insertAt = parsed.preamble.length + 1 + migratedSection.length;
+    const block: string[] = [];
+    if (migratedSection.length > 0 && migratedSection[migratedSection.length - 1] !== "") block.push("");
+    block.push(TRACKER_NOTES_HEADING, "", ...bullets, "");
+    after.splice(insertAt, 0, ...block);
   }
 
   const before = [
     ...parsed.preamble,
     parsed.heading,
     ...parsed.sectionLines,
-    ...parsed.afterLines,
-  ];
-  const after = [
-    ...parsed.preamble,
-    parsed.heading,
-    ...migratedSection,
     ...parsed.afterLines,
   ];
 

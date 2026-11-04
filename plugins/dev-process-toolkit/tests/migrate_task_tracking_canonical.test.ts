@@ -5,14 +5,16 @@ import { computeMigrationDiff } from "../scripts/migrate-task-tracking-canonical
 //
 // Reads a project's CLAUDE.md, extracts non-canonical keys from the
 // top-level `## Task Tracking` section, and prints a unified diff that
-// moves them under a `### <Tracker>` subsection (e.g. `### Linear`).
+// moves them, verbatim and prefixed `- `, into a `## Tracker Notes` prose
+// section directly after the `## Task Tracking` span (amended by
+// M_94e6f7/STE-708; the destination used to be a `### <Tracker>` subsection).
 //
 // Three behaviors:
 //   (a) clean CLAUDE.md (only canonical keys) → empty diff (idempotent)
 //   (b) drifted CLAUDE.md (non-canonical keys at top level) → unified diff
-//       moving them under `### <Tracker>`, where Tracker capitalizes mode
-//   (c) ### subsection already exists → append non-canonical keys to it
-//       rather than create a duplicate subsection
+//       moving them into `## Tracker Notes`, whatever the mode
+//   (c) ### subsection already exists → left alone, never duplicated; the
+//       keys still move to `## Tracker Notes` (appended to an existing one)
 
 const sampleSmoke = [
   "# Project",
@@ -48,23 +50,23 @@ describe("AC-STE-114.5(b) drifted top-level keys → unified diff", () => {
     expect(diff).not.toBe("");
     expect(diff).toMatch(/--- a\/.+CLAUDE\.md/);
     expect(diff).toMatch(/\+\+\+ b\/.+CLAUDE\.md/);
-    // The migration adds `### Linear` heading.
-    expect(diff).toMatch(/^\+### Linear/m);
-    // The structural rearrangement is visible: in the before frame,
-    // `linear_*` keys live above `branch_template`; in the after frame,
-    // `branch_template` appears earlier (added) and the trailing empty
-    // line is removed (the section is rebuilt with the subsection
-    // appended). The LCS recognizes the offender lines as common
-    // context, so they appear with leading-space, not `-`/`+`.
-    // What's load-bearing: the diff is non-empty, the heading is added,
-    // and applying the patch yields a CLAUDE.md whose top-level keys are
-    // canonical-only (verified by the round-trip test below).
-    expect(diff).toMatch(/^ linear_team_id: foo/m);
-    expect(diff).toMatch(/^ linear_team_name: bar/m);
-    expect(diff).toMatch(/^ linear_project_id: baz/m);
+    // Amended by M_94e6f7/STE-708 (AC-.3): the destination is a
+    // `## Tracker Notes` prose section, not a `### Linear` sub-section.
+    expect(diff).toMatch(/^\+## Tracker Notes$/m);
+    expect(diff).not.toMatch(/^\+### Linear/m);
+    // Each offender leaves the top level and lands verbatim, prefixed `- `.
+    expect(diff).toMatch(/^-linear_team_id: foo$/m);
+    expect(diff).toMatch(/^-linear_team_name: bar$/m);
+    expect(diff).toMatch(/^-linear_project_id: baz$/m);
+    expect(diff).toMatch(/^\+- linear_team_id: foo$/m);
+    expect(diff).toMatch(/^\+- linear_team_name: bar$/m);
+    expect(diff).toMatch(/^\+- linear_project_id: baz$/m);
   });
 
-  test("subsection name uses Title-Case of the mode", () => {
+  // Amended by M_94e6f7/STE-708 (AC-.3): the destination no longer depends
+  // on the mode — a Jira tree gets the same `## Tracker Notes` section and
+  // no `### Jira` sub-section.
+  test("destination is ## Tracker Notes whatever the mode", () => {
     const jiraDrift = [
       "# Project",
       "",
@@ -78,12 +80,18 @@ describe("AC-STE-114.5(b) drifted top-level keys → unified diff", () => {
       "",
     ].join("\n");
     const diff = computeMigrationDiff(jiraDrift, "/proj/CLAUDE.md");
-    expect(diff).toMatch(/\+### Jira/);
+    expect(diff).toMatch(/^\+## Tracker Notes$/m);
+    expect(diff).not.toMatch(/^\+### Jira/m);
+    expect(diff).toMatch(/^\+- jira_workspace: foo$/m);
+    expect(diff).toMatch(/^\+- jira_project_key: BAR$/m);
   });
 });
 
 describe("AC-STE-114.5(c) existing ### subsection — append, don't duplicate", () => {
-  test("non-canonical keys appended to the existing subsection", () => {
+  // Amended by M_94e6f7/STE-708 (AC-.3): an existing `### Linear` is left
+  // alone and never duplicated; the key moves to `## Tracker Notes`, and
+  // re-running the helper on the result yields an empty diff (idempotent).
+  test("existing subsection is not duplicated; key moves to ## Tracker Notes", () => {
     const withSubsection = [
       "# Project",
       "",
@@ -103,8 +111,18 @@ describe("AC-STE-114.5(c) existing ### subsection — append, don't duplicate", 
     // Should not introduce a second `### Linear` heading.
     const addedHeadings = diff.match(/^\+### Linear/gm);
     expect(addedHeadings).toBeNull();
-    // Should add the migrated key.
-    expect(diff).toMatch(/^\+linear_new_key: hello/m);
+    // Should add the migrated key, once, under a single notes heading.
+    expect(diff).toMatch(/^\+- linear_new_key: hello$/m);
+    expect(diff).not.toMatch(/^\+linear_new_key: hello$/m);
+    const postImage = diff
+      .split("\n")
+      .slice(3)
+      .filter((l) => l.startsWith(" ") || l.startsWith("+"))
+      .map((l) => l.slice(1))
+      .join("\n");
+    expect(postImage.split("\n").filter((l) => l === "## Tracker Notes").length).toBe(1);
+    expect(postImage.split("\n").filter((l) => l === "### Linear").length).toBe(1);
+    expect(computeMigrationDiff(postImage, "/proj/CLAUDE.md")).toBe("");
   });
 });
 

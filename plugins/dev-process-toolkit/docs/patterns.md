@@ -408,6 +408,10 @@ This is a convention problem, not a clever-code problem. Every one of those read
 
 **Why the section heading is the single probe anchor:** a literal heading check is cheaper than YAML frontmatter parsing, deterministic across markdown renderers, and survives CLAUDE.md edits that preserve structure. Keys inside the section are parsed only after the heading is confirmed present, so malformed key lines never break the `none` path.
 
+**Settings-file trees.** On a tree whose settings live in `specs/settings.yaml`, the `## Task Tracking` heading the probe reads is the generated binding stub, rendered from `task_tracking` in `specs/settings.yaml`. It carries the heading, the `mode:` line and the adapter's binding keys, and is never edited by hand. A tracker-mode settings tree always carries the stub, and gate-check probe #25 grades it byte-equal to its render. A settings tree in `mode: none` has no stub, so the absent heading still means `mode: none`. The prose read above therefore gives the same answer on every tree, with no extra call.
+
+**Code-side read.** Code reads the mode through the settings loader: `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/project_settings.ts" mode "<projectRoot>"` prints `mode: <value>` and `source: <settings|legacy|none>`. `project_settings.ts mode` is the code-side read and the skills' path in 4.0, when the stub goes away. It is not a skill entry step: through 3.x no skill runs it.
+
 **Rules:**
 - The probe must be the first action any mode-aware skill takes after reading its arguments — before branch inspection, before MCP calls, before file writes.
 - Skills that are not applicable in the current mode exit cleanly with a one-line message.
@@ -425,11 +429,11 @@ This is a convention problem, not a clever-code problem. Every one of those read
 | `jira_ac_field` | `customfield_XXXXX` (Jira only; blank otherwise) | Jira adapter only |
 | `branch_template` | branch-naming template (e.g., `{type}/m{N}-{slug}`) | `/implement` Phase 1 only |
 
-These four keys are the closed set; emitting **additional top-level keys** under `## Task Tracking` is a `/gate-check` failure (probe `task-tracking-canonical-keys` — gate-check #21). Tracker-specific metadata (project IDs, team names, workspace URLs) belong in a sub-section under `## Task Tracking` (e.g., `### Linear`, `### Jira`) or in the adapter's own config — **not** as Schema L keys at the top level. Sub-section contents are scoped out of the canonical-key check. Adding a new canonical key requires a deliberate `docs/patterns.md` edit + probe code change in the same PR.
+These four keys are the closed set; emitting **additional top-level keys** under `## Task Tracking` (the legacy home of these keys; a settings-file tree carries the generated stub there instead) is a `/gate-check` failure (probe `task-tracking-canonical-keys` — gate-check #21). The adapter's binding keys are the only sub-section content (`### Linear`, `### Jira`, closed shape below). Any other tracker metadata goes in a prose section outside `## Task Tracking` (e.g., `## Tracker Notes`) — **not** as Schema L keys at the top level and not as extra sub-section lines, since the settings schema is closed and the settings move refuses them. Sub-section contents are scoped out of the canonical-key check. Adding a new canonical key requires a deliberate `docs/patterns.md` edit + probe code change in the same PR.
 
-A one-time migration helper for projects that picked up the drift before the constraint landed lives at `scripts/migrate-task-tracking-canonical.ts` (dry-run only; outputs a unified diff to stdout — operator pipes to `patch -p1` if they want to apply). Greenfield projects don't need it.
+A one-time migration helper for projects that picked up the drift before the constraint landed lives at `scripts/migrate-task-tracking-canonical.ts` (moves each stray key line, verbatim and prefixed `- `, into a `## Tracker Notes` prose section directly after the `## Task Tracking` span; dry-run only; outputs a unified diff to stdout — operator pipes to `patch -p1` if they want to apply). Greenfield projects don't need it.
 
-**Workspace binding sub-sections.** Tracker-specific workspace metadata lives in mode-aware sub-sections under `## Task Tracking`. The shape is closed and parser-validated:
+**Workspace binding sub-sections.** The binding keys, and only those, live in mode-aware sub-sections under `## Task Tracking` (on a settings-file tree, the generated stub); any other tracker metadata goes to a prose section such as `## Tracker Notes`. The shape is closed and parser-validated:
 
 | Sub-section | Required keys | Optional keys |
 |-------------|---------------|---------------|
