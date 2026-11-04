@@ -23,105 +23,43 @@
 // literals before writing, so any non-literal that shows up at read time
 // is drift to surface, not silently coerce.
 
-import { existsSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-export interface DocsConfig {
-  userFacingMode: boolean;
-  packagesMode: boolean;
-  changelogCiOwned: boolean;
-  changelogUnversioned: boolean;
-}
+import { viewProjectSection } from "./project_settings";
+import { type DocsConfig, parseDocsConfig } from "./project_settings_legacy";
 
-/**
- * Thrown when the `## Docs` section contains a value that is neither
- * lowercase `true` nor lowercase `false`. Callers re-render as NFR-10
- * canonical shape.
- */
-export class MalformedDocsConfigError extends Error {
-  readonly key: string;
-  readonly value: string;
-  constructor(key: string, value: string) {
-    super(
-      `docs config key "${key}" has malformed value "${value}" — expected lowercase "true" or "false"`,
-    );
-    this.name = "MalformedDocsConfigError";
-    this.key = key;
-    this.value = value;
-  }
-}
+export { type DocsConfig, MalformedDocsConfigError } from "./project_settings_legacy";
 
 /**
  * Fold a CLAUDE.md source to LF and drop a leading BOM before any line is
- * matched — the same idiom `normalizeFrontmatterSource` and the module-scanner
- * `normalizeSource` helpers already carry, and the same failure the 2026-07-26
- * sweep closed across 16 frontmatter readers.
- *
- * Without it the heading match below (`l === "## Docs"`) never fires on a
- * CRLF-authored file, because the line is `"## Docs\r"`. That is not a loud
- * failure: the reader returns all-false, and a project declaring
- * `changelog_ci_owned: true` gets its CHANGELOG rewritten anyway. The gate
- * fails OPEN, which is the direction that costs the operator a file.
- *
- * `\r\n` is folded before lone `\r` so CRLF never becomes a blank line, and
- * neither substitution changes the line COUNT.
+ * matched — without it the `## Docs` heading match never fires on a
+ * CRLF-authored file and the reader fails OPEN (all-false). `\r\n` is folded
+ * before lone `\r`, so the line COUNT never changes. The legacy parse applies
+ * it before matching the heading.
  */
-function normalizeSource(raw: string): string {
-  return raw.replace(/^﻿/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-}
-
-const ALL_FALSE: DocsConfig = {
-  userFacingMode: false,
-  packagesMode: false,
-  changelogCiOwned: false,
-  changelogUnversioned: false,
-};
-
-function parseBool(key: string, raw: string): boolean {
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  throw new MalformedDocsConfigError(key, raw);
+export function normalizeDocsSource(raw: string): string {
+  return raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 /**
- * Parse the `## Docs` section of CLAUDE.md into a DocsConfig.
+ * The project's docs flags.
  *
- * Section terminates at the next heading line (`# `, `## `, `### `,
- * `#### `). Matches the same termination rule used by
- * `readTaskTrackingSection` — Schema L's grep contract requires flat
- * `key: value` pairs only, no nested structure.
- *
- * @throws MalformedDocsConfigError when any recognized key's value is
- * not lowercase `true` or `false`.
+ * STE-707 — derived from `loadProjectSection(projectRoot, "docs")` with the
+ * project root resolved as the directory of `claudeMdPath`; an absent key
+ * reads `false`. On a legacy tree the v2.101.4 `## Docs` parse (absent
+ * section ≡ all false, CRLF folded, a non-literal value throws
+ * `MalformedDocsConfigError`), which lives in the loader's legacy module.
  */
 export function readDocsConfig(claudeMdPath: string): DocsConfig {
-  if (!existsSync(claudeMdPath)) return { ...ALL_FALSE };
-  const md = readFileSync(claudeMdPath, "utf8");
-  const lines = normalizeSource(md).split("\n");
-  const startIdx = lines.findIndex((l) => l === "## Docs");
-  if (startIdx < 0) return { ...ALL_FALSE };
-
-  const result: DocsConfig = { ...ALL_FALSE };
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (/^#{1,4} /.test(line)) break;
-    const m = /^([a-z_]+):\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const [, key, rawValue] = m;
-    const value = (rawValue ?? "").trim();
-    switch (key) {
-      case "user_facing_mode":
-        result.userFacingMode = parseBool(key, value);
-        break;
-      case "packages_mode":
-        result.packagesMode = parseBool(key, value);
-        break;
-      case "changelog_ci_owned":
-        result.changelogCiOwned = parseBool(key, value);
-        break;
-      case "changelog_unversioned":
-        result.changelogUnversioned = parseBool(key, value);
-        break;
-    }
-  }
-  return result;
+  return viewProjectSection(
+    dirname(claudeMdPath),
+    "docs",
+    (d) => ({
+      userFacingMode: d.user_facing_mode === true,
+      packagesMode: d.packages_mode === true,
+      changelogCiOwned: d.changelog_ci_owned === true,
+      changelogUnversioned: d.changelog_unversioned === true,
+    }),
+    () => parseDocsConfig(claudeMdPath),
+  );
 }

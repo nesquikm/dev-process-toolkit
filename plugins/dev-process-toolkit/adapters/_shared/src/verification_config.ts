@@ -45,162 +45,74 @@
 // preserves line COUNT, so `verificationSectionLine`'s 1-based number stays
 // honest, and it is a no-op on already-LF content.
 
-import { existsSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-import { normalizeFrontmatterSource } from "./frontmatter";
+import { settingsKeyLine, viewProjectSection } from "./project_settings";
+import {
+  legacyVerificationSectionLine,
+  type ParsedVerificationSection,
+  parseVerificationSection,
+  VERIFICATION_DEFAULTS,
+  VERIFICATION_HEADING,
+  type VerificationConfig,
+  type VerifyMode,
+} from "./project_settings_legacy";
 
-export type VerifyMode = "advisory" | "blocking" | "manual";
-
-export interface VerificationConfig {
-  verifySkill: string | null;
-  verifyMode: VerifyMode;
-  /** Declared run command; `"none"`; `""` for a bare key; null when absent. */
-  runCmd: string | null;
-  /** Declared e2e command; `"none"`; `""` for a bare key; null when absent. */
-  e2eCmd: string | null;
-}
-
-/**
- * Thrown when the `## Verification` section contains an out-of-closed-set
- * key, or a `verify_mode` value outside {advisory, blocking, manual}.
- * Callers surface key + value so the operator can fix the exact line.
- */
-export class MalformedVerificationConfigError extends Error {
-  readonly key: string;
-  readonly value: string;
-  constructor(key: string, value: string, detail: string) {
-    super(
-      `verification config key "${key}" with value "${value}" is malformed — ${detail}`,
-    );
-    this.name = "MalformedVerificationConfigError";
-    this.key = key;
-    this.value = value;
-  }
-}
+export {
+  CLOSED_KEYS,
+  MalformedVerificationConfigError,
+  VERIFICATION_HEADING,
+  type VerificationConfig,
+  VERIFY_MODES,
+  type VerifyMode,
+} from "./project_settings_legacy";
 
 /**
- * The section's one anchor, matched as a WHOLE LINE (never a substring, never a
- * regex). Exported so a consumer that must point an operator at the section —
- * a gate probe's `file:line` note, a remedy string naming the heading — quotes
- * this rather than re-declaring the literal and drifting from the parser.
- */
-export const VERIFICATION_HEADING = "## Verification";
-
-/** Index of the section heading in `lines`, or -1 when there is no section. */
-function sectionIndex(lines: readonly string[]): number {
-  return lines.findIndex((l) => l === VERIFICATION_HEADING);
-}
-
-/**
- * The 1-based line of the `## Verification` heading in `claudeMdPath`, or
- * `null` when there is no such line — an absent or unreadable file, or a
- * CLAUDE.md carrying no section. Never throws.
+ * The 1-based line the `verification` section starts on in its own home, or
+ * `null` when there is none — an absent or unreadable file, or no section.
+ * Never throws.
  *
- * `readVerificationConfig` returns values, not positions; this is the
- * positional half, anchored on the same whole-line match so the two cannot
- * disagree about where the section is.
+ * STE-707 — on a settings-file tree the line of the `verification:` key in
+ * `specs/settings.yaml`; on a legacy tree the line of the `## Verification`
+ * heading in `claudeMdPath`.
  */
 export function verificationSectionLine(claudeMdPath: string): number | null {
-  let body: string;
   try {
-    body = readFileSync(claudeMdPath, "utf8");
+    return viewProjectSection(
+      dirname(claudeMdPath),
+      "verification",
+      () => settingsKeyLine(dirname(claudeMdPath), "verification"),
+      () => legacyVerificationSectionLine(claudeMdPath),
+    );
   } catch {
     return null;
   }
-  const idx = sectionIndex(normalizeFrontmatterSource(body).split("\n"));
-  return idx < 0 ? null : idx + 1;
-}
-
-export const VERIFY_MODES: readonly string[] = ["advisory", "blocking", "manual"];
-
-const DEFAULTS: VerificationConfig = {
-  verifySkill: null,
-  verifyMode: "advisory",
-  runCmd: null,
-  e2eCmd: null,
-};
-
-/** The closed key set, in canonical authoring (and render) order. */
-export const CLOSED_KEYS = [
-  "verify_skill",
-  "verify_mode",
-  "run_cmd",
-  "e2e_cmd",
-] as const;
-
-/**
- * The parse's two halves: the resolved record, plus the set of keys the
- * author ACTUALLY WROTE. `readVerificationConfig` returns only the first;
- * `resolveVerifyMode` needs the second to tell a declared `verify_mode`
- * from the defaulted one. Both exports go through the single parse below,
- * so the section grammar exists exactly once.
- */
-interface ParsedVerificationSection {
-  config: VerificationConfig;
-  declaredKeys: ReadonlySet<string>;
 }
 
 /**
- * Parse the `## Verification` section of CLAUDE.md.
- *
- * Section terminates at the next heading line (`# `, `## `, `### `,
- * `#### `) — the same termination rule as `readDocsConfig`. Schema L's
- * grep contract requires flat `key: value` pairs only, no nesting.
- *
- * @throws MalformedVerificationConfigError on an out-of-closed-set key
- * inside the section, or a `verify_mode` value outside
- * {advisory, blocking, manual}.
+ * STE-707 — the section's two halves (record + declared keys), derived from
+ * `loadProjectSection(projectRoot, "verification")` with the project root
+ * resolved as the directory of `claudeMdPath`; on a legacy tree the v2.101.4
+ * parse, which lives in the loader's legacy module.
  */
-function parseVerificationSection(
-  claudeMdPath: string,
-): ParsedVerificationSection {
-  const declaredKeys = new Set<string>();
-  if (!existsSync(claudeMdPath)) {
-    return { config: { ...DEFAULTS }, declaredKeys };
-  }
-  const md = normalizeFrontmatterSource(readFileSync(claudeMdPath, "utf8"));
-  const lines = md.split("\n");
-  const startIdx = sectionIndex(lines);
-  if (startIdx < 0) return { config: { ...DEFAULTS }, declaredKeys };
-
-  const result: VerificationConfig = { ...DEFAULTS };
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (/^#{1,4} /.test(line)) break;
-    const m = /^([a-z0-9_]+):\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const [, key, rawValue] = m;
-    const value = (rawValue ?? "").trim();
-    declaredKeys.add(key!);
-    switch (key) {
-      case "verify_skill":
-        result.verifySkill = value;
-        break;
-      case "verify_mode":
-        if (!VERIFY_MODES.includes(value)) {
-          throw new MalformedVerificationConfigError(
-            key!,
-            value,
-            'expected one of lowercase "advisory" | "blocking" | "manual"',
-          );
-        }
-        result.verifyMode = value as VerifyMode;
-        break;
-      case "run_cmd":
-        result.runCmd = value;
-        break;
-      case "e2e_cmd":
-        result.e2eCmd = value;
-        break;
-      default:
-        throw new MalformedVerificationConfigError(
-          key!,
-          value,
-          `the ## Verification key set is closed to {${CLOSED_KEYS.join(", ")}}`,
-        );
-    }
-  }
-  return { config: result, declaredKeys };
+function readVerificationSection(claudeMdPath: string): ParsedVerificationSection {
+  return viewProjectSection(
+    dirname(claudeMdPath),
+    "verification",
+    (v) => {
+      const str = (k: string): string | null => (typeof v[k] === "string" ? (v[k] as string) : null);
+      return {
+        config: {
+          verifySkill: str("verify_skill"),
+          verifyMode: (str("verify_mode") ?? VERIFICATION_DEFAULTS.verifyMode) as VerifyMode,
+          runCmd: str("run_cmd"),
+          e2eCmd: str("e2e_cmd"),
+        },
+        declaredKeys: new Set(Object.keys(v)),
+      };
+    },
+    () => parseVerificationSection(claudeMdPath),
+  );
 }
 
 /**
@@ -214,7 +126,7 @@ function parseVerificationSection(
 export function readVerificationConfig(
   claudeMdPath: string,
 ): VerificationConfig {
-  return parseVerificationSection(claudeMdPath).config;
+  return readVerificationSection(claudeMdPath).config;
 }
 
 /**
@@ -276,7 +188,7 @@ export function isRunCmdAnswered(value: string | null | undefined): boolean {
  * never silently defaulted.
  */
 export function resolveVerifyMode(claudeMdPath: string): VerifyMode {
-  const { config, declaredKeys } = parseVerificationSection(claudeMdPath);
+  const { config, declaredKeys } = readVerificationSection(claudeMdPath);
   if (declaredKeys.has("verify_mode")) return config.verifyMode;
   const { runCmd } = config;
   return isRunCmdAnswered(runCmd) && !isRunCmdNone(runCmd)

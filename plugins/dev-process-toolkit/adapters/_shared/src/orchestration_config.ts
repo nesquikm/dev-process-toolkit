@@ -23,141 +23,53 @@
 //
 // Pure file reads only — no git, no network, no child processes.
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { viewProjectSection } from "./project_settings";
+import {
+  type EffortLevel,
+  type MergePolicy,
+  type OrchestrationConfig,
+  ORCHESTRATION_DEFAULTS,
+  parseOrchestrationConfig,
+} from "./project_settings_legacy";
 
-/** Closed set of legal `default_effort` values (shared authority for STE-464). */
-export const EFFORT_LEVELS = [
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "ultracode",
-] as const;
-
-/** Closed set of legal `merge_policy` values (shared authority for STE-464). */
-export const MERGE_POLICIES = ["offer", "auto", "never"] as const;
-
-export type EffortLevel = (typeof EFFORT_LEVELS)[number];
-export type MergePolicy = (typeof MERGE_POLICIES)[number];
-
-export interface OrchestrationConfig {
-  defaultEffort: EffortLevel;
-  mergePolicy: MergePolicy;
-}
-
-const DEFAULTS: OrchestrationConfig = {
-  defaultEffort: "ultracode",
-  mergePolicy: "offer",
-};
+export {
+  EFFORT_LEVELS,
+  type EffortLevel,
+  MalformedOrchestrationConfigError,
+  MERGE_POLICIES,
+  type MergePolicy,
+  type OrchestrationConfig,
+} from "./project_settings_legacy";
 
 /**
- * Thrown when the `## Orchestration` block carries a value outside its
- * closed set or an unknown top-level key. The message follows the NFR-10
- * canonical refusal shape (`CLAUDE.md:<line>` anchor plus Refusing: /
- * Remedy: / Context: lines) so callers can render it verbatim.
+ * Strip a leading UTF-8 BOM and normalize CRLF → LF (line count unchanged) —
+ * the fold the `## Orchestration` parse applies before matching its heading.
  */
-export class MalformedOrchestrationConfigError extends Error {
-  readonly line: number;
-  constructor(line: number, reason: string, remedy: string) {
-    super(
-      [
-        `CLAUDE.md:${line} — malformed \`## Orchestration\` block`,
-        `Refusing: ${reason}`,
-        `Remedy: ${remedy}`,
-        `Context: mode=orchestration-config, file=CLAUDE.md, line=${line}`,
-      ].join("\n"),
-    );
-    this.name = "MalformedOrchestrationConfigError";
-    this.line = line;
-  }
-}
-
-/** Strip a leading UTF-8 BOM and normalize CRLF → LF (line count unchanged). */
-function normalize(raw: string): string {
-  return raw.replace(/^﻿/, "").replace(/\r\n/g, "\n");
+export function normalizeOrchestrationSource(raw: string): string {
+  return raw.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 }
 
 /**
- * Validate `value` against a closed set; refuse in NFR-10 shape otherwise.
- * Mirrors the docs_config `parseBool` idiom — one throwing parse helper
- * shared by every recognized key.
- */
-function requireMember<T extends string>(
-  set: readonly T[],
-  value: string,
-  lineNo: number,
-  key: string,
-  noun: string,
-): T {
-  if (!(set as readonly string[]).includes(value)) {
-    throw new MalformedOrchestrationConfigError(
-      lineNo,
-      `\`${key}: ${value}\` is not a legal ${noun}.`,
-      `set ${key} to one of ${set.join(" | ")} ` +
-        `(exact lowercase literal, unquoted).`,
-    );
-  }
-  return value as T;
-}
-
-/**
- * Parse the `## Orchestration` section of `<projectRoot>/CLAUDE.md`.
+ * The project's orchestration defaults.
  *
- * Section terminates at the next heading line (`# ` … `#### `) — the
- * same termination rule as readDocsConfig; Schema L requires flat
- * `key: value` pairs only.
+ * STE-707 — derived from `loadProjectSection(projectRoot, "orchestration")`;
+ * an absent key reads its default (`ultracode`, `offer`). On a legacy tree
+ * the v2.101.4 `## Orchestration` parse of `<projectRoot>/CLAUDE.md`, which
+ * lives in the loader's legacy module.
  *
  * @throws MalformedOrchestrationConfigError on a value outside the
- * closed set or an unknown top-level key inside the block.
+ * closed set or an unknown top-level key inside the legacy block.
  */
 export function readOrchestrationConfig(
   projectRoot: string,
 ): OrchestrationConfig {
-  const claudeMdPath = join(projectRoot, "CLAUDE.md");
-  if (!existsSync(claudeMdPath)) return { ...DEFAULTS };
-  const md = normalize(readFileSync(claudeMdPath, "utf8"));
-  const lines = md.split("\n");
-  const startIdx = lines.findIndex((l) => l === "## Orchestration");
-  if (startIdx < 0) return { ...DEFAULTS };
-
-  const result: OrchestrationConfig = { ...DEFAULTS };
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (/^#{1,4} /.test(line)) break;
-    const m = /^([a-z_]+):\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const [, key, rawValue] = m;
-    const value = (rawValue ?? "").trim();
-    const lineNo = i + 1;
-    switch (key) {
-      case "default_effort":
-        result.defaultEffort = requireMember(
-          EFFORT_LEVELS,
-          value,
-          lineNo,
-          key,
-          "effort level",
-        );
-        break;
-      case "merge_policy":
-        result.mergePolicy = requireMember(
-          MERGE_POLICIES,
-          value,
-          lineNo,
-          key,
-          "merge policy",
-        );
-        break;
-      default:
-        throw new MalformedOrchestrationConfigError(
-          lineNo,
-          `unknown key \`${key}\` in the \`## Orchestration\` block ` +
-            `(closed schema: default_effort, merge_policy).`,
-          `remove \`${key}\` or rename it to a recognized key.`,
-        );
-    }
-  }
-  return result;
+  return viewProjectSection(
+    projectRoot,
+    "orchestration",
+    (o) => ({
+      defaultEffort: (o.default_effort as EffortLevel | undefined) ?? ORCHESTRATION_DEFAULTS.defaultEffort,
+      mergePolicy: (o.merge_policy as MergePolicy | undefined) ?? ORCHESTRATION_DEFAULTS.mergePolicy,
+    }),
+    () => parseOrchestrationConfig(projectRoot),
+  );
 }

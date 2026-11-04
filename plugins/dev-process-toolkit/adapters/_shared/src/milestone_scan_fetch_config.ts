@@ -23,31 +23,29 @@
 // `readDocsConfig`, which THROWS on a malformed value — and deliberately so,
 // because a docs mode that silently reads `false` changes what ships.
 
-import { existsSync, readFileSync } from "node:fs";
-import { normalizeFrontmatterSource } from "./frontmatter";
+import { dirname } from "node:path";
+
+import { viewProjectSection } from "./project_settings";
+import { parseMilestoneScanFetch } from "./project_settings_legacy";
 
 /**
- * The `milestone_scan_fetch:` value declared in a project's CLAUDE.md.
+ * The project's `milestone_scan_fetch` value.
  *
- * Matched as a STANDALONE TOP-LEVEL line — no leading whitespace — because
- * that is how the template documents it and how `/setup` would emit it. The
- * anchoring is load-bearing: the same token appears indented inside the
- * template's own explanatory comment block, and a loose match would read a
- * project's documentation as its configuration.
- *
- * Only the literal `true` enables it. `yes`, `1`, `True` and a missing value
- * all resolve to `false`, matching the lowercase-literal convention every
- * other Schema-L boolean in this file uses.
+ * STE-707 — derived from `loadProjectSection(projectRoot, "task_tracking")`
+ * (`task_tracking.milestone_scan_fetch`, only `true` enables it) with the
+ * project root resolved as the directory of `claudeMdPath`. On a legacy tree
+ * the v2.101.4 read, which lives in the loader's legacy module: a STANDALONE
+ * TOP-LEVEL `milestone_scan_fetch: true` line in CLAUDE.md — anchored, so the
+ * template's indented explanatory mention never reads as configuration.
+ * `yes`, `1`, `True` and a missing value all resolve to `false`.
  */
 export function readMilestoneScanFetch(claudeMdPath: string): boolean {
-  if (!existsSync(claudeMdPath)) return false;
-  let text: string;
-  try {
-    text = normalizeFrontmatterSource(readFileSync(claudeMdPath, "utf-8"));
-  } catch {
-    return false;
-  }
-  return /^milestone_scan_fetch:[ \t]*true[ \t]*$/m.test(text);
+  return viewProjectSection(
+    dirname(claudeMdPath),
+    "task_tracking",
+    (tt) => tt.milestone_scan_fetch === true,
+    () => parseMilestoneScanFetch(claudeMdPath),
+  );
 }
 
 /** The three inputs the documented precedence chain arbitrates between. */

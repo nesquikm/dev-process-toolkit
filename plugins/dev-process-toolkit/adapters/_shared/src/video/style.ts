@@ -7,8 +7,8 @@
 // unknown key or a wrongly-typed value refuses in the NFR-10 canonical shape
 // naming the offending key path.
 
-import { existsSync, readFileSync } from "node:fs";
-import { videoStylePath } from "../dpt_paths";
+import { viewProjectSection } from "../project_settings";
+import { readLegacyVideoStyleFile, VIDEO_STYLE } from "../project_settings_legacy";
 import {
   enumRefusal,
   isObj,
@@ -58,7 +58,7 @@ const TARGET_LUFS_MAX = -5;
 /** NFR-10 refusal for a malformed video style. Never echoes key values. */
 export class VideoStyleShapeError extends VideoShapeError {
   constructor(keyPath: string, reason: string, remedy: string) {
-    super("style", videoStylePath("."), keyPath, reason, remedy);
+    super("style", VIDEO_STYLE, keyPath, reason, remedy);
     this.name = "VideoStyleShapeError";
   }
 }
@@ -210,7 +210,13 @@ export function parseVideoStyle(raw: string): VideoStyle {
 
 /** Read the video `style.yaml` under `projectRoot`; an absent file yields the defaults. */
 export function readVideoStyle(projectRoot: string): VideoStyle {
-  const path = videoStylePath(projectRoot);
-  if (!existsSync(path)) return structuredClone(VIDEO_STYLE_DEFAULTS);
-  return parseVideoStyle(readFileSync(path, "utf8"));
+  // STE-707 — derived from `loadProjectSection(projectRoot, "video")`; on a
+  // legacy tree the style file, read by the loader's legacy module.
+  const style = viewProjectSection(
+    projectRoot,
+    "video",
+    (v) => v.style,
+    () => readLegacyVideoStyleFile(projectRoot),
+  );
+  return style ?? structuredClone(VIDEO_STYLE_DEFAULTS);
 }

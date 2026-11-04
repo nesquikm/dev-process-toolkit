@@ -62,7 +62,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { detectRunnability } from "../../detect_runnability";
-import { VERIFICATION_HEADING } from "../../verification_config";
+import type * as VerificationConfig from "../../verification_config";
 import type { ApplyResult, DetectResult, MigrationEntry } from "../index";
 
 /** The key this entry seeds, and the only value it is ever willing to write. */
@@ -206,6 +206,9 @@ function planRunCmdSplice(projectRoot: string): PlannedSplice | null {
   // Whole-line match on the shared heading constant — never a substring, never
   // a private copy of the literal, so the entry and the parser can never
   // disagree about where the section is.
+  // Loaded when first used: the module imports the settings loader, whose
+  // version helpers import this registry (STE-707).
+  const { VERIFICATION_HEADING } = require("../../verification_config") as typeof VerificationConfig;
   const start = lines.indexOf(VERIFICATION_HEADING);
   if (start < 0) return null;
 

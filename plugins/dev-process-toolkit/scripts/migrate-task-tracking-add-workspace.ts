@@ -14,7 +14,10 @@
 // is small enough that DRY-via-import would invert the cost).
 
 import { readFileSync } from "node:fs";
-import { basename, isAbsolute } from "node:path";
+import { basename, dirname, isAbsolute } from "node:path";
+
+import { viewProjectSection } from "../adapters/_shared/src/project_settings";
+import { TASK_TRACKING_HEADING, TRACKER_SUBSECTION_HEADINGS } from "../adapters/_shared/src/project_settings_legacy";
 
 interface ParsedSection {
   preamble: string[];
@@ -31,7 +34,7 @@ export interface WorkspaceMigrationInput {
 
 function parse(content: string): ParsedSection | null {
   const lines = content.split("\n");
-  const startIdx = lines.findIndex((l) => l === "## Task Tracking");
+  const startIdx = lines.findIndex((l) => l === TASK_TRACKING_HEADING);
   if (startIdx < 0) return null;
   let endIdx = lines.length;
   for (let i = startIdx + 1; i < lines.length; i++) {
@@ -94,7 +97,7 @@ function detectMode(sectionLines: string[]): string | null {
 }
 
 function hasSubsection(sectionLines: string[], adapter: "linear" | "jira"): boolean {
-  const title = adapter === "linear" ? "### Linear" : "### Jira";
+  const title = TRACKER_SUBSECTION_HEADINGS[adapter];
   return sectionLines.some((l) => l === title);
 }
 
@@ -114,7 +117,7 @@ export function computeWorkspaceMigrationDiff(
   if (mode === null || mode === "none") return "";
   if (hasSubsection(parsed.sectionLines, input.adapter)) return "";
 
-  const subTitle = input.adapter === "linear" ? "### Linear" : "### Jira";
+  const subTitle = TRACKER_SUBSECTION_HEADINGS[input.adapter];
   const newBlock: string[] = [];
   // Ensure a blank line before the sub-section if the existing section's
   // last non-empty line isn't already followed by a blank.
@@ -179,6 +182,28 @@ async function main(argv: string[]): Promise<number> {
     console.error("usage: migrate-task-tracking-add-workspace.ts <CLAUDE.md path>");
     return 1;
   }
+  // STE-707 — on a settings-file tree the mode and binding come from
+  // `loadProjectSection(projectRoot, "task_tracking")`; the binding lives in
+  // specs/settings.yaml there, never in a CLAUDE.md sub-section.
+  const fromSettings = viewProjectSection(
+    dirname(path),
+    "task_tracking",
+    (tt) => ({ mode: tt.mode, bound: typeof tt[tt.mode] === "object" && tt[tt.mode] !== null }),
+    () => null,
+  );
+  if (fromSettings !== null) {
+    const { mode, bound } = fromSettings;
+    if (mode === "none") {
+      console.error("# no migration needed — mode: none");
+    } else if (mode !== "linear" && mode !== "jira") {
+      console.error(`# no canonical workspace-binding sub-section defined for mode: ${mode}`);
+    } else if (bound) {
+      console.error(`# no migration needed — ${TRACKER_SUBSECTION_HEADINGS[mode]} sub-section already present`);
+    } else {
+      console.error(`# the workspace binding lives in specs/settings.yaml — add \`task_tracking.${mode}\` there`);
+    }
+    return 0;
+  }
   const content = readFileSync(path, "utf-8");
   const parsed = parse(content);
   if (!parsed) {
@@ -195,7 +220,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (hasSubsection(parsed.sectionLines, mode)) {
-    console.error(`# no migration needed — ### ${mode === "linear" ? "Linear" : "Jira"} sub-section already present`);
+    console.error(`# no migration needed — ${TRACKER_SUBSECTION_HEADINGS[mode]} sub-section already present`);
     return 0;
   }
 

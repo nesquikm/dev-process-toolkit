@@ -29,7 +29,7 @@ import { basename, join, relative } from "node:path";
 import { joinFrontmatter, parseFrontmatter, splitFrontmatter } from "../../frontmatter";
 import { mintMilestoneId } from "../../mint_milestone_id";
 import { PLAN_FILENAME_RE, parseMilestoneToken } from "../../milestone_token";
-import { readTaskTrackingSection } from "../../resolver_config";
+import type * as ResolverConfig from "../../resolver_config";
 import type { ApplyResult, DetectResult, MigrationEntry } from "../index";
 
 /**
@@ -78,6 +78,10 @@ interface RepairablePlan {
  * unrepairable.
  */
 function resolveMode(projectRoot: string): string {
+  // Loaded when first used: the reader imports the settings loader, whose
+  // version helpers import this registry, so a module-load import would close
+  // a cycle through `migrations/index` (STE-707).
+  const { readTaskTrackingSection } = require("../../resolver_config") as typeof ResolverConfig;
   const mode = readTaskTrackingSection(join(projectRoot, "CLAUDE.md"))["mode"];
   return mode === undefined || mode.length === 0 ? "none" : mode;
 }

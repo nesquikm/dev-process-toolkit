@@ -31,7 +31,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { parseFrontmatter } from "../../frontmatter";
-import { readTaskTrackingSection } from "../../resolver_config";
+import type * as ResolverConfig from "../../resolver_config";
 import type * as BindingWrite from "../../setup/tracker_binding_write";
 import { LINEAR_TEAM_KEY, linearTeamKeyOf } from "../../tracker_answer";
 import type * as WorkspaceBinding from "../../workspace_binding";
@@ -40,7 +40,10 @@ import type { ApplyResult, DetectResult, MigrationEntry } from "../index";
 // The binding reader and its one writer both import `migrations/coverage`,
 // which imports this registry: loading them at module load closes an import
 // cycle through `migrations/index` and leaves this entry uninitialised when the
-// registry reads it. They are loaded when first used instead.
+// registry reads it. They are loaded when first used instead. The mode reader
+// joins them since it reads through the settings loader (STE-707).
+const readTaskTrackingSection: typeof ResolverConfig.readTaskTrackingSection = (...a) =>
+  (require("../../resolver_config") as typeof ResolverConfig).readTaskTrackingSection(...a);
 const readWorkspaceBinding: typeof WorkspaceBinding.readWorkspaceBinding = (...a) =>
   (require("../../workspace_binding") as typeof WorkspaceBinding).readWorkspaceBinding(...a);
 const writeTrackerSubsection: typeof BindingWrite.writeTrackerSubsection = (...a) =>

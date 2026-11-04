@@ -6,6 +6,7 @@
 // Operator pipes to `patch -p1` if they want to apply.
 
 import { readFileSync } from "node:fs";
+import { TASK_TRACKING_HEADING } from "../adapters/_shared/src/project_settings_legacy";
 import { CANONICAL_KEYS } from "../adapters/_shared/src/task_tracking_canonical_keys";
 
 interface ParsedSection {
@@ -21,7 +22,7 @@ interface ParsedSection {
 
 function parse(content: string): ParsedSection | null {
   const lines = content.split("\n");
-  const startIdx = lines.findIndex((l) => l === "## Task Tracking");
+  const startIdx = lines.findIndex((l) => l === TASK_TRACKING_HEADING);
   if (startIdx < 0) return null;
   let endIdx = lines.length;
   for (let i = startIdx + 1; i < lines.length; i++) {

@@ -8,10 +8,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { checkVersionFloor, runningDptVersion, STRICT_SEMVER_RE } from "./dpt_version";
-import { EFFORT_LEVELS, MERGE_POLICIES } from "./orchestration_config";
 import {
+  CLOSED_KEYS as VERIFICATION_KEYS,
+  EFFORT_LEVELS,
   hasLegacyHome,
   legacyHomesBesideSettings,
+  MERGE_POLICIES,
+  MOVED_HEADINGS,
+  parseTaskTrackingSection,
   readLegacyDocs,
   readLegacyOrchestration,
   readLegacyRelease,
@@ -19,16 +23,18 @@ import {
   readLegacyTracking,
   readLegacyVerification,
   readLegacyVideo,
+  VERIFY_MODES,
 } from "./project_settings_legacy";
 import { VALID_KINDS } from "./release_config";
-import { readTaskTrackingSection } from "./resolver_config";
 import { CANONICAL_KEYS } from "./task_tracking_canonical_keys";
 import { type TrackerConfig, validateTrackerConfig } from "./tracker_config";
-import { CLOSED_KEYS as VERIFICATION_KEYS, VERIFY_MODES } from "./verification_config";
 import { parseVideoConfig, type VideoConfig } from "./video/config";
 import { parseVideoStyle, type VideoStyle } from "./video/style";
 
 export const SETTINGS_FILE = "specs/settings.yaml";
+
+/** Settings-file `task_tracking` objects whose `mode` the loader defaulted (the file declared none). */
+const MODE_DEFAULTED = new WeakSet<object>();
 
 /** Dotted paths of the keys with no v2.101.4 reader (the AC-STE-706.12 `new` rows). */
 export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer"];
@@ -101,7 +107,7 @@ function resolveSingleSource(projectRoot: string): Exclude<SettingsSource, "both
 
 export function detectSettingsSource(projectRoot: string): SettingsSource {
   if (hasSettingsFile(projectRoot)) {
-    return legacyHomesBesideSettings(projectRoot, RECOGNISED_HEADING_KEYS).length > 0 ? "both" : "settings";
+    return legacyHomesBesideSettings(projectRoot, recognisedHeadingKeys()).length > 0 ? "both" : "settings";
   }
   try {
     if (hasLegacyHome(projectRoot)) return "legacy";
@@ -113,7 +119,7 @@ export function detectSettingsSource(projectRoot: string): SettingsSource {
 
 /** The both-homes refusal (AC-STE-706.7): the loader never merges two homes. */
 function bothHomesError(projectRoot: string): SettingsShapeError {
-  const legacy = legacyHomesBesideSettings(projectRoot, RECOGNISED_HEADING_KEYS);
+  const legacy = legacyHomesBesideSettings(projectRoot, recognisedHeadingKeys());
   return new SettingsShapeError(
     `project settings live in two homes: ${SETTINGS_FILE} and ${legacy.join(", ")}; the loader never merges two homes`,
     `run /dev-process-toolkit:upgrade to move the legacy home into ${SETTINGS_FILE}, or remove ${legacy.join(", ")}, then re-run.`,
@@ -175,13 +181,18 @@ const ORCHESTRATION_KEYS = ["default_effort", "merge_policy"];
 const RELEASE_ENTRY_KEYS = ["path", "kind", "field", "pattern", "replace", "optional"];
 
 /** The moved CLAUDE.md headings (stub slot excluded) and the keys that make each a second home. */
-const RECOGNISED_HEADING_KEYS: Readonly<Record<string, readonly string[]>> = {
-  "## Verification": VERIFICATION_KEYS,
-  "## Docs": DOCS_KEYS,
-  "## Orchestration": ORCHESTRATION_KEYS,
-  "## Token Stats": ["enabled"],
-  "## Release Files": ["files"],
-};
+// A function, not a const: the legacy module's key sets may still be
+// uninitialised while an import cycle through a reader evaluates this module.
+function recognisedHeadingKeys(): Readonly<Record<string, readonly string[]>> {
+  const [, verification, docs, orchestration, tokenStats, releaseFiles] = MOVED_HEADINGS;
+  return {
+    [verification]: VERIFICATION_KEYS,
+    [docs]: DOCS_KEYS,
+    [orchestration]: ORCHESTRATION_KEYS,
+    [tokenStats]: ["enabled"],
+    [releaseFiles]: ["files"],
+  };
+}
 
 function shapeError(path: string, reason: string): SettingsShapeError {
   return new SettingsShapeError(
@@ -360,11 +371,13 @@ function loadFromSettingsFile(projectRoot: string): ProjectSettings {
   validateSettingsShape(parsed);
   const d = defaults();
   const tt = isObj(parsed.task_tracking) ? { ...parsed.task_tracking } : d.task_tracking;
+  const taskTracking = { mode: "none", ...tt } as ProjectSettings["task_tracking"];
+  if (!isObj(parsed.task_tracking) || !("mode" in parsed.task_tracking)) MODE_DEFAULTED.add(taskTracking);
   const video = isObj(parsed.video) ? parsed.video : {};
   return {
     schema_version: parsed.schema_version as number,
     min_dpt_version: parsed.min_dpt_version as string,
-    task_tracking: { mode: "none", ...tt } as ProjectSettings["task_tracking"],
+    task_tracking: taskTracking,
     verification: isObj(parsed.verification) ? parsed.verification : d.verification,
     docs: isObj(parsed.docs) ? parsed.docs : d.docs,
     orchestration: isObj(parsed.orchestration) ? parsed.orchestration : d.orchestration,
@@ -429,6 +442,41 @@ export function loadProjectSection<K extends keyof ProjectSettings>(projectRoot:
   return loadLegacySection(projectRoot, section);
 }
 
+/**
+ * STE-707 — the one dispatch every settings reader goes through. On a
+ * settings-file tree the reader's view of `loadProjectSection(projectRoot,
+ * section)`; on a legacy or empty tree the reader's own v2.101.4 parse (which
+ * lives in the loader's legacy module), so a malformed legacy section still
+ * breaks only its own readers. A both-homes tree is refused, as the loader
+ * refuses it.
+ */
+export function viewProjectSection<K extends keyof ProjectSettings, T>(
+  projectRoot: string,
+  section: K,
+  fromSettings: (value: ProjectSettings[K]) => T,
+  fromLegacy: () => T,
+): T {
+  if (resolveSingleSource(projectRoot) === "settings") return fromSettings(loadProjectSection(projectRoot, section));
+  return fromLegacy();
+}
+
+/** True when the settings file itself declared `task_tracking.mode` (false for the loader's default). */
+export function declaresMode(taskTracking: ProjectSettings["task_tracking"]): boolean {
+  return !MODE_DEFAULTED.has(taskTracking);
+}
+
+/** The 1-based line of a top-level key in `specs/settings.yaml`, or null. Never throws. */
+export function settingsKeyLine(projectRoot: string, key: string): number | null {
+  try {
+    const text = readSettingsText(projectRoot);
+    if (text === null) return null;
+    const idx = text.split("\n").findIndex((l) => l.startsWith(`${key}:`));
+    return idx < 0 ? null : idx + 1;
+  } catch {
+    return null;
+  }
+}
+
 /** The pointer line older CLAUDE.md homes carry once settings move to `specs/settings.yaml`. */
 export function renderSettingsPointer(floor: string): string {
   return `Project settings live in \`${SETTINGS_FILE}\` (requires dev-process-toolkit >= ${floor}).\n`;
@@ -456,7 +504,7 @@ function runFrontDoor(argv: readonly string[]): number {
       const mode =
         source === "settings"
           ? loadFromSettingsFile(projectRoot).task_tracking.mode
-          : (readTaskTrackingSection(join(projectRoot, "CLAUDE.md")).mode ?? "none");
+          : (parseTaskTrackingSection(join(projectRoot, "CLAUDE.md")).mode ?? "none");
       out = `mode: ${mode}\nsource: ${source}\n`;
     } else {
       out = `${JSON.stringify(loadProjectSection(projectRoot, rest[0] as keyof ProjectSettings), null, 2)}\n`;

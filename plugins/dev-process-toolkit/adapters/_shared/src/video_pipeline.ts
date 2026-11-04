@@ -15,9 +15,11 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { videoConfigPath, videoWorkDir } from "./dpt_paths";
+import { videoWorkDir } from "./dpt_paths";
 import { readAlignments } from "./video/anchors";
-import { parseVideoConfig, type VideoConfig } from "./video/config";
+import { type VideoConfig } from "./video/config";
+import { viewProjectSection } from "./project_settings";
+import { readLegacyVideoConfigFileStrict } from "./project_settings_legacy";
 import { parseEdl, type Edl } from "./video/edl";
 import { readVideoKeys } from "./video/keys";
 import { resolveMusicTrack } from "./video/music";
@@ -140,7 +142,23 @@ function readWorkJson<T>(ctx: StageContext, file: string, stage: string): T {
 }
 
 function readConfig(projectRoot: string): VideoConfig {
-  return parseVideoConfig(readFileSync(videoConfigPath(projectRoot), "utf-8"));
+  // STE-707 — derived from `loadProjectSection(projectRoot, "video")`. On a
+  // legacy/none tree the config file is read by the legacy module, and an
+  // absent file throws the raw read error exactly as v2.101.5 did.
+  const config = viewProjectSection(
+    projectRoot,
+    "video",
+    (v) => v.config,
+    () => readLegacyVideoConfigFileStrict(projectRoot),
+  );
+  if (config === null) {
+    throw refusal(
+      "the video config is absent.",
+      "run `/video init` to write the video settings, then re-run the stage.",
+      "mode=video, stage=config",
+    );
+  }
+  return config;
 }
 
 function readEdl(ctx: StageContext, stage: string): Edl {

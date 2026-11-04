@@ -43,6 +43,7 @@ import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shar
 // this gate and the gate-receipt front door reach it here; a second copy is how
 // the two gates came to disagree about the one rule.
 import { forgedSettingsFiles, trackerWriteGateSetting } from "../../../../adapters/_shared/src/tracker_write_gate_setting.ts";
+import { detectSettingsSource, SETTINGS_FILE } from "../../../../adapters/_shared/src/project_settings.ts";
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
 import { listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
@@ -2624,7 +2625,9 @@ function gradeRead(payload: HookPayload, call: TrackerCall, lines: string[], ses
     return {
       exit: refuse(
         `${call.tool} — the declaration in ${d.root} cannot be read: ${d.error.split("\n")[0]}`,
-        `fix the shared-container declaration in ${join(d.root, "CLAUDE.md")} and retry.`,
+        detectSettingsSource(d.root) === "settings"
+          ? `fix the shared-container declaration \`task_tracking.${call.adapter}\` in ${join(d.root, SETTINGS_FILE)} and retry.`
+          : `fix the shared-container declaration in ${join(d.root, "CLAUDE.md")} and retry.`,
       ),
     };
   }
