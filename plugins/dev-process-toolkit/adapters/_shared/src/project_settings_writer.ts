@@ -258,7 +258,7 @@ function currentStubRender(projectRoot: string): string {
 }
 
 /** Insert, replace or remove CLAUDE.md's stub slot so it is byte-equal to `render`; no other byte changes. */
-function syncTrackingStub(projectRoot: string, render: string): void {
+export function syncTrackingStub(projectRoot: string, render: string): void {
   const path = join(projectRoot, "CLAUDE.md");
   if (!existsSync(path)) return;
   const text = readFileSync(path, "utf8");

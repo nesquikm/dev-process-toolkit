@@ -209,7 +209,8 @@ describe("AC-STE-507.3 — /upgrade carries a migration-registry entry", () => {
     // STE-663 (M_1e0717) then appended `dpt-gitignore-video` (2.96.0).
     const ids = MIGRATIONS.map((e) => e.id);
     expect(ids.indexOf(ENTRY_ID)).toBeGreaterThan(ids.indexOf(PREDECESSOR_ID));
-    expect(ids.slice(ids.indexOf(ENTRY_ID) + 1)).toEqual(["linear-team-key", "dpt-gitignore-video"]);
+    // Amended by M_94e6f7/STE-711 (AC-.13): `settings-file` (3.0.0) is appended last.
+    expect(ids.slice(ids.indexOf(ENTRY_ID) + 1)).toEqual(["linear-team-key", "dpt-gitignore-video", "settings-file"]);
   });
 
   test("kind is `script`, and `apply` is present exactly BECAUSE of that", () => {

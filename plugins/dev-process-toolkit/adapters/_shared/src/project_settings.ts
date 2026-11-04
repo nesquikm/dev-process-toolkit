@@ -192,7 +192,7 @@ const RELEASE_ENTRY_KEYS = ["path", "kind", "field", "pattern", "replace", "opti
 /** The moved CLAUDE.md headings (stub slot excluded) and the keys that make each a second home. */
 // A function, not a const: the legacy module's key sets may still be
 // uninitialised while an import cycle through a reader evaluates this module.
-function recognisedHeadingKeys(): Readonly<Record<string, readonly string[]>> {
+export function recognisedHeadingKeys(): Readonly<Record<string, readonly string[]>> {
   const [, verification, docs, orchestration, tokenStats, releaseFiles] = MOVED_HEADINGS;
   return {
     [verification]: VERIFICATION_KEYS,
@@ -390,7 +390,8 @@ function delegateVideo<T>(path: string, fn: () => T): T {
   }
 }
 
-function loadFromSettingsFile(projectRoot: string): ProjectSettings {
+/** The settings file alone, as the loader reads it — no single-home check (the cleanup reads it beside a leftover). */
+export function loadFromSettingsFile(projectRoot: string): ProjectSettings {
   const text = readSettingsText(projectRoot) ?? "";
   let parsed: unknown;
   try {
