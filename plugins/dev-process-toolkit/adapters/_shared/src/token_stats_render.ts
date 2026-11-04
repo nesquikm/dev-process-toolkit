@@ -299,7 +299,9 @@ export interface FilterRowsForFROptions {
  * - **Off-lineage** — left exactly as they are: one claimed by another FR stays
  *   claimed (and unselected); an unclaimed one falls through to bridging below
  *   or to the milestone rollup.
- * - **Bridging** — when no brainstorm row is attached yet, the most-recent
+ * - **Bridging** — when the FR has no brainstorm of its own — none in its
+ *   lineage in any claim state (a demoted one still counts, STE-726) and none
+ *   previously claimed — the most-recent
  *   **unclaimed** detached `brainstorm` session on the FR's branch — one that
  *   wrote no `spec-write` row of its own (STE-703) — is claimed:
  *   its rows are selected and marked `claimed_by = brainstormClaim` so no
@@ -341,9 +343,17 @@ export function filterRowsForFR(
     }
   }
 
-  // Bridge a detached brainstorm only when none is attached yet (neither
-  // same-session nor previously claimed) — bridging is a fallback.
-  const hasBrainstorm = selected.some((row) => row.skill === BRAINSTORM_SKILL);
+  // Bridge a detached brainstorm only when the FR has none of its own —
+  // bridging is a fallback. "Its own" is a lineage brainstorm in any claim
+  // state (STE-726: one demoted to the design bucket above still counts — the
+  // FR had its own brainstorm, its cost was just shared) or one this FR
+  // previously claimed. After the loop, `claimed_by === brainstormClaim` is
+  // exactly the selected set.
+  const hasBrainstorm = ledger.some(
+    (row) =>
+      row.skill === BRAINSTORM_SKILL &&
+      (lineage.has(row.session_id) || row.claimed_by === brainstormClaim),
+  );
   if (!hasBrainstorm) {
     // STE-703 — a session that ran spec-write itself is not detached: its
     // design work belongs to the specs it wrote, never to another FR.
