@@ -448,7 +448,7 @@ export interface UnreachablePinMove {
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
     value: 117,
-    commit: "uncommitted",
+    commit: "ac246a7",
     rationale:
       "M_94e6f7/STE-706: the settings loader `project_settings.ts` (which has " +
       "a front door) imports `token_stats_config.ts` and " +

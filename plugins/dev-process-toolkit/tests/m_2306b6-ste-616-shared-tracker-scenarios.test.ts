@@ -862,7 +862,7 @@ describe("AC-STE-616.16 — no new probe, capability key or smoke leg", () => {
       expect(p.status, p.stderr).toBe(0);
       // Amended by AC-STE-677.5: the ledger head moved 120 -> 119.
       // Amended by M_94e6f7/STE-706: the ledger head moved 119 -> 117.
-      expect(JSON.parse(p.stdout.trim())).toEqual({ keys: 47, legs: ["linear", "jira", "none"], head: { value: 117, commit: "uncommitted" } });
+      expect(JSON.parse(p.stdout.trim())).toEqual({ keys: 47, legs: ["linear", "jira", "none"], head: { value: 117, commit: "ac246a7" } });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
