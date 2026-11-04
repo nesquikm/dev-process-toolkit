@@ -56,13 +56,28 @@ Defaults unchanged (operator rule, 2026-11-04): "these changes SHOULD NOT change
 - [ ] Add retro_offer.ts and the two registry entries at the /implement and /deliver close-outs
   verify: empty stdout when off or nothing tripped, with no scope read when off; probe #85 clean; one question per /deliver run; covers STE-722 ACs 1 to 9 and 13
 - [ ] Add retro_proposal.ts with its closed table, propose and apply verbs, and the /retro approval gate
-  verify: silent when nothing applies; propose writes nothing; apply needs a fresh digest and registers capture for the tool_calls row; a declined or marker-only run leaves settings byte-identical; covers STE-728 ACs 1 to 12
+  verify: silent when nothing applies; propose writes nothing; apply needs a fresh digest, checks register preconditions with the setting taken as on before any write, adds the shown ignore line, and registers capture for the tool_calls row; a declined or marker-only run leaves settings byte-identical; covers STE-728 ACs 1 to 12 and 15
 - [ ] Add the milestone's defaults-unchanged test
   verify: offers, payload front door and close-outs equal their v2.101.4 literals; covers STE-722 AC 12
 - [ ] Mutation controls for each FR
   verify: removing each named rule or check reds a named test; covers STE-718 AC 6, STE-719 AC 16, STE-720 AC 11, STE-721 AC 10, STE-722 AC 10 and STE-728 AC 13
 - [ ] Full suite after each FR
   verify: 0 fail and baseline skip identities; covers STE-718 AC 7, STE-719 AC 17, STE-720 AC 12, STE-721 AC 11, STE-722 AC 11 and STE-728 AC 14
+
+### SKILL.md line budget
+
+The cap is 358, never raised. Starting counts are the M_7bc805 end counts.
+
+| SKILL.md | Start | Lines this milestone adds or rewrites | Net | End |
+|---|---|---|---|---|
+| implement | 353 | Added: the retro offer anchor line and its blank line between the upgrade and ship-ready anchors (STE-722), +2. | +2 | 355 |
+| deliver | ≤269 | Added: the retro offer anchor inside the close-out section (STE-722), +1. | +1 | ≤270 |
+| spec-write | 357 | The report-issue row of § 7 is extended in place (STE-721). | 0 | 357 |
+| report-issue | 205 | Added: the front-door step (STE-720) and the --from-retro step (STE-721), at most +6; argument-hint rewritten in place. | ≤+6 | ≤211 |
+| brainstorm | 140 | Added: the retro.json fetch line (STE-721), +1. | +1 | 141 |
+| retro (new) | 0 | The new skill with the propose step and its approval gate (STE-719, STE-728); overflow in docs/retro-reference.md. | new | ≤358 |
+
+No FR here edits the gate-check SKILL.md.
 
 ### Gate
 

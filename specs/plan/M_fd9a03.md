@@ -50,7 +50,7 @@ codename: Proof of Work
 - [ ] Add the probe module entry `runOptimizationsReuseOnlyProbe` and its fixtures (AC-STE-723.4)
   verify: positive fixture plus one negative per reason, requires-gate-outcomes included; vacuous with zero notes on an unmanaged tree and on no section
 - [ ] Add the reuse row to the STE-728 proposal table (AC-STE-723.13)
-  verify: propose prints the reuse line only with tracking.gate_outcomes on
+  verify: propose prints the reuse line only with tracking.gate_outcomes on; the AC-STE-728.1 row pin moves from three to four with its Amended-by comment
 - [ ] Add `computeReuseKey` to `gate_reuse.ts`, composing the M_7bc805 `gateReuseKey` with a per-command hash (AC-STE-724.1, .2, .3)
   verify: keys exactly `gate` and `command_sha256`; null on modified, staged, untracked, non-git and unborn HEAD; `gate` deep-equals the M_7bc805 run-receipt key
 - [ ] Add the `run` verb: knob check first, then live key, announced same-session `gate-step` pass lookup, and a reuse line or a real run plus one receipt (AC-STE-724.4, .5, .6, .8, .9, .10, .14, .15, .16)
@@ -71,6 +71,18 @@ codename: Proof of Work
   verify: removing the knob, tree-clean, announcement, run-outcome, never-reusable and verdict checks each reds a named test
 - [ ] Run the full suite on the last commit (AC-STE-723.11, AC-STE-724.19, AC-STE-725.10)
   verify: `bun test` 0 fail; skip identities equal the trunk baseline by name
+
+### SKILL.md line budget
+
+The cap is 358, never raised. Starting counts are the M_d1b4b7 end counts. Gate-check uses all of its headroom here, so every gate-check line below is fixed in advance and lands in the one edit commit.
+
+| SKILL.md | Start | Lines this milestone adds or rewrites | Net | End |
+|---|---|---|---|---|
+| gate-check | 355 | Added: the optimizations_reuse_only probe line (STE-723), +1; the knob paragraph after the Commands lines and its blank line (STE-724), +2. In place: the Reporting row naming (reused) (STE-724); the fresh-run line and the skip-no-step line in Rules, and the Reporting fresh-run sentence (STE-725). | +3 | 358 |
+| implement | 355 | Phase 3 step i at line 213 gains the reuse clause in place (STE-725). | 0 | 355 |
+| simplify | 59 | Added: the knob branch after step 4 (STE-725), at most +2. | ≤+2 | ≤61 |
+
+If gate-check needs one more line, a line is displaced to its reference doc and named in the KICKOFF re-base. The cap is not raised.
 
 ### Gate
 
