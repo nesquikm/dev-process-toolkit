@@ -273,7 +273,7 @@ function unescapeYamlString(v: string): string {
   return v.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
-const VALID_KINDS = new Set<ReleaseKind>([
+export const VALID_KINDS = new Set<ReleaseKind>([
   "json",
   "toml",
   "yaml",

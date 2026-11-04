@@ -48,6 +48,10 @@ export const PROBE_ID = "claudemd_probe_managed_guard";
  * route it through `./toolkit_managed`.
  */
 export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
+  project_settings:
+    "the settings loader (M_94e6f7/STE-706) reads CLAUDE.md only to decide the settings source and to parse the legacy homes; it decides no applicability, and every caller keeps its own managed-tree guard.",
+  project_settings_legacy:
+    "the loader's legacy module (M_94e6f7/STE-706) parses the v2.101.x CLAUDE.md homes for values; it decides no applicability, and every caller keeps its own managed-tree guard.",
   attach_project_milestone:
     "the attach target's front door reads the tracker binding through `readWorkspaceBinding` for `repo_tag` alone (the provenance check); applicability is the tracker mode its caller passes, and an undeclared tree resolves exactly as before in managed and unmanaged trees alike.",
   bun_zero_match_placeholder:

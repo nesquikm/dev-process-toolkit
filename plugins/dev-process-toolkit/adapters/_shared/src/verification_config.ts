@@ -111,7 +111,7 @@ export function verificationSectionLine(claudeMdPath: string): number | null {
   return idx < 0 ? null : idx + 1;
 }
 
-const VERIFY_MODES: readonly string[] = ["advisory", "blocking", "manual"];
+export const VERIFY_MODES: readonly string[] = ["advisory", "blocking", "manual"];
 
 const DEFAULTS: VerificationConfig = {
   verifySkill: null,
@@ -121,7 +121,7 @@ const DEFAULTS: VerificationConfig = {
 };
 
 /** The closed key set, in canonical authoring (and render) order. */
-const CLOSED_KEYS = [
+export const CLOSED_KEYS = [
   "verify_skill",
   "verify_mode",
   "run_cmd",

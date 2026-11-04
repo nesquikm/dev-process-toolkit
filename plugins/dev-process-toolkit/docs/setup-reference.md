@@ -4,6 +4,8 @@ Extended reference material for `/dev-process-toolkit:setup` extracted from `ski
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when implementing or auditing one of the documented sub-flows (Bun scaffold-verify, commit-msg hook install, audit-section post-condition, bootstrap commit).
 
+Every key of the project settings file `specs/settings.yaml`, with its type, default and the CLAUDE.md home it replaces, is listed in [`settings-reference.md`](settings-reference.md).
+
 ## Bun scaffold-verify branch
 
 Triggered from skill step 2c when the detected stack is Bun (presence of `bun.lock` OR `package.json` with `"packageManager": "bun@..."` OR `bunfig.toml`). Bun has no `bun test --passWithNoTests` flag and exits 1 against an empty test directory; the placeholder file is the workaround.
