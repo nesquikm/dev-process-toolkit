@@ -48,10 +48,10 @@ codename: Proof of Work
 
 - [ ] Add `optimizations_config.ts` with the knob and value enums, the refused-name list, `readOptimizations`, `validateOptimizations` and the `knob` verb, read through the M_94e6f7 settings loader (AC-STE-723.1, .2, .3, .5, .6, .12)
   verify: reader and verb return run for absent, empty and invalid sections, and for reuse with tracking.gate_outcomes off; one violation per offending key; source grep zero hits beside its control
-- [ ] Admit `optimizations` to the loader as a closed section (`TOP_KEYS`, `settingsKeyOrder`, `NEW_KEYS`, defaults), its value unchecked by the loader; document it in settings-reference; add its `new` mapping row and the enum case of the off-when-absent row (AC-STE-723.8)
+- [ ] Admit `optimizations` to the loader as a closed section (`TOP_KEYS` last, `settingsKeyOrder`, `NEW_KEYS`, defaults), its value unchecked by the loader; add the never-throwing `settingsSectionValue` export; document it in settings-reference; add its `new` mapping row and the enum case of the off-when-absent row (AC-STE-723.8)
   verify: an unknown knob name refuses `optimizations` reads only, a bad value passes the loader, the planted-knob control still names only `orchestration.skip_gates`; settings-reference names `gate_commands`, `reuse` and `run`
 - [ ] Add the probe module entry `runOptimizationsReuseOnlyProbe` and its fixtures (AC-STE-723.4)
-  verify: positive fixture plus one negative per reason, requires-gate-outcomes included, knob names graded through `settingsSectionKeys` when the loader refuses; vacuous with zero notes on an unmanaged tree, a foreign settings file and no section
+  verify: positive fixture plus one negative per reason, requires-gate-outcomes included; shape and knob names decided from `settingsSectionValue`'s parsed value, so flow-style and `{}` sections pass, with lines from `settingsSectionKeys` or the section line; vacuous with zero notes on an unmanaged tree, a foreign settings file and no section
 - [ ] Add the reuse row to the STE-728 proposal table (AC-STE-723.13)
   verify: propose prints the reuse line only with tracking.gate_outcomes on; the AC-STE-728.1 row pin moves from three to four with its Amended-by comment
 - [ ] Add `computeReuseKey` to `gate_reuse.ts`, composing the M_7bc805 `gateReuseKey` with a per-command hash and passing its stub options through (AC-STE-724.1, .2, .3)
@@ -66,8 +66,8 @@ codename: Proof of Work
   verify: clean and rerun fixtures with the knob on and off, forgery rows included; no receipt written; trunk simplify prose test green unchanged; no unconditional `gate_reuse.ts` mention
 - [ ] Add the reuse clause to `/implement` step i and `docs/implement-reference.md`; add the patterns.md entry and the hooks-reference sentence (AC-STE-725.4, .6)
   verify: needles per surface; "Never claim clean from memory" kept
-- [ ] Land every M4 gate-check SKILL.md edit in one commit: the probe line, the `## Commands` paragraph keyed on `reuse: on`, the `(reused)` Reporting row, the two Rules lines and the Reporting fresh-run sentence; move every probe-count pin by one in it (AC-STE-723.7, AC-STE-724.7, .13, AC-STE-725.5)
-  verify: probe #81 grades the line reachable; trunk Commands lines and Code Review byte-identical; Red Flags and Rationalization blocks byte-identical; NFR-1 cap held; every file `grep -rl "probe count" tests/` lists is green
+- [ ] Land every M4 gate-check SKILL.md edit in one commit: the probe line, the one `## Commands` line keyed on `reuse: on`, the `(reused)` Reporting row, the two Rules lines and the Reporting fresh-run sentence; move every probe-count pin by one in it (AC-STE-723.7, AC-STE-724.7, .13, AC-STE-725.5)
+  verify: probe #81 grades the line reachable; trunk Commands lines and Code Review byte-identical; Red Flags and Rationalization blocks byte-identical; the file measures 358 split-lines and 87 STE tokens, and the eight exact pins of the line budget read 358 with their Amended-by comments; every file `grep -rl "probe count" tests/` lists is green
 - [ ] Under ruling R5, re-base KICKOFF to that edit commit as its own reviewed commit, listing every new permitted line (AC-STE-723.9, AC-STE-724.17, AC-STE-725.8)
   verify: freeze test green on the re-base commit; neighbour-line negative controls still fail `driftBeyond`
 - [ ] Add the milestone's defaults-unchanged test (AC-STE-725.11)
@@ -79,18 +79,31 @@ codename: Proof of Work
 
 ### SKILL.md line budget
 
-The cap is 358, never raised. Starting counts are the M_d1b4b7 end counts. Gate-check uses all of its headroom here, so every gate-check line below is fixed in advance and lands in the one edit commit.
+The cap is 358, never raised. Counts are `split("\n").length`, the unit `tests/skill-nfr-1-length.test.ts` measures (`wc -l` reads one fewer). Starting counts are the M_d1b4b7 end counts, which leave gate-check, implement and simplify at their v3.0.0 bytes (6c62b32c). Gate-check uses all of its headroom here, so every gate-check line below is fixed in advance and lands in the one edit commit.
 
 | SKILL.md | Start | Lines this milestone adds or rewrites | Net | End |
 |---|---|---|---|---|
-| gate-check | 355 | Added: the optimizations_reuse_only probe line (STE-723), +1; the knob paragraph after the Commands lines and its blank line (STE-724), +2. In place: the Reporting row naming (reused) (STE-724); the fresh-run line and the skip-no-step line in Rules, and the Reporting fresh-run sentence (STE-725). | +3 | 358 |
-| implement | 357 | Phase 3 step i at line 213 gains the reuse clause in place (STE-725); no line added, so none displaced and the six exact-count pins named in the M_d1b4b7 plan do not move. | 0 | 357 |
-| simplify | 59 | Added: the knob branch after step 4 (STE-725), at most +2. | ≤+2 | ≤61 |
+| gate-check | 356 | Added: the optimizations_reuse_only probe line as row 90, directly after row 89 (line 176 at v3.0.0) and before the blank line ahead of `Full details:` (STE-723), +1. Added: the knob line directly after the `## Commands` Key Commands lookup line (line 252 at v3.0.0), with no blank line between, so it joins that paragraph and the five typical-command lines keep their bytes (STE-724), +1. In place: the Reporting row naming (reused) (STE-724); the fresh-run line and the skip-no-step line in Rules, and the Reporting fresh-run sentence (STE-725). | +2 | 358 |
+| implement | 358 | Phase 3 step i at line 213 gains the reuse clause in place (STE-725); no line added, so none displaced. The clause carries no `STE-<n>` token, so the 41-token pin of `tests/ticket-ownership-shared.test.ts` and the exact-count pins the M_d1b4b7 plan names do not move. | 0 | 358 |
+| simplify | 60 | Added: the knob branch after step 4 (STE-725), at most +2. No test pins its count exactly (scan of every test naming `simplify/SKILL.md` for 59 or 60). | ≤+2 | ≤62 |
 
-If gate-check needs one more line, a line is displaced to its reference doc and named in the KICKOFF re-base. The cap is not raised.
+No gate-check line beyond these two is added; one more line would need a displaced line, and none is planned. Every added or rewritten gate-check line carries no `STE-<n>` token, so its STE-token count stays 87 and `tests/ste-614-surfaces.test.ts` ("no `STE-<N>` token is added anywhere under skills/") stays green. Neither added line sits above line 176, so every row-position pin above it holds (row 25 on line 80, row 26 on line 81, row 49 on line 128, row 63 on line 150, row 73 on line 160).
+
+The edit commit moves these exact pins from 356 to 358 split-lines, each with an `// Amended by AC-STE-724.13` comment; the 87 STE-token pins on the same rows do not move:
+
+- `tests/orphan-listing-shared.test.ts:773-776` (356 split-lines, 87 STE tokens, row 49 on line 128)
+- `tests/m_685ff6-ste-608-spec-write-prose.test.ts:163-165` (356 split-lines, 87 STE tokens)
+- `tests/shared-declaration-setup.test.ts:871-875` (356 split-lines, 87 STE tokens, row 25 on line 80)
+- `tests/gate-check-spec-research-result-shape.test.ts:425-428` (356 split-lines, 87 STE tokens)
+- `tests/m_a85e46-ste-656-docs-drift.test.ts:478-481` (356 split-lines, 87 STE tokens)
+- `tests/m_79b1f6-ste-588-sibling-coherence.test.ts:932-934` (356 split-lines, rows 26 and 63; its "89 rows" moves to 90 with the probe-count pins)
+- `tests/m_8f07e0-ste-584-awaiting-siblings.test.ts:571-573` (356 split-lines)
+- `tests/m_685ff6-ste-612-probe25-leg.test.ts:223-224` (356 split-lines)
+
+Two more read the count against git, not a constant, and are re-checked green on the edit commit with no edit: `tests/m_685ff6-ste-609-prose.test.ts:192` (rows 1 to 89 keep main's positions; the count is held to main's only where no row is added) and the AC-STE-618.8 freeze, which the R5 re-base handles. These were found by running every test that reads `skills/gate-check/SKILL.md` against a scratch copy carrying the two added lines; the probe-count pins (`grep -rl "probe count" tests/`) and the freeze also redden there, as the Tasks already say.
 
 ### Gate
 
 - `bun test` from `plugins/dev-process-toolkit`: 0 fail, skip identities equal to the baseline
 - `/gate-check` clean, including the new probe on this repo's own settings file
-- Defaults unchanged: with no settings file, and with a migrated file holding only the moved keys, skill, hook and probe outputs equal v3.0.0, the M_94e6f7 merge commit (tests/m_fd9a03-defaults-unchanged.test.ts); no extra tool call by default. One named difference, accepted by operator ruling: the conformance-probes summary counts one more vacuous probe (STE-723)
+- Defaults unchanged: with no settings file, and with a migrated file holding only the moved keys, skill, hook and probe outputs equal v3.0.0, the M_94e6f7 merge commit (tests/m_fd9a03-defaults-unchanged.test.ts); no extra tool call by default. One named difference, accepted by operator ruling: the conformance-probes summary counts one more vacuous probe (STE-723). A second, on a CLI no skill calls by default: `project_settings.ts get optimizations` exits 0 with its `gate_commands: run` default where v3.0.0 refused, and the `get` refusal's section list gains `optimizations` last (AC-STE-725.11)
