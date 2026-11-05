@@ -85,7 +85,13 @@ const RUN_DATE = "2026-09-21";
 // implementation commit, whose probe row #89, "#90" next-probe sentence and
 // joined probe #30 line were drift against the old base. The line sets are
 // unchanged.
-const KICKOFF = "a4205f2d";
+// RE-BASED (operator pre-granted ruling 2026-11-04, M_94e6f7 / STE-713: one
+// gate-check re-base per milestone): the gate-check half moved its base from
+// a4205f2d to d2e99048, the single STE-713 gate-check edit commit, which rewrote
+// in place lines 43, 51, 72, 73, 74, 76, 77, 80, 139, 150, 156, 161, 167 and 174
+// (probes #12, #13, #17, #18, #19, #21, #22, #25, #52, #63, #69, #74, #80 and
+// #87 gain their settings-file arms). Same line count; the line sets are unchanged.
+const KICKOFF = "d2e99048";
 // RE-BASED (operator ruling 2026-10-12, M_1e0717 / STE-670): the ship-milestone
 // half of the freeze moved its base to 134fe2e6 (the v2.95.1 merge, parent of
 // the M_1e0717 spec commit), where lines 91 and 265 hold the same text as at
@@ -1157,7 +1163,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   // RULING (STE-661, M_1ef45e, operator 2026-10-05): line 154 is probe #67
   // `fr_summary_altitude`'s entry, rewritten in place by AC-STE-661.8 to name
   // the sentence_cap rule. It is the THIRD line, admitted by this named ruling;
-  // a fourth permitted line needs a fresh one. KICKOFF moved to a4205f2d (M_bae31f ruling above).
+  // a fourth permitted line needs a fresh one. KICKOFF moved to d2e99048 (M_94e6f7 ruling above).
   // RULING (STE-697, M_46b121, operator 2026-10-28): line 124 is probe #45
   // `socratic_first_turn_post_hoc_drift`'s entry, rewritten in place to name the
   // third marker, `spec_write_commit_operator_approved`. It is the FOURTH line,
