@@ -1279,7 +1279,7 @@ describe("AC-STE-710.20 the set verb", () => {
   for (const [from, to] of [
     [119, 120],
     [121, 122],
-    [211, 212],
+    [236, 237],
   ] as const) {
     test(`AC-.20 docs/verification-skills.md lines ${from}-${to} name the set verb, its legacy branch and the \`## Project Settings\` condition`, () => {
       const text = readFileSync(DOC, "utf8").split("\n").slice(from - 1, to).join(" ");
