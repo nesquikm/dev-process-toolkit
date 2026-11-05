@@ -113,6 +113,12 @@ export interface E2eAuthoringOutcome {
   readonly counts: EvidenceCounts | null;
   /** One line per refusal ground; empty iff `ok`. */
   readonly reasons: readonly string[];
+  /**
+   * Grounds the step-14 report states without refusing — today one: a suite
+   * run that executed no test on a change that touched no end-to-end test.
+   * Empty when there are none.
+   */
+  readonly advisories: readonly string[];
 }
 
 /**
@@ -131,6 +137,7 @@ function vacuous(): E2eAuthoringOutcome {
     evidenceRows: [],
     counts: null,
     reasons: [],
+    advisories: [],
   };
 }
 
@@ -145,9 +152,10 @@ function recordedReason(input: E2eAuthoringInput): string | null {
  * Resolve the end-to-end authoring decision for one change.
  *
  * Total, pure, and fail-closed: a declared project reaches `ok: true` only when
- * the suite really ran, its bytes really parsed, at least one test executed,
- * no count indicates failure, and the change either touched an end-to-end test or recorded — retrievably —
- * why none was needed.
+ * the suite really ran, its bytes really parsed, no count indicates failure,
+ * and the change either touched an end-to-end test — with the run executing at
+ * least one test, since the counts cannot say which — or recorded,
+ * retrievably, why none was needed.
  */
 export function resolveE2eAuthoring(input: E2eAuthoringInput): E2eAuthoringOutcome {
   const { e2eCmd } = input;
@@ -174,6 +182,7 @@ export function resolveE2eAuthoring(input: E2eAuthoringInput): E2eAuthoringOutco
       evidenceRows: [],
       counts: null,
       reasons: [],
+      advisories: [],
     };
   }
 
@@ -219,16 +228,30 @@ export function resolveE2eAuthoring(input: E2eAuthoringInput): E2eAuthoringOutco
   reasons.push(...evidence.reasons);
 
   // A run that EXECUTED nothing parses, counts zero and zero, and every ground
-  // above reads it as clean. It proves nothing about the change. The usual
-  // cause is an environment that made every test skip itself (no secret, no
-  // device), so the refusal states the skip count rather than letting zero
-  // read as green. Not a red suite: the token is left to the authoring decision.
+  // above reads it as clean. The usual cause is an environment that made every
+  // test skip itself (no secret, no device), so the ground states the skip count
+  // rather than letting zero read as green. Not a red suite: the token is left
+  // to the authoring decision.
+  //
+  // It REFUSES only when the change touched an end-to-end test: that test never
+  // ran, so the authored or edited decision has no evidence behind it. (A run
+  // that executed some other test passes this ground — the counts do not say
+  // which test ran.) A
+  // none-needed record is a decision about authoring and stands on its reason;
+  // the empty run then only means the change has no regression evidence, which
+  // the report states as an advisory.
+  const advisories: string[] = [];
   if (counts !== null && counts.pass === 0 && counts.fail === 0) {
-    reasons.push(
-      `\`e2e\`: the suite ran but executed no test (${counts.skip} skipped) — ` +
-        "a run with no executed test is not evidence; when its tests skipped, " +
-        "make the suite's prerequisites available so they run",
-    );
+    const ground = `\`e2e\`: the suite ran but executed no test (${counts.skip} skipped)`;
+    const remedy = "when its tests skipped, make the suite's prerequisites available so they run";
+    if (added || edited) {
+      reasons.push(
+        `${ground} — the end-to-end test this change touched never ran, so ` +
+          `the run is not evidence for it; ${remedy}`,
+      );
+    } else {
+      advisories.push(`${ground} — no regression evidence for this change; ${remedy}`);
+    }
   }
 
   // Precedence, pinned rather than left to whichever branch runs first: a red
@@ -249,5 +272,6 @@ export function resolveE2eAuthoring(input: E2eAuthoringInput): E2eAuthoringOutco
     evidenceRows: evidence.lines,
     counts,
     reasons,
+    advisories,
   };
 }
