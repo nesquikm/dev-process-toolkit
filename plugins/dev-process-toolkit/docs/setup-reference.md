@@ -209,7 +209,7 @@ changelog_ci_owned: <true|false>
 
 `/setup` neither prompts for nor writes `changelog_unversioned`; an absent key reads as its default, `false`. A project whose git tags or CI own the version adds `changelog_unversioned: true` by hand (to `docs` in `specs/settings.yaml`, or to the legacy `## Docs`), and `/ship-milestone` then closes a milestone with no version — entries land under `## [Unreleased]` and no versioned release file is rewritten.
 
-Re-run writes are atomic — read CLAUDE.md, splice the full `## Docs` block, write once.
+Re-run writes are atomic — write the `docs` key of `specs/settings.yaml` once (legacy home: read CLAUDE.md, splice the full `## Docs` block, write once).
 
 **Toolchain snapshot.** When `packages_mode == true`, also write `docs/.dpt-docs-toolchain.json` recording the per-stack preferred signature-extraction strategy at /setup time, derived from `preferredFromStatus(probeToolchains(projectRoot))`:
 
@@ -227,7 +227,7 @@ Emit only the keys for stacks the project actually carries (`ts` only when `tsco
 
 ## Step 8a — Audit-section post-condition (full procedure)
 
-`verification:` runs unconditionally before step 8b's bootstrap commit, regardless of prompt mode. Materialises the **unconditional-synthesis** model: every well-formed `/setup` run that produces a toolkit-managed CLAUDE.md with at least one populated Schema L surface (`branch_template:` populated **or** `## Docs` present) ships a `## /setup audit` section. Provenance is preserved per resolution via the entry's `reason:` field — `"user-supplied"` or `"default applied"` — so the section is a complete provenance log of every resolved value, not only of default-applied outcomes.
+`verification:` runs unconditionally before step 8b's bootstrap commit, regardless of prompt mode. Materialises the **unconditional-synthesis** model: every well-formed `/setup` run that produces a toolkit-managed CLAUDE.md with at least one populated Schema L surface (`branch_template:` populated **or** a `docs` key in the settings file, legacy `## Docs`, present) ships a `## /setup audit` section. Provenance is preserved per resolution via the entry's `reason:` field — `"user-supplied"` or `"default applied"` — so the section is a complete provenance log of every resolved value, not only of default-applied outcomes.
 
 Procedure:
 
@@ -273,7 +273,7 @@ The `toolkit-bootstrap-committed` probe (gate-check #22) hard-fails when CLAUDE.
 
 Procedure:
 
-1. **Offer.** Ask once whether to scaffold a project check skill. On decline, log nothing and continue to step 8a — no file is created and the CLAUDE.md `## Verification` block is left as-is (absent ⇒ `/implement` runs no check).
+1. **Offer.** Ask once whether to scaffold a project check skill. On decline, log nothing and continue to step 8a — no file is created and the `verification` key in `specs/settings.yaml` (legacy: the CLAUDE.md `## Verification` block) is left as-is (absent ⇒ `/implement` runs no check).
 2. **Choose the slug.** Default `<project>-drive` from the detected project name; the operator may override. The written directory name is de-duplicated on collision (see step 5).
 3. **Scaffold the stub.** Call `scaffoldCheckSkill({ projectRoot, stack, slug })` from `adapters/_shared/src/scaffold_check_skill.ts`. The helper maps the detected `stack` to a template key and renders the matching shipped stub:
    - **Flutter / Dart** → drives the running app through the dart / Flutter MCP (widget tree, taps, typed input, runtime errors).

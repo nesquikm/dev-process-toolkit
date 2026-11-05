@@ -41,7 +41,7 @@ The `/spec-write --fetch` and `--no-fetch` flags still outrank `task_tracking.mi
 
 #### `task_tracking.linear` and `task_tracking.jira`
 
-One sub-map per adapter; either or both may be present. Each replaces the CLAUDE.md `### Linear` or `### Jira` sub-section of `## Task Tracking`.
+One sub-map per adapter; either or both may be present. Each replaces the legacy CLAUDE.md `### Linear` or `### Jira` sub-section of `## Task Tracking`.
 
 | Key | Type | Default | Replaces |
 | --- | --- | --- | --- |

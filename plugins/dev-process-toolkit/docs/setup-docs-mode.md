@@ -105,7 +105,7 @@ packages_mode: false
 changelog_ci_owned: true
 ```
 
-Atomic write: read CLAUDE.md, splice the full `## Docs` block (replacing
+Atomic write (legacy home): read CLAUDE.md, splice the full `## Docs` block (replacing
 any existing one in its entirety), write once. Never partial-line edit
 an existing block.
 

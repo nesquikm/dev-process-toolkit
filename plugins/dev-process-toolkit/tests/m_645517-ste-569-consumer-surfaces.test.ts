@@ -31,6 +31,7 @@ import {
   readMilestoneScanFetch,
   resolveFetchPolicy,
 } from "../adapters/_shared/src/milestone_scan_fetch_config";
+import { loadProjectSection } from "../adapters/_shared/src/project_settings";
 import { parseReadmeLatest } from "../adapters/_shared/src/release_surface_agreement";
 import { runTaskTrackingWorkspaceBindingPresentProbe } from "../adapters/_shared/src/task_tracking_workspace_binding_present";
 import { mutate } from "./_fence";
@@ -596,12 +597,13 @@ describe("AC-STE-569.14 — the codename remedy names which case the reader is i
   test("this repository is the case the old wording got wrong", () => {
     // Since STE-554 the toolkit's own block writes the field, so "unless it is
     // written by hand" was false for exactly the project reading it here.
-    const claudeMd = read(join(repoRoot, "CLAUDE.md"));
-    // The yaml fence itself, not the prose section that names it — the phrase
-    // "## Release Files" occurs in the Release Checklist paragraph first.
-    const block = /## Release Files\n+```yaml\n([\s\S]*?)```/.exec(claudeMd)![1]!;
+    // Amended by AC-STE-713.5 (M_94e6f7): read through the loader
+    const files = loadProjectSection(repoRoot, "release").files as ReleaseFile[];
+    const block = JSON.stringify(files);
     expect(block).toContain("{codename}");
     expect(block).toContain("specs/requirements.md");
+    const reqs = files.find((f) => f.path === "specs/requirements.md") as { replace?: string } | undefined;
+    expect(reqs?.replace).toContain("{codename}");
   });
 });
 

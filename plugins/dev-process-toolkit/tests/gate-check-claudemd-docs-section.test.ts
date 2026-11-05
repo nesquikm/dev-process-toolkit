@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runClaudeMdDocsSectionProbe } from "../adapters/_shared/src/claudemd_docs_section";
 import { SETUP_MARKER, detectManagedSignals } from "../adapters/_shared/src/toolkit_managed";
-import { projectSettingsSection, renderSettingsPointer } from "../adapters/_shared/src/project_settings";
+import { loadProjectSection, projectSettingsSection, renderSettingsPointer } from "../adapters/_shared/src/project_settings";
 
 // STE-107 AC-STE-107.4 / AC-STE-107.6 — `claudemd-docs-section-present` probe.
 //
@@ -251,13 +251,29 @@ describe("AC-STE-432.12 — the repo baseline assertion is two-sided", () => {
     expect(report.violations).toEqual([]);
   });
 
-  test("a copy of this repo's CLAUDE.md with ## Docs renamed yields exactly 1 violation", async () => {
-    // Non-vacuity fence: a guard that made probe #18 permanently silent on this
-    // repo would keep the zero-violation half green. This half fails unless the
-    // probe still has teeth on the real file.
-    const real = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
-    expect(real).toMatch(/^## Docs$/m);
-    const mutated = real.replace(/^## Docs$/m, "## Documentation");
+  test("a legacy-shaped fixture with ## Docs renamed yields exactly 1 violation", async () => {
+    // Non-vacuity fence: a guard that made probe #18 permanently silent would
+    // keep the zero-violation half green. This half fails unless the probe
+    // still has teeth on a legacy CLAUDE.md.
+    // Amended by AC-STE-713.5 (M_94e6f7): this repo's settings are read through
+    // the loader, and the mutation runs on a self-built legacy fixture rather than
+    // the real CLAUDE.md — after the dogfood migration the real file no longer
+    // carries `## Docs`, so renaming it there would be a no-op.
+    const docs = loadProjectSection(repoRoot, "docs");
+    for (const key of ["user_facing_mode", "packages_mode", "changelog_ci_owned"]) {
+      expect(typeof docs[key], key).toBe("boolean");
+    }
+    const legacy =
+      "# Project\n\n## Task Tracking\n\nmode: linear\n\n## Docs\n\n" +
+      `user_facing_mode: ${docs.user_facing_mode}\npackages_mode: ${docs.packages_mode}\n` +
+      `changelog_ci_owned: ${docs.changelog_ci_owned}\n`;
+    const intact = makeProject(legacy);
+    try {
+      expect((await runClaudeMdDocsSectionProbe(intact.root)).violations).toEqual([]);
+    } finally {
+      intact.cleanup();
+    }
+    const mutated = legacy.replace(/^## Docs$/m, "## Documentation");
     expect(mutated).not.toMatch(/^## Docs\s*$/m);
     const ctx = makeProject(mutated);
     try {

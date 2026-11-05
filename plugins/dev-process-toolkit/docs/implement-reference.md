@@ -353,7 +353,7 @@ The skill body carries the condensed flow; this section covers edge cases and th
 
 ### When it runs
 
-Phase 4b fires after Phase 4a (gate pass) and before Phase 4c (report + approval) / 4d (Close). Its enabling gate is the `## Docs` section of `CLAUDE.md` (read via `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`). Both `userFacingMode` and `packagesMode` false — or the section absent — ⇒ **silent no-op**: no log line, no row, zero output. This preserves byte-identical behavior for projects that don't use docs generation.
+Phase 4b fires after Phase 4a (gate pass) and before Phase 4c (report + approval) / 4d (Close). Its enabling gate is the `docs` key of `specs/settings.yaml` (legacy home: the `## Docs` section of `CLAUDE.md`; read via `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`). Both `userFacingMode` and `packagesMode` false — or the section absent — ⇒ **silent no-op**: no log line, no row, zero output. This preserves byte-identical behavior for projects that don't use docs generation.
 
 ### FR ID resolver order
 

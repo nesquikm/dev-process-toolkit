@@ -240,8 +240,8 @@ prompt once:
 
 **Skip conditions**
 
-- `mode: none` projects that elected `1. none` in step 7b: skip writing `branch_template:` — there is no `## Task Tracking` section to write it into. That disables `/implement`'s branch **proposal** (§ 0.b″ is gated on the key) but **not** the universal pre-commit branch gate, which never reads the key — see § Consumer scope. Users can opt the proposal back in by re-running `/setup` or by hand-adding the key to CLAUDE.md.
-- Any project whose CLAUDE.md already has `branch_template:` under `## Task Tracking`: do not re-ask. `/setup --migrate` preserves existing keys by default.
+- `mode: none` projects that elected `1. none` in step 7b: skip writing `branch_template:` — there is no `## Task Tracking` section to write it into. That disables `/implement`'s branch **proposal** (§ 0.b″ is gated on the key) but **not** the universal pre-commit branch gate, which never reads the key — see § Consumer scope. Users can opt the proposal back in by re-running `/setup` or by hand-adding `task_tracking.branch_template` to `specs/settings.yaml` (legacy: the key in CLAUDE.md).
+- Any project whose settings file already has `task_tracking.branch_template` (legacy: CLAUDE.md `branch_template:` under `## Task Tracking`): do not re-ask. `/setup --migrate` preserves existing keys by default.
 
 **Consumer scope — two mechanisms, and only the first reads this key.** Only `/implement` § 0.b″ reads `branch_template:`, and read-only skills (`/tdd`, `/debug`, `/gate-check`, `/pr`, `/spec-review`, `/visual-check`, `/simplify`, `/brainstorm`) run on whatever branch they're invoked from. **The commit-producing skills do not** — `/spec-write`, `/setup`, `/spec-archive`, `/ship-milestone`, `/deps` and `/upgrade` each call `requireCommittableBranch` before staging, which has no tracker awareness, never reads Schema L, and will create and switch to a branch with no CLAUDE.md present at all. Measured: on a repo carrying no CLAUDE.md the gate returned `created` and moved `HEAD`. So an absent key narrows branch automation to that gate; it does not switch it off.
 

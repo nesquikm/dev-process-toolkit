@@ -16,9 +16,9 @@
 //
 // AC map:
 //   AC-.1  "AC-.1 <skill>: probe step is byte-identical to trunk" + "AC-.1 no file under skills/ names project_settings.ts mode"
-//          The gate-check row is ADDED by STE-713's single gate-check edit commit (see the comment row below).
+//          The gate-check row "AC-.1 gate-check: ..." was added by STE-713's single gate-check edit commit.
 //   AC-.2  "AC-.2 stub read: <case>"
-//   AC-.3  "AC-.3 patterns.md ..." + "AC-.3 migrate helper ..."  (the gate-check probe #21 row lands with STE-713)
+//   AC-.3  "AC-.3 patterns.md ..." + "AC-.3 migrate helper ..." + "AC-.3 gate-check probe #21 ..." (row added by STE-713)
 //   AC-.4  "AC-.4 adapters/*.md ..."
 //   AC-.5  "AC-.5 front door on a settings tree ..."
 //   AC-.6  "AC-.6 refusal: <kind> ..."
@@ -37,7 +37,7 @@
 //          trunk by name) — graded by the gate run, not by a test in this file.
 //   AC-.12 "AC-.12 unmoved tree: <fixture>"
 //   AC-.13 "AC-.13 <skill>: bun run targets equal the trunk pin" + "AC-.13 control: ..."
-//          The gate-check row is ADDED by STE-713's gate-check edit commit (see the comment row below).
+//          The gate-check row "AC-.13 gate-check: ..." was added by STE-713's gate-check edit commit.
 //
 // All ids, teams, projects and tags are synthetic.
 
@@ -102,6 +102,18 @@ const TRUNK_CALL_TARGETS: Readonly<Record<string, readonly string[]>> = {
 };
 const SKILL_LINE_CAP_AT_TRUNK = 358;
 
+// The gate-check rows (AC-STE-713.11): the same trunk pins, for the file STE-713 edits.
+const TRUNK_GATE_CHECK_PROBE_STEP =
+  "- **Tracker Mode Probe** \u2014 Before running any commands, run the Schema L probe (see `docs/patterns.md` \u00a7 Tracker Mode Probe). If `CLAUDE.md` has no `## Task Tracking` section, mode is `none` and tracker-mode hooks skip. If a tracker mode is active:";
+const TRUNK_GATE_CHECK_CALL_TARGETS: readonly string[] = [
+  "capture_skip_baseline.ts",
+  "check_marker_runtime.ts",
+  "gate_receipt.ts gate-check",
+  "task_tracking_workspace_binding_present.ts",
+  "tracker_local_reconciliation_drift.ts",
+  "video_commit_nudge.ts",
+];
+
 // ---------------------------------------------------------------------------
 // The Schema L prose procedure of docs/patterns.md § Tracker Mode Probe,
 // as the model runs it against CLAUDE.md text.
@@ -150,7 +162,12 @@ describe("AC-STE-708.1 prose read unchanged", () => {
     });
   }
 
-  // AC-.1 gate-check row: added by STE-713's gate-check edit commit (no todo row: AC-STE-616.16 pins skip/todo call sites).
+  // AC-.1 gate-check row — added by STE-713's gate-check edit commit (AC-STE-713.11). The
+  // operator ruling of 2026-11-04 keeps the gate-check probe step byte-identical too.
+  test("AC-.1 gate-check: probe step is byte-identical to trunk", () => {
+    const lines = readFileSync(skillPath("gate-check"), "utf8").split("\n");
+    expect(lines).toContain(TRUNK_GATE_CHECK_PROBE_STEP);
+  });
 
   test("AC-.1 no file under skills/ names project_settings.ts mode", () => {
     expect(filesNamingFrontDoorMode(SKILLS_DIR)).toEqual([]);
@@ -309,7 +326,16 @@ describe("AC-STE-708.3 patterns.md § Tracker Mode Probe", () => {
     expect(p).toMatch(/legacy/i);
   });
 
-  // AC-.3 gate-check probe #21 row: added by STE-713's gate-check edit commit (no todo row: AC-STE-616.16).
+  // AC-.3 gate-check probe #21 row — added by STE-713's gate-check edit commit (AC-STE-713.11).
+  test("AC-.3 gate-check probe #21: metadata beyond the closed key set goes to a prose section outside ## Task Tracking", () => {
+    const entry = readFileSync(skillPath("gate-check"), "utf8")
+      .split("\n")
+      .find((l) => l.startsWith("21. **`task-tracking-canonical-keys`**"));
+    expect(entry).toBeDefined();
+    expect(entry).toMatch(/prose section/i);
+    expect(entry).toContain("outside `## Task Tracking`");
+    expect(entry).not.toContain("belongs under sub-headings");
+  });
 });
 
 // --- probe #21 helper ------------------------------------------------------
@@ -683,7 +709,10 @@ describe("AC-STE-708.13 zero extra tool calls", () => {
     });
   }
 
-  // AC-.13 gate-check row: added by STE-713's gate-check edit commit (no todo row: AC-STE-616.16).
+  // AC-.13 gate-check row — added by STE-713's gate-check edit commit (AC-STE-713.11).
+  test("AC-.13 gate-check: bun run targets equal the trunk pin (conditional additions only)", () => {
+    expect(callListViolations(readFileSync(skillPath("gate-check"), "utf8"), TRUNK_GATE_CHECK_CALL_TARGETS)).toEqual([]);
+  });
 
   const PLANT_SKILL = "pr";
   const base = (): string => readFileSync(skillPath(PLANT_SKILL), "utf8");

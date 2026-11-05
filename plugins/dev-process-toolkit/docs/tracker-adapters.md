@@ -29,7 +29,7 @@ project remains in `mode: none` until Bun is available.
 Every mode-aware skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`,
 `/pr`, `/spec-review`, `/spec-archive` — runs the Schema L tracker-mode probe
 first (see `docs/patterns.md` § Tracker Mode Probe). Absence of
-`## Task Tracking` in `CLAUDE.md` means `mode: none` and the `mode: none`
+`## Task Tracking` in `CLAUDE.md` (legacy home, or the stub the settings file renders) means `mode: none` and the `mode: none`
 branch runs unchanged. When a tracker is active, skills resolve the **active
 adapter** by reading `<mode>:` from `## Task Tracking` and loading the
 matching `adapters/<mode>.md`.

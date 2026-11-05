@@ -29,7 +29,7 @@ Tracker mode only (mode-none vacuous). Call `reconcileTrackerLocal` (in a shared
 
 After the layout gate and before any FR write:
 
-1. Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry, then pass the returned `ResolverConfig` to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. The builder reads `CLAUDE.md` `## Task Tracking` + each active adapter's Schema W `resolver:` block — never hand-assemble the config inline. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal.
+1. Call `buildResolverConfig(claudeMdPath, adaptersDir)` from `adapters/_shared/src/resolver_config.ts` once at entry, then pass the returned `ResolverConfig` to `resolveFRArgument($ARGUMENTS, config)` from `adapters/_shared/src/resolve.ts`. The builder reads `task_tracking` (settings file; legacy `CLAUDE.md` `## Task Tracking`) + each active adapter's Schema W `resolver:` block — never hand-assemble the config inline. Malformed adapter metadata surfaces as `MalformedAdapterMetadataError` → NFR-10 canonical refusal.
 2. Route by `kind`:
    - **`ulid`** → open the FR whose frontmatter `id:` equals `<ulid>` — located via `Provider.filenameFor(spec)`. Skip step 0b below.
    - **`tracker-id` / `url`** → branch on mode:

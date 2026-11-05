@@ -1,6 +1,6 @@
 ---
 name: docs
-description: Generate or update project docs (requires user_facing_mode or packages_mode true in CLAUDE.md's ## Docs block, which /setup writes). One of --quick, --commit, --full. `--quick` stages a fragment per FR; `--commit` merges staged fragments with human approval; `--full` regenerates the canonical docs/ tree from scratch.
+description: Generate or update project docs (requires user_facing_mode or packages_mode true in the `docs` key of specs/settings.yaml, legacy CLAUDE.md's ## Docs block, which /setup writes). One of --quick, --commit, --full. `--quick` stages a fragment per FR; `--commit` merges staged fragments with human approval; `--full` regenerates the canonical docs/ tree from scratch.
 argument-hint: '<--quick | --commit | --full>'
 ---
 
@@ -20,7 +20,7 @@ Extended reference (LLM prompts verbatim, merge algorithm pseudocode, per-sectio
 
 Run these checks regardless of flag.
 
-**(a) DocsConfig gate.** Call `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`. When **both** `userFacingMode` and `packagesMode` are `false` — or the `## Docs` section is absent entirely — refuse with the NFR-10 canonical shape:
+**(a) DocsConfig gate.** Call `readDocsConfig(CLAUDE.md)` from `adapters/_shared/src/docs_config.ts`. When **both** `userFacingMode` and `packagesMode` are `false` — or the `docs` settings key (legacy `## Docs` section) is absent entirely — refuse with the NFR-10 canonical shape:
 
 ```
 /docs: docs generation is not configured for this project.

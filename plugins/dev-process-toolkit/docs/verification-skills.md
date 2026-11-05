@@ -48,7 +48,7 @@ result → tear down.**
 
 ## The `## Verification` config contract
 
-A project opts in by declaring a `## Verification` section in its CLAUDE.md.
+A project opts in by declaring the `verification` key in `specs/settings.yaml` (legacy home: a `## Verification` section in its CLAUDE.md).
 The section is optional; when it is absent, no check is declared and
 `/implement` simply reports "no verification configured."
 
