@@ -51,28 +51,19 @@ What remains hand-maintained, deliberately: the prose paragraph after the README
 
 Schema reference + per-kind worked examples live in `plugins/dev-process-toolkit/docs/ship-milestone-reference.md`.
 
-## Release Files
+## Project Settings
 
-```yaml
-files:
-  - path: plugins/dev-process-toolkit/.claude-plugin/plugin.json
-    kind: json
-    field: version
-  - path: .claude-plugin/marketplace.json
-    kind: json
-    field: plugins[0].version
-  - path: CHANGELOG.md
-    kind: changelog
-  - path: README.md
-    kind: regex
-    pattern: 'Latest: \*\*v(?<version>\d+\.\d+\.\d+) — "(?<codename>[^"]+)"'
-    replace: 'Latest: **v{version} — "{codename}"'
-    optional: true
-  - path: specs/requirements.md
-    kind: regex
-    pattern: '\*\*Latest shipped release:\*\* \*\*v(?<version>\d+\.\d+\.\d+) \("(?<codename>[^"]+)"\)\*\*'
-    replace: '**Latest shipped release:** **v{version} ("{codename}")**'
-```
+Project settings live in `specs/settings.yaml`, which requires dev-process-toolkit 3.0.0 or newer. If the installed plugin is older than 3.0.0, or you cannot tell its version, stop and ask the operator to upgrade the plugin before reading or writing any setting.
+
+<!-- Generated from specs/settings.yaml for older plugins. Edit that file, not this block. -->
+## Task Tracking
+
+mode: linear
+
+### Linear
+
+team: STE
+project: DPT — Dev Process Toolkit
 
 ## Core Principles
 
@@ -125,35 +116,3 @@ Refs: M36
 The user-preferences override in the global `~/.claude/CLAUDE.md` (no Claude-Code attribution, no robot emoji, short and humorous) constrains commit-message *style*; this section constrains *format*. They compose — both apply.
 
 **Pre-CC history (M1–M35)** is intentionally not rewritten. CHANGELOG entries continue to follow the existing `## [X.Y.Z] — YYYY-MM-DD — "Codename"` format independent of the per-commit subject convention. The M36 implementation commit and the M36 ship commit are the first two canonical CC commits on this repo's main line of history.
-
-## Task Tracking
-
-mode: linear
-mcp_server: linear
-jira_ac_field:
-
-### Linear
-
-team: STE
-project: DPT — Dev Process Toolkit
-
-## Verification
-
-verify_skill: smoke-test
-verify_mode: manual
-run_cmd: none
-
-## Docs
-
-user_facing_mode: false
-packages_mode: false
-changelog_ci_owned: false
-
-## Orchestration
-
-default_effort: ultracode
-merge_policy: auto
-
-## Token Stats
-
-enabled: true

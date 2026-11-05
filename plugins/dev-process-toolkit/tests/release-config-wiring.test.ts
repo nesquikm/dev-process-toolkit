@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseReleaseFiles, readReleaseFiles } from "../adapters/_shared/src/release_config";
+import { readReleaseFiles } from "../adapters/_shared/src/release_config";
 import { renderSettingsPointer } from "../adapters/_shared/src/project_settings";
 
 // AC-STE-167.5 / AC-STE-167.4 / AC-STE-167.2 — wiring tests.
@@ -22,10 +22,14 @@ function read(p: string): string {
   return readFileSync(p, "utf-8");
 }
 
+// Since 3.0.0 this repository self-hosts the list as `release.files` in
+// specs/settings.yaml; both legs read it through readReleaseFiles, the reader
+// /ship-milestone uses, not by parsing a CLAUDE.md block.
+const readRepoReleaseFiles = () => readReleaseFiles(repoRoot, () => read(join(repoRoot, "CLAUDE.md")));
+
 describe("AC-STE-167.5 — toolkit CLAUDE.md self-hosts the block", () => {
-  test("toolkit CLAUDE.md carries a parseable Release Files block", () => {
-    const md = read(join(repoRoot, "CLAUDE.md"));
-    const entries = parseReleaseFiles(md);
+  test("toolkit release files parse through the loader", () => {
+    const entries = readRepoReleaseFiles();
     expect(entries.length).toBeGreaterThanOrEqual(4);
     const paths = entries.map((e) => e.path);
     expect(paths).toContain("plugins/dev-process-toolkit/.claude-plugin/plugin.json");
@@ -35,8 +39,7 @@ describe("AC-STE-167.5 — toolkit CLAUDE.md self-hosts the block", () => {
   });
 
   test("toolkit's nested marketplace entry uses plugins[0].version dot-path", () => {
-    const md = read(join(repoRoot, "CLAUDE.md"));
-    const entries = parseReleaseFiles(md);
+    const entries = readRepoReleaseFiles();
     const marketplace = entries.find((e) => e.path === ".claude-plugin/marketplace.json");
     expect(marketplace).toBeDefined();
     expect(marketplace!.kind).toBe("json");
