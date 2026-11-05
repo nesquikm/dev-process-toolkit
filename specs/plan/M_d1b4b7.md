@@ -74,7 +74,19 @@ Defaults unchanged (operator rule, 2026-11-04): "these changes SHOULD NOT change
 
 ### SKILL.md line budget
 
-The cap is 358, never raised. Counts are `split("\n").length`, the unit `tests/skill-nfr-1-length.test.ts` measures (`wc -l` reads one fewer), at v3.0.0 (6c62b32c) plus the M_7bc805 rows, which touch none of these files. `skills/implement/SKILL.md` is at the cap (358 split-lines), and these tests pin that count exactly: `tests/ticket-ownership-shared.test.ts:766-768` (also 41 `STE-<n>` tokens), `tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts:498-499`, `tests/m_685ff6-ste-609-prose.test.ts:376-377`, `tests/m_8f07e0-ste-584-awaiting-siblings.test.ts`, `tests/m_79b1f6-ste-592-epic-mint-prose.test.ts`, `tests/m143-ste-553-one-review-instruction.test.ts:322` (`BASELINE_LINES = 358`), `tests/m_94e6f7-ste-710-settings-writers.test.ts:1275` (357, counted as split-lines minus one) and the `tests/m143-ste-550-inline-no-terminal-block.test.ts` net-zero baseline. The appended retro text carries no `STE-<n>` token, so the 41-token pin holds too. `skills/deliver/SKILL.md` measures 266 split-lines, pinned exactly by `tests/m_8f07e0-ste-582-target-repo-refusal.test.ts:78` (`DELIVER_SKILL_LINE_COUNT = 266`, asserted at :429) and `tests/m_8f07e0-ste-584-awaiting-siblings.test.ts:586`. Both already carry `Amended by AC-STE-712.7`; the deliver row below moves both to 268, each gaining `// Amended by AC-STE-722.9 (266 -> 268)`. The deliver close-out section is the file's last section (line 263 on), so no line-position pin sits after the insertion. The cap is not raised (AC-STE-712.9 awaits the operator).
+1. The cap is 358, never raised. Counts are `split("\n").length`, the unit `tests/skill-nfr-1-length.test.ts` measures (`wc -l` reads one fewer), at v3.0.0 (6c62b32c) plus the M_7bc805 rows, which touch none of these files.
+2. `skills/implement/SKILL.md` is at the cap (358 split-lines). These tests pin that count exactly:
+   - `tests/ticket-ownership-shared.test.ts:766-768` (also 41 `STE-<n>` tokens);
+   - `tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts:498-499` and `tests/m_685ff6-ste-609-prose.test.ts:376-377`;
+   - `tests/m_8f07e0-ste-584-awaiting-siblings.test.ts` and `tests/m_79b1f6-ste-592-epic-mint-prose.test.ts`;
+   - `tests/m143-ste-553-one-review-instruction.test.ts:322` (`BASELINE_LINES = 358`);
+   - `tests/m_94e6f7-ste-710-settings-writers.test.ts:1275` (357, counted as split-lines minus one);
+   - the `tests/m143-ste-550-inline-no-terminal-block.test.ts` net-zero baseline.
+   The appended retro text carries no `STE-<n>` token, so the 41-token pin holds too.
+3. `skills/deliver/SKILL.md` measures 266 split-lines, pinned exactly by `tests/m_8f07e0-ste-582-target-repo-refusal.test.ts:78` (`DELIVER_SKILL_LINE_COUNT = 266`, asserted at :429) and `tests/m_8f07e0-ste-584-awaiting-siblings.test.ts:586`.
+   - Both already carry `Amended by AC-STE-712.7`. The deliver row below moves both to 268, each gaining `// Amended by AC-STE-722.9 (266 -> 268)`.
+   - The deliver close-out section is the file's last section (line 263 on), so no line-position pin sits after the insertion.
+   - The cap is not raised (AC-STE-712.9 awaits the operator).
 
 | SKILL.md | Start | Lines this milestone adds or rewrites | Net | End |
 |---|---|---|---|---|
@@ -85,18 +97,15 @@ The cap is 358, never raised. Counts are `split("\n").length`, the unit `tests/s
 | brainstorm | 141 | Added: the retro.json fetch line (STE-721), +1. No test pins its count exactly. | +1 | 142 |
 | retro (new) | 0 | The new skill with the propose step and its approval gate (STE-719, STE-728); overflow in docs/retro-reference.md. | new | ≤358 |
 
-Pins that are not line counts, found by a full-suite run on scratch copies carrying these edits and the registry growth (spec review 6), each named with its amendment in its FR:
-
-- `tests/m_94e6f7-ste-708-mode-front-door.test.ts` zero-extra-calls rows for implement and deliver: `CONDITIONAL_TARGETS` gains `retro_offer.ts` beside `retro: on`, and archived AC-STE-708.13 gains its second appended clause (AC-STE-722.16).
-- The offer registry pins of `tests/m143-ste-551-continuation-offers.test.ts` (`ALL_OFFER_IDS`, `SHIPPED_ANCHORS`, `CHAIN_REACHED_IDS`, length, per-skill lists and counts, full-chain operator turns) and of `tests/m_94e6f7-ste-712-upgrade-offer.test.ts` (:346 and :350-354) (AC-STE-722.9).
-- `MODULE_BASENAMES` of `tests/m117-ste-428-report-issue-renderable.test.ts` gains `report_issue_payload` (AC-STE-720.15) and `report_issue_retro` (AC-STE-721.13).
-- `GATE_REGISTRY` gains both retro offers as mechanical gates; `EXPECTED_NEW_GATE_IDS` of `tests/m143-ste-552-chain-gate-registration.test.ts` and `POST_FR_ADDED_IDS` of `tests/m133-ste-515-gate-registration.test.ts` move with it, and `ADMITTED_MARKER` of `tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts` admits `722\.9` for the deliver 268 hunk (AC-STE-722.9).
-- The argument-hint pins (AC-STE-721.1); `report_issue_retro_seeded` is registered in the `/spec-write` § 7 map only, so the six `CANONICAL_CAPABILITY_KEYS` length pins stay at 47 (AC-STE-721.8, AC-STE-721.13).
-
-- A test M_7bc805 ships (review 7, R7-3): the § 5 remainder of `tests/m_7bc805-ste-716-out-of-scope.test.ts` excludes the three STE-718 lines, and archived AC-STE-716.13 gains its clause (AC-STE-718.8).
-- Two pins review 7 found (m7-2): `BASELINE_LINES` of `tests/m143-ste-550-inline-no-terminal-block.test.ts` (:551) must name exactly `ADOPTING_STAGES`, so it gains a `retro` key; and in `tests/m137-ste-533-stage-block-adoption.test.ts`, beside the 12 to 13 pin AC-STE-719.13 names, the closed-list literal ("operator-resolved eleven, in order"), "all ELEVEN … accepted" and "nine of eleven outside /deliver's vocabulary" rows move with it (AC-STE-719.13).
-
-No FR here edits the gate-check SKILL.md.
+4. Pins that are not line counts, found by a full-suite run on scratch copies carrying these edits and the registry growth (spec review 6), each named with its amendment in its FR:
+   - `tests/m_94e6f7-ste-708-mode-front-door.test.ts` zero-extra-calls rows for implement and deliver: `CONDITIONAL_TARGETS` gains `retro_offer.ts` beside `retro: on`, and archived AC-STE-708.13 gains its second appended clause (AC-STE-722.16).
+   - The offer registry pins of `tests/m143-ste-551-continuation-offers.test.ts` (`ALL_OFFER_IDS`, `SHIPPED_ANCHORS`, `CHAIN_REACHED_IDS`, length, per-skill lists and counts, full-chain operator turns) and of `tests/m_94e6f7-ste-712-upgrade-offer.test.ts` (:346 and :350-354) (AC-STE-722.9).
+   - `MODULE_BASENAMES` of `tests/m117-ste-428-report-issue-renderable.test.ts` gains `report_issue_payload` (AC-STE-720.15) and `report_issue_retro` (AC-STE-721.13).
+   - `GATE_REGISTRY` gains both retro offers as mechanical gates; `EXPECTED_NEW_GATE_IDS` of `tests/m143-ste-552-chain-gate-registration.test.ts` and `POST_FR_ADDED_IDS` of `tests/m133-ste-515-gate-registration.test.ts` move with it, and `ADMITTED_MARKER` of `tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts` admits `722\.9` for the deliver 268 hunk (AC-STE-722.9).
+   - The argument-hint pins (AC-STE-721.1); `report_issue_retro_seeded` is registered in the `/spec-write` § 7 map only, so the six `CANONICAL_CAPABILITY_KEYS` length pins stay at 47 (AC-STE-721.8, AC-STE-721.13).
+   - A test M_7bc805 ships (review 7, R7-3): the § 5 remainder of `tests/m_7bc805-ste-716-out-of-scope.test.ts` excludes the three STE-718 lines, and archived AC-STE-716.13 gains its clause (AC-STE-718.8).
+   - Two pins review 7 found (m7-2): `BASELINE_LINES` of `tests/m143-ste-550-inline-no-terminal-block.test.ts` (:551) must name exactly `ADOPTING_STAGES`, so it gains a `retro` key; and in `tests/m137-ste-533-stage-block-adoption.test.ts`, beside the 12 to 13 pin AC-STE-719.13 names, the closed-list literal ("operator-resolved eleven, in order"), "all ELEVEN … accepted" and "nine of eleven outside /deliver's vocabulary" rows move with it (AC-STE-719.13).
+5. No FR here edits the gate-check SKILL.md.
 
 ### Gate
 

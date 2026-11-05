@@ -58,8 +58,8 @@ codename: Proof of Work
   verify: propose prints the reuse line only with tracking.gate_outcomes on; the AC-STE-728.1 row pin moves from three to four with its Amended-by comment
 - [ ] Add `computeReuseKey` to `gate_reuse.ts`, composing the M_7bc805 `gateReuseKey` with a per-command hash and passing its stub options through (AC-STE-724.1, .2, .3)
   verify: keys exactly `gate` and `command_sha256`; null on modified, staged, untracked, non-git and unborn HEAD; `gate` deep-equals the M_7bc805 run-receipt key
-- [ ] Add the `reuse: on` line to the `gate-check` receipt call, behind the outcome switch and a dynamic import (AC-STE-724.20)
-  verify: one, two or three lines by switch and knob; no module load with the outcome switch off; the AC-STE-715.13 literal carries its Amended-by comment
+- [ ] Add the `reuse: on` line to the `gate-check` receipt call, behind the outcome switch and a dynamic import, and append the archived AC-STE-715.13 clause (AC-STE-724.20)
+  verify: one, two or three lines by switch and knob; no module load with the outcome switch off; the AC-STE-715.13 literal carries its Amended-by comment; the archived AC-STE-715.13 line differs only by its appended clause
 - [ ] Add the `run` verb and `announcesGateStep`: knob check first, then live key, announced same-session `gate-step` pass lookup with provenance, and a reuse line or a real run plus one receipt (AC-STE-724.4, .5, .6, .8, .9, .10, .14, .15, .16)
   verify: paired trip and no-trip fixtures, one per key part and one per refusal; each echo, chain and same-name forgery runs the command; knob off, or reuse with outcomes off, writes nothing; unset session id writes nothing
 - [ ] Prove the hooks read nothing new (AC-STE-724.11, .12)
@@ -74,7 +74,7 @@ codename: Proof of Work
   verify: probe #81 grades the line reachable; trunk Commands lines and Code Review byte-identical (line 252 as a prefix); Red Flags and Rationalization blocks byte-identical; the file measures 356 split-lines and 87 STE tokens; the eight exact 356 pins, the numstat in-place rule and the row-position control pass unedited; every file `grep -rl "probe count" tests/` lists is green; "AC-.13 gate-check" green
 - [ ] Under ruling R5, re-base KICKOFF to that edit commit as its own reviewed commit, listing every new permitted line (AC-STE-723.9, AC-STE-724.17, AC-STE-725.8)
   verify: freeze test green on the re-base commit; neighbour-line negative controls still fail `driftBeyond`
-- [ ] Add the milestone's defaults-unchanged test, and re-run the M_7bc805 `/gate-check` modeller with every switch off and with the reuse receipt lines stubbed (AC-STE-725.11, AC-STE-725.13, AC-STE-724.22)
+- [ ] Add the milestone's defaults-unchanged test, add the `gate_reuse.ts run` row to the M_7bc805 modeller's `GUARDED_TARGETS`, and re-run that `/gate-check` modeller with every switch off and with the reuse receipt lines stubbed (AC-STE-725.11, AC-STE-725.13, AC-STE-724.22)
   verify: knob reads run, probe silent, verdict prints rerun, no gate-step receipt, receipt call and store equal v3.0.0; the probe summary differs only by its named vacuous count
 - [ ] Mutation controls for each rule (AC-STE-723.10, AC-STE-724.18, AC-STE-725.9)
   verify: removing the knob, tree-clean, announcement, provenance, run-outcome, never-reusable and verdict checks each reds a named test
@@ -85,7 +85,8 @@ codename: Proof of Work
 
 ### SKILL.md line budget
 
-The cap is 358, never raised. Counts are `split("\n").length`, the unit `tests/skill-nfr-1-length.test.ts` measures (`wc -l` reads one fewer). Starting counts are the M_d1b4b7 end counts, which leave gate-check, implement and simplify at their v3.0.0 bytes (6c62b32c). Every gate-check line below is fixed in advance and lands in the one edit commit.
+1. The cap is 358, never raised. Counts are `split("\n").length`, the unit `tests/skill-nfr-1-length.test.ts` measures (`wc -l` reads one fewer).
+2. Starting counts are the M_d1b4b7 end counts, which leave gate-check, implement and simplify at their v3.0.0 bytes (6c62b32c). Every gate-check line below is fixed in advance and lands in the one edit commit.
 
 | SKILL.md | Start | Lines this milestone adds or rewrites | Net | End |
 |---|---|---|---|---|
@@ -93,18 +94,20 @@ The cap is 358, never raised. Counts are `split("\n").length`, the unit `tests/s
 | implement | 358 | Phase 3 step i at line 213 gains the reuse clause in place (STE-725); no line added, so none displaced. The clause carries no `STE-<n>` token, so the 41-token pin of `tests/ticket-ownership-shared.test.ts` and the exact-count pins the M_d1b4b7 plan names do not move. | 0 | 358 |
 | simplify | 60 | Added: the knob branch after step 4 (STE-725), at most +2. No test pins its count exactly (scan of every test naming `simplify/SKILL.md` for 59 or 60). | ≤+2 | ≤62 |
 
-Gate-check stays at 356 with its 2 lines of headroom. This follows the repo's own precedent: the `RE-BASED` comments of `tests/m_2306b6-ste-618-live-proof-gate.test.ts` record that M_7384cf and M_bae31f each paid for their probe row with a joined line (#29, then #30); #31 is the next. Both the row and the join sit below row 89's line or at it, so every row-position pin holds (row 25 on line 80, row 26 on line 81, row 49 on line 128, row 63 on line 150, row 73 on line 160), and every line from 231 on keeps its v3.0.0 number. No line carries a `STE-<n>` token, so the count stays 87 and `tests/ste-614-surfaces.test.ts` ("no `STE-<N>` token is added anywhere under skills/") stays green.
-
-Pins this keeps unedited, because the count does not move (re-checked on a scratch copy carrying every edit above): the eight exact 356 pins, `tests/orphan-listing-shared.test.ts:773-776`, `tests/m_685ff6-ste-608-spec-write-prose.test.ts:163-165`, `tests/shared-declaration-setup.test.ts:871-875`, `tests/gate-check-spec-research-result-shape.test.ts:425-428`, `tests/m_a85e46-ste-656-docs-drift.test.ts:478-481`, `tests/m_79b1f6-ste-588-sibling-coherence.test.ts:932-934` (its "89 rows" moves to 90 with the probe-count pins), `tests/m_8f07e0-ste-584-awaiting-siblings.test.ts:571-573` and `tests/m_685ff6-ste-612-probe25-leg.test.ts:223-224`; the git-reading rules `tests/m_79b1f6-ste-591-sibling-by-tracker-id.test.ts:662-675` (numstat against main, added equal to deleted) and `tests/m_685ff6-ste-609-prose.test.ts:192` (rows 1 to 89 keep main's positions).
-
-Pins that move, each in the edit commit with its Amended-by comment:
-
-- The probe-count pins (`grep -rl "probe count" tests/`), 89 to 90, and the README's two counts (AC-STE-723.7); `ADMITTED_MARKER` of `tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts` gains `723\.7` so the ste-584 count move is an admitted hunk (AC-STE-723.14).
-- The next-probe sentence: `tests/m_8f8e25-ste-558-scanner-registration.test.ts:940` (derived, green once line 248 moves), and the literal pins `tests/m_866092-ste-673-video-commit-nudge.test.ts:716-725` and `tests/m140-ste-543-external-link-verdicts.test.ts:1020-1027`, #90 to #91 (AC-STE-723.7, AC-STE-723.14).
-- `CONDITIONAL_TARGETS` of `tests/m_94e6f7-ste-708-mode-front-door.test.ts` gains `gate_reuse.ts run` beside `reuse: on`, and archived AC-STE-708.13 gains its third appended clause (AC-STE-724.21).
-- Tests earlier milestones of this programme ship (review 7, R7-4): the AC-STE-722.8 frozen region (AC-STE-725.12) and the AC-STE-722.12 `Remedy:` and `get optimizations` literals (AC-STE-723.15). The AC-STE-715.15 and AC-STE-717.13 modellers pass unedited, since their switch-line guard is generic (AC-STE-724.22).
-- Two count pins review 7 found, in the probe-count family: the `docs/workflow-overview.md` probe counts ("+ {N} probes", "| {N} conformance probes") that the PINS table of `tests/m_7384cf-ste-680-bug-import-and-probe.test.ts` (:843) reads (AC-STE-723.7), and the README "31 proven patterns" count that `tests/m_645517-ste-567-front-door.test.ts` (:363) grades, which becomes 32 with Pattern 32 (AC-STE-725.6).
-- The AC-STE-618.8 freeze, re-based once under R5; its `RE-BASED` comment lists lines 177, 230, 248, 252, 265, 268, 336 and 337 as the lines the edit commit changed.
+3. Gate-check stays at 356 with its 2 lines of headroom.
+   - This follows the repo's own precedent: the `RE-BASED` comments of `tests/m_2306b6-ste-618-live-proof-gate.test.ts` record that M_7384cf and M_bae31f each paid for their probe row with a joined line (#29, then #30); #31 is the next.
+   - Both the row and the join sit below row 89's line or at it, so every row-position pin holds (row 25 on line 80, row 26 on line 81, row 49 on line 128, row 63 on line 150, row 73 on line 160), and every line from 231 on keeps its v3.0.0 number.
+   - No line carries a `STE-<n>` token, so the count stays 87 and `tests/ste-614-surfaces.test.ts` ("no `STE-<N>` token is added anywhere under skills/") stays green.
+4. Pins this keeps unedited, because the count does not move (re-checked on a scratch copy carrying every edit above):
+   - the eight exact 356 pins: `tests/orphan-listing-shared.test.ts:773-776`, `tests/m_685ff6-ste-608-spec-write-prose.test.ts:163-165`, `tests/shared-declaration-setup.test.ts:871-875`, `tests/gate-check-spec-research-result-shape.test.ts:425-428`, `tests/m_a85e46-ste-656-docs-drift.test.ts:478-481`, `tests/m_79b1f6-ste-588-sibling-coherence.test.ts:932-934` (its "89 rows" moves to 90 with the probe-count pins), `tests/m_8f07e0-ste-584-awaiting-siblings.test.ts:571-573` and `tests/m_685ff6-ste-612-probe25-leg.test.ts:223-224`;
+   - the git-reading rules `tests/m_79b1f6-ste-591-sibling-by-tracker-id.test.ts:662-675` (numstat against main, added equal to deleted) and `tests/m_685ff6-ste-609-prose.test.ts:192` (rows 1 to 89 keep main's positions).
+5. Pins that move, each in the edit commit with its Amended-by comment:
+   - The probe-count pins (`grep -rl "probe count" tests/`), 89 to 90, and the README's two counts (AC-STE-723.7); `ADMITTED_MARKER` of `tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts` gains `723\.7` so the ste-584 count move is an admitted hunk (AC-STE-723.14).
+   - The next-probe sentence: `tests/m_8f8e25-ste-558-scanner-registration.test.ts:940` (derived, green once line 248 moves), and the literal pins `tests/m_866092-ste-673-video-commit-nudge.test.ts:716-725` and `tests/m140-ste-543-external-link-verdicts.test.ts:1020-1027`, #90 to #91 (AC-STE-723.7, AC-STE-723.14).
+   - `CONDITIONAL_TARGETS` of `tests/m_94e6f7-ste-708-mode-front-door.test.ts` gains `gate_reuse.ts run` beside `reuse: on`, and archived AC-STE-708.13 gains its third appended clause (AC-STE-724.21).
+   - Tests earlier milestones of this programme ship (review 7, R7-4): the AC-STE-722.8 frozen region (AC-STE-725.12) and the AC-STE-722.12 `Remedy:` and `get optimizations` literals (AC-STE-723.15). The AC-STE-715.15 and AC-STE-717.13 modellers pass once `GUARDED_TARGETS` gains its `gate_reuse.ts run` row with its Amended-by comment (AC-STE-724.22).
+   - Two count pins review 7 found, in the probe-count family: the `docs/workflow-overview.md` probe counts ("+ {N} probes", "| {N} conformance probes") that the PINS table of `tests/m_7384cf-ste-680-bug-import-and-probe.test.ts` (:843) reads (AC-STE-723.7), and the README "31 proven patterns" count that `tests/m_645517-ste-567-front-door.test.ts` (:363) grades, which becomes 32 with Pattern 32 (AC-STE-725.6).
+   - The AC-STE-618.8 freeze, re-based once under R5; its `RE-BASED` comment lists lines 177, 230, 248, 252, 265, 268, 336 and 337 as the lines the edit commit changed.
 
 ### Gate
 
