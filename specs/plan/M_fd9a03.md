@@ -18,6 +18,8 @@ codename: Proof of Work
 
 **Release target:** v3.3.0, a minor after v3.2.0: two Added FRs and one Changed FR. Verify against CHANGELOG.md before shipping.
 
+**Rebase onto v3.0.0.** These specs were rebased onto 6c62b32c and reconciled with what v3.0.0 shipped. The `optimizations` section is a closed set in the loader (`TOP_KEYS`, `settingsKeyOrder("optimizations")` = `OPTIMIZATION_KNOBS`, `NEW_KEYS`), not the drafted pass-through: v3.0.0 validates per section, so a bad knob name refuses only `optimizations` reads (which read `run`) and whole-file readers, as any unknown key does today. The knob's value stays the probe's to grade. The vacuous probe count is an accepted named difference (operator ruling relayed with the rebase). No FR writes a CLAUDE.md settings section.
+
 **Operator rulings.**
 
 - 2026-11-04: shorten real runs only. No knob may lower generated-code quality or disable a deterministic gate.
@@ -28,7 +30,7 @@ codename: Proof of Work
 - R5 (2026-11-04), pre-granted for this milestone: re-base the AC-STE-618.8 KICKOFF once at this milestone's gate-check edit commit, listing the new permitted lines. The re-base lands as its own reviewed commit with the freeze test green. All three FRs therefore put their gate-check lines in that one edit commit.
 - Defaults unchanged (operator rule, 2026-11-04): no behaviour change by default; every optimization is a settings change the user approves after /retro. The reuse knob is off unless set, and STE-723 adds its row to the STE-728 proposal table, applied only on explicit approval.
 - R6 (2026-11-04): the front door runs only when the knob is on. With `gate_commands` off, `/gate-check` is byte-identical to today: no front door, no gate-step receipts. With it off, the `/simplify` STE-196 skip keeps its current behaviour.
-- Supervisor ruling 2026-11-04, for operator review: an off knob costs no tool call. The `gate-check` receipt call prints `reuse: on` when the knob is effective, and both skills key on that line. So an off gate also makes no knob read. "Today" in R6 means v3.0.0, the defaults baseline, never v2.101.4. One output moves by default: the conformance-probes summary counts the new vacuous probe.
+- Supervisor ruling 2026-11-04, for operator review: an off knob costs no tool call. The `gate-check` receipt call prints `reuse: on` when the knob is effective, and both skills key on that line. So an off gate also makes no knob read. "Today" in R6 means v3.0.0, the defaults baseline, never v2.101.4. One output moves by default: the conformance-probes summary counts the new vacuous probe, an accepted named difference (operator ruling relayed with the rebase).
 
 **Decisions.** The section key is `optimizations` and the one knob is `gate_commands`. Version one reuses within one session only, behind that single knob. The knob is read inside the receipt call, which prints `reuse: on`, so an off gate never calls the front door or the knob verb. The knob verb stays for hand runs and tests. Tracker ids are lowercased inside file paths when placeholders are filled.
 
@@ -46,10 +48,10 @@ codename: Proof of Work
 
 - [ ] Add `optimizations_config.ts` with the knob and value enums, the refused-name list, `readOptimizations`, `validateOptimizations` and the `knob` verb, read through the M_94e6f7 settings loader (AC-STE-723.1, .2, .3, .5, .6, .12)
   verify: reader and verb return run for absent, empty and invalid sections, and for reuse with tracking.gate_outcomes off; one violation per offending key; source grep zero hits beside its control
-- [ ] Admit `optimizations` to the loader's top-level set as a pass-through section; document it in settings-reference; add its `new` mapping row (AC-STE-723.8)
-  verify: loader accepts a refused knob without throwing; settings-reference names `gate_commands`, `reuse` and `run`
+- [ ] Admit `optimizations` to the loader as a closed section (`TOP_KEYS`, `settingsKeyOrder`, `NEW_KEYS`, defaults), its value unchecked by the loader; document it in settings-reference; add its `new` mapping row and the enum case of the off-when-absent row (AC-STE-723.8)
+  verify: an unknown knob name refuses `optimizations` reads only, a bad value passes the loader, the planted-knob control still names only `orchestration.skip_gates`; settings-reference names `gate_commands`, `reuse` and `run`
 - [ ] Add the probe module entry `runOptimizationsReuseOnlyProbe` and its fixtures (AC-STE-723.4)
-  verify: positive fixture plus one negative per reason, requires-gate-outcomes included; vacuous with zero notes on an unmanaged tree and on no section
+  verify: positive fixture plus one negative per reason, requires-gate-outcomes included, knob names graded through `settingsSectionKeys` when the loader refuses; vacuous with zero notes on an unmanaged tree, a foreign settings file and no section
 - [ ] Add the reuse row to the STE-728 proposal table (AC-STE-723.13)
   verify: propose prints the reuse line only with tracking.gate_outcomes on; the AC-STE-728.1 row pin moves from three to four with its Amended-by comment
 - [ ] Add `computeReuseKey` to `gate_reuse.ts`, composing the M_7bc805 `gateReuseKey` with a per-command hash and passing its stub options through (AC-STE-724.1, .2, .3)
@@ -82,7 +84,7 @@ The cap is 358, never raised. Starting counts are the M_d1b4b7 end counts. Gate-
 | SKILL.md | Start | Lines this milestone adds or rewrites | Net | End |
 |---|---|---|---|---|
 | gate-check | 355 | Added: the optimizations_reuse_only probe line (STE-723), +1; the knob paragraph after the Commands lines and its blank line (STE-724), +2. In place: the Reporting row naming (reused) (STE-724); the fresh-run line and the skip-no-step line in Rules, and the Reporting fresh-run sentence (STE-725). | +3 | 358 |
-| implement | 355 | Phase 3 step i at line 213 gains the reuse clause in place (STE-725). | 0 | 355 |
+| implement | 357 | Phase 3 step i at line 213 gains the reuse clause in place (STE-725); no line added, so none displaced and the six exact-count pins named in the M_d1b4b7 plan do not move. | 0 | 357 |
 | simplify | 59 | Added: the knob branch after step 4 (STE-725), at most +2. | ≤+2 | ≤61 |
 
 If gate-check needs one more line, a line is displaced to its reference doc and named in the KICKOFF re-base. The cap is not raised.
@@ -91,4 +93,4 @@ If gate-check needs one more line, a line is displaced to its reference doc and 
 
 - `bun test` from `plugins/dev-process-toolkit`: 0 fail, skip identities equal to the baseline
 - `/gate-check` clean, including the new probe on this repo's own settings file
-- Defaults unchanged: with no settings file, and with a migrated file holding only the moved keys, skill, hook and probe outputs equal v3.0.0, the M_94e6f7 merge commit (tests/m_fd9a03-defaults-unchanged.test.ts); no extra tool call by default. One named difference, for operator review: the conformance-probes summary counts one more vacuous probe (STE-723)
+- Defaults unchanged: with no settings file, and with a migrated file holding only the moved keys, skill, hook and probe outputs equal v3.0.0, the M_94e6f7 merge commit (tests/m_fd9a03-defaults-unchanged.test.ts); no extra tool call by default. One named difference, accepted by operator ruling: the conformance-probes summary counts one more vacuous probe (STE-723)
