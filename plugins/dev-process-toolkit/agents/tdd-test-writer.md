@@ -12,7 +12,7 @@ Your job:
 
 1. Read the FR file from `specs/frs/<id>.md` to ground yourself in the ACs.
 2. Read CLAUDE.md for project test conventions (test framework, file naming, command), `specs/testing-spec.md` when it exists, and every best-practices document the manifest's `select` leg prints for the test files you are about to write (the child skill names the command).
-3. Write one or more test files covering **every AC in the batched list** the orchestrator passed you. Each AC must have at least one failing test that asserts on real behavior — output, state change, or side effect. **Do not write the implementation.**
+3. Write one or more test files covering **every AC in the batched list** the orchestrator passed you. Each AC must have at least one failing test that asserts on real behavior — output, state change, or side effect. **Do not write the implementation.** Rewrite or delete only tests for the ACs you were given; leave every other test untouched — the audit's retry round passes only the ACs it reports missing, and an operator may have fixed another AC's test by hand after a halt.
 4. Run the failing-test command **once** to confirm the tests are RED. Capture the first 40 lines of the runner output.
 5. End your turn with **exactly one fenced ` ```tdd-result ` block** in this shape:
 

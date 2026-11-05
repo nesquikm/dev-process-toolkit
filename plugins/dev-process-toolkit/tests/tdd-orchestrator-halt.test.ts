@@ -173,13 +173,52 @@ describe("defect check — not-load-bearing halt report", () => {
     );
   });
 
-  // The test-writer is not user-invocable and /tdd takes only an FR id, so
-  // the remedy can only be a hand fix to the test, then a re-run of the FR.
-  test("the remedy points at the test, by hand, and names the AC", () => {
+  // The test-writer is not user-invocable, so the remedy is a hand fix to the
+  // test. A plain re-run of the FR cannot follow it: Stage RED needs every
+  // AC's test RED, and the ACs already implemented are GREEN — so the remedy
+  // resumes at the halted AC, past Stage RED.
+  test("the remedy points at the test, by hand, and resumes at the AC", () => {
     const remedy = report().split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
     expect(remedy).toContain("fix the test for AC-X.2 by hand");
     expect(remedy).toContain("fails at its assertion when the behavior breaks");
-    expect(remedy).toContain("re-run /dev-process-toolkit:tdd against the FR");
+    expect(remedy).toContain("/dev-process-toolkit:tdd <FR-id> --resume-at AC-X.2");
     expect(remedy).not.toContain("test-writer");
+  });
+
+  // The orchestrator knows the FR; with it, the resume command is one the
+  // operator can copy as it stands.
+  test("with the FR id, the resume command names it", () => {
+    const out = formatHaltReport({
+      mode: "not-load-bearing",
+      role: "implementer",
+      fr: "STE-901",
+      ac: "AC-STE-901.2",
+      retryCount: 0,
+    });
+    const remedy = out.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+    expect(remedy).toContain("/dev-process-toolkit:tdd STE-901 --resume-at AC-STE-901.2");
+  });
+});
+
+// A halt in Stage GREEN leaves the ACs before it implemented. Re-running the
+// FR from the top dispatches the test-writer again over every test, so an
+// implementer halt that names its AC points at the resume instead.
+describe("an implementer halt names the resume at its AC", () => {
+  test("mode B on an AC: the remedy offers --resume-at for that AC", () => {
+    const out = formatHaltReport({
+      mode: "B",
+      role: "implementer",
+      fr: "STE-901",
+      ac: "AC-STE-901.3",
+      retryCount: 2,
+    });
+    const remedy = out.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+    expect(remedy).toContain("/dev-process-toolkit:tdd STE-901 --resume-at AC-STE-901.3");
+  });
+
+  test("a test-writer halt has no AC to resume at, and offers no resume", () => {
+    const out = formatHaltReport({ mode: "A", role: "test-writer", retryCount: 2 });
+    const remedy = out.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+    expect(remedy).not.toContain("--resume-at");
   });
 });
