@@ -1204,7 +1204,19 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   // Re-based by M_6c25dd: the same checklist item now sits at line 265.
   const SHIP_PERMITTED_LINE = 91;
   const SHIP_EPIC_CLOSE_LINE = 265;
-  const SHIP_PERMITTED = [SHIP_PERMITTED_LINE, SHIP_EPIC_CLOSE_LINE];
+  // RULING (STE-713, M_94e6f7, operator 2026-11-05, answered in the supervisor
+  // session): the three lines that named `CLAUDE.md` as the home of the
+  // release files are rewritten in place by the single STE-713 ship-milestone
+  // edit commit to name `specs/settings.yaml`, or the legacy `## Release Files`
+  // block on an unmigrated tree. Lines are in base coordinates (the admitted
+  // Unversioned-run hunk sits above two of them, so they are live lines 9, 153
+  // and 165): 9 is the skill's opening paragraph, 151 the step-4 writer
+  // sentence and 163 the step-4 refusal paragraph. SHIP_KICKOFF stays on
+  // 134fe2e6, because moving it would fold the two admitted hunks into the
+  // base and void their own pins. The freeze is exactly {9, 91, 151, 163, 265};
+  // a sixth line needs a fresh ruling.
+  const SHIP_SETTINGS_HOME_LINES = [9, 151, 163] as const;
+  const SHIP_PERMITTED = [SHIP_PERMITTED_LINE, SHIP_EPIC_CLOSE_LINE, ...SHIP_SETTINGS_HOME_LINES];
 
   // RULING (STE-670, M_1e0717, operator 2026-10-12): the ONE admitted new
   // region is the `### 9b. Explainer video offer` section, from its heading up
@@ -1255,7 +1267,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     return { text: [...lines.slice(0, start), ...lines.slice(end + 1)].join("\n"), region: lines.slice(start, end + 1), error: null };
   }
 
-  /** The ship guard: both admitted hunks stripped, then line-for-line on {91, 265}. */
+  /** The ship guard: both admitted hunks stripped, then line-for-line on SHIP_PERMITTED. */
   function shipDrift(before: string, after: string): string[] {
     const u = stripAdmittedUnversioned(after);
     if (u.error) return [u.error];
@@ -1264,10 +1276,22 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     return driftBeyond(before, s.text, SHIP_PERMITTED);
   }
 
-  test("skills/ship-milestone/SKILL.md differs from the 134fe2e6 base only on lines 91 and 265, each rewritten in place, plus the admitted 9b section", () => {
+  test("skills/ship-milestone/SKILL.md differs from the 134fe2e6 base only on lines 9, 91, 151, 163 and 265, each rewritten in place, plus the admitted 9b section", () => {
     const now = readFileSync(join(REPO, SHIP), "utf-8");
     const then = shipKickoff(SHIP);
     expect(shipDrift(then, now)).toEqual([]);
+    // STE-713: each settings-home line names the settings file AND still names the legacy block,
+    // and opens as its base line did, so it is the same sentence rewritten in place, not a new one.
+    const stripped = stripAdmittedUnversioned(now).text.split("\n");
+    for (const n of SHIP_SETTINGS_HOME_LINES) {
+      const was = then.split("\n")[n - 1]!;
+      const is = stripped[n - 1]!;
+      expect(was, `base line ${n} named the CLAUDE.md block`).toContain("`## Release Files` block");
+      expect(was, `base line ${n} did not name the settings file`).not.toContain("specs/settings.yaml");
+      expect(is, `line ${n} names the settings file`).toContain("specs/settings.yaml");
+      expect(is, `line ${n} keeps the legacy block for unmigrated trees`).toContain("`## Release Files` block");
+      expect(is.slice(0, 20), `line ${n} is the same sentence`).toBe(was.slice(0, 20));
+    }
     // The admitted hunk is the 9b section itself, carrying the AC-STE-670.2 literals.
     const { region, error } = stripAdmitted9b(now);
     expect(error).toBeNull();
@@ -1300,7 +1324,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
     expect(line, "and no longer tells a Linear child to follow `endCursor` at top level").not.toMatch(/previous page's `endCursor`/);
   });
 
-  test("NEGATIVE CONTROL — a THIRD changed line in ship-milestone (any line but 91 and 265), or an added line outside the 9b or Unversioned-run regions, fails the guard", () => {
+  test("NEGATIVE CONTROL — a changed line in ship-milestone outside {9, 91, 151, 163, 265}, or an added line outside the 9b or Unversioned-run regions, fails the guard", () => {
     const now = readFileSync(join(REPO, SHIP), "utf-8");
     const then = shipKickoff(SHIP);
     const lines = now.split("\n");
