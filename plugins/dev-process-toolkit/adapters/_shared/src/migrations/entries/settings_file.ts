@@ -36,6 +36,7 @@ import {
   readLegacyRelease,
   readLegacyTracking,
   readLegacyVerification,
+  locateSubsection,
   readLegacyVideo,
   RELEASE_FILES_HEADING,
   sectionEnd,
@@ -447,56 +448,66 @@ function applyMove(projectRoot: string): ApplyResult {
   }
 
   // Step 1 — the settings, from the loader's legacy reading; only the homes that existed.
-  const legacy = loadProjectSettings(projectRoot).settings;
   const msfLines = norm.map((l, i) => (l.startsWith(MSF_PREFIX) && inBlock(i) === undefined ? i : -1)).filter((i) => i >= 0);
-  const hasTrackerConfig = existsSync(join(projectRoot, TRACKER_CONFIG));
-  const settings: Obj = { schema_version: 1, min_dpt_version: MOVE_FLOOR };
-  let tt: Obj | null = null;
-  if (homes.has(TASK_TRACKING_HEADING) || msfLines.length > 0 || hasTrackerConfig) {
-    tt = {};
-    if (homes.has(TASK_TRACKING_HEADING)) {
-      Object.assign(tt, parseTaskTrackingSection(mdPath));
-      tt.mode = legacy.task_tracking.mode;
-      const mode = legacy.task_tracking.mode;
-      if ((mode === "linear" || mode === "jira") && legacy.task_tracking[mode] !== undefined) {
-        const binding = clean(legacy.task_tracking[mode]) as Obj;
-        // Step 4 — a shared container's floor rises to at least the move's floor.
-        if (typeof binding.repo_tag === "string" && typeof binding.min_dpt_version === "string") {
-          const cmp = compareSemver(binding.min_dpt_version, MOVE_FLOOR);
-          if (cmp === null || cmp < 0) binding.min_dpt_version = MOVE_FLOOR;
-        }
-        tt[mode] = binding;
-      }
-      // An inactive adapter's sub-section moves too, into its own mapping.
-      for (const adapter of subsections) {
-        if (adapter === mode) continue;
-        const { shared: _shared, ...b } = parseWorkspaceBinding(mdPath, adapter);
-        const snaked: Obj = {};
-        for (const [k, v] of Object.entries(b)) snaked[k.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)] = v;
-        tt[adapter] = clean(snaked);
-      }
-    }
-    if (msfLines.length > 0) tt.milestone_scan_fetch = legacy.task_tracking.milestone_scan_fetch;
-    if (hasTrackerConfig) tt.status_vocabulary = legacy.task_tracking.status_vocabulary;
-    settings.task_tracking = clean(tt);
-  }
-  if (homes.has(MOVED_HEADINGS[1])) settings.verification = clean(legacy.verification);
-  if (homes.has(MOVED_HEADINGS[2])) settings.docs = clean(legacy.docs);
-  if (homes.has(MOVED_HEADINGS[3])) settings.orchestration = clean(legacy.orchestration);
-  if (homes.has(MOVED_HEADINGS[4])) settings.tracking = { token_stats: clean(legacy.tracking.token_stats) };
-  if (homes.has(MOVED_HEADINGS[5])) settings.release = { files: clean(legacy.release.files) };
-  const hasVideoConfig = existsSync(join(projectRoot, VIDEO_CONFIG));
-  const hasVideoStyle = existsSync(join(projectRoot, VIDEO_STYLE));
-  if (hasVideoConfig || hasVideoStyle) {
-    const video: Obj = {};
-    if (hasVideoConfig) video.config = clean(legacy.video.config);
-    if (hasVideoStyle) video.style = clean(legacy.video.style);
-    settings.video = video;
-  }
+  // Every legacy read below can refuse (a malformed section, an unreadable tracker config,
+  // an inactive adapter's bad declaration); each becomes this entry's refusal, before any write.
+  let settings: Obj;
   try {
-    validateSettingsShape(settings);
+    const legacy = loadProjectSettings(projectRoot).settings;
+    const hasTrackerConfig = existsSync(join(projectRoot, TRACKER_CONFIG));
+    const built: Obj = { schema_version: 1, min_dpt_version: MOVE_FLOOR };
+    let tt: Obj | null = null;
+    if (homes.has(TASK_TRACKING_HEADING) || msfLines.length > 0 || hasTrackerConfig) {
+      tt = {};
+      if (homes.has(TASK_TRACKING_HEADING)) {
+        Object.assign(tt, parseTaskTrackingSection(mdPath));
+        tt.mode = legacy.task_tracking.mode;
+        const mode = legacy.task_tracking.mode;
+        if ((mode === "linear" || mode === "jira") && legacy.task_tracking[mode] !== undefined) {
+          const binding = clean(legacy.task_tracking[mode]) as Obj;
+          // Step 4 — a shared container's floor rises to at least the move's floor.
+          if (typeof binding.repo_tag === "string" && typeof binding.min_dpt_version === "string") {
+            const cmp = compareSemver(binding.min_dpt_version, MOVE_FLOOR);
+            if (cmp === null || cmp < 0) binding.min_dpt_version = MOVE_FLOOR;
+          }
+          tt[mode] = inKeyOrder({ ...binding, ...unparsedBindingKeys(norm, mode, binding) }, mode);
+        }
+        // An inactive adapter's sub-section moves too, into its own mapping.
+        for (const adapter of subsections) {
+          if (adapter === mode) continue;
+          const { shared: _shared, ...b } = parseWorkspaceBinding(mdPath, adapter);
+          const snaked: Obj = {};
+          for (const [k, v] of Object.entries(b)) snaked[k.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)] = v;
+          tt[adapter] = clean(inKeyOrder({ ...snaked, ...unparsedBindingKeys(norm, adapter, snaked) }, adapter));
+        }
+      }
+      if (msfLines.length > 0) tt.milestone_scan_fetch = legacy.task_tracking.milestone_scan_fetch;
+      if (hasTrackerConfig) tt.status_vocabulary = legacy.task_tracking.status_vocabulary;
+      built.task_tracking = clean(tt);
+    }
+    if (homes.has(MOVED_HEADINGS[1])) built.verification = clean(legacy.verification);
+    if (homes.has(MOVED_HEADINGS[2])) built.docs = clean(legacy.docs);
+    if (homes.has(MOVED_HEADINGS[3])) built.orchestration = clean(legacy.orchestration);
+    if (homes.has(MOVED_HEADINGS[4])) built.tracking = { token_stats: clean(legacy.tracking.token_stats) };
+    if (homes.has(MOVED_HEADINGS[5])) built.release = { files: clean(legacy.release.files) };
+    const hasVideoConfig = existsSync(join(projectRoot, VIDEO_CONFIG));
+    const hasVideoStyle = existsSync(join(projectRoot, VIDEO_STYLE));
+    if (hasVideoConfig || hasVideoStyle) {
+      const video: Obj = {};
+      if (hasVideoConfig) video.config = clean(legacy.video.config);
+      if (hasVideoStyle) video.style = clean(legacy.video.style);
+      built.video = video;
+    }
+    validateSettingsShape(built);
+    settings = built;
   } catch (e) {
-    return { changed: [], summary: e instanceof Error ? e.message : String(e) };
+    const message = e instanceof Error ? e.message : String(e);
+    if (/^Refusing:/m.test(message)) return { changed: [], summary: message };
+    return refusal(
+      `a moved setting cannot be read, so nothing was moved: ${message}`,
+      "fix the named value in CLAUDE.md (or the named file), then re-run /dev-process-toolkit:upgrade.",
+      `file=${CLAUDE_MD}`,
+    );
   }
 
   // Step 2 — the standalone `milestone_scan_fetch:` line(s), and one blank line beside each.
@@ -739,6 +750,37 @@ function applyStubRepair(projectRoot: string): ApplyResult {
   if (render !== "") syncTrackingStub(projectRoot, render);
   const changed = readFileSync(mdPath, "utf8") === original ? [] : [CLAUDE_MD];
   return { changed, summary: `settings-file: ${render === "" ? "removed the tracking stub under `mode: none`" : "re-rendered the tracking stub"}` };
+}
+
+/**
+ * The binding keys a `### Linear` / `### Jira` line declares that the legacy binding
+ * parser does not model (`jira_issue_type`, or a bug key under the other adapter's
+ * heading), as their verbatim string values. The move removes every recognised
+ * binding line from CLAUDE.md, so each must land in the settings file, never vanish.
+ */
+function unparsedBindingKeys(lines: string[], adapter: "linear" | "jira", have: Obj): Obj {
+  const sub = locateSubsection(lines, adapter);
+  if (sub === null) return {};
+  const known = new Set(settingsKeyOrder(`task_tracking.${adapter}`));
+  const out: Obj = {};
+  for (const raw of sub) {
+    const m = /^([a-z_][a-z0-9_]*)\s*:\s*(.*)$/.exec(raw);
+    if (!m) continue;
+    const key = m[1]!;
+    const value = m[2]!.trim();
+    if (!known.has(key) || key in have || key === "default_labels" || value === "") continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/** A binding mapping with its keys in the schema's order, so the stub rendered now equals the one rendered from the written file. */
+function inKeyOrder(binding: Obj, adapter: "linear" | "jira"): Obj {
+  const order = settingsKeyOrder(`task_tracking.${adapter}`);
+  const out: Obj = {};
+  for (const k of order) if (k in binding) out[k] = binding[k];
+  for (const k of Object.keys(binding)) if (!(k in out)) out[k] = binding[k];
+  return out;
 }
 
 export const settingsFile: MigrationEntry = {

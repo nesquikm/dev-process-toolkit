@@ -326,7 +326,6 @@ function validateRelease(v: unknown): void {
 
 /** Whole-file shape check of a parsed settings file (AC-STE-706.2). */
 export function validateSettingsShape(parsed: Record<string, unknown>): void {
-  closeKeys(parsed, "", TOP_KEYS);
   if (!("schema_version" in parsed)) throw shapeError("schema_version", "is required (set `schema_version: 1`)");
   if (parsed.schema_version !== 1) throw shapeError("schema_version", "must be 1");
   if (!("min_dpt_version" in parsed)) throw shapeError("min_dpt_version", "is required (set it to the oldest toolkit version that reads this file, as X.Y.Z)");
@@ -341,6 +340,8 @@ export function validateSettingsShape(parsed: Record<string, unknown>): void {
       `file=${SETTINGS_FILE}, running=${floor.running}, min_dpt_version=${floor.floor}`,
     );
   }
+  // After the floor: a key a newer 3.x added reads as "upgrade the plugin", not "not a recognised key".
+  closeKeys(parsed, "", TOP_KEYS);
 
   if ("task_tracking" in parsed) validateTaskTracking(parsed.task_tracking);
 
@@ -696,7 +697,16 @@ function runFrontDoor(argv: readonly string[]): number {
           : (parseTaskTrackingSection(join(projectRoot, "CLAUDE.md")).mode ?? "none");
       out = `mode: ${mode}\nsource: ${source}\n`;
     } else {
-      out = `${JSON.stringify(loadProjectSection(projectRoot, rest[0] as keyof ProjectSettings), null, 2)}\n`;
+      const section = rest[0]!;
+      const sections = TOP_KEYS.filter((k) => k !== "schema_version" && k !== "min_dpt_version");
+      if (!sections.includes(section as (typeof sections)[number])) {
+        throw new SettingsShapeError(
+          `\`${section}\` is not a settings section`,
+          `get one of: ${sections.join(", ")}.`,
+          `verb=get, section=${section}`,
+        );
+      }
+      out = `${JSON.stringify(loadProjectSection(projectRoot, section as keyof ProjectSettings), null, 2)}\n`;
     }
     if (isForeignSettingsFile(projectRoot)) process.stderr.write(`${FOREIGN_NOTE}\n`);
     process.stdout.write(out);

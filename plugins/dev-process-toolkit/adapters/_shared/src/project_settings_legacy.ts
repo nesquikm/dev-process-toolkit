@@ -114,10 +114,10 @@ export function legacyHomesBesideSettings(
     if (lines !== null) {
       const keyed = hasMilestoneScanFetchLine(lines) ||
         lines.some((l, i) => {
-          const keys = recognisedKeys[l];
+          const keys = Object.hasOwn(recognisedKeys, l) ? recognisedKeys[l] : undefined;
           if (!keys) return false;
           for (let j = i + 1; j < lines.length && !/^#{1,2} /.test(lines[j]!); j++) {
-            const m = /^([a-z_]+)\s*:/.exec(lines[j]!);
+            const m = /^([a-z_][a-z0-9_]*)\s*:/.exec(lines[j]!);
             if (m && keys.includes(m[1]!)) return true;
           }
           return false;

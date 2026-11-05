@@ -640,6 +640,13 @@ function writeSettingsBinding(
   const subLines = virtualAfter.split("\n");
   const sub = subLines.slice(subLines.indexOf(subTitle) + 1);
   const paragraph = stopParagraphIn(sub);
+  if (paragraph.length > 0 && !mdLines.includes(PROJECT_SETTINGS_HEADING)) {
+    throw new TrackerBindingWriteError(
+      `a shared binding needs its stop paragraph in CLAUDE.md \`${PROJECT_SETTINGS_HEADING}\`, and ${claudeMdPath} has no such section.`,
+      `add a \`${PROJECT_SETTINGS_HEADING}\` section to ${claudeMdPath}, then re-run.`,
+      `${context}, settings=${SETTINGS_FILE}`,
+    );
+  }
   const next: Record<string, unknown> = {};
   for (const line of stripParagraph(sub)) {
     const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/.exec(line);

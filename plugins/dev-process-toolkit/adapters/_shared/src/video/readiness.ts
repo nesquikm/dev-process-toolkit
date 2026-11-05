@@ -11,7 +11,7 @@
 import { relative } from "node:path";
 import { dptEnvPath } from "../dpt_paths";
 import { type VideoConfig } from "./config";
-import { viewProjectSection } from "../project_settings";
+import { detectSettingsSource, SETTINGS_FILE, viewProjectSection } from "../project_settings";
 import { readLegacyVideoConfigFile, VIDEO_CONFIG } from "../project_settings_legacy";
 import { readVideoKeys } from "./keys";
 import { CAPTION_FILTER_MISSING, CAPTION_FILTER_REMEDY, ffmpegFiltersArgv, listsDrawtext } from "./render";
@@ -56,7 +56,9 @@ function readConfig(projectRoot: string): { config: VideoConfig | null; reason: 
     if (config === null) {
       return {
         config: null,
-        reason: `${VIDEO_CONFIG} is absent — remedy: create ${VIDEO_CONFIG} with tts, recorder and music blocks.`,
+        reason: onSettingsFile(projectRoot)
+          ? `\`video.config\` in ${SETTINGS_FILE} is absent — remedy: add \`video.config\` with tts, recorder and music blocks to ${SETTINGS_FILE}.`
+          : `${VIDEO_CONFIG} is absent — remedy: create ${VIDEO_CONFIG} with tts, recorder and music blocks.`,
       };
     }
     return { config, reason: null };
@@ -64,8 +66,15 @@ function readConfig(projectRoot: string): { config: VideoConfig | null; reason: 
     const lines = (err instanceof Error ? err.message : String(err)).split("\n");
     const verdict = (lines[0] ?? "").replace(/^Refusing:\s*/, "");
     const remedy = (lines.find((l) => l.startsWith("Remedy:")) ?? "Remedy: fix the config.").replace(/^Remedy:\s*/, "");
-    return { config: null, reason: `${VIDEO_CONFIG} is invalid: ${verdict} — remedy: ${remedy}` };
+    const home = onSettingsFile(projectRoot) ? `\`video.config\` in ${SETTINGS_FILE}` : VIDEO_CONFIG;
+    return { config: null, reason: `${home} is invalid: ${verdict} — remedy: ${remedy}` };
   }
+}
+
+/** True when the tree keeps its settings in the settings file (alone, or beside a legacy home). */
+function onSettingsFile(projectRoot: string): boolean {
+  const source = detectSettingsSource(projectRoot);
+  return source === "settings" || source === "both";
 }
 
 /** `git check-ignore` verdict for `.dpt/.env`: ignored, not ignored, or no repository (exit 128). */

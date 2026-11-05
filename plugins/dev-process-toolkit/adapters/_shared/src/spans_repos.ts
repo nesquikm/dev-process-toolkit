@@ -42,6 +42,7 @@ import {
   type RepoProbe,
 } from "./target_repo";
 import { oneLine } from "./tracker_receipts";
+import { SettingsShapeError } from "./project_settings";
 
 /** The plan frontmatter key this module reads. */
 export const SPANS_REPOS_KEY = "spans_repos";
@@ -321,7 +322,7 @@ function readerOwnText<T>(read: () => T): T {
   try {
     return read();
   } catch (e) {
-    if (e instanceof SpansReposError || e instanceof WorkspaceBindingError) {
+    if (e instanceof SpansReposError || e instanceof WorkspaceBindingError || e instanceof SettingsShapeError) {
       throw new SpanDeclareError(e.message);
     }
     throw e;

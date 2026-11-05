@@ -324,7 +324,17 @@ export function writeProjectSettings(projectRoot: string, update: Obj, opts: { c
   validateSettingsShape(after);
   const lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
   const renderBefore = currentStubRender(projectRoot);
-  writeFileSync(path, `${editMap(lines, 0, "", before, after).join("\n")}\n`);
+  const next = `${editMap(lines, 0, "", before, after).join("\n")}\n`;
+  // The in-place edit keeps the file's own layout; refuse, never write, when that
+  // layout cannot carry the update (a quoted key, a parent whose last child went).
+  if (!deepEqual(parseRaw(next), after)) {
+    throw new SettingsShapeError(
+      `${SETTINGS_FILE} cannot take this update in place without changing what it means`,
+      `edit ${SETTINGS_FILE} by hand (plain unquoted keys; drop a mapping that would be left empty), then re-run.`,
+      `file=${SETTINGS_FILE}, keys=${Object.keys(update).join(",")}`,
+    );
+  }
+  writeFileSync(path, next);
   const renderAfter = currentStubRender(projectRoot);
   if (renderAfter !== renderBefore) syncTrackingStub(projectRoot, renderAfter);
 }

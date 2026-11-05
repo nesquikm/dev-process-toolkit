@@ -32,7 +32,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { SETTINGS_FILE } from "./project_settings";
+import { isForeignSettingsFile, SETTINGS_FILE } from "./project_settings";
 import { SETUP_MARKER, detectManagedSignals } from "./toolkit_managed";
 
 export interface ToolkitBootstrapCommittedViolation {
@@ -99,7 +99,7 @@ function buildScanSet(projectRoot: string): string[] {
 
   // STE-709 — the settings file is toolkit-managed like CLAUDE.md.
   const settingsFile = join(projectRoot, SETTINGS_FILE);
-  if (existsSync(settingsFile)) candidates.push(settingsFile);
+  if (existsSync(settingsFile) && !isForeignSettingsFile(projectRoot)) candidates.push(settingsFile);
 
   const specsDir = join(projectRoot, "specs");
   if (existsSync(specsDir)) {
