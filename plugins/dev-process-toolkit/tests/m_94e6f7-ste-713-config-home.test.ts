@@ -92,16 +92,6 @@ function scannedFiles(root: string): string[] {
   return out.sort();
 }
 
-// Orchestrator ruling (2026-11-05): skills/ship-milestone/SKILL.md is frozen by AC-STE-618.8
-// (only its pinned lines may change against the freeze base), and the operator's pre-granted
-// re-base covers the gate-check edit alone. Its three legacy-home lines stay as written and are
-// exempt here by exact literal; the drift is reported to the operator as a follow-up.
-const FROZEN_SHIP_MILESTONE_LINES: readonly string[] = [
-  "Ship one completed milestone as a single, reviewed release commit. Dogfoods the Release Checklist in `CLAUDE.md`: every file listed in the host's `## Release Files` block is rewritten by this ceremony, so a partial update is a missing entry in that block rather than a step somebody forgot. A release surface absent from the block \u2014 `specs/requirements.md`'s `Latest shipped release:` line was one until it was added to the block \u2014 is maintained by hand and goes stale.",
-  "It reads the host project's `## Release Files` block from `CLAUDE.md` via `parseReleaseFiles(content)`, computes each listed path's new content, and prints one line per path it would rewrite. Every refusal \u2014 block absent, version missing, a `changelog` entry with no `--test-count` \u2014 writes the NFR-10 canonical shape to stderr, exits non-zero, and leaves the tree untouched; the preview refuses whatever the real run refuses, with the same verdict, so an approved diff is never one the write step then rejects. The counts are FORWARDED on `--test-count`, never re-measured at the write step: detection answers differently per directory, and the pre-flight test-gate run (refusal #3) already measured them against the root the gate ran in. The block declares every path that gets rewritten on this release; no path is hard-coded in this skill body. Schema reference + per-kind worked examples live in `docs/ship-milestone-reference.md` \u00a7 Release Files block schema.",
-  "Refusals: `MissingReleaseFilesBlockError` (block absent or empty) and `MalformedReleaseFilesError` (entry violates schema, e.g. regex without `(?<version>)` named group) both abort the run with the canonical NFR-10 shape on stderr and exit non-zero. Verdict line first \u2014 `Refusing: to rewrite the release files \u2014 <what failed>.` \u2014 then Remedy: fix the `## Release Files` block in CLAUDE.md (or the offending file) and re-run; nothing was written. \u2014 then Context: root=`<projectRoot>`, version=`<X.Y.Z>`, skill=ship-milestone. The remedy names the block to fix and reports what reached disk; it does not send the operator to `/setup`.",
-];
-
 function configHomeViolations(root: string): string[] {
   const out: string[] = [];
   for (const rel of scannedFiles(root)) {
@@ -109,7 +99,7 @@ function configHomeViolations(root: string): string[] {
       .split("\n")
       .forEach((line, i) => {
         if (!line.includes("CLAUDE.md") || !namesMovedHeading(line)) return;
-        if (escapes(line) || PINNED_PROBE_STEPS.includes(line) || FROZEN_SHIP_MILESTONE_LINES.includes(line)) return;
+        if (escapes(line) || PINNED_PROBE_STEPS.includes(line)) return;
         out.push(`${rel}:${i + 1}`);
       });
   }
@@ -119,11 +109,6 @@ function configHomeViolations(root: string): string[] {
 describe("AC-STE-713.4 config-home scan", () => {
   test("AC-.4 config-home scan: no doc, skill, adapter or agent line names CLAUDE.md with a moved heading as a settings home without legacy or the settings file", () => {
     expect(configHomeViolations(PLUGIN)).toEqual([]);
-  });
-
-  test("AC-.4 the frozen ship-milestone exemptions are still that skill's own lines (the exemption cannot outlive the freeze)", () => {
-    const sm = readFileSync(join(PLUGIN, "skills/ship-milestone/SKILL.md"), "utf8").split("\n");
-    for (const l of FROZEN_SHIP_MILESTONE_LINES) expect(sm).toContain(l);
   });
 
   test("AC-.4 the pinned probe-step exemptions are still the skills' own lines (the exemption cannot outlive its pin)", () => {
