@@ -11,6 +11,8 @@ import type { FailureMode } from "./tdd_retry_state";
 export interface HaltReport {
   mode: FailureMode;
   role: TddRole;
+  /** The FR the run was for — lets the resume command be copied as it stands. */
+  fr?: string;
   ac?: string;
   retryCount: number;
   lastBlock?: string;
@@ -33,8 +35,13 @@ const MODE_DESCRIPTIONS: Record<FailureMode, string> = {
   "spec-gap":
     "spec-review audit still reports missing ACs after the bounded retry",
   "not-load-bearing":
-    "defect check — the AC's test stayed GREEN with the behavior broken",
+    "defect check — the AC's test stayed GREEN under two different plants with the behavior broken",
 };
+
+/** `/tdd <FR> --resume-at <AC>`, with placeholders for what the report lacks. */
+function resumeCommand(report: HaltReport): string {
+  return `/dev-process-toolkit:tdd ${report.fr ?? "<FR-id>"} --resume-at ${report.ac ?? "<AC-id>"}`;
+}
 
 export function formatHaltReport(report: HaltReport): string {
   const lines: string[] = [];
@@ -72,12 +79,16 @@ export function formatHaltReport(report: HaltReport): string {
   }
   lines.push("");
   if (report.mode === "not-load-bearing") {
-    // The test-writer is not user-invocable and /tdd takes only an FR id, so
-    // the one remedy the operator can act on is a hand fix to the test.
+    // The test-writer is not user-invocable, so the one remedy the operator can
+    // act on is a hand fix to the test. A plain re-run of the FR restarts at
+    // Stage RED: the test-writer is dispatched again over the tests, the hand
+    // fix among them, and after a halt on the last AC every test is GREEN,
+    // which reads as mode A. `--resume-at` skips Stage RED and re-enters
+    // Stage GREEN at this AC.
     lines.push(
       `Remedy: the test is the defect, not the implementation — fix the test for ${report.ac ?? "this AC"} by hand ` +
         "so it fails at its assertion when the behavior breaks, " +
-        "then re-run /dev-process-toolkit:tdd against the FR.",
+        `then resume with ${resumeCommand(report)}.`,
     );
     lines.push(
       `Context: skill=tdd, mode=${report.mode}, role=${report.role}` +
@@ -91,7 +102,12 @@ export function formatHaltReport(report: HaltReport): string {
       "Re-run /dev-process-toolkit:tdd against the FR after fixing the " +
       "identified failure mode (test-writer false-RED, implementer GREEN " +
       "miss, refactorer regression, format drift, subagent maxTurns, or " +
-      "spec-review reporting unimplemented acceptance criteria).",
+      "spec-review reporting unimplemented acceptance criteria)." +
+      // A halt in Stage GREEN has ACs before it implemented: a re-run from
+      // Stage RED would dispatch the test-writer over their tests again.
+      (report.role === "implementer" && report.ac
+        ? ` For this implementer halt, resume at its AC instead: ${resumeCommand(report)}.`
+        : ""),
   );
   lines.push(
     `Context: skill=tdd, mode=${report.mode}, role=${report.role}` +
