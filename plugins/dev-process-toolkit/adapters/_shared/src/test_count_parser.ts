@@ -61,7 +61,27 @@ function lastCountedMatch(output: string, regex: RegExp): number | undefined {
 // literals. `matchAll` never mutates the shared `lastIndex`, so these
 // constants are safe to reuse across calls.
 const BUN_SKIPPED_RE = /(\d+)\s+skip\b/g;
+// Bun's run summary is a block: counter lines (`N pass`, `N skip`, `N todo`,
+// `N fail`, `N expect() calls`, …) directly above `Ran N tests across M
+// files.` — `test` and `file` in the singular when N or M is 1. A command that
+// runs two suites prints two such blocks, and `skip` / `todo` lines appear only
+// when non-zero, so a counter read anywhere else in the capture can come from
+// the other suite, a test name (`renders 3 todo items`) or a log line. Every
+// counter is therefore read from the block above the LAST `Ran` line.
+const BUN_RAN_RE = /Ran (\d+) tests? across \d+ files?\b/;
+const BUN_SUMMARY_COUNTER_RE = /^\s*(\d+)\s+(pass|fail|skip|todo|errors?|snapshots?|expect\(\) calls)\b/;
 const PYTEST_SKIPPED_RE = /(\d+)\s+skipped/g;
+// The pytest counters read the LAST summary, like `skipped` above: a gate
+// command running pytest twice, or a smoke step that prints its own
+// `0 passed` before the real summary, otherwise hands the first run's count to
+// the second run's verdict.
+const PYTEST_PASSED_RE = /(\d+)\s+passed/g;
+const PYTEST_FAILED_RE = /(\d+)\s+failed/g;
+const PYTEST_ERRORS_RE = /(\d+)\s+errors?\b/g;
+// A coloured capture puts SGR escape codes between a counter and its colon
+// (`+3\x1b[0m:`), which no counter pattern spans. They carry no count, so every
+// stack reads the capture with them removed.
+const ANSI_SGR_RE = /\x1b\[[0-9;]*m/g;
 // M132: last-match alone is only half the guard for flutter. Gate commands run
 // `flutter test 2>&1`, so a buffered stderr failure block flushes AFTER the
 // final stdout progress line — and flutter's expanded reporter prints tildes
@@ -72,7 +92,17 @@ const PYTEST_SKIPPED_RE = /(\d+)\s+skipped/g;
 // line, i.e. immediately preceded by the pass counter and followed by the
 // optional fail counter and the line's colon. Both flutter progress shapes
 // (with and without `-N`) still match; prose tildes no longer can.
-const FLUTTER_SKIPPED_RE = /\+\d+\s+~(\d+)(?=\s*(?:-\d+)?\s*:)/g;
+//
+// The shape alone is still not enough: a test NAME can carry it. `flutter
+// test` repeats every failing test's name in a `Failing tests:` block after
+// the last progress line, so a test named `total +5 -0: rounding` put a later
+// `+5 -0:` after the real totals and a red run read green. Every counter is
+// therefore anchored to the start of a progress line too — its elapsed-time
+// stamp is what no name or path repeats at the start of a line. test_core
+// prints it as minutes and two-digit seconds with the minutes unbounded
+// (`00:03`, and `100:03` past 100 minutes — never an hour field); an
+// `H:MM:SS` stamp is accepted as well.
+const FLUTTER_SKIPPED_RE = /^\s*\d+(?::\d{2}){1,2}\s+\+\d+\s+~(\d+)(?=\s*(?:-\d+)?\s*:)/gm;
 // The pass and fail counters take the same anchoring. A real `flutter test`
 // capture prints one cumulative progress line per test and opens with
 // `00:00 +0: loading …`, so a first-match `+N` read 0 on every run and a
@@ -81,10 +111,46 @@ const FLUTTER_SKIPPED_RE = /\+\d+\s+~(\d+)(?=\s*(?:-\d+)?\s*:)/g;
 // `+P` is on every progress line, and `~S` / `-F` print once non-zero and only
 // grow, so each counter's last match inside the `+P[ ~S][ -F]:` shape is that
 // line's value.
-const FLUTTER_PASSED_RE = /\+(\d+)(?=(?:\s+~\d+)?(?:\s+-\d+)?\s*:)/g;
-const FLUTTER_FAILED_RE = /\+\d+(?:\s+~\d+)?\s+-(\d+)(?=\s*:)/g;
+const FLUTTER_PASSED_RE = /^\s*\d+(?::\d{2}){1,2}\s+\+(\d+)(?=(?:\s+~\d+)?(?:\s+-\d+)?\s*:)/gm;
+const FLUTTER_FAILED_RE = /^\s*\d+(?::\d{2}){1,2}\s+\+\d+(?:\s+~\d+)?\s+-(\d+)(?=\s*:)/gm;
+
+/**
+ * The last bun summary: the `N` of its `Ran N tests` line and the counter lines
+ * directly above it. `undefined` when the capture has no `Ran` line.
+ */
+function lastBunSummary(output: string): { ran: number; counters: Map<string, number> } | undefined {
+  const lines = output.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const ran = BUN_RAN_RE.exec(lines[i]);
+    if (!ran) continue;
+    // A summary block names each counter once. Walking up from `Ran`, a counter
+    // seen a second time belongs to an earlier block that happens to touch this
+    // one (per-file counters printed with no line between) — stop there.
+    const counters = new Map<string, number>();
+    for (let j = i - 1; j >= 0; j--) {
+      const counter = BUN_SUMMARY_COUNTER_RE.exec(lines[j]);
+      if (!counter || counters.has(counter[2])) break;
+      counters.set(counter[2], Number(counter[1]));
+    }
+    return { ran: Number(ran[1]), counters };
+  }
+  return undefined;
+}
 
 function parseBun(output: string): TestCountParseResult {
+  const summary = lastBunSummary(output);
+  // The usual capture: every counter from the last summary block. A counter
+  // the block does not print is zero — bun omits `skip` and `todo` at zero.
+  // STE-683 defines `total` as pass + fail + skip, and `Ran N` also counts
+  // todo tests, which never execute: left in, they read as passes downstream.
+  if (summary !== undefined && summary.counters.size > 0) {
+    const { ran, counters } = summary;
+    const failures = counters.get("fail") ?? 0;
+    const skipped = counters.get("skip") ?? 0;
+    const todo = counters.get("todo") ?? 0;
+    return { ok: true, count: { total: ran - todo, failures, errors: 0, skipped } };
+  }
+
   // STE-323: anchor on Bun's trailing summary line, not the first match.
   // Bun emits per-file `N pass` / `N fail` counters before the summary in
   // multi-file runs, so the legacy `.exec()` first-match path captured the
@@ -98,10 +164,10 @@ function parseBun(output: string): TestCountParseResult {
   // Bun does not emit a distinct "error" line; errors are folded into fail.
   const errors = 0;
 
-  // Primary anchor: Bun's "Ran N tests across M files" summary line.
-  const summaryMatch = /Ran (\d+) tests across \d+ files/.exec(output);
-  if (summaryMatch) {
-    return { ok: true, count: { total: Number(summaryMatch[1]), failures, errors, skipped } };
+  // A `Ran` line with no counter lines directly above it (a trimmed or
+  // reformatted capture): `Ran N` is the total, the counters come last-match.
+  if (summary !== undefined) {
+    return { ok: true, count: { total: summary.ran, failures, errors, skipped } };
   }
   // Fallback: last `N pass` line (older Bun versions or truncated output).
   // STE-683: `total` carries the `Ran N tests` meaning (pass + fail + skip),
@@ -117,15 +183,14 @@ function parseBun(output: string): TestCountParseResult {
 }
 
 function parsePytest(output: string): TestCountParseResult {
-  const passedMatch = /(\d+)\s+passed/.exec(output);
-  const failedMatch = /(\d+)\s+failed/.exec(output);
-  const errorsMatch = /(\d+)\s+errors?\b/.exec(output);
-  if (!passedMatch && !failedMatch) {
+  const passedCount = lastCountedMatch(output, PYTEST_PASSED_RE);
+  const failedCount = lastCountedMatch(output, PYTEST_FAILED_RE);
+  if (passedCount === undefined && failedCount === undefined) {
     return { ok: false, reason: "could not determine test count — no test counters in pytest output" };
   }
-  const passed = passedMatch ? Number(passedMatch[1]) : 0;
-  const failed = failedMatch ? Number(failedMatch[1]) : 0;
-  const errors = errorsMatch ? Number(errorsMatch[1]) : 0;
+  const passed = passedCount ?? 0;
+  const failed = failedCount ?? 0;
+  const errors = lastCountedMatch(output, PYTEST_ERRORS_RE) ?? 0;
   const skipped = lastCountedMatch(output, PYTEST_SKIPPED_RE) ?? 0;
   return { ok: true, count: { total: passed + failed + errors, failures: failed, errors, skipped } };
 }
@@ -141,13 +206,14 @@ function parseFlutter(output: string): TestCountParseResult {
 }
 
 export function parseTestOutput(output: string, stack: Stack): TestCountParseResult {
+  const plain = output.replace(ANSI_SGR_RE, "");
   switch (stack) {
     case "bun":
-      return parseBun(output);
+      return parseBun(plain);
     case "pytest":
-      return parsePytest(output);
+      return parsePytest(plain);
     case "flutter":
-      return parseFlutter(output);
+      return parseFlutter(plain);
     case "unknown":
     default:
       return { ok: false, reason: "unknown stack — cannot parse test output" };
