@@ -50,6 +50,8 @@ codename: Proof of Work
   verify: reader and verb return run for absent, empty and invalid sections, and for reuse with tracking.gate_outcomes off; one violation per offending key; source grep zero hits beside its control
 - [ ] Admit `optimizations` to the loader as a closed section (`TOP_KEYS` last, `settingsKeyOrder`, `NEW_KEYS`, defaults), its value unchecked by the loader; add the never-throwing `settingsSectionValue` export; document it in settings-reference; add its `new` mapping row and the enum case of the off-when-absent row (AC-STE-723.8)
   verify: an unknown knob name refuses `optimizations` reads only, a bad value passes the loader, the planted-knob control still names only `orchestration.skip_gates`; settings-reference names `gate_commands`, `reuse` and `run`
+- [ ] Move the M_d1b4b7 defaults-unchanged `Remedy:` literal and `get optimizations` row that `TOP_KEYS` growth reddens, and append the archived AC-STE-722.12 clause (AC-STE-723.15)
+  verify: m_d1b4b7-defaults-unchanged green with only those two literals moved, each with an `Amended by AC-STE-723.15` comment; the archived STE-722 FR differs from its M_d1b4b7 merge bytes only by the AC-722.8 and AC-722.12 clauses
 - [ ] Add the probe module entry `runOptimizationsReuseOnlyProbe` and its fixtures (AC-STE-723.4)
   verify: positive fixture plus one negative per reason, requires-gate-outcomes included; shape and knob names decided from `settingsSectionValue`'s parsed value, so flow-style and `{}` sections pass, with lines from `settingsSectionKeys` or the section line; vacuous with zero notes on an unmanaged tree, a foreign settings file and no section
 - [ ] Add the reuse row to the STE-728 proposal table (AC-STE-723.13)
@@ -66,16 +68,20 @@ codename: Proof of Work
   verify: clean and rerun fixtures with the knob on and off, forgery rows included; no receipt written; trunk simplify prose test green unchanged; no unconditional `gate_reuse.ts` mention
 - [ ] Add the reuse clause to `/implement` step i and `docs/implement-reference.md`; add the patterns.md entry and the hooks-reference sentence (AC-STE-725.4, .6)
   verify: needles per surface; "Never claim clean from memory" kept
+- [ ] Widen the AC-STE-722.8 frozen region of `tests/m_d1b4b7-ste-722-retro-offer.test.ts` to the step-i line and append the archived AC-STE-722.8 clause (AC-STE-725.12)
+  verify: that test green on the M_fd9a03 tree with only its region widened and an `Amended by AC-STE-725.12` comment; a one-byte edit to the step-i trunk prefix in a temp copy reds it
 - [ ] Land every M4 gate-check SKILL.md edit in one commit, net zero: the probe line as row 90, the #31 line join that pays for it, line 248's #91, the knob sentence appended to line 252, the `(reused)` clause on the line 265 bullet, the two Rules lines and the Reporting fresh-run sentence; move every probe-count pin by one, the next-probe literals to #91, and add the `gate_reuse.ts run` conditional target with its archived AC-STE-708.13 clause in it (AC-STE-723.7, AC-STE-723.14, AC-STE-724.7, .13, .21, AC-STE-725.5)
   verify: probe #81 grades the line reachable; trunk Commands lines and Code Review byte-identical (line 252 as a prefix); Red Flags and Rationalization blocks byte-identical; the file measures 356 split-lines and 87 STE tokens; the eight exact 356 pins, the numstat in-place rule and the row-position control pass unedited; every file `grep -rl "probe count" tests/` lists is green; "AC-.13 gate-check" green
 - [ ] Under ruling R5, re-base KICKOFF to that edit commit as its own reviewed commit, listing every new permitted line (AC-STE-723.9, AC-STE-724.17, AC-STE-725.8)
   verify: freeze test green on the re-base commit; neighbour-line negative controls still fail `driftBeyond`
-- [ ] Add the milestone's defaults-unchanged test (AC-STE-725.11)
+- [ ] Add the milestone's defaults-unchanged test, and re-run the M_7bc805 `/gate-check` modeller with every switch off and with the reuse receipt lines stubbed (AC-STE-725.11, AC-STE-725.13, AC-STE-724.22)
   verify: knob reads run, probe silent, verdict prints rerun, no gate-step receipt, receipt call and store equal v3.0.0; the probe summary differs only by its named vacuous count
 - [ ] Mutation controls for each rule (AC-STE-723.10, AC-STE-724.18, AC-STE-725.9)
   verify: removing the knob, tree-clean, announcement, provenance, run-outcome, never-reusable and verdict checks each reds a named test
 - [ ] Run the full suite on the last commit (AC-STE-723.11, AC-STE-724.19, AC-STE-725.10)
   verify: `bun test` 0 fail; skip identities equal the trunk baseline by name
+- [ ] Full suite by name vs trunk before commit; every red caused by this milestone's own edits is either replaced by this milestone's tests or amended with an `Amended by AC-STE-<N>.<M>` marker naming it; list each in the archived FR notes. Zero unexplained reds.
+  verify: the JUnit test names of `bun test` from `plugins/dev-process-toolkit` on the milestone's last commit, compared with the same run on trunk under the same bun, show no red outside that list; each listed test names its marker; the pins this plan already names are in the list; covers AC-STE-723.11, AC-STE-724.19 and AC-STE-725.10
 
 ### SKILL.md line budget
 
@@ -96,6 +102,8 @@ Pins that move, each in the edit commit with its Amended-by comment:
 - The probe-count pins (`grep -rl "probe count" tests/`), 89 to 90, and the README's two counts (AC-STE-723.7); `ADMITTED_MARKER` of `tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts` gains `723\.7` so the ste-584 count move is an admitted hunk (AC-STE-723.14).
 - The next-probe sentence: `tests/m_8f8e25-ste-558-scanner-registration.test.ts:940` (derived, green once line 248 moves), and the literal pins `tests/m_866092-ste-673-video-commit-nudge.test.ts:716-725` and `tests/m140-ste-543-external-link-verdicts.test.ts:1020-1027`, #90 to #91 (AC-STE-723.7, AC-STE-723.14).
 - `CONDITIONAL_TARGETS` of `tests/m_94e6f7-ste-708-mode-front-door.test.ts` gains `gate_reuse.ts run` beside `reuse: on`, and archived AC-STE-708.13 gains its third appended clause (AC-STE-724.21).
+- Tests earlier milestones of this programme ship (review 7, R7-4): the AC-STE-722.8 frozen region (AC-STE-725.12) and the AC-STE-722.12 `Remedy:` and `get optimizations` literals (AC-STE-723.15). The AC-STE-715.15 and AC-STE-717.13 modellers pass unedited, since their switch-line guard is generic (AC-STE-724.22).
+- Two count pins review 7 found, in the probe-count family: the `docs/workflow-overview.md` probe counts ("+ {N} probes", "| {N} conformance probes") that the PINS table of `tests/m_7384cf-ste-680-bug-import-and-probe.test.ts` (:843) reads (AC-STE-723.7), and the README "31 proven patterns" count that `tests/m_645517-ste-567-front-door.test.ts` (:363) grades, which becomes 32 with Pattern 32 (AC-STE-725.6).
 - The AC-STE-618.8 freeze, re-based once under R5; its `RE-BASED` comment lists lines 177, 230, 248, 252, 265, 268, 336 and 337 as the lines the edit commit changed.
 
 ### Gate

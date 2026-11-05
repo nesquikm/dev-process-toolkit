@@ -43,6 +43,8 @@ Defaults unchanged (operator rule, 2026-11-04): "these changes SHOULD NOT change
 
 - [ ] Rewrite the two superseded requirements.md § 5 lines with struck wording and dated notes, and narrow the fast-track line
   verify: the out-of-scope test passes; covers STE-718 ACs 1 to 5
+- [ ] Amend M_7bc805's Out of Scope test so its remainder excludes the three STE-718 lines, and append the AC-STE-716.13 clause to the archived STE-716
+  verify: m_7bc805-ste-716-out-of-scope green with only its exclusion edited and an `Amended by AC-STE-718.8` comment; the archived STE-716 FR differs from its M_7bc805 merge bytes only by the clause; covers STE-718 AC 8
 - [ ] Calibrate the four thresholds against M_7bc805's captured fixtures before any test freezes them; write the values into the STE-719 Requirement table, which AC-STE-719.4 pins, and their source into its Notes
   verify: each trip fixture sits on the first tripping value and each clear fixture on the last clear one; covers STE-719 ACs 4 and 7
 - [ ] Build session_aliases.ts, retro_rules.ts, retro_report.ts, retro_scope.ts and the retro.ts front door
@@ -59,12 +61,16 @@ Defaults unchanged (operator rule, 2026-11-04): "these changes SHOULD NOT change
   verify: both calls byte-identical with retro off, upgrade switch on or off; `upgrade_offer: on` stays last with both on; `upgrade_offer.ts` untouched; empty stdout when off or nothing tripped, with no scope read when off; every retro_offer.ts mention names `retro: on`; probe #85 clean; one question per /deliver run; the archived AC-STE-712.14 carries only its appended Amended-by clause; covers STE-722 ACs 1 to 9, 13, 14, 15 and 16
 - [ ] Add retro_proposal.ts with its closed table, propose and apply verbs, and the /retro approval gate
   verify: silent when nothing applies; propose writes nothing; apply needs a fresh digest and a transcript-verified answer after a real propose, checks register preconditions with the setting taken as on before any write, adds the shown ignore line, and registers capture for the tool_calls row; a declined, marker-only, prose-only or echoed run leaves settings byte-identical; rollback covers the local settings file; covers STE-728 ACs 1 to 12, 15 and 16
+- [ ] Grade the approval as a live lone `apply` call sees its transcript: no own line, the propose result and answer required, a recorded earlier `apply` result consuming the approval
+  verify: a child-process `apply` writes with no own line in the transcript, refuses after a consumed approval, and a temp copy re-adding the own-line step refuses the live shape; covers STE-728 AC 17
 - [ ] Add the milestone's defaults-unchanged test
   verify: gate_capture.ts, deliver_decision.ts, upgrade CLI, offers and close-outs equal their v3.0.0 literals; modelled close-outs make no retro_offer.ts call; covers STE-722 AC 12
 - [ ] Mutation controls for each FR
   verify: removing each named rule or check reds a named test; covers STE-718 AC 6, STE-719 AC 16, STE-720 AC 11, STE-721 AC 10, STE-722 AC 10 and STE-728 AC 13
 - [ ] Full suite after each FR
   verify: 0 fail and baseline skip identities; covers STE-718 AC 7, STE-719 AC 17, STE-720 AC 12, STE-721 AC 11, STE-722 AC 11 and STE-728 AC 14
+- [ ] Full suite by name vs trunk before commit; every red caused by this milestone's own edits is either replaced by this milestone's tests or amended with an `Amended by AC-STE-<N>.<M>` marker naming it; list each in the archived FR notes. Zero unexplained reds.
+  verify: the JUnit test names of `bun test` from `plugins/dev-process-toolkit` on the milestone's last commit, compared with the same run on trunk under the same bun, show no red outside that list; each listed test names its marker; the pins this plan already names are in the list; covers STE-718 AC 7, STE-719 AC 17, STE-720 AC 12, STE-721 AC 11, STE-722 AC 11 and STE-728 AC 14
 
 ### SKILL.md line budget
 
@@ -86,6 +92,9 @@ Pins that are not line counts, found by a full-suite run on scratch copies carry
 - `MODULE_BASENAMES` of `tests/m117-ste-428-report-issue-renderable.test.ts` gains `report_issue_payload` (AC-STE-720.15) and `report_issue_retro` (AC-STE-721.13).
 - `GATE_REGISTRY` gains both retro offers as mechanical gates; `EXPECTED_NEW_GATE_IDS` of `tests/m143-ste-552-chain-gate-registration.test.ts` and `POST_FR_ADDED_IDS` of `tests/m133-ste-515-gate-registration.test.ts` move with it, and `ADMITTED_MARKER` of `tests/m_79b1f6-ste-590-offers-ask-the-gate.test.ts` admits `722\.9` for the deliver 268 hunk (AC-STE-722.9).
 - The argument-hint pins (AC-STE-721.1); `report_issue_retro_seeded` is registered in the `/spec-write` § 7 map only, so the six `CANONICAL_CAPABILITY_KEYS` length pins stay at 47 (AC-STE-721.8, AC-STE-721.13).
+
+- A test M_7bc805 ships (review 7, R7-3): the § 5 remainder of `tests/m_7bc805-ste-716-out-of-scope.test.ts` excludes the three STE-718 lines, and archived AC-STE-716.13 gains its clause (AC-STE-718.8).
+- Two pins review 7 found (m7-2): `BASELINE_LINES` of `tests/m143-ste-550-inline-no-terminal-block.test.ts` (:551) must name exactly `ADOPTING_STAGES`, so it gains a `retro` key; and in `tests/m137-ste-533-stage-block-adoption.test.ts`, beside the 12 to 13 pin AC-STE-719.13 names, the closed-list literal ("operator-resolved eleven, in order"), "all ELEVEN … accepted" and "nine of eleven outside /deliver's vocabulary" rows move with it (AC-STE-719.13).
 
 No FR here edits the gate-check SKILL.md.
 
