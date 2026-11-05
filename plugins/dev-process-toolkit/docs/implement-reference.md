@@ -337,6 +337,16 @@ Once the user approves at step 15, execute the Close procedure end-to-end. Phase
 
 The Pattern 9 byte-diff regression gate against the `mode-none-v2` fixture continues to pass because the cleanup was already part of the existing mode-none flow.
 
+## Upgrade offer
+
+The skill body carries the condensed offer; this section is its full text. The offer is opt-in: `close_out.upgrade_offer.enabled: true` in the project settings file turns it on, and step 14's `gate_capture.ts` run then prints `upgrade_offer: on` as its last line. Absent, `false`, a legacy layout, no settings file or any loader refusal all read off, and with the switch off no step below runs.
+
+1. **When.** After Close sub-steps (b) and (c) settle, and before both the ship-ready close offer and the Phase 5 prompt. A gate-check failure, a Spec Breakout, a rejection at step 15 or any Phase 1–3 early exit never reaches it.
+2. **Run.** Only when step 14 printed `upgrade_offer: on`, run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/upgrade_offer.ts <projectRoot>` once. It prints probe #69's (`upgrade_staleness`) rows followed by `Apply the pending toolkit upgrades now? [y/N]`, or nothing when the probe reports no rows or the tree is not toolkit-managed. It always exits 0; empty stdout means no offer is made.
+3. **Ask.** Relay the printed rows and the question verbatim. On `y`, run `/upgrade`, whose own preview and approval gate stay intact. On decline or non-interactive stdin, print probe #69's remedy line.
+4. **Remedy line.** Probe #69's remedy line in the Phase 4 notes is dropped only when the offer is made — the offer names the upgrade itself. When no offer was made (switch off, nothing stale, or a driven run), the notes keep the remedy line unchanged.
+5. **Driven runs.** Omit the offer when the invocation body carries the driven-run marker; `/deliver` makes its own once-per-run close-out offer after the last milestone instead.
+
 ## Phase 4b Doc Fragment Hook
 
 The skill body carries the condensed flow; this section covers edge cases and the diagnostic log shape.

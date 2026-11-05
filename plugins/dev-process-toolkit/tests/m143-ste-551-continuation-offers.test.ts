@@ -117,6 +117,9 @@ const SHIP_NOT_AUTOMATED = "ship_milestone_not_automated";
 const SHIP_CEREMONY_PR = "ship_milestone_ceremony_pr";
 const SHIP_VIDEO = "ship_milestone_video"; // Amended by AC-STE-670.4
 const ARCHIVE_NEXT = "spec_archive_next";
+const IMPLEMENT_UPGRADE = "implement_upgrade_offer"; // Amended by AC-STE-712.4 (M_94e6f7)
+const DELIVER_UPGRADE = "deliver_close_upgrade_offer"; // Amended by AC-STE-712.4 (M_94e6f7)
+const UPGRADE_QUESTION = "Apply the pending toolkit upgrades now? [y/N]"; // Amended by AC-STE-712.4 (M_94e6f7)
 
 const ALL_OFFER_IDS = [
   BRAINSTORM_START_NOW,
@@ -127,10 +130,23 @@ const ALL_OFFER_IDS = [
   SHIP_CEREMONY_PR,
   SHIP_VIDEO, // Amended by AC-STE-670.4
   ARCHIVE_NEXT,
+  IMPLEMENT_UPGRADE, // Amended by AC-STE-712.4 (M_94e6f7)
+  DELIVER_UPGRADE, // Amended by AC-STE-712.4 (M_94e6f7)
 ] as const;
+
+/**
+ * Amended by AC-STE-712.4 (M_94e6f7): the offers a `fullChain()` run can reach. That chain
+ * names no `/deliver` step (`/deliver` is the orchestrator around it), so
+ * `deliver_close_upgrade_offer` is unreachable there; its modelled runs live in
+ * tests/m_94e6f7-ste-712-upgrade-offer.test.ts (AC-STE-712.5).
+ */
+const CHAIN_REACHED_IDS = ALL_OFFER_IDS.filter((id) => id !== DELIVER_UPGRADE);
 
 /** The shipped anchor each offer owns, measured on this tree on 2026-09-04. */
 const SHIPPED_ANCHORS: Record<string, { skill: string; anchor: string }> = {
+  // Amended by AC-STE-712.4 (M_94e6f7): the opt-in close-out upgrade offers.
+  [IMPLEMENT_UPGRADE]: { skill: "implement", anchor: UPGRADE_QUESTION },
+  [DELIVER_UPGRADE]: { skill: "deliver", anchor: UPGRADE_QUESTION },
   [BRAINSTORM_START_NOW]: {
     skill: "brainstorm",
     anchor: "or I can start now.",
@@ -212,11 +228,11 @@ describe("the registry names the surfaces it claims to describe", () => {
   test("exactly the eight shipped offers are registered, across five skills", () => {
     // Amended by AC-STE-670.4 (M_1e0717): the eighth entry is the explainer-video
     // offer — skill ship-milestone, runsWhenDriven: [].
-    expect(CONTINUATION_OFFERS.length).toBe(8);
+    expect(CONTINUATION_OFFERS.length).toBe(10); // Amended by AC-STE-712.4 (M_94e6f7) (was 8)
     expect([...CONTINUATION_OFFERS].map((o) => o.id).sort()).toEqual(
       [...ALL_OFFER_IDS].sort(),
     );
-    expect(new Set(CONTINUATION_OFFERS.map((o) => o.skill)).size).toBe(5);
+    expect(new Set(CONTINUATION_OFFERS.map((o) => o.skill)).size).toBe(6); // Amended by AC-STE-712.4 (M_94e6f7) (was 5; deliver joined)
   });
 
   test("each offer's shipped anchor occurs EXACTLY ONCE in the file it names", () => {
@@ -238,8 +254,9 @@ describe("the registry names the surfaces it claims to describe", () => {
   test("an unregistered id resolves to nothing rather than to a default", () => {
     expect(continuationOffer("no_such_offer")).toBe(null);
     expect(offersForSkill("implement").map((o) => o.id).sort()).toEqual(
-      [IMPLEMENT_PHASE5, IMPLEMENT_SHIP_READY].sort(),
+      [IMPLEMENT_PHASE5, IMPLEMENT_SHIP_READY, IMPLEMENT_UPGRADE].sort(), // Amended by AC-STE-712.4 (M_94e6f7)
     );
+    expect(offersForSkill("deliver").map((o) => o.id)).toEqual([DELIVER_UPGRADE]); // Amended by AC-STE-712.4 (M_94e6f7)
     expect(offersForSkill("brainstorm").length).toBe(1);
     expect(offersForSkill("spec-write").length).toBe(1);
     // Amended by AC-STE-670.4: ship-milestone owns three offers (was two at STE-551).
@@ -483,7 +500,7 @@ describe("every offer's SKILL.md documents its driven branch", () => {
   });
 
   test("each skill carries ONE clause PER OFFER it owns", () => {
-    for (const skill of ["brainstorm", "spec-write", "implement", "ship-milestone", "spec-archive"]) {
+    for (const skill of ["brainstorm", "spec-write", "implement", "ship-milestone", "spec-archive", "deliver"]) { // Amended by AC-STE-712.4 (M_94e6f7)
       const owed = offersForSkill(skill).length;
       const body = skillBody(skill);
       expect(drivenOmissionOccurrences(body), `${skill} clause count`).toBe(owed);
@@ -491,7 +508,8 @@ describe("every offer's SKILL.md documents its driven branch", () => {
     }
     // Two offers in one file is the case a file-level check cannot see.
     // Amended by AC-STE-670.4: ship-milestone owns three (the explainer-video offer joined).
-    expect(offersForSkill("implement").length).toBe(2);
+    expect(offersForSkill("implement").length).toBe(3); // Amended by AC-STE-712.4 (M_94e6f7) (was 2)
+    expect(offersForSkill("deliver").length).toBe(1); // Amended by AC-STE-712.4 (M_94e6f7)
     expect(offersForSkill("ship-milestone").length).toBe(3); // Amended by AC-STE-670.4
   });
 
@@ -613,7 +631,7 @@ describe("AC-STE-551.7 — the standalone paths are unchanged", () => {
       promptBody: PLAIN_BODY,
       reachedOffers: [...ALL_OFFER_IDS],
     });
-    expect([...run.operatorTurns].sort()).toEqual([...ALL_OFFER_IDS].sort());
+    expect([...run.operatorTurns].sort()).toEqual([...CHAIN_REACHED_IDS].sort()); // Amended by AC-STE-712.4 (M_94e6f7)
   });
 
   test("the two capped surfaces stay at or under the 358-line cap", () => {
@@ -637,7 +655,7 @@ describe("AC-STE-551.8 — restoring ONE offer costs exactly one operator turn",
     expect(run.operatorTurns).toEqual([]);
   });
 
-  for (const id of ALL_OFFER_IDS) {
+  for (const id of CHAIN_REACHED_IDS) { // Amended by AC-STE-712.4 (M_94e6f7)
     test(`restoring ${id} alone reintroduces exactly one turn — its own`, () => {
       const baseline: ModelledRunResult = modelRun({
         chain: fullChain(),
@@ -670,8 +688,8 @@ describe("AC-STE-551.8 — restoring ONE offer costs exactly one operator turn",
       reachedOffers: [...ALL_OFFER_IDS],
       restoredOffers: [...ALL_OFFER_IDS],
     });
-    expect(run.operatorTurns.length).toBe(8); // Amended by AC-STE-670.4
-    expect([...run.operatorTurns].sort()).toEqual([...ALL_OFFER_IDS].sort());
+    expect(run.operatorTurns.length).toBe(9); // Amended by AC-STE-670.4; Amended by AC-STE-712.4 (M_94e6f7) (8 → 9: the implement upgrade offer)
+    expect([...run.operatorTurns].sort()).toEqual([...CHAIN_REACHED_IDS].sort()); // Amended by AC-STE-712.4 (M_94e6f7)
     // And the ceremony doubles, which is the aggregate's correctness half.
     expect(closeCeremonyExecutions(run)).toBeGreaterThan(1);
   });
@@ -1083,7 +1101,7 @@ describe("AC-STE-551.3 round 2 — each contested step executes exactly once", (
       stepExecutionCounts(standalone()),
     );
     expect([...standalone(mutants).operatorTurns].sort()).toEqual(
-      [...ALL_OFFER_IDS].sort(),
+      [...CHAIN_REACHED_IDS].sort(), // Amended by AC-STE-712.4 (M_94e6f7)
     );
   });
 

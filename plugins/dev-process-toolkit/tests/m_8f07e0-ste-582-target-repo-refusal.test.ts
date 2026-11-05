@@ -74,7 +74,8 @@ const DELIVER_SKILL_FILE = join(PLUGIN_ROOT, "skills", "deliver", "SKILL.md");
 const DELIVER_REFERENCE_FILE = join(PLUGIN_ROOT, "docs", "deliver-reference.md");
 
 /** `skills/deliver/SKILL.md` split-line count at HEAD (v2.81.0), measured. */
-const DELIVER_SKILL_LINE_COUNT = 262;
+// Amended by AC-STE-712.7 (M_94e6f7): /deliver gains its close-out section (262 -> 266)
+const DELIVER_SKILL_LINE_COUNT = 266;
 
 // ===========================================================================
 // Fixtures.

@@ -35,6 +35,7 @@
 import { resolve } from "node:path";
 
 import { detectGate } from "./capture_skip_baseline";
+import { upgradeOfferSwitchOn } from "./project_settings";
 import { deriveRunCounts, type CapturedRun } from "./deliver_stage_evidence";
 import { runGateNamingSkips } from "./gate_identity_run";
 import type { Stack } from "./test_count_parser";
@@ -197,5 +198,7 @@ if (import.meta.main) {
       );
       for (const name of names) console.log(`  ${name}`);
     }
+    // STE-712: announced as the LAST line, and only when the switch is on.
+    if (upgradeOfferSwitchOn(projectRoot)) console.log("upgrade_offer: on");
   }
 }

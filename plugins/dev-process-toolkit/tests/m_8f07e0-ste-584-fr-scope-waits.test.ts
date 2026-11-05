@@ -186,8 +186,14 @@ describe("one predicate: the FR scope reads what the milestone scope reads", () 
 });
 
 describe("the executing prose says it, in place", () => {
+  // Amended by AC-STE-712.7 (M_94e6f7): /deliver gains its close-out section,
+  // so both sides of the count drop that section before splitting.
+  const withoutCloseOut = (text: string): string =>
+    text.replace(/\n\n## Close-out — offers after the last milestone\n[\s\S]*?(?=\n## |\n?$)/, "");
   const headLines = (rel: string): number =>
-    execFileSync("git", ["show", `HEAD:${rel}`], { cwd: repoRoot, encoding: "utf8" }).split("\n").length;
+    withoutCloseOut( // Amended by AC-STE-712.7 (M_94e6f7)
+      execFileSync("git", ["show", `HEAD:${rel}`], { cwd: repoRoot, encoding: "utf8" }),
+    ).split("\n").length;
   const rel = (abs: string): string => abs.slice(repoRoot.length + 1);
 
   test("the /deliver last-active-FR bullet and its reference row name the spanning exception", () => {
@@ -223,7 +229,7 @@ describe("the executing prose says it, in place", () => {
 
   test("zero new lines in any edited file", () => {
     for (const file of [DELIVER_SKILL, DELIVER_REF, IMPLEMENT_SKILL]) {
-      expect(readFileSync(file, "utf8").split("\n").length, rel(file)).toBe(headLines(rel(file)));
+      expect(withoutCloseOut(readFileSync(file, "utf8")).split("\n").length, rel(file)).toBe(headLines(rel(file))); // Amended by AC-STE-712.7 (M_94e6f7)
     }
   });
 });

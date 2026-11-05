@@ -414,7 +414,14 @@ export function loadFromSettingsFile(projectRoot: string): ProjectSettings {
     docs: isObj(parsed.docs) ? parsed.docs : d.docs,
     orchestration: isObj(parsed.orchestration) ? parsed.orchestration : d.orchestration,
     tracking: (isObj(parsed.tracking) ? parsed.tracking : d.tracking) as ProjectSettings["tracking"],
-    close_out: (isObj(parsed.close_out) ? parsed.close_out : d.close_out) as ProjectSettings["close_out"],
+    close_out: {
+      upgrade_offer: {
+        enabled:
+          isObj(parsed.close_out) && isObj(parsed.close_out.upgrade_offer)
+            ? parsed.close_out.upgrade_offer.enabled === true
+            : d.close_out.upgrade_offer.enabled,
+      },
+    },
     release: (isObj(parsed.release) ? parsed.release : d.release) as ProjectSettings["release"],
     video: {
       config:
@@ -472,6 +479,20 @@ export function loadProjectSettings(projectRoot: string): { source: SettingsSour
 export function loadProjectSection<K extends keyof ProjectSettings>(projectRoot: string, section: K): ProjectSettings[K] {
   if (resolveSingleSource(projectRoot) === "settings") return loadFromSettingsFile(projectRoot)[section];
   return loadLegacySection(projectRoot, section);
+}
+
+/**
+ * STE-712 — the close-out switch `close_out.upgrade_offer.enabled`, read
+ * through the loader. True only for an explicit `true`; any loader refusal (a
+ * malformed settings file, a both-homes tree) reads as off, so a tree that
+ * never opted in prints exactly what it printed before the switch existed.
+ */
+export function upgradeOfferSwitchOn(projectRoot: string): boolean {
+  try {
+    return loadProjectSection(projectRoot, "close_out")?.upgrade_offer?.enabled === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
