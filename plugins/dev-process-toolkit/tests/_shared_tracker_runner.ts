@@ -1344,7 +1344,9 @@ function bump(v: string, dir: -1 | 1): string {
   const [maj, min, pat] = v.split(".").map(Number) as [number, number, number];
   if (dir === 1) return `${maj}.${min + 1}.0`;
   if (pat > 0) return `${maj}.${min}.${pat - 1}`;
-  return `${maj}.${min - 1}.0`;
+  if (min > 0) return `${maj}.${min - 1}.0`;
+  // An X.0.0 floor (the first release of a major) steps down to the previous major.
+  return `${maj - 1}.999.0`;
 }
 
 /** The M_947c79 reader front door's JSON line for `root`. */
