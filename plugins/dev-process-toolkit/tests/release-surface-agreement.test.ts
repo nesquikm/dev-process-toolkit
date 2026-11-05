@@ -46,7 +46,7 @@ import {
   parseReadmeLatest,
   type PlanText,
 } from "../adapters/_shared/src/release_surface_agreement";
-import { bumpFile, bumpRegex, parseReleaseFiles } from "../adapters/_shared/src/release_config";
+import { bumpFile, bumpRegex, readReleaseFiles } from "../adapters/_shared/src/release_config";
 
 const repoRoot = join(import.meta.dir, "..", "..", "..");
 
@@ -229,7 +229,7 @@ describe("C — each field fails independently", () => {
 //   2. the README entry's `pattern`/`replace` pair was widened past the
 //      em-dash to span the codename.
 // — so what follows is that rewrite, assertion for assertion. Each one keeps
-// reading the shipped configuration through `parseReleaseFiles` / `bumpFile`,
+// reading the shipped configuration through `readReleaseFiles` / `bumpFile`,
 // so it still describes what `/ship-milestone` actually executes.
 //
 // Groups A–C stay load-bearing. The banner also names a MILESTONE and a
@@ -239,7 +239,10 @@ describe("C — each field fails independently", () => {
 
 describe("D — what the release bumper rewrites", () => {
   const entries = parseChangelogEntries(changelog);
-  const readmeEntry = parseReleaseFiles(claudeMd).find((e) => e.path === "README.md");
+  // Since 3.0.0 this repository keeps the list as `release.files` in
+  // specs/settings.yaml; read it through readReleaseFiles, the reader
+  // /ship-milestone uses, never by parsing a CLAUDE.md block.
+  const readmeEntry = readReleaseFiles(repoRoot, () => claudeMd).find((e) => e.path === "README.md");
 
   const nextVersionAfterTop = () => {
     const parts = entries[0]!.version.split(".");
