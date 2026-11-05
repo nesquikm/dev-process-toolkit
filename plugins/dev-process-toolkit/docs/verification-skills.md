@@ -159,9 +159,13 @@ it is a consequence of the four already in the table above.
 
 A suite run that executed no test is not evidence either. When the captured
 run parses to zero passes and zero failures — usually every test skipped
-itself for want of a secret or a device — `resolveE2eAuthoring` refuses it and
-states the skip count it parsed. It is a refusal, not a red suite: the
-capability token stays the one the authoring decision earned. Two limits. A
+itself for want of a secret or a device — and the change added or edited an
+end-to-end test, that test never ran: `resolveE2eAuthoring` refuses the run
+and states the skip count it parsed. It is a refusal, not a red suite: the
+capability token stays the one the authoring decision earned. A none-needed
+record is not refused for such a run — the decision stands on its reason —
+but the empty run is no regression evidence, so it lands in the outcome's
+`advisories` and the step-14 report states it. Two limits. A
 runner whose all-skipped summary carries no pass or fail counter (pytest's bare
 `N skipped`) does not parse, so that run is refused as unparseable rather than
 as zero-executed. And the refusal belongs to the `/implement` end-to-end hook
