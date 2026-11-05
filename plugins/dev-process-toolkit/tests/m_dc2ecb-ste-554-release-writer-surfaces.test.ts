@@ -30,7 +30,7 @@ import {
   MissingCodenameError,
   bumpFile,
   bumpRegex,
-  parseReleaseFiles,
+  readReleaseFiles,
   type ReleaseFile,
 } from "../adapters/_shared/src/release_config";
 import { findVersionFreshnessDrift } from "../adapters/_shared/src/root_hygiene";
@@ -189,9 +189,14 @@ describe("AC-STE-554.4 — a template naming no codename is unaffected", () => {
 // AC-STE-554.5 / .6 — specs/requirements.md gets a writer
 // ---------------------------------------------------------------------------
 
+// Since 3.0.0 this repository keeps the list as `release.files` in
+// specs/settings.yaml; read it through readReleaseFiles, the reader the
+// release run uses, never by parsing a CLAUDE.md block.
+const repoReleaseFiles = (): ReleaseFile[] => readReleaseFiles(REPO_ROOT, () => read(REPO_CLAUDE_MD));
+
 describe("AC-STE-554.5 — the block declares specs/requirements.md", () => {
   test("this repository's ## Release Files carries it, capturing version AND codename", () => {
-    const entries = parseReleaseFiles(read(REPO_CLAUDE_MD));
+    const entries = repoReleaseFiles();
     const entry = entries.find((e) => e.path === "specs/requirements.md");
     expect(entry).toBeDefined();
     expect(entry!.kind).toBe("regex");
@@ -202,7 +207,7 @@ describe("AC-STE-554.5 — the block declares specs/requirements.md", () => {
   });
 
   test("the entry's pattern matches the line as it stands in this tree", () => {
-    const entry = parseReleaseFiles(read(REPO_CLAUDE_MD)).find(
+    const entry = repoReleaseFiles().find(
       (e) => e.path === "specs/requirements.md",
     )!;
     const requirements = read(join(REPO_ROOT, "specs", "requirements.md"));
@@ -213,7 +218,7 @@ describe("AC-STE-554.5 — the block declares specs/requirements.md", () => {
   });
 
   test("the README entry captures the codename too", () => {
-    const entry = parseReleaseFiles(read(REPO_CLAUDE_MD)).find((e) => e.path === "README.md")!;
+    const entry = repoReleaseFiles().find((e) => e.path === "README.md")!;
     expect(entry.pattern).toContain("(?<codename>");
     expect(new RegExp(entry.pattern!).test(read(join(REPO_ROOT, "README.md")))).toBe(true);
   });

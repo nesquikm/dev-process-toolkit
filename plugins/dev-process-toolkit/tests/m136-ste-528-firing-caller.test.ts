@@ -122,6 +122,7 @@ import { join, relative } from "node:path";
 
 import { isCurrentBranchAcceptable } from "../adapters/_shared/src/branch_proposal";
 import { skipBaselinePath } from "../adapters/_shared/src/dpt_paths";
+import { loadProjectSettings } from "../adapters/_shared/src/project_settings";
 import { mutateInRegion } from "./_sited-mutation";
 
 // ===========================================================================
@@ -1028,16 +1029,24 @@ describe("AC-STE-528.8 — the order fires with this repository's own tracking b
   }
 
   test("the real block carries no `branch_template:` and no sixth key", () => {
+    // Since 3.0.0 the real tracking settings live in specs/settings.yaml
+    // `task_tracking`, read through the shipped loader; CLAUDE.md keeps only
+    // the generated binding stub (mode + workspace binding).
+    const { source, settings } = loadProjectSettings(REPO_ROOT);
+    expect(source).toBe("settings");
+    const tracking = settings.task_tracking as Record<string, unknown>;
+    expect(tracking, "the defect is that the REAL settings lack the key").not.toHaveProperty("branch_template");
+    expect(Object.keys(tracking)).toEqual(["mode", "mcp_server", "jira_ac_field", "linear", "status_vocabulary"]);
+    expect(Object.keys(tracking.linear as Record<string, unknown>)).toEqual(["team", "project"]);
+
     const block = repoTaskTrackingBlock();
-    expect(block, "the defect is that the REAL block lacks the key").not.toContain(
-      BRANCH_TEMPLATE_KEY,
-    );
+    expect(block, "the stub must not carry the key either").not.toContain(BRANCH_TEMPLATE_KEY);
     const keys = block
       .split("\n")
       .map((row) => /^([a-z_]+):/.exec(row.trim()))
       .filter((hit): hit is RegExpExecArray => hit !== null)
       .map((hit) => hit[1] as string);
-    expect(keys).toEqual(["mode", "mcp_server", "jira_ac_field", "team", "project"]);
+    expect(keys).toEqual(["mode", "team", "project"]);
   });
 
   test("driving the shipped order against that block lands a record ON DISK", () => {
