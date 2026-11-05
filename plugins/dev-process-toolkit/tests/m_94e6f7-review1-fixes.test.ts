@@ -26,6 +26,7 @@ import {
   detectSettingsSource,
   isForeignSettingsFile,
   loadProjectSettings,
+  renderSettingsPointer,
   SettingsShapeError,
 } from "../adapters/_shared/src/project_settings";
 import { parseMilestoneScanFetch, parseDocsConfig } from "../adapters/_shared/src/project_settings_legacy";
@@ -304,9 +305,10 @@ describe("B3 a foreign specs/settings.yaml leaves an un-upgraded tree reading as
     expect(readTokenStatsConfig(join(root, "CLAUDE.md")).enabled).toBe(true);
   });
 
-  test("B3 controls: min_dpt_version alone, or schema_version with a toolkit section, is toolkit-owned", () => {
+  test("B3 controls: on an unmigrated tree only a column-0 min_dpt_version makes the file toolkit-owned (review R3-B1)", () => {
     expect(isForeignSettingsFile(tree({ "specs/settings.yaml": 'min_dpt_version: "3.0.0"\n' }))).toBe(false);
-    expect(isForeignSettingsFile(tree({ "specs/settings.yaml": "schema_version: 1\ndocs:\n  user_facing_mode: true\n" }))).toBe(false);
+    // Round 3 (R3-B1): schema_version beside a toolkit section no longer claims the file on a tree with no badge.
+    expect(isForeignSettingsFile(tree({ "specs/settings.yaml": "schema_version: 1\ndocs:\n  user_facing_mode: true\n" }))).toBe(true);
     expect(isForeignSettingsFile(tree({ "specs/settings.yaml": "app:\n  name: synthetic\n" }))).toBe(true);
   });
 });
@@ -396,10 +398,10 @@ const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
 
 describe("#3 an unreadable specs/settings.yaml refuses, consistent with the managed signal", () => {
   test("#3 chmod 000: readers throw an NFR-10 refusal naming the file; nothing falls back to the stub or defaults", () => {
-    // A migrated tree: the move writes `## Project Settings`. Without it the same CLAUDE.md is an
+    // A migrated tree: the move writes `## Project Settings` with its pointer line (the badge, R3-B1). Without it the same CLAUDE.md is an
     // un-upgraded tree, where an unreadable file is ignored as v2.101.5 does (review round 2, R2-B3b).
     const root = tree({
-      "CLAUDE.md": legacy(["## Project Settings", "", "Project settings live in `specs/settings.yaml`.", ""], ["## Task Tracking", "", "mode: jira", ""]),
+      "CLAUDE.md": legacy(["## Project Settings", "", renderSettingsPointer("3.0.0").replace(/\n$/, ""), ""], ["## Task Tracking", "", "mode: jira", ""]),
       "specs/settings.yaml": 'schema_version: 1\nmin_dpt_version: "3.0.0"\ntask_tracking:\n  mode: linear\n',
     });
     chmodSync(join(root, "specs", "settings.yaml"), 0o000);

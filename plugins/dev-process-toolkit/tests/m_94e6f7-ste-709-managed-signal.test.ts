@@ -24,7 +24,12 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { renderSettingsPointer } from "../adapters/_shared/src/project_settings";
 import { SETUP_MARKER, detectManagedSignals, isToolkitManaged } from "../adapters/_shared/src/toolkit_managed";
+
+// A migrated CLAUDE.md: only the pointer line under `## Project Settings` (no other managed signal).
+// On a tree without it, a file with no column-0 `min_dpt_version:` is the project's own (review R3-B1).
+const MIGRATED_MD = `# Synthetic\n\n## Project Settings\n\n${renderSettingsPointer("3.0.0")}`;
 
 const ROOTS: string[] = [];
 afterAll(() => {
@@ -89,7 +94,7 @@ describe("AC-STE-709.1 settings_file is a managed-tree signal", () => {
   });
 
   test("a malformed settings file carrying `schema_version:` at column 0 still yields the signal and never throws", () => {
-    const root = tree({ "specs/settings.yaml": "schema_version: [\n  : : unterminated\n" });
+    const root = tree({ "CLAUDE.md": MIGRATED_MD, "specs/settings.yaml": "schema_version: [\n  : : unterminated\n" });
     expect(() => detectManagedSignals(root)).not.toThrow();
     expect(detectManagedSignals(root) as string[]).toEqual(["settings_file"]);
     expect(isToolkitManaged(root)).toBe(true);
@@ -101,7 +106,7 @@ describe("AC-STE-709.1 settings_file is a managed-tree signal", () => {
   });
 
   test("an unreadable settings file still yields the signal and never throws", () => {
-    const root = tree({ "specs/settings.yaml": VALID_SETTINGS });
+    const root = tree({ "CLAUDE.md": MIGRATED_MD, "specs/settings.yaml": VALID_SETTINGS });
     chmodSync(join(root, "specs", "settings.yaml"), 0o000);
     let signals: string[] = [];
     expect(() => {

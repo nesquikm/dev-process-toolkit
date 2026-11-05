@@ -79,9 +79,11 @@ const DETECTORS: readonly {
 
 /**
  * True when `<projectRoot>/specs/settings.yaml` is a regular file that is not
- * foreign. Presence is the evidence: a file that exists but cannot be read
- * still counts (the toolkit wrote it; a permissions slip does not un-manage the
- * tree). A directory at that path, or no file at all, is no signal. Never throws.
+ * foreign. On a migrated tree presence is the evidence: a file that exists but
+ * cannot be read still counts (the toolkit wrote it; a permissions slip does
+ * not un-manage the tree). On any other tree an unreadable file is foreign and
+ * no signal (review R3-B1). A directory at that path, or no file at all, is no
+ * signal. Never throws.
  */
 function hasToolkitSettingsFile(projectRoot: string): boolean {
   try {

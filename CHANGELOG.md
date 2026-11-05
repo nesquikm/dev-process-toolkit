@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `writeProjectSettings` keeps a CRLF settings file, and a CRLF CLAUDE.md's binding stub, CRLF on the lines it writes.
 - A `/setup --template` copy refuses instead of replacing a target's own (foreign) `specs/settings.yaml`.
 - A project's own `specs/settings.yaml` beside an un-upgraded CLAUDE.md is ignored unless it has a column-0 `min_dpt_version:` line, even when it shares a toolkit section name, does not parse, or cannot be read. Readers, tracker-write gating and token stats match v2.101.5, and `/upgrade` names the file and refuses to move until it is renamed.
+- The same holds on a repository the toolkit never set up, and on a tree whose own `## Project Settings` heading sits beside `## Task Tracking`. Only a CLAUDE.md that carries the pointer line `/upgrade` or `/setup` writes makes a tree migrated, where an unreadable or unmarked settings file is still refused. A migrated tree that lost both its `## Project Settings` section and `min_dpt_version` now refuses instead of reading defaults, as long as CLAUDE.md keeps the generated tracking stub or the move's settings comment.
 - `/upgrade` stages every file its steps change. On a moved tree the Linear team-key repair now reports `specs/settings.yaml`, and the milestone-plan rename reports the old path it removed.
 - Tests now grade the loader's own closed key sets (no new knob), the shipped `/setup` steps (no `new` key written), a leftover section that keeps prose, the move's single pointer, and legacy parity against values captured from v2.101.5.
 
@@ -43,7 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Run `/dev-process-toolkit:upgrade` to move an existing project's settings into `specs/settings.yaml`; it previews the change and applies it only after approval. Until then the project keeps working from its CLAUDE.md headings.
 
-Total test count at release: 21119 tests, 0 failures, 0 errors.
+Total test count at release: 21182 tests, 0 failures, 0 errors.
 
 ## [2.101.5] — 2026-11-04 — "Borrowed Time"
 

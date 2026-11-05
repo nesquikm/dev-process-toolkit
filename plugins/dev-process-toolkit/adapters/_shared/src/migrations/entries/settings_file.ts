@@ -243,7 +243,7 @@ function detectSettingsFile(projectRoot: string): DetectResult {
       // The move's step 0 refuses beside a project's own settings file (review R2-B3); say so up front.
       if (evidence.length > 0 && isForeignSettingsFile(projectRoot)) {
         evidence.unshift(
-          `${SETTINGS_FILE} — exists and is not a toolkit settings file (beside a legacy home only a file with a column-0 \`min_dpt_version:\` line is the toolkit's); the move refuses until it is renamed`,
+          `${SETTINGS_FILE} — exists and is not a toolkit settings file (on a tree that has not been migrated only a file with a column-0 \`min_dpt_version:\` line is the toolkit's); the move refuses until it is renamed`,
         );
       }
     }

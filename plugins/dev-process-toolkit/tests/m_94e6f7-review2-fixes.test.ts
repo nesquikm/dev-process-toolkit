@@ -40,6 +40,7 @@ import {
   detectSettingsSource,
   isForeignSettingsFile,
   loadProjectSettings,
+  renderSettingsPointer,
   SettingsShapeError,
 } from "../adapters/_shared/src/project_settings";
 import { readReleaseFiles } from "../adapters/_shared/src/release_config";
@@ -302,14 +303,15 @@ describe("R2-B3 beside a legacy home, a settings file without column-0 min_dpt_v
     expect(() => loadProjectSettings(root)).toThrow(SettingsShapeError);
   });
 
-  test("R2-B3 control: with no legacy home the existing rule stands (schema_version plus a toolkit section is the toolkit's)", () => {
+  test("R2-B3 control: with no legacy home the marker rule applies too (review R3-B1: schema_version plus a toolkit section is foreign)", () => {
     const root = tree({ [SETTINGS]: "schema_version: 1\ndocs:\n  user_facing_mode: true\n" });
-    expect(isForeignSettingsFile(root)).toBe(false);
-    expect(() => loadProjectSettings(root)).toThrow(SettingsShapeError);
+    expect(isForeignSettingsFile(root)).toBe(true);
+    expect(() => loadProjectSettings(root)).not.toThrow();
+    expect(loadProjectSettings(root).source).toBe("none");
   });
 
-  test("R2-B3 control: a migrated tree (## Project Settings, stub heading) whose file lost min_dpt_version still refuses, never reads as foreign", () => {
-    const md = legacy(["## Project Settings", "", "Project settings live in `specs/settings.yaml`.", ""], ["## Task Tracking", "", "mode: linear", ""]);
+  test("R2-B3 control: a migrated tree (## Project Settings pointer, stub heading) whose file lost min_dpt_version still refuses, never reads as foreign", () => {
+    const md = legacy(["## Project Settings", "", renderSettingsPointer("3.0.0").replace(/\n$/, ""), ""], ["## Task Tracking", "", "mode: linear", ""]);
     const root = tree({ "CLAUDE.md": md, [SETTINGS]: "schema_version: 1\ntask_tracking:\n  mode: linear\n" });
     expect(isForeignSettingsFile(root)).toBe(false);
     expect(() => loadProjectSettings(root)).toThrow(/min_dpt_version/);
@@ -353,7 +355,7 @@ describe("R2-B3b an unreadable settings file refuses only on a migrated tree", (
   });
 
   test("R2-B3b migrated tree (## Project Settings): an unreadable file still refuses naming it (round-1 #3)", () => {
-    const md = legacy(["## Project Settings", "", "Project settings live in `specs/settings.yaml`.", ""], ["## Task Tracking", "", "mode: jira", ""]);
+    const md = legacy(["## Project Settings", "", renderSettingsPointer("3.0.0").replace(/\n$/, ""), ""], ["## Task Tracking", "", "mode: jira", ""]);
     const root = tree({ "CLAUDE.md": md, [SETTINGS]: 'schema_version: 1\nmin_dpt_version: "3.0.0"\ntask_tracking:\n  mode: linear\n' });
     chmodSync(join(root, SETTINGS), 0o000);
     try {

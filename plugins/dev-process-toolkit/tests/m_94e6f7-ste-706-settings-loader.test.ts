@@ -814,7 +814,10 @@ describe("AC-STE-706.7 foreign settings files", () => {
 
 describe("AC-STE-706.8 floor", () => {
   test("AC-.8 a settings file without min_dpt_version refuses", () => {
-    const err = thrown(() => M().loadProjectSettings(settingsTree(deletePath(clone(BASE), "min_dpt_version"))));
+    // A migrated tree (the pointer line under ## Project Settings): on any other tree a file with no
+    // column-0 min_dpt_version is the project's own and is ignored (review round 3, R3-B1).
+    const md = `# Synthetic Project\n\n## Project Settings\n\n${M().renderSettingsPointer("3.0.0")}`;
+    const err = thrown(() => M().loadProjectSettings(settingsTree(deletePath(clone(BASE), "min_dpt_version"), { "CLAUDE.md": md })));
     expect(err).toBeInstanceOf(M().SettingsShapeError);
     expect(err.message).toContain("min_dpt_version");
   });

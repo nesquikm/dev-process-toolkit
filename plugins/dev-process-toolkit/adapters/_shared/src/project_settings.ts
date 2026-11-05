@@ -24,8 +24,10 @@ import {
   readLegacyVerification,
   readLegacyVideo,
   sectionEnd,
+  TRACKING_STUB_MARKER,
   VERIFY_MODES,
 } from "./project_settings_legacy";
+import { SETTINGS_COMMENT_POINTER } from "./migrations/legacy_paths";
 import { VALID_KINDS } from "./release_config";
 import { CANONICAL_KEYS } from "./task_tracking_canonical_keys";
 import { type TrackerConfig, validateTrackerConfig } from "./tracker_config";
@@ -99,60 +101,57 @@ function readSettingsTextOrRefuse(projectRoot: string): string | null {
 }
 
 /**
- * True when the tree still carries a v2.101.5 home the settings file would sit
- * beside: a CLAUDE.md line or file a legacy reader reads as a setting, or a
- * moved heading in a CLAUDE.md that has no `## Project Settings` section. The
- * move and a 3.x /setup write that section; v2.101.5 never did. Never throws.
+ * True when CLAUDE.md marks the tree as one the toolkit moved to (or created
+ * with) the settings file (review round 3, R3-B1): its `## Project Settings`
+ * section holds the pointer line `renderSettingsPointer` renders, for any
+ * floor. A bare `## Project Settings` heading of the user's own does not count.
+ *
+ * R3-LOW: a column-0 line only a 3.x settings-file writer ever puts in CLAUDE.md
+ * (the tracking-stub marker or the comment pointer; neither exists anywhere in
+ * v2.101.5) also counts, so a migrated tree whose `## Project Settings` section
+ * was deleted still refuses a file that lost `min_dpt_version` instead of
+ * silently reading the stub. Never throws: an unreadable CLAUDE.md is not a badge.
  */
-function hasUnmigratedLegacyHome(projectRoot: string): boolean {
+function isMigratedTree(projectRoot: string): boolean {
+  let lines: string[];
   try {
-    if (legacyHomesBesideSettings(projectRoot, recognisedHeadingKeys()).length > 0) return true;
-    if (!hasLegacyHome(projectRoot)) return false;
-    const md = join(projectRoot, "CLAUDE.md");
-    return !existsSync(md) || projectSettingsSection(readFileSync(md, "utf8")) === null;
+    lines = readFileSync(join(projectRoot, "CLAUDE.md"), "utf8").split("\n").map((l) => l.replace(/\r$/, ""));
   } catch {
     return false;
   }
+  if (lines.some((l) => l === TRACKING_STUB_MARKER || l === SETTINGS_COMMENT_POINTER)) return true;
+  const section = projectSettingsSection(lines.join("\n"));
+  return section !== null && section.lines.some((l) => pointerLine().test(l));
 }
 
 /**
  * True when `specs/settings.yaml` exists and is not the toolkit's.
  *
- * Beside an unmigrated legacy home (review round 2, R2-B3) the file is the
- * toolkit's ONLY when it carries a column-0 `min_dpt_version:` line, the key
- * every toolkit writer writes and the header requires. Anything else there is
- * the project's own file: every reader, hook and the ledger ignore it, as
- * v2.101.5 does, and the move refuses to overwrite it. An unreadable file
- * there is ignored too (R2-B3b): v2.101.5 never opened it.
+ * On a migrated tree ({@link isMigratedTree}) the file is always the
+ * toolkit's: the loader is strict there, so a file that cannot be read, lacks
+ * `min_dpt_version`, or sits beside a keyed legacy home is refused, never
+ * ignored (AC-STE-709.1, review #3).
  *
- * With no such home the file is the only home, and the round-1 rule stands:
- * the toolkit's when `min_dpt_version:` sits at column 0, or when it parses to
- * a mapping holding `schema_version` beside one of the toolkit's sections; a
- * file that does not parse falls back to the column-0 marker rule, so a
- * malformed toolkit file is refused, never ignored (AC-STE-709.1); an
- * unreadable file is not foreign, so the loader refuses it (review #3).
+ * On every other tree (review round 3, R3-B1) the file is the toolkit's ONLY
+ * when it carries a column-0 `min_dpt_version:` line, the key every 3.x writer
+ * writes. Anything else is the project's own file: `schema_version` beside
+ * section-named keys, quoted keys, YAML that does not parse, several
+ * documents, a file that cannot be read, a directory at the path. Every
+ * reader, hook and the ledger ignore it, as v2.101.5 (dbdb9572) does, and the
+ * move refuses to overwrite it.
  */
 export function isForeignSettingsFile(projectRoot: string): boolean {
+  if (!existsSync(join(projectRoot, SETTINGS_FILE))) return false;
+  if (isMigratedTree(projectRoot)) return false;
   let text: string | null;
   try {
     text = readSettingsText(projectRoot);
   } catch {
-    return hasUnmigratedLegacyHome(projectRoot);
+    return true;
   }
   if (text === null) return false;
   const body = text.startsWith(BOM) ? text.slice(1) : text;
-  if (/^min_dpt_version\s*:/m.test(body)) return false;
-  if (hasUnmigratedLegacyHome(projectRoot)) return true;
-  let parsed: unknown;
-  try {
-    parsed = Bun.YAML.parse(body);
-  } catch {
-    return !/^schema_version\s*:/m.test(body);
-  }
-  if (!isObj(parsed)) return !/^schema_version\s*:/m.test(body);
-  if ("min_dpt_version" in parsed) return false;
-  const sections: readonly string[] = TOP_KEYS.filter((k) => k !== "schema_version" && k !== "min_dpt_version");
-  return !("schema_version" in parsed && Object.keys(parsed).some((k) => sections.includes(k)));
+  return !/^min_dpt_version\s*:/m.test(body);
 }
 
 const BOM = String.fromCharCode(0xfeff);
@@ -755,6 +754,17 @@ export function settingsRefusal(err: unknown): { text: string; reason: string } 
 /** The pointer line older CLAUDE.md homes carry once settings move to `specs/settings.yaml`. */
 export function renderSettingsPointer(floor: string): string {
   return `Project settings live in \`${SETTINGS_FILE}\`, which requires dev-process-toolkit ${floor} or newer. If the installed plugin is older than ${floor}, or you cannot tell its version, stop and ask the operator to upgrade the plugin before reading or writing any setting.\n`;
+}
+
+/** Any floor's pointer line, as `renderSettingsPointer` renders it (the migrated-tree badge, R3-B1). */
+let pointerLineCache: RegExp | null = null;
+function pointerLine(): RegExp {
+  if (pointerLineCache === null) {
+    const esc = (t: string): string => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const parts = renderSettingsPointer("\u0000").replace(/\n$/, "").split("\u0000").map(esc);
+    pointerLineCache = new RegExp(`^${parts.join("\\d+\\.\\d+\\.\\d+")}$`);
+  }
+  return pointerLineCache;
 }
 
 export { renderTrackingStub } from "./project_settings_legacy";
