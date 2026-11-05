@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.0.0] — 2026-11-05 — "Home Base"
+
+### Breaking changes
+
+- A fresh `/setup` writes project settings to `specs/settings.yaml` and a slim CLAUDE.md (STE-710). The CLAUDE.md template no longer carries `## Docs`, `## Token Stats`, `## Release Files` or the commented Task Tracking, `milestone_scan_fetch`, Verification and Orchestration blocks; it gains a `## Project Settings` section whose pointer says the settings need toolkit 3.0.0 or newer. In a tracker mode CLAUDE.md also carries a generated binding stub for pre-3.0 hooks, removed in 4.0. Projects that have not moved keep reading and writing their CLAUDE.md headings through 3.x, with no change in behaviour.
+
+### Added
+
+- One settings file and one loader (STE-706). `specs/settings.yaml` holds every setting the toolkit reads, with closed key sets and a `min_dpt_version` floor. `project_settings.ts` reads it, or the old CLAUDE.md headings, tracker config and video files on a tree that has not moved, and refuses a tree with settings in both places. A foreign `specs/settings.yaml` (no `schema_version` or `min_dpt_version`) is ignored. Its `mode`, `get` and `set` front door serves code; skills keep reading the mode from CLAUDE.md.
+- An upgrade step moves every setting into the settings file (STE-711). The `settings-file` migration moves each CLAUDE.md section, the standalone `milestone_scan_fetch:` line, `specs/tracker-config.yaml` and the video files, then removes each old copy, replaces shipped template comments with one pointer and writes the binding stub. Anything it cannot move faithfully is refused by name; a second run changes nothing.
+- An opt-in upgrade offer at close-out (STE-712). With `close_out.upgrade_offer.enabled: true`, a standalone `/implement` and a `/deliver` run offer the pending `/upgrade` once. Off by default; with it off nothing is printed, asked or called.
+
+### Changed
+
+- Every settings read goes through the loader (STE-707). Each reader keeps its signature and now gets its value from `loadProjectSection`, so a value reads the same from either home, and citations and remedies name the file the value came from.
+- Skills keep reading the tracker mode from CLAUDE.md, which the binding stub now carries (STE-708). The skills' prose mode read is unchanged and makes no extra call; the probe #21 migration helper now moves stray keys to a `## Tracker Notes` prose section.
+- The settings file marks a tree as toolkit-managed, and the gate probes grade it (STE-709). Probes #18, #19, #21, #22, #25, #52, #69, #74, #80 and #87 gain a settings-file arm, and probe #25 grades the binding stub byte for byte.
+- Recorded decisions, docs and test pins follow settings to their new home (STE-713). Reversed decisions carry dated supersession notes, NFR-2 gains its v3.0.0 amendment, the docs name the settings keys, and a defaults-unchanged test pins that a tree with no settings file behaves exactly as v2.101.5.
+
+### Migration notes
+
+Run `/dev-process-toolkit:upgrade` to move an existing project's settings into `specs/settings.yaml`; it previews the change and applies it only after approval. Until then the project keeps working from its CLAUDE.md headings.
+
+Total test count at release: 21008 tests, 0 failures, 0 errors.
+
 ## [2.101.5] — 2026-11-04 — "Borrowed Time"
 
 ### Fixed

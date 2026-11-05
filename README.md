@@ -198,7 +198,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v2.101.5 — "Borrowed Time"** (M_4489fc, a shared design session stays with its own specs. The token-stats bridge no longer borrows an unrelated earlier brainstorm once the session's own brainstorm moved to the shared design bucket, and the legs-selector spawn test keeps its stub legs alive until the fence counts them, so trunk is green again)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.0.0 — "Home Base"** (M_94e6f7, one home for project settings. Every setting the toolkit reads now lives in `specs/settings.yaml`, read by one loader; a fresh `/setup` writes it with a slim CLAUDE.md, `/upgrade` moves an existing project over, and a project that has not moved keeps working from its CLAUDE.md headings unchanged)
 
 ## Core Philosophy
 
