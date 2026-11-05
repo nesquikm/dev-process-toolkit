@@ -1,5 +1,6 @@
 // tdd_retry_state — STE-225 AC.5. Bounded retry state machine for the
-// TDD orchestrator. Five failure modes:
+// TDD orchestrator. Five retried failure modes, plus the audit's spec-gap
+// (STE-296, its own round budget) and not-load-bearing (below):
 //
 //   (A) false-RED — test-writer's tests pass when run (must show RED)
 //   (B) implementer can't reach GREEN
@@ -20,9 +21,10 @@
 // "re-emit your last message with a valid tdd-result block").
 //
 // not-load-bearing (a failed defect check) halts on its first attempt and
-// spends neither budget: the implementer reached GREEN, planted a bug in the
-// end state its AC's test reads, and the test stayed GREEN. The test is the
-// defect, the implementer may not edit tests, so a retry cannot change it.
+// spends neither budget: the implementer reached GREEN, planted two different
+// bugs in the end state its AC's test reads, each proven to change the file,
+// and the test stayed GREEN under both. The test is the defect, the
+// implementer may not edit tests, so a retry cannot change it.
 //
 // Keying:
 //   test-writer / refactorer  ⇒ key = role         (run once per FR)
