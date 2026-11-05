@@ -86,6 +86,11 @@ function claudeMdLines(projectRoot: string): string[] | null {
   return md.original === null ? null : md.norm;
 }
 
+/** Does a line open or close an HTML comment? Such a line cannot be removed without breaking its comment. */
+function hasCommentMarker(line: string): boolean {
+  return line.includes("<!--") || line.includes("-->");
+}
+
 /** Each standalone `milestone_scan_fetch:` line goes, with one blank line beside it. */
 function removeMsfLines(norm: readonly string[], msfLines: readonly number[], remove: Set<number>): void {
   for (const i of msfLines) {
@@ -108,7 +113,14 @@ function scanSectionKeys(
   end: number,
   keys: readonly string[] | undefined,
   remove: Set<number>,
-  opts: { skip?: (i: number) => boolean; onUnrecognised?: (i: number) => void } = {},
+  opts: {
+    skip?: (i: number) => boolean;
+    onUnrecognised?: (i: number) => void;
+    /** True for a line inside a custom comment block: only a recognised key line there is read. */
+    inComment?: (i: number) => boolean;
+    /** A recognised commented key line that cannot leave its comment alone (it carries a marker, or sits in a Release Files block). */
+    onUnmovable?: (i: number) => void;
+  } = {},
 ): string[] {
   const release = heading === RELEASE_FILES_HEADING;
   const found: string[] = [];
@@ -116,6 +128,20 @@ function scanSectionKeys(
   for (let i = start + 1; i < end; i++) {
     if (opts.skip?.(i)) continue;
     const l = norm[i]!;
+    if (opts.inComment?.(i)) {
+      // The v2.101.5 readers match raw lines, so a column-0 key line inside a
+      // comment is a setting: its value moves and only that line leaves the
+      // comment (review B2). Anything else in the comment stays.
+      const m = KEY_LINE_RE.exec(l);
+      if (!m || !keys?.includes(m[1]!)) continue;
+      if (release || hasCommentMarker(l)) {
+        opts.onUnmovable?.(i);
+        continue;
+      }
+      found.push(m[1]!);
+      remove.add(i);
+      continue;
+    }
     if (l.startsWith("```")) {
       fence = fence === null ? i : null;
       continue;
@@ -163,7 +189,7 @@ function moveEvidence(projectRoot: string): string[] {
   });
   evidence.push(...legacyFileEvidence(projectRoot, "moves to specs/settings.yaml, then is deleted"));
   // Informational only: a kept block never by itself makes detect apply.
-  if (evidence.length > 0) evidence.push(...keptBlockEvidence(lines));
+  if (evidence.length > 0) evidence.push(...keptBlockEvidence(lines, cls.remove));
   return evidence;
 }
 
@@ -290,10 +316,14 @@ function namesMoved(text: string): boolean {
 }
 
 /** Preview rows for the comment blocks the move keeps that name a moved heading or key (informational). */
-function keptBlockEvidence(lines: readonly string[]): string[] {
+function keptBlockEvidence(lines: readonly string[], remove: ReadonlySet<number>): string[] {
   return commentBlocks(lines)
     .filter((b) => !b.matched && b.text !== SETTINGS_COMMENT_POINTER && namesMoved(b.text))
-    .map((b) => `${CLAUDE_MD}:${b.start + 1} — comment block kept byte-identical (it matches no template block); a pointer follows it`);
+    .map((b) => {
+      let hosts = false;
+      for (let k = b.start; k <= b.end; k++) if (remove.has(k) || lines[k]!.startsWith(MSF_PREFIX)) hosts = true;
+      return `${CLAUDE_MD}:${b.start + 1} — comment block kept${hosts ? ", its moved key lines removed" : " byte-identical"} (it matches no template block); a pointer follows it`;
+    });
 }
 
 interface MovedSpan {
@@ -358,10 +388,19 @@ function classifyMove(norm: readonly string[], blocks: readonly CommentBlock[]):
   for (const span of spans) {
     if (span.heading !== TASK_TRACKING_HEADING) {
       const found = scanSectionKeys(norm, span.heading, span.start, span.end, keysByHeading[span.heading], remove, {
+        // A template block is removed whole; the pointer is not a setting.
         skip: (i) => {
+          const b = inBlock(i);
+          return b !== undefined && b !== span.block && (b.matched || b.text === SETTINGS_COMMENT_POINTER);
+        },
+        inComment: (i) => {
           const b = inBlock(i);
           return b !== undefined && b !== span.block;
         },
+        onUnmovable: (i) =>
+          offending.push(
+            `${CLAUDE_MD}:${i + 1} — \`${norm[i]}\` is a ${span.heading} key inside a comment that the move cannot take out alone; put it on its own line inside the comment, or out of the comment, first`,
+          ),
         onUnrecognised: (i) =>
           offending.push(`${CLAUDE_MD}:${i + 1} — \`${norm[i]}\` is not a recognised ${span.heading} key; move it to a prose section outside ${span.heading} first`),
       });
@@ -414,6 +453,15 @@ function classifyMove(norm: readonly string[], blocks: readonly CommentBlock[]):
     }
     homes.add(span.heading);
   }
+  // A commented `milestone_scan_fetch:` line is read by the v2.101.5 reader, so it
+  // moves like a live one; one that carries a comment marker cannot leave alone.
+  norm.forEach((l, i) => {
+    if (l.startsWith(MSF_PREFIX) && inBlock(i) !== undefined && hasCommentMarker(l)) {
+      offending.push(
+        `${CLAUDE_MD}:${i + 1} — \`${l}\` is a setting inside a comment that the move cannot take out alone; put it on its own line, then re-run`,
+      );
+    }
+  });
   return { spans, remove, offending, homes, subsections, floorless };
 }
 
@@ -448,7 +496,8 @@ function applyMove(projectRoot: string): ApplyResult {
   }
 
   // Step 1 — the settings, from the loader's legacy reading; only the homes that existed.
-  const msfLines = norm.map((l, i) => (l.startsWith(MSF_PREFIX) && inBlock(i) === undefined ? i : -1)).filter((i) => i >= 0);
+  // Commented ones included: the v2.101.5 reader reads them (review B2).
+  const msfLines = norm.map((l, i) => (l.startsWith(MSF_PREFIX) ? i : -1)).filter((i) => i >= 0);
   // Every legacy read below can refuse (a malformed section, an unreadable tracker config,
   // an inactive adapter's bad declaration); each becomes this entry's refusal, before any write.
   let settings: Obj;
@@ -524,7 +573,8 @@ function applyMove(projectRoot: string): ApplyResult {
       if (firstMatched) replaceAt.set(b.start, [SETTINGS_COMMENT_POINTER]);
       firstMatched = false;
     } else if (b.text !== SETTINGS_COMMENT_POINTER && namesMoved(b.text)) {
-      const hosts = spans.some((s) => s.block === b);
+      let hosts = false;
+      for (let k = b.start; k <= b.end; k++) if (remove.has(k)) hosts = true;
       kept.push(`${CLAUDE_MD}:${b.start + 1} — comment block kept${hosts ? ", its moved key lines removed" : " byte-identical"} (it matches no template block); a pointer follows it`);
       if (norm[b.end + 1] !== SETTINGS_COMMENT_POINTER) insertAfter.set(b.end, [SETTINGS_COMMENT_POINTER]);
     }

@@ -575,9 +575,22 @@ interface Leftover {
   /** For a CLAUDE.md leftover, the line that marks its span. */
   marker?: string;
   differMarker?: string;
+  /** A prose line the leftover section keeps: the heading and this line must survive the cleanup (review T3). */
+  prose?: string;
 }
 
+const LEFTOVER_PROSE = "Operator prose kept under the leftover Verification heading.";
+
 const LEFTOVERS: Leftover[] = [
+  {
+    name: "## Verification keeping prose",
+    home: "CLAUDE.md",
+    marker: "## Verification",
+    prose: LEFTOVER_PROSE,
+    equal: (r) => appendToMd(r, [...S_VERIFICATION, LEFTOVER_PROSE]),
+    differ: (r) => appendToMd(r, [...S_VERIFICATION.map((l) => (l === "verify_mode: manual" ? "verify_mode: advisory" : l)), LEFTOVER_PROSE]),
+    diffPath: "verification.verify_mode",
+  },
   {
     name: "## Verification",
     home: "CLAUDE.md",
@@ -1251,7 +1264,12 @@ describe("AC-STE-711.8 cleanup", () => {
         const after = md(root);
         const stub = stubLineIndexes(after);
         expect(after.split("\n").filter((x, i) => !stub.has(i) && MOVED_KEY_LINE.test(x))).toEqual([]);
-        if (l.marker!.startsWith("## ")) expect(linesEqual(after, l.marker!)).toEqual([]);
+        if (l.prose !== undefined) {
+          // A heading that keeps any other line stays: only its key lines go.
+          expect(linesEqual(after, l.marker!)).toHaveLength(1);
+          expect(linesEqual(after, l.prose)).toHaveLength(1);
+          expect(lineNo(after, l.prose)).toBeGreaterThan(lineNo(after, l.marker!));
+        } else if (l.marker!.startsWith("## ")) expect(linesEqual(after, l.marker!)).toEqual([]);
       } else {
         expect(existsSync(join(root, l.home))).toBe(false);
       }
@@ -1846,6 +1864,20 @@ describe("AC-STE-711.21 template comment blocks", () => {
     const j = lines.indexOf(PLAIN_NOTE);
     expect(j).toBeGreaterThanOrEqual(0);
     expect(lines[j + 1]).not.toBe(POINTER_COMMENT);
+    expect(lines.filter((l) => l === POINTER_COMMENT)).toHaveLength(1);
+  });
+
+  // Review T4: a second apply routes through the stub repair, so the move's own
+  // "no second pointer" guard needs a MOVE row that already carries the pointer.
+  test("AC-.21 [AC-.17 control: the no-second-pointer guard] a move row whose custom comment is already followed by the pointer keeps exactly one", () => {
+    const kc = [...KEY_COMMANDS.slice(0, -1), "", DOCS_NOTE, POINTER_COMMENT, ""];
+    const root = tree({ "CLAUDE.md": [...INTRO, ...kc, ...S_DOCS, ...TESTING, ...NOTES].join("\n") });
+    expect(detectSettingsSource(root)).toBe("legacy");
+    applyOk(root);
+    const lines = md(root).split("\n");
+    const i = lines.indexOf(DOCS_NOTE);
+    expect(lines[i + 1]).toBe(POINTER_COMMENT);
+    expect(lines[i + 2]).not.toBe(POINTER_COMMENT);
     expect(lines.filter((l) => l === POINTER_COMMENT)).toHaveLength(1);
   });
 

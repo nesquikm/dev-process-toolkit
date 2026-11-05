@@ -253,5 +253,15 @@ async function main(argv: string[]): Promise<number> {
 }
 
 if (import.meta.main) {
-  main(process.argv).then((code) => process.exit(code));
+  main(process.argv).then(
+    (code) => process.exit(code),
+    (e: unknown) => {
+      // A settings refusal is an NFR-10 message for the operator, not a crash (review #2).
+      if (e instanceof Error && e.name === "SettingsShapeError") {
+        console.error(e.message);
+        process.exit(1);
+      }
+      throw e;
+    },
+  );
 }

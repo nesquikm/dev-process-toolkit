@@ -263,7 +263,9 @@ export function syncTrackingStub(projectRoot: string, render: string): void {
   if (!existsSync(path)) return;
   const text = readFileSync(path, "utf8");
   const lines = text.split("\n");
-  const stub = render === "" ? [] : render.replace(/\n+$/, "").split("\n");
+  // A CRLF file keeps CRLF on the lines this writes (review #10); untouched lines keep their own bytes.
+  const cr = text.includes("\r\n") ? "\r" : "";
+  const stub = render === "" ? [] : render.replace(/\n+$/, "").split("\n").map((l) => `${l}${cr}`);
   const slot = trackingStubSlots(text)[0];
   if (slot) {
     const start = slot.line - 1;
@@ -283,7 +285,7 @@ export function syncTrackingStub(projectRoot: string, render: string): void {
       at = lines.length;
       while (at > 0 && lines[at - 1]!.trim() === "") at--;
     }
-    lines.splice(at, 0, "", ...stub);
+    lines.splice(at, 0, cr, ...stub);
   } else {
     return;
   }
@@ -322,9 +324,13 @@ export function writeProjectSettings(projectRoot: string, update: Obj, opts: { c
   const after = mergeUpdate(before, update);
   if (deepEqual(before, after)) return;
   validateSettingsShape(after);
-  const lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
+  // Edit CR-free lines and rejoin with the file's own line ending, so a CRLF file stays
+  // CRLF on every line, the rewritten and inserted ones included (review #10).
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const body = text.endsWith("\n") ? text.slice(0, -1) : text;
+  const lines = body.split("\n").map((l) => l.replace(/\r$/, ""));
   const renderBefore = currentStubRender(projectRoot);
-  const next = `${editMap(lines, 0, "", before, after).join("\n")}\n`;
+  const next = `${editMap(lines, 0, "", before, after).join(eol)}${eol}`;
   // The in-place edit keeps the file's own layout; refuse, never write, when that
   // layout cannot carry the update (a quoted key, a parent whose last child went).
   if (!deepEqual(parseRaw(next), after)) {

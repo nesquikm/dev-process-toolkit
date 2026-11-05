@@ -85,16 +85,57 @@ function readSettingsText(projectRoot: string): string | null {
   return existsSync(p) ? readFileSync(p, "utf8") : null;
 }
 
-/** True when `specs/settings.yaml` exists but carries no toolkit marker key at column 0. */
-export function isForeignSettingsFile(projectRoot: string): boolean {
-  const text = readSettingsText(projectRoot);
-  if (text === null) return false;
-  return !/^(schema_version|min_dpt_version)\s*:/m.test(text);
+/** The settings file's text; an existing file that cannot be read is an NFR-10 refusal, never "absent". */
+function readSettingsTextOrRefuse(projectRoot: string): string | null {
+  try {
+    return readSettingsText(projectRoot);
+  } catch (e) {
+    throw new SettingsShapeError(
+      `${SETTINGS_FILE} cannot be read: ${errorMessage(e)}`,
+      `make ${SETTINGS_FILE} readable (check its permissions), then re-run.`,
+      `file=${SETTINGS_FILE}`,
+    );
+  }
 }
+
+/**
+ * True when `specs/settings.yaml` exists, is readable, and is not the toolkit's
+ * (review B3). The toolkit's file carries `min_dpt_version:` at column 0, or
+ * parses to a mapping holding `schema_version` beside one of the toolkit's
+ * sections — a project's own file that only shares the generic
+ * `schema_version` key is foreign. A file that does not parse falls back to the
+ * column-0 marker rule (`schema_version:` or `min_dpt_version:`), so a
+ * malformed toolkit file is refused, never ignored (AC-STE-709.1). An
+ * unreadable file is not foreign: whose it is cannot be told, so the loader
+ * refuses it rather than ignore it (review #3).
+ */
+export function isForeignSettingsFile(projectRoot: string): boolean {
+  let text: string | null;
+  try {
+    text = readSettingsText(projectRoot);
+  } catch {
+    return false;
+  }
+  if (text === null) return false;
+  const body = text.startsWith(BOM) ? text.slice(1) : text;
+  if (/^min_dpt_version\s*:/m.test(body)) return false;
+  let parsed: unknown;
+  try {
+    parsed = Bun.YAML.parse(body);
+  } catch {
+    return !/^schema_version\s*:/m.test(body);
+  }
+  if (!isObj(parsed)) return !/^schema_version\s*:/m.test(body);
+  if ("min_dpt_version" in parsed) return false;
+  const sections: readonly string[] = TOP_KEYS.filter((k) => k !== "schema_version" && k !== "min_dpt_version");
+  return !("schema_version" in parsed && Object.keys(parsed).some((k) => sections.includes(k)));
+}
+
+const BOM = String.fromCharCode(0xfeff);
 
 function hasSettingsFile(projectRoot: string): boolean {
   try {
-    return readSettingsText(projectRoot) !== null && !isForeignSettingsFile(projectRoot);
+    return existsSync(join(projectRoot, SETTINGS_FILE)) && !isForeignSettingsFile(projectRoot);
   } catch {
     return false;
   }
@@ -103,6 +144,8 @@ function hasSettingsFile(projectRoot: string): boolean {
 /** The single home to read from; a settings file beside a legacy home is refused (AC-STE-706.7). */
 function resolveSingleSource(projectRoot: string): Exclude<SettingsSource, "both"> {
   const source = detectSettingsSource(projectRoot);
+  // An unreadable settings file refuses as itself, before any two-homes verdict (review #3).
+  if (source === "settings" || source === "both") readSettingsTextOrRefuse(projectRoot);
   if (source === "both") throw bothHomesError(projectRoot);
   return source;
 }
@@ -203,7 +246,11 @@ export function recognisedHeadingKeys(): Readonly<Record<string, readonly string
   };
 }
 
-/** STE-710 — the fixed key order of the map at dotted `path` (`[]` marks a list item); [] when unordered. */
+/**
+ * STE-710 — the fixed key order of the map at dotted `path` (`[]` marks a list item); [] when unordered.
+ * It is also each map's closed key set: every `closeKeys` call in this module reads its set from here,
+ * so a walk of this function sees exactly the keys the loader accepts (AC-STE-706.12, review T1).
+ */
 export function settingsKeyOrder(path: string): readonly string[] {
   const orders: Record<string, readonly string[]> = {
     "": TOP_KEYS,
@@ -269,13 +316,13 @@ function checkEnabledMap(parent: Record<string, unknown>, prefix: string, key: s
   if (!(key in parent)) return;
   const path = at(prefix, key);
   const m = requireMap(parent[key], path);
-  closeKeys(m, path, ["enabled"]);
+  closeKeys(m, path, settingsKeyOrder(path));
   checkBool(m, path, "enabled");
 }
 
 function validateBinding(v: unknown, path: string): void {
   const b = requireMap(v, path);
-  closeKeys(b, path, BINDING_KEYS);
+  closeKeys(b, path, settingsKeyOrder(path));
   for (const k of BINDING_KEYS) {
     if (k === "default_labels") continue;
     checkString(b, path, k);
@@ -290,7 +337,7 @@ function validateBinding(v: unknown, path: string): void {
 
 function validateTaskTracking(v: unknown): void {
   const tt = requireMap(v, "task_tracking");
-  closeKeys(tt, "task_tracking", taskTrackingKeys());
+  closeKeys(tt, "task_tracking", settingsKeyOrder("task_tracking"));
   for (const k of [...CANONICAL_KEYS, "secondary_tracker"]) checkString(tt, "task_tracking", k);
   checkBool(tt, "task_tracking", "milestone_scan_fetch");
   for (const adapter of ["linear", "jira"]) {
@@ -298,7 +345,7 @@ function validateTaskTracking(v: unknown): void {
   }
   if (tt.status_vocabulary !== undefined && tt.status_vocabulary !== null) {
     const sv = requireMap(tt.status_vocabulary, "task_tracking.status_vocabulary");
-    closeKeys(sv, "task_tracking.status_vocabulary", STATUS_VOCABULARY_KEYS);
+    closeKeys(sv, "task_tracking.status_vocabulary", settingsKeyOrder("task_tracking.status_vocabulary"));
     try {
       validateTrackerConfig(sv as unknown as TrackerConfig);
     } catch (e) {
@@ -309,13 +356,13 @@ function validateTaskTracking(v: unknown): void {
 
 function validateRelease(v: unknown): void {
   const rel = requireMap(v, "release");
-  closeKeys(rel, "release", ["files"]);
+  closeKeys(rel, "release", settingsKeyOrder("release"));
   if (!("files" in rel)) return;
   if (!Array.isArray(rel.files)) throw shapeError("release.files", "must be a list of release file entries");
   rel.files.forEach((entry, i) => {
     const path = `release.files.${i}`;
     const e = requireMap(entry, path);
-    closeKeys(e, path, RELEASE_ENTRY_KEYS);
+    closeKeys(e, path, settingsKeyOrder("release.files[]"));
     for (const k of ["path", "field", "pattern", "replace"]) checkString(e, path, k);
     checkBool(e, path, "optional");
     if (!("path" in e)) throw shapeError(at(path, "path"), "is required");
@@ -324,8 +371,8 @@ function validateRelease(v: unknown): void {
   });
 }
 
-/** Whole-file shape check of a parsed settings file (AC-STE-706.2). */
-export function validateSettingsShape(parsed: Record<string, unknown>): void {
+/** The header every read checks: schema version, the version floor, the closed top level (AC-STE-706.2). */
+function validateHeader(parsed: Record<string, unknown>): void {
   if (!("schema_version" in parsed)) throw shapeError("schema_version", "is required (set `schema_version: 1`)");
   if (parsed.schema_version !== 1) throw shapeError("schema_version", "must be 1");
   if (!("min_dpt_version" in parsed)) throw shapeError("min_dpt_version", "is required (set it to the oldest toolkit version that reads this file, as X.Y.Z)");
@@ -341,45 +388,53 @@ export function validateSettingsShape(parsed: Record<string, unknown>): void {
     );
   }
   // After the floor: a key a newer 3.x added reads as "upgrade the plugin", not "not a recognised key".
-  closeKeys(parsed, "", TOP_KEYS);
+  // The top level is closed on every read: a misspelled section name would otherwise drop that
+  // section silently. It names no section, so it is no section's to own (review #4 ruling).
+  closeKeys(parsed, "", settingsKeyOrder(""));
+}
 
-  if ("task_tracking" in parsed) validateTaskTracking(parsed.task_tracking);
+type SectionKey = Exclude<keyof ProjectSettings, "schema_version" | "min_dpt_version">;
 
-  if ("verification" in parsed) {
-    const ver = requireMap(parsed.verification, "verification");
-    closeKeys(ver, "verification", VERIFICATION_KEYS);
+/** One validator per top-level section; each checks its own section only (review #4). */
+const SECTION_VALIDATORS: Record<SectionKey, (v: unknown) => void> = {
+  task_tracking: validateTaskTracking,
+  verification: (v) => {
+    const ver = requireMap(v, "verification");
+    closeKeys(ver, "verification", settingsKeyOrder("verification"));
     for (const k of VERIFICATION_KEYS) if (k !== "verify_mode") checkString(ver, "verification", k);
     checkEnum(ver, "verification", "verify_mode", VERIFY_MODES);
-  }
-
-  if ("docs" in parsed) {
-    const docs = requireMap(parsed.docs, "docs");
-    closeKeys(docs, "docs", DOCS_KEYS);
+  },
+  docs: (v) => {
+    const docs = requireMap(v, "docs");
+    closeKeys(docs, "docs", settingsKeyOrder("docs"));
     for (const k of DOCS_KEYS) checkBool(docs, "docs", k);
-  }
-
-  if ("orchestration" in parsed) {
-    const orch = requireMap(parsed.orchestration, "orchestration");
-    closeKeys(orch, "orchestration", ORCHESTRATION_KEYS);
+  },
+  orchestration: (v) => {
+    const orch = requireMap(v, "orchestration");
+    closeKeys(orch, "orchestration", settingsKeyOrder("orchestration"));
     checkEnum(orch, "orchestration", "default_effort", EFFORT_LEVELS);
     checkEnum(orch, "orchestration", "merge_policy", MERGE_POLICIES);
-  }
-
-  if ("tracking" in parsed) {
-    const tr = requireMap(parsed.tracking, "tracking");
-    closeKeys(tr, "tracking", ["token_stats"]);
+  },
+  tracking: (v) => {
+    const tr = requireMap(v, "tracking");
+    closeKeys(tr, "tracking", settingsKeyOrder("tracking"));
     checkEnabledMap(tr, "tracking", "token_stats");
-  }
-
-  if ("close_out" in parsed) {
-    const co = requireMap(parsed.close_out, "close_out");
-    closeKeys(co, "close_out", ["upgrade_offer"]);
+  },
+  close_out: (v) => {
+    const co = requireMap(v, "close_out");
+    closeKeys(co, "close_out", settingsKeyOrder("close_out"));
     checkEnabledMap(co, "close_out", "upgrade_offer");
+  },
+  release: validateRelease,
+  video: (v) => closeKeys(requireMap(v, "video"), "video", settingsKeyOrder("video")),
+};
+
+/** Whole-file shape check of a parsed settings file (AC-STE-706.2). */
+export function validateSettingsShape(parsed: Record<string, unknown>): void {
+  validateHeader(parsed);
+  for (const section of Object.keys(SECTION_VALIDATORS) as SectionKey[]) {
+    if (section in parsed) SECTION_VALIDATORS[section](parsed[section]);
   }
-
-  if ("release" in parsed) validateRelease(parsed.release);
-
-  if ("video" in parsed) closeKeys(requireMap(parsed.video, "video"), "video", ["config", "style"]);
 }
 
 /** Run a delegated video parser, re-raising its refusal as a SettingsShapeError naming the file. */
@@ -391,9 +446,9 @@ function delegateVideo<T>(path: string, fn: () => T): T {
   }
 }
 
-/** The settings file alone, as the loader reads it — no single-home check (the cleanup reads it beside a leftover). */
-export function loadFromSettingsFile(projectRoot: string): ProjectSettings {
-  const text = readSettingsText(projectRoot) ?? "";
+/** The settings file parsed to a mapping; unreadable, invalid YAML or a non-mapping refuses. */
+function parseSettingsFile(projectRoot: string): Record<string, unknown> {
+  const text = readSettingsTextOrRefuse(projectRoot) ?? "";
   let parsed: unknown;
   try {
     parsed = Bun.YAML.parse(text);
@@ -401,38 +456,78 @@ export function loadFromSettingsFile(projectRoot: string): ProjectSettings {
     throw new SettingsShapeError(`${SETTINGS_FILE} is not valid YAML: ${errorMessage(e)}`);
   }
   if (!isObj(parsed)) throw new SettingsShapeError(`${SETTINGS_FILE} is not a mapping`);
-  validateSettingsShape(parsed);
+  return parsed;
+}
+
+/** One section of a parsed (and for that section, validated) settings file, defaults filled in. */
+function buildSection<K extends SectionKey>(parsed: Record<string, unknown>, section: K): ProjectSettings[K] {
   const d = defaults();
-  const tt = isObj(parsed.task_tracking) ? { ...parsed.task_tracking } : d.task_tracking;
-  const taskTracking = { mode: "none", ...tt } as ProjectSettings["task_tracking"];
-  if (!isObj(parsed.task_tracking) || !("mode" in parsed.task_tracking)) MODE_DEFAULTED.add(taskTracking);
-  const video = isObj(parsed.video) ? parsed.video : {};
-  return {
-    schema_version: parsed.schema_version as number,
-    min_dpt_version: parsed.min_dpt_version as string,
-    task_tracking: taskTracking,
-    verification: isObj(parsed.verification) ? parsed.verification : d.verification,
-    docs: isObj(parsed.docs) ? parsed.docs : d.docs,
-    orchestration: isObj(parsed.orchestration) ? parsed.orchestration : d.orchestration,
-    tracking: (isObj(parsed.tracking) ? parsed.tracking : d.tracking) as ProjectSettings["tracking"],
-    close_out: {
+  const built: { [S in SectionKey]: () => ProjectSettings[S] } = {
+    task_tracking: () => {
+      const tt = isObj(parsed.task_tracking) ? { ...parsed.task_tracking } : d.task_tracking;
+      const taskTracking = { mode: "none", ...tt } as ProjectSettings["task_tracking"];
+      if (!isObj(parsed.task_tracking) || !("mode" in parsed.task_tracking)) MODE_DEFAULTED.add(taskTracking);
+      return taskTracking;
+    },
+    verification: () => (isObj(parsed.verification) ? parsed.verification : d.verification),
+    docs: () => (isObj(parsed.docs) ? parsed.docs : d.docs),
+    orchestration: () => (isObj(parsed.orchestration) ? parsed.orchestration : d.orchestration),
+    tracking: () => (isObj(parsed.tracking) ? parsed.tracking : d.tracking) as ProjectSettings["tracking"],
+    close_out: () => ({
       upgrade_offer: {
         enabled:
           isObj(parsed.close_out) && isObj(parsed.close_out.upgrade_offer)
             ? parsed.close_out.upgrade_offer.enabled === true
             : d.close_out.upgrade_offer.enabled,
       },
-    },
-    release: (isObj(parsed.release) ? parsed.release : d.release) as ProjectSettings["release"],
-    video: {
-      config:
-        video.config === undefined
-          ? null
-          : delegateVideo("video.config", () => parseVideoConfig(JSON.stringify(video.config))),
-      style:
-        video.style === undefined ? null : delegateVideo("video.style", () => parseVideoStyle(JSON.stringify(video.style))),
+    }),
+    release: () => (isObj(parsed.release) ? parsed.release : d.release) as ProjectSettings["release"],
+    video: () => {
+      const video = isObj(parsed.video) ? parsed.video : {};
+      return {
+        config:
+          video.config === undefined
+            ? null
+            : delegateVideo("video.config", () => parseVideoConfig(JSON.stringify(video.config))),
+        style:
+          video.style === undefined ? null : delegateVideo("video.style", () => parseVideoStyle(JSON.stringify(video.style))),
+      };
     },
   };
+  return built[section]() as ProjectSettings[K];
+}
+
+/** The settings file alone, as the loader reads it — no single-home check (the cleanup reads it beside a leftover). */
+export function loadFromSettingsFile(projectRoot: string): ProjectSettings {
+  const parsed = parseSettingsFile(projectRoot);
+  validateSettingsShape(parsed);
+  return {
+    schema_version: parsed.schema_version as number,
+    min_dpt_version: parsed.min_dpt_version as string,
+    task_tracking: buildSection(parsed, "task_tracking"),
+    verification: buildSection(parsed, "verification"),
+    docs: buildSection(parsed, "docs"),
+    orchestration: buildSection(parsed, "orchestration"),
+    tracking: buildSection(parsed, "tracking"),
+    close_out: buildSection(parsed, "close_out"),
+    release: buildSection(parsed, "release"),
+    video: buildSection(parsed, "video"),
+  };
+}
+
+/**
+ * One section of the settings file: the header and that section are validated,
+ * no other section is — a malformed section breaks only its own readers, as a
+ * malformed CLAUDE.md section did in v2.101.5 (review #4). The whole-file check
+ * stays with `loadProjectSettings` and the probes that grade the file.
+ */
+function loadSectionFromSettingsFile<K extends keyof ProjectSettings>(projectRoot: string, section: K): ProjectSettings[K] {
+  const parsed = parseSettingsFile(projectRoot);
+  validateHeader(parsed);
+  if (section === "schema_version" || section === "min_dpt_version") return parsed[section] as ProjectSettings[K];
+  const key = section as SectionKey;
+  if (key in parsed) SECTION_VALIDATORS[key](parsed[key]);
+  return buildSection(parsed, key) as ProjectSettings[K];
 }
 
 function statusVocabularyError(e: unknown): never {
@@ -478,7 +573,7 @@ export function loadProjectSettings(projectRoot: string): { source: SettingsSour
 }
 
 export function loadProjectSection<K extends keyof ProjectSettings>(projectRoot: string, section: K): ProjectSettings[K] {
-  if (resolveSingleSource(projectRoot) === "settings") return loadFromSettingsFile(projectRoot)[section];
+  if (resolveSingleSource(projectRoot) === "settings") return loadSectionFromSettingsFile(projectRoot, section);
   return loadLegacySection(projectRoot, section);
 }
 
@@ -693,7 +788,7 @@ function runFrontDoor(argv: readonly string[]): number {
       const source = resolveSingleSource(projectRoot);
       const mode =
         source === "settings"
-          ? loadFromSettingsFile(projectRoot).task_tracking.mode
+          ? loadSectionFromSettingsFile(projectRoot, "task_tracking").mode
           : (parseTaskTrackingSection(join(projectRoot, "CLAUDE.md")).mode ?? "none");
       out = `mode: ${mode}\nsource: ${source}\n`;
     } else {

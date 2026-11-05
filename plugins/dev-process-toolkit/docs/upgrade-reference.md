@@ -394,13 +394,17 @@ raised to at least `3.0.0`, and the stop paragraph moves into
 body is blank (or holds only HTML comment blocks) loses its heading line too; a
 heading that keeps any other line stays, byte-identical. The shipped template
 comment blocks that told the reader to edit a moved section are replaced by one
-pointer comment, and any later matching block is deleted. The three retired
+pointer comment, and any later matching block is deleted. A key line at column 0
+inside any other comment block is read by the v2.101.5 readers, so the move takes
+its value too and removes only that line; the rest of the comment stays. The three retired
 files are deleted. A new `## Project Settings` section with the pointer
 paragraph takes the first removed section's place.
 
 **What it refuses.** An unrecognised key line, a prose line, or a foreign `###`
 heading inside the `## Task Tracking` span: the move writes nothing and names
 each line, with its destination — a prose section outside `## Task Tracking`.
+A key line inside a comment that also opens or closes the comment (`milestone_scan_fetch: true -->`),
+and a `## Release Files` key inside a comment, cannot be taken out alone and are refused by line.
 A foreign file already at `specs/settings.yaml` is never overwritten.
 
 **What it never touches.** `.dpt/.env`, `.claude/settings.json` and the user's

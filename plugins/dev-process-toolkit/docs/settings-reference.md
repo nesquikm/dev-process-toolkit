@@ -13,7 +13,9 @@ The loader reports one of three sources and refuses a fourth case:
 - `none`: neither. Every section takes its documented default.
 - Both a settings file and a legacy home carrying a recognised key: refused. The loader never merges two homes. Run `/dev-process-toolkit:upgrade` to move the legacy values.
 
-A `specs/settings.yaml` with no line starting `schema_version:` or `min_dpt_version:` at column 0 is a foreign file (an OpenAPI or test spec, say) and is treated as absent.
+A `specs/settings.yaml` is the toolkit's when it has a `min_dpt_version:` line at column 0, or when it parses to a mapping that holds `schema_version` beside one of the toolkit's sections (`task_tracking`, `verification`, `docs`, `orchestration`, `tracking`, `close_out`, `release`, `video`). Any other file is foreign (an OpenAPI or test spec, or a project's own `schema_version: 1` config) and is treated as absent. A file that does not parse as YAML is the toolkit's when it has `schema_version:` or `min_dpt_version:` at column 0, so a broken toolkit file is refused, not ignored. A file that exists but cannot be read is refused as well (`specs/settings.yaml cannot be read`); it never reads as absent.
+
+Each reader checks the header (`schema_version`, `min_dpt_version`, the closed top level) and its own section only, so a typo in one section breaks only that section's readers, as a malformed CLAUDE.md section did in v2.101.5. `loadProjectSettings` and the gate probes still check the whole file.
 
 ## Keys
 

@@ -1071,7 +1071,41 @@ describe("AC-STE-706.11 settings reference", () => {
 // AC-STE-706.12 — no new knob
 // ===========================================================================
 
+/**
+ * Every closed-set path the LOADER accepts, walked from its own closed sets
+ * (`settingsKeyOrder`, which every `closeKeys` call reads) — not from a fixture.
+ * A path is a leaf when it is a setting block or names no further closed map.
+ */
+function loaderClosedSetPaths(order: (path: string) => readonly string[], prefix = ""): string[] {
+  const out: string[] = [];
+  for (const k of order(prefix)) {
+    const p = prefix ? `${prefix}.${k}` : k;
+    if (LEAF_BLOCKS.has(p) || order(p).length === 0) out.push(p);
+    else out.push(...loaderClosedSetPaths(order, p));
+  }
+  return out;
+}
+
 describe("AC-STE-706.12 mapping table", () => {
+  // Review T1: the guard walks the loader's closed sets, so a key added to the
+  // loader with no mapping row (a new knob) turns this red.
+  test("AC-.12 every closed-set key the loader accepts has a mapping row", () => {
+    const paths = loaderClosedSetPaths(M().settingsKeyOrder);
+    expect(paths.length).toBeGreaterThan(40);
+    expect(paths.filter((p) => !(p in MAPPING))).toEqual([]);
+  });
+
+  test("AC-.12 [control: a planted knob] a key planted in a loader closed set has no row and is caught", () => {
+    const planted = (path: string): readonly string[] =>
+      path === "orchestration" ? [...M().settingsKeyOrder(path), "skip_gates"] : M().settingsKeyOrder(path);
+    expect(loaderClosedSetPaths(planted).filter((p) => !(p in MAPPING))).toEqual(["orchestration.skip_gates"]);
+  });
+
+  test("AC-.12 the loader refuses a key outside its walked closed sets (the walk is what it enforces)", () => {
+    const obj = setPath(clone(BASE), "orchestration.skip_gates", true);
+    expect(() => M().loadProjectSettings(settingsTree(obj))).toThrow(M().SettingsShapeError);
+  });
+
   test("AC-.12 every closed-set key in the fixtures has a mapping row", () => {
     const paths = new Set([...closedSetPaths(BASE), ...closedSetPaths(JIRA_BASE)]);
     const unmapped = [...paths].filter((p) => !(p in MAPPING));
@@ -1362,8 +1396,20 @@ describe("AC-STE-706.19 section isolation", () => {
     }
   });
 
-  test("AC-.19 a settings source is validated whole", () => {
+  // Review #4 (Worker ruling in STE-706's notes): a settings source isolates
+  // sections as the legacy source does — a section read validates the header,
+  // the closed top level and its own section only; the whole-file loader still
+  // refuses any malformed section (AC-.2).
+  test("AC-.19 a settings source isolates sections: a malformed verification refuses only verification", () => {
     const obj = setPath(clone(BASE), "verification.bogus_ver", "x");
+    const root = settingsTree(obj);
+    expect(() => M().loadProjectSection(root, "verification")).toThrow(M().SettingsShapeError);
+    expect(() => M().loadProjectSection(root, "docs")).not.toThrow();
+    expect(() => M().loadProjectSettings(root)).toThrow(M().SettingsShapeError);
+  });
+
+  test("AC-.19 a settings source: an unknown top-level key refuses every section read", () => {
+    const obj = setPath(clone(BASE), "bogus_top", "x");
     expect(() => M().loadProjectSection(settingsTree(obj), "docs")).toThrow(M().SettingsShapeError);
   });
 });

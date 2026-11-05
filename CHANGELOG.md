@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- One settings file and one loader (STE-706). `specs/settings.yaml` holds every setting the toolkit reads, with closed key sets and a `min_dpt_version` floor. `project_settings.ts` reads it, or the old CLAUDE.md headings, tracker config and video files on a tree that has not moved, and refuses a tree with settings in both places. A foreign `specs/settings.yaml` (no `schema_version` or `min_dpt_version`) is ignored. Its `mode`, `get` and `set` front door serves code; skills keep reading the mode from CLAUDE.md.
+- One settings file and one loader (STE-706). `specs/settings.yaml` holds every setting the toolkit reads, with closed key sets and a `min_dpt_version` floor. `project_settings.ts` reads it, or the old CLAUDE.md headings, tracker config and video files on a tree that has not moved, and refuses a tree with settings in both places. A foreign `specs/settings.yaml` (no `min_dpt_version`, and no `schema_version` beside a toolkit section) is ignored. Its `mode`, `get` and `set` front door serves code; skills keep reading the mode from CLAUDE.md.
 - An upgrade step moves every setting into the settings file (STE-711). The `settings-file` migration moves each CLAUDE.md section, the standalone `milestone_scan_fetch:` line, `specs/tracker-config.yaml` and the video files, then removes each old copy, replaces shipped template comments with one pointer and writes the binding stub. Anything it cannot move faithfully is refused by name; a second run changes nothing.
 - An opt-in upgrade offer at close-out (STE-712). With `close_out.upgrade_offer.enabled: true`, a standalone `/implement` and a `/deliver` run offer the pending `/upgrade` once. Off by default; with it off nothing is printed, asked or called.
 
@@ -25,11 +25,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The settings file marks a tree as toolkit-managed, and the gate probes grade it (STE-709). Probes #18, #19, #21, #22, #25, #52, #69, #74, #80 and #87 gain a settings-file arm, and probe #25 grades the binding stub byte for byte.
 - Recorded decisions, docs and test pins follow settings to their new home (STE-713). Reversed decisions carry dated supersession notes, NFR-2 gains its v3.0.0 amendment, the docs name the settings keys, and a defaults-unchanged test pins that a tree with no settings file behaves exactly as v2.101.5.
 
+### Fixed
+
+- A second `/upgrade` no longer breaks a moved tree that kept prose under `## Verification`. The `verification-run-keys` step wrote `run_cmd: none` back into CLAUDE.md, leaving settings in two places; it now skips any tree whose settings live in `specs/settings.yaml`. A new test walks the whole registry twice with prose kept under each moved heading.
+- A `milestone_scan_fetch:` line, or a section key, inside an HTML comment now moves with the rest. The v2.101.5 readers read such lines, so the move takes the value and removes only that line from the comment; a line that also opens or closes the comment is refused by line.
+- A project's own `specs/settings.yaml` that only shares `schema_version` is foreign again. A tree that never ran `/upgrade` reads, gates tracker writes and records token stats exactly as v2.101.5.
+- A typo in one section of `specs/settings.yaml` breaks only that section's readers. The token ledger reports a settings refusal on stderr instead of stopping silently.
+- An unreadable `specs/settings.yaml` is refused by name instead of reading as absent.
+- `scripts/migrate-task-tracking-add-workspace.ts` prints a settings refusal instead of a stack trace.
+- `writeProjectSettings` keeps a CRLF settings file, and a CRLF CLAUDE.md's binding stub, CRLF on the lines it writes.
+- A `/setup --template` copy refuses instead of replacing a target's own (foreign) `specs/settings.yaml`.
+- Tests now grade the loader's own closed key sets (no new knob), the shipped `/setup` steps (no `new` key written), a leftover section that keeps prose, the move's single pointer, and legacy parity against values captured from v2.101.5.
+
 ### Migration notes
 
 Run `/dev-process-toolkit:upgrade` to move an existing project's settings into `specs/settings.yaml`; it previews the change and applies it only after approval. Until then the project keeps working from its CLAUDE.md headings.
 
-Total test count at release: 21008 tests, 0 failures, 0 errors.
+Total test count at release: 21070 tests, 0 failures, 0 errors.
 
 ## [2.101.5] — 2026-11-04 — "Borrowed Time"
 

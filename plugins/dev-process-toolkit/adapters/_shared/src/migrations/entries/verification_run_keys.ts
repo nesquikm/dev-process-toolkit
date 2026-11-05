@@ -62,6 +62,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { detectRunnability } from "../../detect_runnability";
+import type * as ProjectSettings from "../../project_settings";
 import type * as VerificationConfig from "../../verification_config";
 import type { ApplyResult, DetectResult, MigrationEntry } from "../index";
 
@@ -197,6 +198,14 @@ function splicePosition(lines: readonly string[], start: number, end: number): n
  * whose runnability the detector actually established.
  */
 function planRunCmdSplice(projectRoot: string): PlannedSplice | null {
+  // A tree whose settings live in specs/settings.yaml (or are mid-move beside a
+  // leftover) has no CLAUDE.md `## Verification` home: a heading the move kept
+  // for its prose is not a block to seed. Splicing there would create a second
+  // home and brick the tree on the next walk (review B1).
+  const { detectSettingsSource } = require("../../project_settings") as typeof ProjectSettings;
+  const source = detectSettingsSource(projectRoot);
+  if (source === "settings" || source === "both") return null;
+
   const file = join(projectRoot, "CLAUDE.md");
   const raw = readTextOrNull(file);
   if (raw === null) return null;

@@ -11,7 +11,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { NEW_KEYS, SETTINGS_FILE } from "../project_settings";
+import { isForeignSettingsFile, NEW_KEYS, SETTINGS_FILE } from "../project_settings";
 
 export const SETTINGS_REL = SETTINGS_FILE;
 export const CLAUDE_MD_REL = "CLAUDE.md";
@@ -176,7 +176,7 @@ function pairRefusal(selected: string, missing: string, templateRoot: string): E
 }
 
 export function planTemplateCopy(templateRoot: string, targetRoot: string, opts: TemplateCopyOptions): TemplateCopyPlan {
-  void targetRoot; // the plan reads only the template; the target is untouched until Step 5.
+  // The plan reads the template, and the target only to refuse a foreign settings file; it writes nothing.
   const isV3 = existsSync(join(templateRoot, SETTINGS_REL));
   let selection: string[];
   if (opts.mode === "whole-project") {
@@ -189,6 +189,17 @@ export function planTemplateCopy(templateRoot: string, targetRoot: string, opts:
       if (hasMd && !hasSettings) throw pairRefusal(CLAUDE_MD_REL, SETTINGS_REL, templateRoot);
       if (hasSettings && !hasMd) throw pairRefusal(SETTINGS_REL, CLAUDE_MD_REL, templateRoot);
     }
+  }
+  // The target is read once, for one thing: a foreign settings file there is never
+  // replaced, as no writer overwrites one (review #11). Refused before Step 5's diff.
+  if (selection.includes(SETTINGS_REL) && isForeignSettingsFile(targetRoot)) {
+    throw new Error(
+      [
+        `Refusing: the target already holds a ${SETTINGS_REL} that is not a toolkit settings file; the template copy never replaces it.`,
+        `Remedy: move the target's ${SETTINGS_REL} aside (or leave ${SETTINGS_REL} and ${CLAUDE_MD_REL} out of the selection), then re-run /setup --template.`,
+        `Context: template=${templateRoot}, target=${targetRoot}, file=${SETTINGS_REL}; nothing was written.`,
+      ].join("\n"),
+    );
   }
   const files: Record<string, string> = {};
   let dropped: string[] = [];

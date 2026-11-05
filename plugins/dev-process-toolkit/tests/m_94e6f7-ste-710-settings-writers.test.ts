@@ -1153,6 +1153,39 @@ describe("AC-STE-710.16 a fresh /setup writes only the keys its v2.101.4 steps w
       if (mode === "none") expect(paths.some((p) => p.startsWith("task_tracking"))).toBe(false);
     });
   }
+
+  // Review T2: the rows above grade a test-local model of /setup. These grade
+  // the shipped /setup surfaces themselves, so a step edited to write a `new`
+  // key turns them red.
+  const SETUP_PROSE = ["skills/setup/SKILL.md", "skills/setup-template/SKILL.md", "docs/setup-reference.md"];
+  const SECTIONS = ["task_tracking", "verification", "docs", "orchestration", "tracking", "close_out", "release", "video"];
+  const settingsPathsIn = (line: string): string[] =>
+    [...line.matchAll(/`([a-z_]+(?:\.[a-z_]+)*)(?::[^`]*)?`/g)].map((m) => m[1]!).filter((p) => SECTIONS.includes(p.split(".")[0]!));
+
+  test("AC-.16 every settings key path a /setup step writes through writeProjectSettings is a v2.101.4 key (or its section)", () => {
+    const written: string[] = [];
+    for (const rel of SETUP_PROSE) {
+      for (const line of read(PLUGIN, rel).split("\n")) if (line.includes("writeProjectSettings")) written.push(...settingsPathsIn(line));
+    }
+    expect(written.length).toBeGreaterThan(5);
+    const unknown = [...new Set(written)].filter((p) => !V2101_KEYS.some((k) => k === p || k.startsWith(`${p}.`)));
+    expect(unknown).toEqual([]);
+  });
+
+  test("AC-.16 no /setup surface (prose or setup code) names a NEW_KEYS key", () => {
+    const setupCode = readdirSync(join(PLUGIN, "adapters", "_shared", "src", "setup"))
+      .filter((n) => n.endsWith(".ts"))
+      .map((n) => `adapters/_shared/src/setup/${n}`);
+    const hits: string[] = [];
+    for (const rel of [...SETUP_PROSE, ...setupCode]) {
+      const body = read(PLUGIN, rel);
+      for (const k of PS.NEW_KEYS) {
+        const leaf = k.split(".").pop()!;
+        if (body.includes(k) || new RegExp(`\\b${leaf}\\b`).test(body)) hits.push(`${rel}: ${k}`);
+      }
+    }
+    expect(hits).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

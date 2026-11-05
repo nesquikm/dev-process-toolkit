@@ -45,7 +45,13 @@ try {
     }
     writeSessionRows(projectRoot, sessionId, rows);
   }
-} catch {
-  // fail-open by design — never block session teardown
+} catch (e) {
+  // fail-open by design — never block session teardown. A settings-file
+  // refusal is still reported (review #4): the ledger must never stop silently
+  // on a specs/settings.yaml it refuses. A legacy CLAUDE.md error stays silent,
+  // as in v2.101.5.
+  if (e instanceof Error && e.name === "SettingsShapeError") {
+    process.stderr.write(`session-token-ledger: no rows written.\n${e.message}\n`);
+  }
 }
 process.exit(0);
