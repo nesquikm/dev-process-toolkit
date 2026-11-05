@@ -580,9 +580,10 @@ describe("AC-STE-584.12 — prose lands in the executing copies with zero new li
     expect(row).toContain("sibling-unlocatable");
   });
 
-  test("deliver SKILL.md keeps its 262-line split and its helper-assembly line says a milestone awaiting a sibling gets no step", () => {
+  test("deliver SKILL.md keeps its 266-line split and its helper-assembly line says a milestone awaiting a sibling gets no step", () => { // Amended by AC-STE-712.7 (M_94e6f7)
     const file = skillPath("deliver");
-    expect(splitCount(file)).toBe(262); // measured at authoring time
+    // Amended by AC-STE-712.7 (M_94e6f7): /deliver gains its close-out section (262 -> 266)
+    expect(splitCount(file)).toBe(266);
     const body = read(file);
     const start = body.indexOf("\n## Resume");
     expect(start).toBeGreaterThan(-1);

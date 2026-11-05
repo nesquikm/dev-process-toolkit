@@ -42,6 +42,7 @@ import {
   stepLines,
 } from "./resume_classifier";
 import { readOrchestrationConfig } from "./orchestration_config";
+import { upgradeOfferSwitchOn } from "./project_settings";
 import { runMergePolicy } from "./merge_policy_ratchet";
 import { classifyGate, relayRequired } from "./gate_class";
 import type { WorkerNameRule } from "./deliver_worker_name";
@@ -483,6 +484,9 @@ if (import.meta.main) {
   const projectRoot = process.argv[3] ?? process.cwd();
   try {
     console.log(await decideDelivery({ argument, projectRoot }));
+    // STE-712: one extra LAST line after the eight fields, only when the
+    // close-out switch is on. A loader refusal reads as off.
+    if (upgradeOfferSwitchOn(projectRoot)) console.log("upgrade_offer: on");
   } catch (error) {
     // stderr, never stdout: the record channel stays empty on a refusal, so a
     // caller reading stdout gets a whole record or nothing — never a partial.

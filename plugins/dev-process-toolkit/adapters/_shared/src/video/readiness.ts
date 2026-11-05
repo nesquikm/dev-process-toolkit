@@ -8,10 +8,11 @@
 // a key value (AC-STE-663.8): config refusals name key paths only, and key
 // checks name variable names only.
 
-import { existsSync, readFileSync } from "node:fs";
 import { relative } from "node:path";
-import { dptEnvPath, videoConfigPath } from "../dpt_paths";
-import { parseVideoConfig, type VideoConfig } from "./config";
+import { dptEnvPath } from "../dpt_paths";
+import { type VideoConfig } from "./config";
+import { detectSettingsSource, SETTINGS_FILE, viewProjectSection } from "../project_settings";
+import { readLegacyVideoConfigFile, VIDEO_CONFIG } from "../project_settings_legacy";
 import { readVideoKeys } from "./keys";
 import { CAPTION_FILTER_MISSING, CAPTION_FILTER_REMEDY, ffmpegFiltersArgv, listsDrawtext } from "./render";
 import { readVideoStyle } from "./style";
@@ -21,7 +22,6 @@ export interface VideoReadiness {
   reasons: string[];
 }
 
-const CONFIG_DISPLAY = videoConfigPath(".").replace(/^\.\//, "");
 const ENV_DISPLAY = dptEnvPath(".").replace(/^\.\//, "");
 
 export const PROVIDER_KEY: Record<VideoConfig["tts"]["provider"], string> = {
@@ -44,21 +44,37 @@ function missingKeyReason(name: string, why: string): string {
 }
 
 function readConfig(projectRoot: string): { config: VideoConfig | null; reason: string | null } {
-  const path = videoConfigPath(projectRoot);
-  if (!existsSync(path)) {
-    return {
-      config: null,
-      reason: `${CONFIG_DISPLAY} is absent — remedy: create ${CONFIG_DISPLAY} with tts, recorder and music blocks.`,
-    };
-  }
   try {
-    return { config: parseVideoConfig(readFileSync(path, "utf8")), reason: null };
+    // STE-707 — derived from `loadProjectSection(projectRoot, "video")`; on a
+    // legacy tree the config file, read by the loader's legacy module.
+    const config = viewProjectSection(
+      projectRoot,
+      "video",
+      (v) => v.config,
+      () => readLegacyVideoConfigFile(projectRoot),
+    );
+    if (config === null) {
+      return {
+        config: null,
+        reason: onSettingsFile(projectRoot)
+          ? `\`video.config\` in ${SETTINGS_FILE} is absent — remedy: add \`video.config\` with tts, recorder and music blocks to ${SETTINGS_FILE}.`
+          : `${VIDEO_CONFIG} is absent — remedy: create ${VIDEO_CONFIG} with tts, recorder and music blocks.`,
+      };
+    }
+    return { config, reason: null };
   } catch (err) {
     const lines = (err instanceof Error ? err.message : String(err)).split("\n");
     const verdict = (lines[0] ?? "").replace(/^Refusing:\s*/, "");
     const remedy = (lines.find((l) => l.startsWith("Remedy:")) ?? "Remedy: fix the config.").replace(/^Remedy:\s*/, "");
-    return { config: null, reason: `${CONFIG_DISPLAY} is invalid: ${verdict} — remedy: ${remedy}` };
+    const home = onSettingsFile(projectRoot) ? `\`video.config\` in ${SETTINGS_FILE}` : VIDEO_CONFIG;
+    return { config: null, reason: `${home} is invalid: ${verdict} — remedy: ${remedy}` };
   }
+}
+
+/** True when the tree keeps its settings in the settings file (alone, or beside a legacy home). */
+function onSettingsFile(projectRoot: string): boolean {
+  const source = detectSettingsSource(projectRoot);
+  return source === "settings" || source === "both";
 }
 
 /** `git check-ignore` verdict for `.dpt/.env`: ignored, not ignored, or no repository (exit 128). */

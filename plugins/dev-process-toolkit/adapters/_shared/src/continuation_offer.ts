@@ -61,6 +61,7 @@ import {
   type FrResumeClassification,
   type ResumeClassification,
 } from "./resume_classifier";
+import { UPGRADE_OFFER_QUESTION } from "./upgrade_offer";
 
 // ---------------------------------------------------------------------------
 // The registry (AC-STE-551.1 .. AC-STE-551.6)
@@ -200,6 +201,24 @@ export const CONTINUATION_OFFERS: readonly ContinuationOffer[] = [
     runsWhenAccepted: [],
     runsWhenDriven: [],
     asks: "which command a human should run after the archive commit",
+  },
+  {
+    id: "implement_upgrade_offer",
+    skill: "implement",
+    file: skillFile("implement"),
+    anchor: UPGRADE_OFFER_QUESTION,
+    runsWhenAccepted: ["/upgrade"],
+    runsWhenDriven: [],
+    asks: "whether to apply the pending toolkit upgrades now",
+  },
+  {
+    id: "deliver_close_upgrade_offer",
+    skill: "deliver",
+    file: skillFile("deliver"),
+    anchor: UPGRADE_OFFER_QUESTION,
+    runsWhenAccepted: ["/upgrade"],
+    runsWhenDriven: [],
+    asks: "whether to apply the pending toolkit upgrades now, once the last milestone has closed",
   },
 ];
 

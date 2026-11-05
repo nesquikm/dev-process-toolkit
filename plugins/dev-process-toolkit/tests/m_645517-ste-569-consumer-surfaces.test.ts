@@ -31,6 +31,7 @@ import {
   readMilestoneScanFetch,
   resolveFetchPolicy,
 } from "../adapters/_shared/src/milestone_scan_fetch_config";
+import { loadProjectSection } from "../adapters/_shared/src/project_settings";
 import { parseReadmeLatest } from "../adapters/_shared/src/release_surface_agreement";
 import { runTaskTrackingWorkspaceBindingPresentProbe } from "../adapters/_shared/src/task_tracking_workspace_binding_present";
 import { mutate } from "./_fence";
@@ -367,11 +368,17 @@ describe("AC-STE-569.8 — argument-carrying rules use the :* prefix form", () =
 describe("AC-STE-569.10 — a template-configured project passes probe #25", () => {
   const template = read(join(pluginRoot, "templates", "CLAUDE.md.template"));
 
-  test("the template states the binding requirement and names the probe", () => {
-    expect(template).toContain("task-tracking-workspace-binding-present");
-    expect(template).toMatch(/### Linear/);
-    expect(template).toMatch(/### Jira/);
-    expect(template).toMatch(/hard-fails without it/);
+  test("the template's settings home states the binding requirement and names the probe", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the Task Tracking comment left the template; the requirement now
+    // lives with the `task_tracking.linear` / `task_tracking.jira` keys in docs/settings-reference.md, which
+    // the template's `## Project Settings` pointer sends the reader to.
+    expect(template).not.toContain("task-tracking-workspace-binding-present");
+    expect(template).toContain("specs/settings.yaml");
+    const reference = read(join(pluginRoot, "docs", "settings-reference.md"));
+    expect(reference).toContain("task-tracking-workspace-binding-present");
+    expect(reference).toMatch(/`task_tracking\.linear`/);
+    expect(reference).toMatch(/`task_tracking\.jira`/);
+    expect(reference).toMatch(/hard-fails without it/);
   });
 
   /** Build a CLAUDE.md from the keys the template documents, and grade it. */
@@ -453,7 +460,12 @@ describe("AC-STE-569.11 — the field: legend is legal for the kind it names", (
   });
 
   test("the legend states three per-kind rules, not one capability", () => {
-    const legend = template.split("  - field:")[1]!.split("  - pattern:")[0]!;
+    // Amended by M_94e6f7/STE-710 (AC-.9): the `## Release Files` legend left the template; it now ships with
+    // `release.files` in docs/settings-reference.md, so the legend is sliced from there.
+    expect(template).not.toContain("## Release Files");
+    const reference = read(join(pluginRoot, "docs", "settings-reference.md"));
+    const release = reference.split("### `release`")[1]!.split("\n### ")[0]!;
+    const legend = release.split("- `field`:")[1]!.split("- `pattern`:")[0]!;
     expect(legend).toMatch(/json —/);
     expect(legend).toMatch(/toml —/);
     expect(legend).toMatch(/yaml —/);
@@ -471,9 +483,14 @@ describe("AC-STE-569.12 — the template names what the toolkit reads", () => {
   });
 
   test("the orchestrator its own Orchestration keys configure is named", () => {
-    expect(template).toContain("## Orchestration");
+    // Amended by M_94e6f7/STE-710 (AC-.9): the `## Orchestration` stub left the template; `/deliver` is now
+    // tied to the `orchestration` settings key, and that key's home documents the same two keys.
+    expect(template).not.toContain("## Orchestration");
     expect(template).toContain("`/deliver`");
-    expect(template).toMatch(/`\/deliver`[\s\S]{0,400}Orchestration/);
+    expect(template).toMatch(/`\/deliver`[\s\S]{0,400}`orchestration` settings/);
+    const reference = read(join(pluginRoot, "docs", "settings-reference.md"));
+    expect(reference).toContain("`orchestration.default_effort`");
+    expect(reference).toContain("`orchestration.merge_policy`");
   });
 
   test("the manifest-management surfaces are both named", () => {
@@ -580,12 +597,13 @@ describe("AC-STE-569.14 — the codename remedy names which case the reader is i
   test("this repository is the case the old wording got wrong", () => {
     // Since STE-554 the toolkit's own block writes the field, so "unless it is
     // written by hand" was false for exactly the project reading it here.
-    const claudeMd = read(join(repoRoot, "CLAUDE.md"));
-    // The yaml fence itself, not the prose section that names it — the phrase
-    // "## Release Files" occurs in the Release Checklist paragraph first.
-    const block = /## Release Files\n+```yaml\n([\s\S]*?)```/.exec(claudeMd)![1]!;
+    // Amended by AC-STE-713.5 (M_94e6f7): read through the loader
+    const files = loadProjectSection(repoRoot, "release").files as ReleaseFile[];
+    const block = JSON.stringify(files);
     expect(block).toContain("{codename}");
     expect(block).toContain("specs/requirements.md");
+    const reqs = files.find((f) => f.path === "specs/requirements.md") as { replace?: string } | undefined;
+    expect(reqs?.replace).toContain("{codename}");
   });
 });
 

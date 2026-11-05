@@ -32,9 +32,20 @@
 
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import {
+  detectSettingsSource,
+  loadProjectSettings,
+  projectSettingsSection,
+  PROJECT_SETTINGS_HEADING,
+  renderSettingsPointer,
+  SETTINGS_FILE,
+  settingsKeyLine,
+  settingsRefusal,
+} from "./project_settings";
+import { DOCS_HEADING, DOCS_HEADING_RE } from "./project_settings_legacy";
 import { isToolkitManaged } from "./toolkit_managed";
 
-const HEADING_LINE = "## Docs";
+const HEADING_LINE = DOCS_HEADING;
 
 export interface ClaudeMdDocsSectionViolation {
   file: string;
@@ -73,6 +84,10 @@ export async function runClaudeMdDocsSectionProbe(
     return { violations: [] };
   }
 
+  // STE-709 — the settings-file arm: the `docs` section lives in the
+  // settings file, and CLAUDE.md carries the pointer paragraph instead.
+  if (detectSettingsSource(projectRoot) === "settings") return settingsArm(projectRoot);
+
   const claudeMd = join(projectRoot, "CLAUDE.md");
   const raw = readFileSync(claudeMd, "utf-8");
   // Normalize first (so `^`/`$` anchor the same way they do on the detection
@@ -83,7 +98,7 @@ export async function runClaudeMdDocsSectionProbe(
   // The canonical Schema-D heading, matched with `toolkit_managed.ts`'s
   // `docs_section` pattern byte for byte — anchored, so `## Documentation` is
   // still not a match.
-  if (/^##\s+Docs\s*$/m.test(stripped)) return { violations: [] };
+  if (DOCS_HEADING_RE.test(stripped)) return { violations: [] };
 
   const rel = relative(projectRoot, claudeMd);
   const reason = `${HEADING_LINE} section missing — /docs cannot read mode flags without it`;
@@ -98,4 +113,72 @@ export async function runClaudeMdDocsSectionProbe(
   return {
     violations: [{ file: claudeMd, line: 1, reason, note, message }],
   };
+}
+
+function armViolation(
+  file: string,
+  rel: string,
+  line: number,
+  reason: string,
+  remedy: string,
+): ClaudeMdDocsSectionViolation {
+  return {
+    file,
+    line,
+    reason,
+    note: `${rel}:${line} — ${reason}`,
+    message: [`claudemd_docs_section: ${reason}`, `Remedy: ${remedy}`, `Context: file=${rel}, probe=claudemd_docs_section`].join("\n"),
+  };
+}
+
+/**
+ * STE-709 — on a settings-file tree: the `docs` section must be present in
+ * `specs/settings.yaml`, and CLAUDE.md's `## Project Settings` section must
+ * carry the pointer paragraph byte-equal to `renderSettingsPointer(min_dpt_version)`.
+ */
+function settingsArm(projectRoot: string): ClaudeMdDocsSectionReport {
+  const settingsAbs = join(projectRoot, SETTINGS_FILE);
+  const violations: ClaudeMdDocsSectionViolation[] = [];
+  let floor: string | undefined;
+  try {
+    floor = loadProjectSettings(projectRoot).settings.min_dpt_version;
+  } catch (e) {
+    const { text, reason } = settingsRefusal(e);
+    return { violations: [armViolation(settingsAbs, SETTINGS_FILE, 1, reason, text)] };
+  }
+  if (settingsKeyLine(projectRoot, "docs") === null) {
+    violations.push(
+      armViolation(
+        settingsAbs,
+        SETTINGS_FILE,
+        1,
+        `docs section missing from ${SETTINGS_FILE} — /docs cannot read mode flags without it`,
+        `add a \`docs:\` section to ${SETTINGS_FILE} with the canonical keys (user_facing_mode, packages_mode, changelog_ci_owned, changelog_unversioned), all defaulting to false.`,
+      ),
+    );
+  }
+  const claudeMd = join(projectRoot, "CLAUDE.md");
+  const rel = relative(projectRoot, claudeMd);
+  let content = "";
+  try {
+    content = normalize(readFileSync(claudeMd, "utf-8"));
+  } catch {
+    content = "";
+  }
+  const section = projectSettingsSection(content);
+  const pointer = renderSettingsPointer(floor ?? "").replace(/\n$/, "");
+  const count = section === null ? 0 : section.lines.filter((l) => l === pointer).length;
+  if (count !== 1) {
+    const where = section === null ? `${PROJECT_SETTINGS_HEADING} section is absent` : count === 0 ? "pointer paragraph is absent or drifted" : `pointer paragraph is present ${count} times`;
+    violations.push(
+      armViolation(
+        claudeMd,
+        rel,
+        section?.line ?? 1,
+        `${where} — CLAUDE.md must point at ${SETTINGS_FILE} with the paragraph rendered for min_dpt_version ${floor}`,
+        `write exactly one line \`${pointer}\` under ${PROJECT_SETTINGS_HEADING} in ${rel} — /dev-process-toolkit:upgrade renders it.`,
+      ),
+    );
+  }
+  return { violations };
 }

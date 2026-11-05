@@ -16,7 +16,8 @@ default) never reads this document — the `mode: none` branch runs unchanged.
   `skills/setup/SKILL.md`, just before spec-file generation (step 8). It has
   **no default** (`requires-input`): the operator answers it, and an
   autonomous run must pre-bake the answer (`--tracker=<mode>`) or be refused.
-- **Recording.** A recorded mode adds a `## Task Tracking` section to
+- **Recording.** A recorded mode writes `task_tracking` through `writeProjectSettings`;
+  on a legacy tree it adds a `## Task Tracking` section to
   `CLAUDE.md` per Schema L (technical-spec §3 Cross-Skill Schema Definitions). Absence ≡ `none`
  — `/setup` never writes a `mode: none` line.
 - **Never silent writes.** Every `settings.json` and `CLAUDE.md` edit is
@@ -56,7 +57,7 @@ generated CLAUDE.md; a tracker answer is written into it by step 7f:
 > [1-4, no default]:
 > ```
 
-If the user picks `1`, do NOT add `## Task Tracking` to CLAUDE.md.
+If the user picks `1`, do NOT add `## Task Tracking` to a legacy CLAUDE.md (nor `task_tracking` to the settings file).
 Continue the existing fresh-setup flow. If the user picks 2–4,
 proceed through the remaining tracker-mode steps in order.
 
@@ -128,8 +129,8 @@ Remedy: <actionable — e.g., "complete OAuth in the MCP UI, then re-run /setup"
 Context: mode=<picked>, ticket=unbound, skill=setup
 ```
 
-Only on test-call success does `/setup` write the `## Task Tracking`
-section to CLAUDE.md.
+Only on test-call success does `/setup` write `task_tracking` through
+`writeProjectSettings` (the `## Task Tracking` section on a legacy tree).
 
 ## Per-tenant discovery
 
@@ -158,7 +159,8 @@ After visibility passes, run one-time AC-field discovery:
    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` with
    `{"fields": <response>}` on stdin.
 3. On `{ok: true, gid: "customfield_XXXXX"}`, append
-   `jira_ac_field: customfield_XXXXX` to the `## Task Tracking` section.
+   `jira_ac_field: customfield_XXXXX` to the `## Task Tracking` section
+   (legacy tree; `writeProjectSettings` sets `task_tracking.jira_ac_field` otherwise).
 4. On `{ok: false}` — common on team-managed Kanban templates that ship
    without an AC custom field — prompt the operator to choose between two
    recorded outcomes (no silent fallback):
@@ -178,12 +180,12 @@ After visibility passes, run one-time AC-field discovery:
 
    On `1`, abort the tracker-mode portion cleanly so the operator can
    create the field and re-run `/setup`. On `2`, append
-   `jira_ac_field: description` to `## Task Tracking` and continue.
+   `jira_ac_field: description` to `## Task Tracking` (legacy tree; `writeProjectSettings` otherwise) and continue.
 
 The recorded value is the dispatch key for `pull_acs` / `push_ac_toggle`
 (see `adapters/jira.md` § Operations).
 
-## Writing `## Task Tracking` to CLAUDE.md
+## Writing `## Task Tracking` to a legacy CLAUDE.md
 
 On successful completion of all the above, append this section to the
 bottom of CLAUDE.md (Schema L):
@@ -221,7 +223,7 @@ prompt once:
 
 **Single seeded default**
 
-`{type}/m{N}-{slug}` — the one default value; the per-mode split in the *value* is retired. It is **seeded (written) only in tracker mode**: Schema L is the `## Task Tracking` section and a `mode: none` project emits none, so there is nowhere to seed it. See § Skip conditions.
+`{type}/m{N}-{slug}` — the one default value; the per-mode split in the *value* is retired. It is **seeded (written) only in tracker mode**: Schema L is `task_tracking` (the `## Task Tracking` section on a legacy tree) and a `mode: none` project emits none, so there is nowhere to seed it. See § Skip conditions.
 
 **Placeholders (substituted by `/implement` at prompt-time)**
 
@@ -238,8 +240,8 @@ prompt once:
 
 **Skip conditions**
 
-- `mode: none` projects that elected `1. none` in step 7b: skip writing `branch_template:` — there is no `## Task Tracking` section to write it into. That disables `/implement`'s branch **proposal** (§ 0.b″ is gated on the key) but **not** the universal pre-commit branch gate, which never reads the key — see § Consumer scope. Users can opt the proposal back in by re-running `/setup` or by hand-adding the key to CLAUDE.md.
-- Any project whose CLAUDE.md already has `branch_template:` under `## Task Tracking`: do not re-ask. `/setup --migrate` preserves existing keys by default.
+- `mode: none` projects that elected `1. none` in step 7b: skip writing `branch_template:` — there is no `## Task Tracking` section to write it into. That disables `/implement`'s branch **proposal** (§ 0.b″ is gated on the key) but **not** the universal pre-commit branch gate, which never reads the key — see § Consumer scope. Users can opt the proposal back in by re-running `/setup` or by hand-adding `task_tracking.branch_template` to `specs/settings.yaml` (legacy: the key in CLAUDE.md).
+- Any project whose settings file already has `task_tracking.branch_template` (legacy: CLAUDE.md `branch_template:` under `## Task Tracking`): do not re-ask. `/setup --migrate` preserves existing keys by default.
 
 **Consumer scope — two mechanisms, and only the first reads this key.** Only `/implement` § 0.b″ reads `branch_template:`, and read-only skills (`/tdd`, `/debug`, `/gate-check`, `/pr`, `/spec-review`, `/visual-check`, `/simplify`, `/brainstorm`) run on whatever branch they're invoked from. **The commit-producing skills do not** — `/spec-write`, `/setup`, `/spec-archive`, `/ship-milestone`, `/deps` and `/upgrade` each call `requireCommittableBranch` before staging, which has no tracker awareness, never reads Schema L, and will create and switch to a branch with no CLAUDE.md present at all. Measured: on a repo carrying no CLAUDE.md the gate returned `created` and moved `HEAD`. So an absent key narrows branch automation to that gate; it does not switch it off.
 

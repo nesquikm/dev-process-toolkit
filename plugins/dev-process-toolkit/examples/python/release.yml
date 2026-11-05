@@ -1,4 +1,6 @@
-# Default `## Release Files` block for a Python project.
+# Default `release.files` entries for a Python project, which /setup
+# writes into specs/settings.yaml (on a legacy tree, the CLAUDE.md
+# `## Release Files` block).
 # `pyproject.toml` typically carries `[project] version = "x.y.z"`.
 files:
   - path: pyproject.toml

@@ -48,7 +48,7 @@ result → tear down.**
 
 ## The `## Verification` config contract
 
-A project opts in by declaring a `## Verification` section in its CLAUDE.md.
+A project opts in by declaring the `verification` key in `specs/settings.yaml` (legacy home: a `## Verification` section in its CLAUDE.md).
 The section is optional; when it is absent, no check is declared and
 `/implement` simply reports "no verification configured."
 
@@ -116,10 +116,10 @@ a fixed discovery precedence:
 2. **Discover (fallback)** — otherwise scan `.claude/skills/*/SKILL.md` for a
    candidate whose slug looks like a check (`*drive*` / `*check*` / `*verify*`)
    or whose frontmatter carries `verify: true`. Exactly one candidate ⇒
-   `/implement` *offers to adopt* it and writes `verify_skill` into your
-   CLAUDE.md on accept. It never silently runs an undeclared skill.
+   `/implement` *offers to adopt* it and, on accept, writes `verify_skill` with
+   `project_settings.ts set verification.verify_skill <slug>` when CLAUDE.md carries `## Project Settings` (the legacy `## Verification` block otherwise, or when the verb prints `source: legacy` / `source: none`). It never silently runs an undeclared skill.
 3. **Ambiguous** — several candidates ⇒ `/implement` lists them and asks which
-   to adopt; it never guesses.
+   to adopt; it never guesses. The pick is written the same way: `set verification.verify_skill` under `## Project Settings`, the legacy `## Verification` block otherwise.
 4. **None** — zero candidates and no declared skill ⇒ `/implement` *offers to
    scaffold* a stub (see below), or to adopt the built-in `visual-check` for a
    small web project. Decline ⇒ it proceeds with a "no verification
@@ -209,7 +209,7 @@ stack-neutral generic fallback). Then:
 4. **Delete every remaining TODO** and the trailing Notes block once the steps
    are project-specific.
 5. **Wire it in.** Confirm `verify_skill: <your-slug>` is set in the
-   `## Verification` block (the scaffold offer writes this for you on accept),
+   `## Verification` block (the scaffold offer writes this for you on accept, through `set verification.verify_skill` when CLAUDE.md carries `## Project Settings`, into the legacy block otherwise),
    and choose a `verify_mode`.
 
 ### From scratch

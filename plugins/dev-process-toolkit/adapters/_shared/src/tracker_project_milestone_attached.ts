@@ -85,6 +85,8 @@ import {
 } from "./attach_project_milestone";
 import { parsePlanHeading } from "./plan_heading";
 import { normalizeFrontmatterSource } from "./frontmatter";
+import { viewProjectSection } from "./project_settings";
+import { legacyIsTrackerMode } from "./project_settings_legacy";
 
 export interface TrackerProjectMilestoneAttachedViolation {
   file: string;
@@ -391,26 +393,22 @@ function capabilityGapAdvisory(
   };
 }
 
-function isTrackerMode(claudeMdContent: string): boolean {
-  const lines = claudeMdContent.split("\n");
-  const startIdx = lines.findIndex((l) => l === "## Task Tracking");
-  if (startIdx < 0) return false;
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    // Aligned with task_tracking_canonical_keys.ts boundary-detection convention.
-    if (/^#{1,2}\s/.test(lines[i]!)) {
-      endIdx = i;
-      break;
-    }
-  }
-  for (let i = startIdx + 1; i < endIdx; i++) {
-    const m = /^mode:\s*(\S+)\s*$/.exec(lines[i]!);
-    if (m) {
-      const mode = m[1]!;
-      return mode !== "none" && mode !== "";
-    }
-  }
-  return false;
+/**
+ * STE-707 — a non-none tracker mode, derived from
+ * `loadProjectSection(projectRoot, "task_tracking")`; on a legacy tree the
+ * v2.101.4 `## Task Tracking` line scan, which lives in the loader's legacy
+ * module (an absent CLAUDE.md is not a tracker-mode tree).
+ */
+function isTrackerMode(projectRoot: string): boolean {
+  return viewProjectSection(
+    projectRoot,
+    "task_tracking",
+    (tt) => tt.mode !== "none" && tt.mode !== "",
+    () => {
+      const claudeMd = join(projectRoot, "CLAUDE.md");
+      return existsSync(claudeMd) && legacyIsTrackerMode(readFileSync(claudeMd, "utf-8"));
+    },
+  );
 }
 
 function readPlanHeading(planPath: string): string | null {
@@ -423,10 +421,7 @@ export async function runTrackerProjectMilestoneAttachedProbe(
   projectRoot: string,
   deps: TrackerProjectMilestoneAttachedDeps,
 ): Promise<TrackerProjectMilestoneAttachedReport> {
-  const claudeMd = join(projectRoot, "CLAUDE.md");
-  if (!existsSync(claudeMd)) return { violations: [], advisories: [] };
-  const claudeMdContent = readFileSync(claudeMd, "utf-8");
-  if (!isTrackerMode(claudeMdContent)) return { violations: [], advisories: [] };
+  if (!isTrackerMode(projectRoot)) return { violations: [], advisories: [] };
 
   const frsDir = join(projectRoot, "specs", "frs");
   if (!existsSync(frsDir)) return { violations: [], advisories: [] };

@@ -51,6 +51,19 @@ import { checkVersionFloor, nfr10Message, runningDptVersion } from "./dpt_versio
 import { parseFrontmatter } from "./frontmatter";
 import { oneLine } from "./tracker_receipts";
 import { milestoneIdFromEpicKey, PLAN_FILENAME_RE, parseMilestoneToken } from "./milestone_token";
+import {
+  detectSettingsSource,
+  loadProjectSettings,
+  type ProjectSettings,
+  PROJECT_SETTINGS_HEADING,
+  projectSettingsSection,
+  renderTrackingStub,
+  SETTINGS_FILE,
+  settingsKeyPathLine,
+  settingsRefusal,
+  settingsViolation,
+} from "./project_settings";
+import { TASK_TRACKING_HEADING, trackingStubSlots } from "./project_settings_legacy";
 import { renderSharedTrackerSentinel, SHARED_TRACKER_MARKER, shellArg } from "./setup/tracker_binding_write";
 import {
   locateSubsection,
@@ -73,7 +86,7 @@ export interface TaskTrackingWorkspaceBindingReport {
   skipped?: string[];
 }
 
-const SECTION_HEADING = "## Task Tracking";
+const SECTION_HEADING = TASK_TRACKING_HEADING;
 
 interface ResolvedMode {
   mode: string;
@@ -149,6 +162,9 @@ function stopParagraphs(sub: string[]): string[] {
 export async function runTaskTrackingWorkspaceBindingPresentProbe(
   projectRoot: string,
 ): Promise<TaskTrackingWorkspaceBindingReport> {
+  // STE-709 — the settings-file arm.
+  if (detectSettingsSource(projectRoot) === "settings") return settingsArm(projectRoot);
+
   const claudeMd = join(projectRoot, "CLAUDE.md");
   if (!existsSync(claudeMd)) return { violations: [] };
   const content = readFileSync(claudeMd, "utf-8");
@@ -278,6 +294,170 @@ export async function runTaskTrackingWorkspaceBindingPresentProbe(
   else violations.push(...keyPrefixViolations(projectRoot, binding.project, resolved.mode));
 
   // A leg that did not run is listed, never counted as passed (STE-612).
+  return { violations, skipped };
+}
+
+/** Keys whose presence in a stub slot under `mode: none` makes the slot a declaration. */
+const STUB_RECOGNISED_KEYS = new Set([
+  "mode",
+  "mcp_server",
+  "jira_ac_field",
+  "branch_template",
+  "milestone_scan_fetch",
+  "secondary_tracker",
+  "team",
+  "project",
+  "default_labels",
+  "repo_tag",
+  "min_dpt_version",
+  "linear_bug_label",
+  "jira_bug_issue_type",
+  "jira_issue_type",
+]);
+
+const UPGRADE = "/dev-process-toolkit:upgrade";
+
+/**
+ * STE-709 — probe #25 on a settings-file tree. The binding is read through
+ * the loader (`readWorkspaceBinding` routes there) and its defects cite
+ * `specs/settings.yaml`; the shared stop paragraph is located in CLAUDE.md
+ * `## Project Settings`; legs (a)-(d) keep their meaning; and the stub leg
+ * grades CLAUDE.md's `## Task Tracking` stub byte-equal to `renderTrackingStub`.
+ */
+async function settingsArm(projectRoot: string): Promise<TaskTrackingWorkspaceBindingReport> {
+  const claudeMd = join(projectRoot, "CLAUDE.md");
+  const rel = relative(projectRoot, claudeMd);
+  let settings: ProjectSettings;
+  try {
+    settings = loadProjectSettings(projectRoot).settings;
+  } catch (e) {
+    const { text, reason } = settingsRefusal(e);
+    return { violations: [settingsViolation(projectRoot, 1, reason, text)] };
+  }
+  const tt = settings.task_tracking;
+  const mode = tt.mode;
+  const content = existsSync(claudeMd) ? readFileSync(claudeMd, "utf-8") : "";
+  const violations: TaskTrackingWorkspaceBindingViolation[] = [];
+
+  // The stub leg.
+  const slots = trackingStubSlots(content);
+  const stubViolation = (line: number, reason: string): TaskTrackingWorkspaceBindingViolation => ({
+    file: claudeMd,
+    line,
+    reason,
+    note: `${rel}:${line} — ${reason}`,
+    message: buildSharedMessage(
+      "stub",
+      reason,
+      `run ${UPGRADE} to re-render the \`## Task Tracking\` stub from ${SETTINGS_FILE}; never edit the stub by hand.`,
+      rel,
+      mode,
+    ),
+  });
+  if (mode === "none") {
+    const declaring = slots.find((s) => s.lines.some((l) => STUB_RECOGNISED_KEYS.has(/^([a-z_]+)\s*:/.exec(l)?.[1] ?? "")));
+    if (declaring) {
+      violations.push(stubViolation(declaring.line, `task_tracking.mode is none in ${SETTINGS_FILE} but CLAUDE.md carries a tracking stub slot holding a recognised key`));
+    }
+    return { violations };
+  }
+  const expected = renderTrackingStub(settings).replace(/\n+$/, "");
+  if (slots.length === 0) {
+    violations.push(stubViolation(1, `tracker mode "${mode}" requires the generated tracking stub in CLAUDE.md — the stub is absent`));
+  } else if (slots.length > 1) {
+    violations.push(stubViolation(slots[1]!.line, `the generated tracking stub is present ${slots.length} times in CLAUDE.md`));
+  } else if (slots[0]!.text !== expected) {
+    violations.push(stubViolation(slots[0]!.line, `the tracking stub in CLAUDE.md is not the render of ${SETTINGS_FILE} (drifted stub)`));
+  }
+
+  const adapterKey = adapterKeyForMode(mode);
+  if (adapterKey === null) return { violations };
+
+  const bindingPath = `task_tracking.${adapterKey}`;
+  const bindingLine = settingsKeyPathLine(projectRoot, bindingPath) ?? settingsKeyPathLine(projectRoot, "task_tracking") ?? 1;
+  const bindingViolation = (reason: string, message: string): TaskTrackingWorkspaceBindingViolation =>
+    settingsViolation(projectRoot, bindingLine, reason, message);
+
+  // Leg (a) — the reader's refusal, in the reader's own words.
+  let binding: WorkspaceBinding;
+  try {
+    binding = readWorkspaceBinding(claudeMd, adapterKey);
+  } catch (e) {
+    const readerText = e instanceof Error ? e.message : String(e);
+    const reason = `\`${bindingPath}\` shared-container declaration is refused by the reader: ${readerText.split("\n")[0]}`;
+    return { violations: [...violations, bindingViolation(reason, readerText)] };
+  }
+
+  const missing: string[] = [];
+  if (adapterKey === "linear" && !binding.team) missing.push("team");
+  if (!binding.project) missing.push("project");
+  if (missing.length > 0) {
+    const reason = `\`${bindingPath}\` in ${SETTINGS_FILE} is missing required key${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`;
+    violations.push(
+      bindingViolation(
+        reason,
+        nfr10Message(
+          `task_tracking_workspace_binding_present: ${reason}`,
+          `add ${missing.map((k) => `\`${k}\``).join(" and ")} under \`${bindingPath}\` in ${SETTINGS_FILE} (Linear: team + project; Jira: project), then run ${UPGRADE} to re-render the CLAUDE.md stub.`,
+          `file=${SETTINGS_FILE}, mode=${mode}, probe=task_tracking_workspace_binding_present`,
+        ),
+      ),
+    );
+  }
+
+  const section = projectSettingsSection(content);
+  const paragraphs = stopParagraphs(section?.lines ?? []);
+  const sectionLine = section?.line ?? 1;
+  const paragraphViolation = (reason: string, remedy: string): TaskTrackingWorkspaceBindingViolation => ({
+    file: claudeMd,
+    line: sectionLine,
+    reason,
+    note: `${rel}:${sectionLine} — ${reason}`,
+    message: buildSharedMessage("paragraph", reason, remedy, rel, mode),
+  });
+  const rerender = `re-run \`bun run "${WRITER}" <projectRoot> ${adapterKey} --project ${binding.project ? shellArg(binding.project) : "<project>"}\` to re-render it`;
+  if (binding.shared) {
+    // Leg (b) — exactly one paragraph inside `## Project Settings`, byte-equal to the render.
+    const expectedParagraph = renderSharedTrackerSentinel({
+      adapter: adapterKey,
+      project: binding.project ?? "",
+      repoTag: binding.repoTag!,
+      minDptVersion: binding.minDptVersion!,
+    });
+    let problem: string | null = null;
+    if (paragraphs.length === 0) problem = `is absent from ${PROJECT_SETTINGS_HEADING}`;
+    else if (paragraphs.length > 1) problem = `is present ${paragraphs.length} times`;
+    else if (paragraphs[0] !== expectedParagraph) {
+      problem = `is not the render for project "${binding.project ?? ""}", tag "${binding.repoTag}" and floor ${binding.minDptVersion} (stale paragraph)`;
+    }
+    if (problem !== null) {
+      const reason = `\`${bindingPath}\` declares repo_tag "${binding.repoTag}" but the shared-container stop paragraph ${problem}`;
+      violations.push(paragraphViolation(reason, `${rerender}.`));
+    }
+    // Leg (c) — the running toolkit version at or above the floor.
+    let running: string | null = null;
+    try {
+      running = runningDptVersion();
+    } catch (e) {
+      const text = e instanceof Error ? e.message : String(e);
+      violations.push(bindingViolation(`\`${bindingPath}\` declares min_dpt_version ${binding.minDptVersion} but the running toolkit version is unknown: ${text.split("\n")[0]}`, text));
+    }
+    if (running !== null) {
+      const verdict = checkVersionFloor(binding, running);
+      if (!verdict.ok) {
+        violations.push(bindingViolation(`\`${bindingPath}\` declares min_dpt_version ${verdict.floor}; the running toolkit version ${verdict.running} is below it`, verdict.message));
+      }
+    }
+  } else if (paragraphs.length > 0) {
+    const reason = `${PROJECT_SETTINGS_HEADING} carries a shared-container stop paragraph but \`${bindingPath}\` declares no repo_tag (stale paragraph)`;
+    violations.push(paragraphViolation(reason, `delete the paragraph, or declare the container shared in ${SETTINGS_FILE}.`));
+  }
+
+  // Leg (d) — key prefix, Jira only.
+  const skipped: string[] = [];
+  if (adapterKey !== "jira") skipped.push(KEY_PREFIX_SKIP);
+  else if (!binding.project) skipped.push(`${KEY_PREFIX_LEG} (no bound project)`);
+  else violations.push(...keyPrefixViolations(projectRoot, binding.project, mode));
   return { violations, skipped };
 }
 

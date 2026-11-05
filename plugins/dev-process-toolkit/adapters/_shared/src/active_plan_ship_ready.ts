@@ -33,6 +33,7 @@ import { normalizeFrontmatterSource } from "./frontmatter";
 import { SpansReposError, resolveSpansRepos } from "./spans_repos";
 import { readTaskTrackingSection } from "./resolver_config";
 import { MalformedDocsConfigError, readDocsConfig } from "./docs_config";
+import { SettingsShapeError } from "./project_settings";
 import { isToolkitManaged } from "./toolkit_managed";
 import { parseWorktreePorcelain, runGit, sameRepository } from "./target_repo";
 import { trackerIdsOf } from "./reconcile_tracker_local";
@@ -71,7 +72,7 @@ export function changelogUnversionedAt(root: string): boolean {
   try {
     return readDocsConfig(join(root, "CLAUDE.md")).changelogUnversioned;
   } catch (e) {
-    if (e instanceof MalformedDocsConfigError) return false;
+    if (e instanceof MalformedDocsConfigError || e instanceof SettingsShapeError) return false;
     throw e;
   }
 }
@@ -762,14 +763,14 @@ function siblingContainerState(
   try {
     own = readWorkspaceBinding(join(projectRoot, "CLAUDE.md"), adapter);
   } catch (error) {
-    if (!(error instanceof WorkspaceBindingError)) throw error;
+    if (!(error instanceof WorkspaceBindingError || error instanceof SettingsShapeError)) throw error;
     return { state: "unreadable", reason: `this repository's declaration: ${firstLine(error.message)}` };
   }
   let theirs: WorkspaceBinding;
   try {
     theirs = readWorkspaceBinding(join(root, "CLAUDE.md"), adapter);
   } catch (error) {
-    if (!(error instanceof WorkspaceBindingError)) throw error;
+    if (!(error instanceof WorkspaceBindingError || error instanceof SettingsShapeError)) throw error;
     return { state: "unreadable", reason: firstLine(error.message) };
   }
   if (trackerAdapterKey(root) !== adapter || (theirs.project ?? "") !== (own.project ?? "")) {

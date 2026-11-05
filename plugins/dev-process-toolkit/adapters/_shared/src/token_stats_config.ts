@@ -24,79 +24,55 @@
 // `MalformedTokenStatsConfigError` carrying the offending key + value
 // (NFR-10 remedy shape).
 
-import { existsSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-export interface TokenStatsConfig {
-  enabled: boolean;
-}
+import { viewProjectSection } from "./project_settings";
+import { parseTokenStatsConfig, type TokenStatsConfig } from "./project_settings_legacy";
 
-/**
- * Thrown when the `## Token Stats` section contains an out-of-closed-set
- * key, or an `enabled` value outside the lowercase literal set
- * {true, false}. Callers surface key + value so the operator can fix the
- * exact line.
- */
-export class MalformedTokenStatsConfigError extends Error {
-  readonly key: string;
-  readonly value: string;
-  constructor(key: string, value: string, detail: string) {
-    super(
-      `token stats config key "${key}" with value "${value}" is malformed — ${detail}`,
-    );
-    this.name = "MalformedTokenStatsConfigError";
-    this.key = key;
-    this.value = value;
-  }
-}
-
-const ALL_FALSE: TokenStatsConfig = {
-  enabled: false,
-};
+export { MalformedTokenStatsConfigError, type TokenStatsConfig } from "./project_settings_legacy";
 
 /**
- * Parse the `## Token Stats` section of CLAUDE.md into a TokenStatsConfig.
+ * The project's token-stats switch.
  *
- * Section terminates at the next heading line (`# `, `## `, `### `,
- * `#### `) — the same termination rule as `readVerificationConfig`.
- * Schema L's grep contract requires flat `key: value` pairs only, no
- * nesting.
+ * STE-707 — derived from `loadProjectSection(projectRoot, "tracking")`
+ * (`tracking.token_stats.enabled`, absent ≡ false) with the project root
+ * resolved as the directory of `claudeMdPath`. On a legacy tree the v2.101.4
+ * `## Token Stats` parse, which lives in the loader's legacy module.
  *
  * @throws MalformedTokenStatsConfigError on an out-of-closed-set key
- * inside the section, or an `enabled` value outside {true, false}.
+ * inside the legacy section, or an `enabled` value outside {true, false}.
  */
 export function readTokenStatsConfig(claudeMdPath: string): TokenStatsConfig {
-  if (!existsSync(claudeMdPath)) return { ...ALL_FALSE };
-  const md = readFileSync(claudeMdPath, "utf8");
-  const lines = md.split("\n");
-  const startIdx = lines.findIndex((l) => l === "## Token Stats");
-  if (startIdx < 0) return { ...ALL_FALSE };
+  return viewProjectSection(
+    dirname(claudeMdPath),
+    "tracking",
+    (t) => ({ enabled: t.token_stats?.enabled === true }),
+    () => parseTokenStatsConfig(claudeMdPath),
+  );
+}
 
-  const result: TokenStatsConfig = { ...ALL_FALSE };
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (/^#{1,4} /.test(line)) break;
-    const m = /^([a-z_]+):\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const [, key, rawValue] = m;
-    const value = (rawValue ?? "").trim();
-    switch (key) {
-      case "enabled":
-        if (value !== "true" && value !== "false") {
-          throw new MalformedTokenStatsConfigError(
-            key!,
-            value,
-            'expected lowercase literal "true" | "false"',
-          );
-        }
-        result.enabled = value === "true";
-        break;
-      default:
-        throw new MalformedTokenStatsConfigError(
-          key!,
-          value,
-          "the ## Token Stats key set is closed to {enabled}",
-        );
+/**
+ * Front door: `bun run adapters/_shared/src/token_stats_config.ts <CLAUDE.md>`
+ * prints `enabled=<true|false>` from whichever home the project uses; a
+ * malformed declaration exits 1 with the refusal on stderr.
+ */
+if (import.meta.main) {
+  const claudeMdPath = process.argv[2];
+  if (claudeMdPath === undefined) {
+    console.error(
+      [
+        "Refusing: to read the token-stats switch without a CLAUDE.md path.",
+        "Remedy: bun run adapters/_shared/src/token_stats_config.ts <CLAUDE.md>",
+        "Context: mode=token-stats-config, phase=argv, argv=incomplete",
+      ].join("\n"),
+    );
+    process.exitCode = 1;
+  } else {
+    try {
+      console.log(`enabled=${readTokenStatsConfig(claudeMdPath).enabled}`);
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exitCode = 1;
     }
   }
-  return result;
 }

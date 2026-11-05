@@ -16,7 +16,7 @@ through the `fallthrough` branch of `resolveFRArgument` per NFR-18.
 ## Inputs
 
 - `arg` — the raw `$ARGUMENTS` value (ULID, tracker ID, URL, or free-form).
-- `config: ResolverConfig` — built from `CLAUDE.md` `## Task Tracking` section:
+- `config: ResolverConfig` — built from `task_tracking` in `specs/settings.yaml` (legacy home: the `CLAUDE.md` `## Task Tracking` section):
   for each configured tracker, load the adapter's Schema W `resolver:` block
   (`id_pattern`, `url_host`, `url_path_regex`, plus optional `prefixes` inferred
   from `ticket_id_regex`).

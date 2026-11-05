@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runClaudeMdDocsSectionProbe } from "../adapters/_shared/src/claudemd_docs_section";
 import { SETUP_MARKER, detectManagedSignals } from "../adapters/_shared/src/toolkit_managed";
+import { loadProjectSection, projectSettingsSection, renderSettingsPointer } from "../adapters/_shared/src/project_settings";
 
 // STE-107 AC-STE-107.4 / AC-STE-107.6 — `claudemd-docs-section-present` probe.
 //
@@ -250,13 +251,29 @@ describe("AC-STE-432.12 — the repo baseline assertion is two-sided", () => {
     expect(report.violations).toEqual([]);
   });
 
-  test("a copy of this repo's CLAUDE.md with ## Docs renamed yields exactly 1 violation", async () => {
-    // Non-vacuity fence: a guard that made probe #18 permanently silent on this
-    // repo would keep the zero-violation half green. This half fails unless the
-    // probe still has teeth on the real file.
-    const real = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
-    expect(real).toMatch(/^## Docs$/m);
-    const mutated = real.replace(/^## Docs$/m, "## Documentation");
+  test("a legacy-shaped fixture with ## Docs renamed yields exactly 1 violation", async () => {
+    // Non-vacuity fence: a guard that made probe #18 permanently silent would
+    // keep the zero-violation half green. This half fails unless the probe
+    // still has teeth on a legacy CLAUDE.md.
+    // Amended by AC-STE-713.5 (M_94e6f7): this repo's settings are read through
+    // the loader, and the mutation runs on a self-built legacy fixture rather than
+    // the real CLAUDE.md — after the dogfood migration the real file no longer
+    // carries `## Docs`, so renaming it there would be a no-op.
+    const docs = loadProjectSection(repoRoot, "docs");
+    for (const key of ["user_facing_mode", "packages_mode", "changelog_ci_owned"]) {
+      expect(typeof docs[key], key).toBe("boolean");
+    }
+    const legacy =
+      "# Project\n\n## Task Tracking\n\nmode: linear\n\n## Docs\n\n" +
+      `user_facing_mode: ${docs.user_facing_mode}\npackages_mode: ${docs.packages_mode}\n` +
+      `changelog_ci_owned: ${docs.changelog_ci_owned}\n`;
+    const intact = makeProject(legacy);
+    try {
+      expect((await runClaudeMdDocsSectionProbe(intact.root)).violations).toEqual([]);
+    } finally {
+      intact.cleanup();
+    }
+    const mutated = legacy.replace(/^## Docs$/m, "## Documentation");
     expect(mutated).not.toMatch(/^## Docs\s*$/m);
     const ctx = makeProject(mutated);
     try {
@@ -389,21 +406,29 @@ describe("AC-STE-107 — gate-check SKILL.md prose declares the probe", () => {
   });
 });
 
-describe("AC-STE-107.5 — CLAUDE.md.template advertises ## Docs default block", () => {
+describe("AC-STE-107.5 — the fresh-setup Docs default is advertised through the settings pointer", () => {
+  // Amended by M_94e6f7/STE-710 (AC-.9): the `## Docs` block left the template;
+  // probe #18 now reads `docs` in specs/settings.yaml plus the `## Project Settings`
+  // pointer, so the template must carry that pointer and the reference doc the defaults.
   const template = readFileSync(
     join(pluginRoot, "templates", "CLAUDE.md.template"),
     "utf-8",
   );
-  test("template carries a literal ## Docs heading at the top level", () => {
-    // The probe matches `^## Docs\b` outside HTML comments; the template
-    // must emit the section as a real heading.
-    expect(template).toMatch(/^## Docs$/m);
+  const reference = readFileSync(join(pluginRoot, "docs", "settings-reference.md"), "utf-8");
+  test("template carries a live ## Project Settings heading holding the pointer probe #18 grades", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the live heading probe #18 reads is `## Project Settings`, not `## Docs`.
+    expect(template).toMatch(/^## Project Settings$/m);
+    expect(template).not.toMatch(/^## Docs$/m);
+    const section = projectSettingsSection(template);
+    expect(section).not.toBeNull();
+    expect(`${section!.lines.join("\n")}\n`).toContain(renderSettingsPointer("3.0.0"));
   });
 
-  test("template seeds all three Schema-D defaults to false", () => {
-    expect(template).toMatch(/user_facing_mode: false/);
-    expect(template).toMatch(/packages_mode: false/);
-    expect(template).toMatch(/changelog_ci_owned: false/);
+  test("all three Schema-D keys default to false in their settings-file home", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the false seeds are the `docs.*` defaults in docs/settings-reference.md.
+    expect(reference).toMatch(/^\| `docs\.user_facing_mode` \| boolean \| `false` \|/m);
+    expect(reference).toMatch(/^\| `docs\.packages_mode` \| boolean \| `false` \|/m);
+    expect(reference).toMatch(/^\| `docs\.changelog_ci_owned` \| boolean \| `false` \|/m);
   });
 });
 

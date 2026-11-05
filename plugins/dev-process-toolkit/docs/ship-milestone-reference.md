@@ -192,7 +192,7 @@ All refusals carry the three-line shape: one-line verdict / `Remedy: <action>` /
 
 ## `## Release Files` block schema
 
-`/ship-milestone` reads a `## Release Files` block from the host project's `CLAUDE.md` and bumps every listed file by its `kind`. The block is the single source of truth for which paths get rewritten on a release — no path is hard-coded in the skill body. Parser + per-kind bump helpers live in `adapters/_shared/src/release_config.ts`.
+`/ship-milestone` reads the `release.files` key from the host project's `specs/settings.yaml` (legacy home: a `## Release Files` block in `CLAUDE.md`) and bumps every listed file by its `kind`. The block is the single source of truth for which paths get rewritten on a release — no path is hard-coded in the skill body. Parser + per-kind bump helpers live in `adapters/_shared/src/release_config.ts`.
 
 The block carries one fenced-yaml payload:
 
@@ -246,7 +246,7 @@ files:
 
 `version: 0.1.0+15` → `version: 0.2.0+15` (build suffix passes through unchanged).
 
-**`kind: changelog`** — inserts `## [X.Y.Z] — YYYY-MM-DD — "Codename"` above the topmost prior version section. Skipped entirely when CLAUDE.md `## Docs` carries `changelog_ci_owned: true` — CI owns the file.
+**`kind: changelog`** — inserts `## [X.Y.Z] — YYYY-MM-DD — "Codename"` above the topmost prior version section. Skipped entirely when `docs.changelog_ci_owned` in `specs/settings.yaml` (legacy: CLAUDE.md `## Docs`) is `true` — CI owns the file.
 
 **`kind: regex`** — universal escape hatch for free-form patterns:
 
@@ -276,7 +276,7 @@ Unrecognized stacks get a commented stub plus a "fill this in before running /sh
 
 ### Writing your own override
 
-Reach for `kind: regex` first — it covers any free-form line that doesn't fit the structured kinds. `/setup` re-runs preserve user-edited blocks: if the host CLAUDE.md already has a `## Release Files` block, `/setup` leaves it alone — user edits win.
+Reach for `kind: regex` first — it covers any free-form line that doesn't fit the structured kinds. `/setup` re-runs preserve user-edited blocks: if the host settings file already has `release.files` (legacy: a CLAUDE.md `## Release Files` block), `/setup` leaves it alone — user edits win.
 
 ### Refusals
 

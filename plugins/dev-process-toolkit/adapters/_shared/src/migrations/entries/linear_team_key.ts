@@ -31,7 +31,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { parseFrontmatter } from "../../frontmatter";
-import { readTaskTrackingSection } from "../../resolver_config";
+import type * as ProjectSettings from "../../project_settings";
+import type * as ResolverConfig from "../../resolver_config";
 import type * as BindingWrite from "../../setup/tracker_binding_write";
 import { LINEAR_TEAM_KEY, linearTeamKeyOf } from "../../tracker_answer";
 import type * as WorkspaceBinding from "../../workspace_binding";
@@ -40,14 +41,23 @@ import type { ApplyResult, DetectResult, MigrationEntry } from "../index";
 // The binding reader and its one writer both import `migrations/coverage`,
 // which imports this registry: loading them at module load closes an import
 // cycle through `migrations/index` and leaves this entry uninitialised when the
-// registry reads it. They are loaded when first used instead.
+// registry reads it. They are loaded when first used instead. The mode reader
+// joins them since it reads through the settings loader (STE-707).
+const readTaskTrackingSection: typeof ResolverConfig.readTaskTrackingSection = (...a) =>
+  (require("../../resolver_config") as typeof ResolverConfig).readTaskTrackingSection(...a);
 const readWorkspaceBinding: typeof WorkspaceBinding.readWorkspaceBinding = (...a) =>
   (require("../../workspace_binding") as typeof WorkspaceBinding).readWorkspaceBinding(...a);
 const writeTrackerSubsection: typeof BindingWrite.writeTrackerSubsection = (...a) =>
   (require("../../setup/tracker_binding_write") as typeof BindingWrite).writeTrackerSubsection(...a);
+const detectSettingsSource: typeof ProjectSettings.detectSettingsSource = (...a) =>
+  (require("../../project_settings") as typeof ProjectSettings).detectSettingsSource(...a);
+const SETTINGS_FILE = "specs/settings.yaml";
 
 interface TeamKeyPlan {
+  /** The home the binding is read from and written to: CLAUDE.md, or specs/settings.yaml on a migrated tree (review R2-F1). */
   rel: string;
+  /** How the evidence names the team line in that home. */
+  where: string;
   claudeMd: string;
   project: string;
   team: string;
@@ -95,8 +105,10 @@ function planTeamKey(projectRoot: string): TeamKeyPlan | null {
   }
   const team = binding.team;
   if (team === undefined || team === "" || LINEAR_TEAM_KEY.test(team)) return null;
-  const rel = relative(projectRoot, claudeMd);
-  const base = { rel, claudeMd, project: binding.project ?? "", team };
+  const onSettings = detectSettingsSource(projectRoot) === "settings";
+  const rel = onSettings ? SETTINGS_FILE : relative(projectRoot, claudeMd);
+  const where = onSettings ? "`task_tracking.linear.team`" : "`### Linear`";
+  const base = { rel, where, claudeMd, project: binding.project ?? "", team };
   if (binding.project === undefined || binding.project.trim() === "") {
     return { ...base, key: null, why: "the sub-section has no `project:` line, and the writer never writes an empty `project:`" };
   }
@@ -112,7 +124,10 @@ function planTeamKey(projectRoot: string): TeamKeyPlan | null {
   return { ...base, key: [...prefixes][0]!, why: `every bound Linear id (${ids.length}) carries the prefix ${[...prefixes][0]}` };
 }
 
-const REMEDY = "set `team:` under `### Linear` to the team's KEY — the prefix of its issue identifiers (e.g. `STE` for `STE-618`) — by hand";
+const KEY_HINT = "to the team's KEY — the prefix of its issue identifiers (e.g. `STE` for `STE-618`) — by hand";
+const REMEDY = `set \`team:\` under \`### Linear\` ${KEY_HINT}`;
+const remedy = (plan: TeamKeyPlan): string =>
+  plan.rel === SETTINGS_FILE ? `set \`task_tracking.linear.team\` in ${SETTINGS_FILE} ${KEY_HINT}` : REMEDY;
 
 export const linearTeamKey: MigrationEntry = {
   id: "linear-team-key",
@@ -127,8 +142,8 @@ export const linearTeamKey: MigrationEntry = {
       applies: true,
       evidence: [
         plan.key === null
-          ? `${plan.rel} — \`### Linear\` \`team: ${plan.team}\` is not a team key, so every Linear create decision refuses; ${plan.why}: ${REMEDY}. (An all-caps display name that is not the key looks key-shaped and is not detected.)`
-          : `${plan.rel} — \`### Linear\` \`team: ${plan.team}\` is not a team key, so every Linear create decision refuses; ${plan.why}: rewrite it to \`team: ${plan.key}\`. (An all-caps display name that is not the key looks key-shaped and is not detected.)`,
+          ? `${plan.rel} — ${plan.where} \`team: ${plan.team}\` is not a team key, so every Linear create decision refuses; ${plan.why}: ${remedy(plan)}. (An all-caps display name that is not the key looks key-shaped and is not detected.)`
+          : `${plan.rel} — ${plan.where} \`team: ${plan.team}\` is not a team key, so every Linear create decision refuses; ${plan.why}: rewrite it to \`team: ${plan.key}\`. (An all-caps display name that is not the key looks key-shaped and is not detected.)`,
       ],
     };
   },
@@ -136,11 +151,21 @@ export const linearTeamKey: MigrationEntry = {
     const plan = planTeamKey(projectRoot);
     if (plan === null) return { changed: [], summary: "nothing to repair: no Linear binding holds a display-name team" };
     if (plan.key === null) {
-      return { changed: [], summary: `Refusing: ${plan.rel} binds \`team: ${plan.team}\`, and ${plan.why}; nothing was written. Remedy: ${REMEDY}.` };
+      return { changed: [], summary: `Refusing: ${plan.rel} binds \`team: ${plan.team}\`, and ${plan.why}; nothing was written. Remedy: ${remedy(plan)}.` };
     }
-    const r = writeTrackerSubsection(plan.claudeMd, "linear", { project: plan.project, team: plan.key });
+    // The changed set is every file whose bytes the writer changed: on a migrated tree
+    // that is specs/settings.yaml, plus CLAUDE.md when the binding stub there is synced.
+    // /upgrade stages exactly this set (review R2-F1).
+    const files = [relative(projectRoot, plan.claudeMd), SETTINGS_FILE];
+    const bytes = (rel: string): string | null => {
+      const abs = join(projectRoot, rel);
+      return existsSync(abs) ? readFileSync(abs, "utf-8") : null;
+    };
+    const before = files.map(bytes);
+    writeTrackerSubsection(plan.claudeMd, "linear", { project: plan.project, team: plan.key });
+    const changed = files.filter((rel, i) => bytes(rel) !== before[i]);
     return {
-      changed: r.changed ? [plan.rel] : [],
+      changed: changed.sort((a, b) => Number(b === plan.rel) - Number(a === plan.rel)),
       summary: `${plan.rel}: \`team: ${plan.team}\` → \`team: ${plan.key}\` (${plan.why})`,
     };
   },

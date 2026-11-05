@@ -127,6 +127,20 @@ function makeTree(files: Record<string, string>): string {
   return root;
 }
 
+// Amended by M_94e6f7/STE-711 (allowed difference 2): a managed CLAUDE.md with no
+// specs/settings.yaml is an unmoved tree, so probe #69 also renders the
+// warn-only `settings-file` row there (STE-713). Tests about ANOTHER entry
+// grade the report with that one row taken out; every other row and note
+// stays, and the remedy goes only when no other row is left.
+type StalenessReport = Awaited<ReturnType<typeof runUpgradeStalenessProbe>>;
+function withoutSettingsFileRow(r: StalenessReport): StalenessReport {
+  const isSettingsRow = (line: string): boolean => line.startsWith("settings-file (");
+  const rows = r.rows.filter((row) => !isSettingsRow(row));
+  const kept = r.notes.filter((n) => !isSettingsRow(n));
+  const notes = rows.length === 0 ? kept.filter((n) => n !== UPGRADE_STALENESS_REMEDY) : kept;
+  return { ...r, rows, notes };
+}
+
 /** Plant the pre-M104 tracked locks folder (m104-legacy-state, 1 evidence). */
 function plantLegacyLocks(root: string): void {
   mkdirSync(legacyLocksDir(root), { recursive: true });
@@ -239,6 +253,13 @@ function plantLinearDisplayNameTeam(root: string): void {
 function plantPreVideoDptGitignore(root: string): void {
   mkdirSync(join(root, ".dpt"), { recursive: true });
   writeFileSync(join(root, ".dpt", ".gitignore"), "ledger/\nscratch/\nskip-baseline.json\n", "utf-8");
+}
+
+// Amended by M_94e6f7/STE-711 (AC-.13): a moved CLAUDE.md heading with a
+// recognised key, a legacy settings home the `settings-file` entry moves.
+function plantLegacySettingsHome(root: string): void {
+  const path = join(root, "CLAUDE.md");
+  writeFileSync(path, `${readFileSync(path, "utf-8")}\n## Token Stats\n\nenabled: true\n`, "utf-8");
 }
 
 function plantVerificationBlockWithoutRunCmd(root: string): void {
@@ -390,7 +411,7 @@ describe("AC-STE-394.1 — Step 0: a toolkit-managed section admits the walk", (
     test(`${label} makes the tree in-scope, so the detector walk runs`, async () => {
       const root = makeTree({ "CLAUDE.md": claudeMd });
       plantLegacyLocks(root);
-      const r = await runUpgradeStalenessProbe(root);
+      const r = withoutSettingsFileRow(await runUpgradeStalenessProbe(root)); // Amended by M_94e6f7/STE-711 (allowed difference 2)
       expect(r.rows.length).toBe(1);
       expect(r.rows[0]!.startsWith("m104-legacy-state (2.46.0): ")).toBe(true);
     });
@@ -577,7 +598,7 @@ describe("AC-STE-394.3 — probe purity", () => {
   test("registry defaults to the live MIGRATIONS list when omitted", async () => {
     const root = makeTree({ "CLAUDE.md": MANAGED_BY_TASK_TRACKING });
     plantLegacyLocks(root);
-    const r = await runUpgradeStalenessProbe(root);
+    const r = withoutSettingsFileRow(await runUpgradeStalenessProbe(root)); // Amended by M_94e6f7/STE-711 (allowed difference 2)
     expect(r.rows.length).toBe(1);
     expect(r.rows[0]!.startsWith("m104-legacy-state (2.46.0): ")).toBe(true);
   });
@@ -590,7 +611,7 @@ describe("AC-STE-394.3 — probe purity", () => {
 describe("AC-STE-394.4 — vacuous in both directions", () => {
   test("a clean managed tree renders zero rows and zero notes", async () => {
     const root = makeTree({ "CLAUDE.md": MANAGED_BY_TASK_TRACKING, "README.md": "# clean\n" });
-    const r = await runUpgradeStalenessProbe(root);
+    const r = withoutSettingsFileRow(await runUpgradeStalenessProbe(root)); // Amended by M_94e6f7/STE-711 (allowed difference 2)
     expect(r.rows).toEqual([]);
     expect(r.notes).toEqual([]);
     expect(r.violations).toEqual([]);
@@ -627,6 +648,7 @@ describe("AC-STE-394.9 — each live legacy state renders exactly its own row", 
     ["verification-run-keys", plantVerificationBlockWithoutRunCmd],
     ["linear-team-key", plantLinearDisplayNameTeam],
     ["dpt-gitignore-video", plantPreVideoDptGitignore],
+    ["settings-file", plantLegacySettingsHome], // Amended by M_94e6f7/STE-711 (AC-.13)
   ];
 
   // Completeness guard. Without it the table above is a hand-maintained list
@@ -642,7 +664,8 @@ describe("AC-STE-394.9 — each live legacy state renders exactly its own row", 
     test(`a tree carrying only ${id}'s legacy state renders exactly one row, for ${id}`, async () => {
       const root = makeTree({ "CLAUDE.md": MANAGED_BY_TASK_TRACKING });
       plant(root);
-      const r = await runUpgradeStalenessProbe(root);
+      const raw = await runUpgradeStalenessProbe(root);
+      const r = id === "settings-file" ? raw : withoutSettingsFileRow(raw); // Amended by M_94e6f7/STE-711 (allowed difference 2)
       const entry = liveEntry(id);
       expect(r.rows.length).toBe(1);
       expect(r.rows[0]!.startsWith(`${entry.id} (${entry.introduced_in}): `)).toBe(true);
@@ -658,7 +681,7 @@ describe("AC-STE-394.9 — each live legacy state renders exactly its own row", 
     plantMonolith(root); // monolith-split — 1.16.0, first in registry order
     plantV1Orphan(root); // v1-orphans     — 1.20.0
     plantLegacyLocks(root); // m104-legacy-state — 2.46.0, last
-    const r = await runUpgradeStalenessProbe(root);
+    const r = withoutSettingsFileRow(await runUpgradeStalenessProbe(root)); // Amended by M_94e6f7/STE-711 (allowed difference 2)
     const ids = r.rows.map((row) => row.slice(0, row.indexOf(" (")));
     expect(ids).toEqual(["monolith-split", "v1-orphans", "m104-legacy-state"]);
     expect(r.notes).toEqual([...r.rows, UPGRADE_STALENESS_REMEDY]);
@@ -1036,7 +1059,7 @@ describe("AC-STE-410.4 — managed-tree behavior byte-identical: full walk, reme
     const entry = liveEntry("monolith-split");
     const row = `${entry.id} (${entry.introduced_in}): ${entry.detect(root).evidence.join("; ")}`;
 
-    const r = await runUpgradeStalenessProbe(root);
+    const r = withoutSettingsFileRow(await runUpgradeStalenessProbe(root)); // Amended by M_94e6f7/STE-711 (allowed difference 2)
     // The managed path renders the monolith row through the registry walk,
     // exactly as it did before STE-410.
     expect(r.rows).toEqual([row]);

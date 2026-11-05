@@ -58,6 +58,7 @@
 
 import { join, relative } from "node:path";
 import { detectRunnability } from "./detect_runnability";
+import { detectSettingsSource, SETTINGS_FILE } from "./project_settings";
 import { isToolkitManaged } from "./toolkit_managed";
 import {
   VERIFICATION_HEADING,
@@ -133,7 +134,11 @@ export async function runRunnabilityDeclaredProbe(
   const claudeMd = join(projectRoot, "CLAUDE.md");
   if (hasRunCmdAnswer(claudeMd)) return { violations: [], vacuous: false };
 
-  const rel = relative(projectRoot, claudeMd);
+  // STE-709 — on a settings-file tree the answer lives in
+  // `verification.run_cmd` of the settings file, so the violation cites it.
+  const settingsTree = detectSettingsSource(projectRoot) === "settings";
+  const file = settingsTree ? join(projectRoot, SETTINGS_FILE) : claudeMd;
+  const rel = relative(projectRoot, file);
   // Point at the block the author must edit; with no block yet, the file
   // itself. The heading's position comes from the section's own module — this
   // probe decides only the no-section FALLBACK, never where a section is.
@@ -148,7 +153,9 @@ export async function runRunnabilityDeclaredProbe(
   const note = `${rel}:${line} — ${reason}`;
   const message = [
     `${PROBE_ID}: ${note}`,
-    `Remedy: add a \`run_cmd:\` line to the \`${VERIFICATION_HEADING}\` section of ${rel} ` +
+    (settingsTree
+      ? `Remedy: set \`verification.run_cmd\` in ${rel} `
+      : `Remedy: add a \`run_cmd:\` line to the \`${VERIFICATION_HEADING}\` section of ${rel} `) +
       "naming the command that starts this project (e.g. `run_cmd: bun run dev`). " +
       "If the project genuinely cannot be run — a library, a plugin, a spec repo — " +
       "write `run_cmd: none`: `none` is an answer, and it silences this probe " +
@@ -159,7 +166,7 @@ export async function runRunnabilityDeclaredProbe(
   ].join("\n");
 
   return {
-    violations: [{ file: claudeMd, line, severity: "error", reason, note, message }],
+    violations: [{ file, line, severity: "error", reason, note, message }],
     vacuous: false,
   };
 }

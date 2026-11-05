@@ -37,8 +37,9 @@
 //     ignored. Duplicates are deduped; result is sorted ascending.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { NUMERIC_MILESTONE_NUMBER_SOURCE } from "./milestone_token";
+import { detectSettingsSource, SETTINGS_FILE } from "./project_settings";
 import { readTaskTrackingSection } from "./resolver_config";
 
 export interface MilestoneAvailability {
@@ -222,19 +223,25 @@ if (import.meta.main) {
     const typedId = `M${typedNumber}`;
     let mode: string | undefined;
     let modeRefusal: string | null = null;
+    const source = detectSettingsSource(dirname(claudeMdPath));
+    const onSettings = source === "settings" || source === "both";
     try {
       mode = readTaskTrackingSection(claudeMdPath)["mode"];
     } catch (e) {
       modeRefusal = [
         `Refusing: to check typed milestone ${typedId} — the CLAUDE.md beside the specs directory could not be read, so the tracker mode is unknown.`,
-        `Remedy: make ${claudeMdPath} a readable file declaring \`## Task Tracking\` → \`mode:\`, then re-run.`,
+        onSettings
+          ? `Remedy: fix ${SETTINGS_FILE} so its \`task_tracking.mode\` reads (see the error below), then re-run.`
+          : `Remedy: make ${claudeMdPath} a readable file declaring \`## Task Tracking\` → \`mode:\`, then re-run.`,
         `Context: mode=milestone-number-allocation, phase=explicit-M-token-check, typed=${typedId}, claude_md=${claudeMdPath}, error=${e instanceof Error ? e.message : String(e)}`,
       ].join("\n");
     }
     if (modeRefusal === null && mode !== undefined && mode !== "none" && mode !== "jira" && mode !== "linear") {
       modeRefusal = [
         `Refusing: to check typed milestone ${typedId} — \`## Task Tracking\` declares a malformed mode ${JSON.stringify(mode)}; expected none, jira or linear.`,
-        `Remedy: set \`mode:\` in ${claudeMdPath} to one of none, jira, linear, then re-run.`,
+        onSettings
+          ? `Remedy: set \`task_tracking.mode\` in ${SETTINGS_FILE} to one of none, jira, linear, then re-run.`
+          : `Remedy: set \`mode:\` in ${claudeMdPath} to one of none, jira, linear, then re-run.`,
         `Context: mode=milestone-number-allocation, phase=explicit-M-token-check, typed=${typedId}, tracker_mode=${JSON.stringify(mode)}`,
       ].join("\n");
     }

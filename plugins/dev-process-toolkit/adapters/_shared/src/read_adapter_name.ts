@@ -21,9 +21,17 @@
 // `mode:` re-derivation inside this module if needed.
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
+import { detectSettingsSource, SETTINGS_FILE } from "./project_settings";
 import { MalformedAdapterMetadataError } from "./resolver_config";
+
+/** STE-707 AC-STE-707.6 — the home the `mode:` value is read from, cited by key path. */
+function modeCitation(claudeMdPath: string): string {
+  return detectSettingsSource(dirname(claudeMdPath)) === "settings"
+    ? `\`${SETTINGS_FILE}\` \`task_tracking.mode\``
+    : "`CLAUDE.md` `## Task Tracking` `mode:`";
+}
 
 /**
  * Read the canonical adapter `name:` field from
@@ -53,7 +61,7 @@ export function readAdapterName(
       [
         `${adapterPath}:1:1 — adapter file not found`,
         `Refusing: cannot resolve adapter \`name:\` for mode \`${mode}\`.`,
-        `Remedy: create \`${adapterPath}\` with a \`name: ${mode}\` frontmatter key, or update \`CLAUDE.md\` \`## Task Tracking\` \`mode:\` to a configured adapter.`,
+        `Remedy: create \`${adapterPath}\` with a \`name: ${mode}\` frontmatter key, or update ${modeCitation(claudeMdPath)} to a configured adapter.`,
         `Context: claudeMdPath=${claudeMdPath}`,
       ].join("\n"),
     );

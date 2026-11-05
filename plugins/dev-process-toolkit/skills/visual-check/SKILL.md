@@ -10,7 +10,7 @@ Visually verify the web UI by using a rubber duck (MCP) with Chrome browser tool
 
 ## As a verification skill
 
-`verify_skill: visual-check` is a valid `## Verification` value in a project's CLAUDE.md. When set, `/implement`'s Phase 4b″ runs `/dev-process-toolkit:visual-check` — with its built-in MCP-probe path and manual-checklist fallback — as the per-FR verification pass. This is the zero-authoring verification path for web UIs: declare it and get visual verification without writing a project-local check skill.
+`verify_skill: visual-check` is a valid `verification` value in `specs/settings.yaml` (legacy: `## Verification` in a project's CLAUDE.md). When set, `/implement`'s Phase 4b″ runs `/dev-process-toolkit:visual-check` — with its built-in MCP-probe path and manual-checklist fallback — as the per-FR verification pass. This is the zero-authoring verification path for web UIs: declare it and get visual verification without writing a project-local check skill.
 
 ## Process
 

@@ -46,6 +46,8 @@ Per Pattern 26 (see docs/auto-mode-protocol.md § Socratic Loop Contract), the s
 - **`scaffolding`** — one `AskUserQuestion` offering the detected build/CI/lint configs as selectable options.
 - **`sourcePatterns`** — one `AskUserQuestion` offering the detected source trees, framed as structure-reuse candidates for the later landing steps.
 
+**Pair refusal.** A 3.x template (one carrying `specs/settings.yaml`) keeps its settings in that file, so `CLAUDE.md` and `specs/settings.yaml` travel as a pair: a per-category copy set holding one without the other refuses in `Refusing:` / `Remedy:` / `Context:` shape, naming both files, before the Step 5 diff — the target tree stays byte-identical. A 2.x template (no settings file) copies `CLAUDE.md` alone exactly as before.
+
 Record the answers as the **copy set**. Nothing is copied without an explicit selection — a declined question, an empty answer, or a skipped category contributes zero entries to the copy set, and there is no select-all default.
 
 ### Step 3b — Whole-project mode (offered only on `wholeProjectCandidate`)
@@ -65,6 +67,8 @@ Compose the proposed content for every entry in the copy set — in memory or a 
 
 - **Config files** (`processConfig` + `scaffolding` selections) — copy the template file, then rewrite **project-identifying** names to the current project's equivalents: the template's project/package name, repo slug, description strings, and template-specific paths. A value with no confident current-project equivalent is left as copied and called out as a follow-up in the Step 5 preview, never silently guessed.
 - **Manifests** (per-entry `manifests` selections) — filter through the canonical manifest modules, never hand-authored YAML: read the template's rows via `readManifest` from `adapters/_shared/src/deps_manifest.ts` (deps) and `adapters/_shared/src/best_practices_manifest.ts` (best-practices), keep only the selected entries, merge them onto the current project's baseline manifest (read via the same modules; absent file ⇒ empty baseline), and serialize the proposal via `writeManifest`. Entry paths get the same project-identifying rewrite as config files.
+
+Compose the copy set by RUNNING `planTemplateCopy(templateRoot, targetRoot, { mode: "per-category", selection } | { mode: "whole-project" })` from `adapters/_shared/src/setup/template_copy.ts` — it writes nothing, enforces the pair refusal, refuses (NFR-10) when the target already holds a foreign `specs/settings.yaml`, and applies the **NEW_KEYS filter**: a copied `specs/settings.yaml` has every key listed in `NEW_KEYS` (`adapters/_shared/src/project_settings.ts`) dropped, and a parent left empty goes with it; every other byte is the template's. Its `report` names each dropped key — carry it verbatim in the Step 5 preview and the closing report.
 
 ### Step 5 — ONE unified diff preview behind the approval gate
 

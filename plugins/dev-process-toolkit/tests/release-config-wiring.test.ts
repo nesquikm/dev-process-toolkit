@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseReleaseFiles } from "../adapters/_shared/src/release_config";
+import { parseReleaseFiles, readReleaseFiles } from "../adapters/_shared/src/release_config";
+import { renderSettingsPointer } from "../adapters/_shared/src/project_settings";
 
 // AC-STE-167.5 / AC-STE-167.4 / AC-STE-167.2 — wiring tests.
 //
@@ -42,18 +44,33 @@ describe("AC-STE-167.5 — toolkit CLAUDE.md self-hosts the block", () => {
   });
 });
 
-describe("AC-STE-167.1 — CLAUDE.md.template ships the block stub", () => {
-  test("template carries a `## Release Files` heading", () => {
+describe("AC-STE-167.1 — the default release-files stub lands in the settings file", () => {
+  // Amended by M_94e6f7/STE-710 (AC-.9): `## Release Files` left the template;
+  // /setup writes `release.files` in specs/settings.yaml from examples/<stack>/release.yml,
+  // and the template points the reader there through `## Project Settings`.
+  test("template carries the `## Project Settings` pointer in place of a `## Release Files` heading", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the heading pinned here is now the settings pointer.
     const tpl = read(join(pluginRoot, "templates", "CLAUDE.md.template"));
-    expect(tpl).toContain("## Release Files");
+    expect(tpl).not.toContain("## Release Files");
+    expect(tpl).toMatch(/^## Project Settings$/m);
+    expect(tpl).toContain(renderSettingsPointer("3.0.0"));
   });
 
-  test("template's stub block parses to a valid entry list", () => {
-    const tpl = read(join(pluginRoot, "templates", "CLAUDE.md.template"));
-    const entries = parseReleaseFiles(tpl);
-    expect(entries.length).toBeGreaterThan(0);
-    // Default stub assumes a TS/Node project — package.json + CHANGELOG + README.
-    expect(entries.some((e) => e.path === "package.json" && e.kind === "json")).toBe(true);
+  test("the default stub, written as `release.files`, parses to a valid entry list", () => {
+    // Amended by M_94e6f7/STE-710 (AC-.9): the TS/Node stub is read back through the loader from the settings file.
+    const stub = read(join(pluginRoot, "examples", "typescript-node", "release.yml"));
+    const files = stub.slice(stub.search(/^files:/m)).replace(/^(?=.)/gm, "  ");
+    const root = mkdtempSync(join(tmpdir(), "ste167-release-"));
+    try {
+      mkdirSync(join(root, "specs"));
+      writeFileSync(join(root, "specs", "settings.yaml"), `schema_version: 1\nmin_dpt_version: "2.0.0"\nrelease:\n${files}`);
+      const entries = readReleaseFiles(root, () => "");
+      expect(entries.length).toBeGreaterThan(0);
+      // Default stub assumes a TS/Node project — package.json + CHANGELOG + README.
+      expect(entries.some((e) => e.path === "package.json" && e.kind === "json")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

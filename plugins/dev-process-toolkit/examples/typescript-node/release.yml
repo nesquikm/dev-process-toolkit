@@ -1,5 +1,6 @@
-# Default `## Release Files` block for a TypeScript / Node project.
-# Copied into the host project's CLAUDE.md by /setup; reach for `kind: regex`
+# Default `release.files` entries for a TypeScript / Node project, which /setup
+# writes into specs/settings.yaml (on a legacy tree, the CLAUDE.md
+# `## Release Files` block). Reach for `kind: regex`
 # if your README "Latest:" line uses a non-standard shape.
 files:
   - path: package.json

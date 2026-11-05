@@ -849,6 +849,9 @@ describe("AC-STE-541.4 — the adoption notice is registered and owned by /spec-
       "linear-team-key",
       // M_1e0717 (2.96.0) — not this milestone's entry either.
       "dpt-gitignore-video",
+      // Amended by M_94e6f7/STE-711 (AC-.13) — the settings-file move (3.0.0) is
+      // registered last; M139 still ships none.
+      "settings-file",
     ]);
   });
 

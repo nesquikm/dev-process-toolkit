@@ -293,7 +293,7 @@ export const GATE_REGISTRY: readonly GateDescriptor[] = [
   // word for word — one correct answer, already determined upstream by the
   // chain that named the step. The operator still decides WHAT gets built at
   // `implement_commit_approval` and WHICH chain runs at `deliver_chain_confirm`;
-  // these four only ask whether the step the chain already names starts now.
+  // these six only ask whether the step the chain already names starts now.
   //
   // Each summary deliberately names NO guarded action. A guard hit OVERRIDES
   // the declared class, so a summary that named one would silently make its
@@ -307,7 +307,7 @@ export const GATE_REGISTRY: readonly GateDescriptor[] = [
   // argument: nothing at all without a delegation on the record.
   // `relayRequired(gate, null)` is `true` for EVERY gate — registered or not,
   // whatever its class — so an undelegated run asks exactly the questions it
-  // asked before these four lines existed. Registration widens what an
+  // asked before these six lines existed. Registration widens what an
   // operator CAN delegate; it delegates nothing by itself.
   gate(
     "brainstorm_start_now",
@@ -328,6 +328,18 @@ export const GATE_REGISTRY: readonly GateDescriptor[] = [
     "ship_milestone_video",
     "mechanical",
     "confirm an explainer video is made now for the milestone just released",
+  ),
+  // AC-STE-712.4 (M_94e6f7): the two opt-in close-out upgrade offers. The step
+  // they name is probe #69's own remedy, already determined upstream.
+  gate(
+    "implement_upgrade_offer",
+    "mechanical",
+    "confirm the pending toolkit upgrades are applied now",
+  ),
+  gate(
+    "deliver_close_upgrade_offer",
+    "mechanical",
+    "confirm the pending toolkit upgrades are applied now that the last milestone has closed",
   ),
 
   // IRREVERSIBLE — the operator alone, per action.

@@ -62,7 +62,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { detectRunnability } from "../../detect_runnability";
-import { VERIFICATION_HEADING } from "../../verification_config";
+import type * as ProjectSettings from "../../project_settings";
+import type * as VerificationConfig from "../../verification_config";
 import type { ApplyResult, DetectResult, MigrationEntry } from "../index";
 
 /** The key this entry seeds, and the only value it is ever willing to write. */
@@ -197,6 +198,14 @@ function splicePosition(lines: readonly string[], start: number, end: number): n
  * whose runnability the detector actually established.
  */
 function planRunCmdSplice(projectRoot: string): PlannedSplice | null {
+  // A tree whose settings live in specs/settings.yaml (or are mid-move beside a
+  // leftover) has no CLAUDE.md `## Verification` home: a heading the move kept
+  // for its prose is not a block to seed. Splicing there would create a second
+  // home and brick the tree on the next walk (review B1).
+  const { detectSettingsSource } = require("../../project_settings") as typeof ProjectSettings;
+  const source = detectSettingsSource(projectRoot);
+  if (source === "settings" || source === "both") return null;
+
   const file = join(projectRoot, "CLAUDE.md");
   const raw = readTextOrNull(file);
   if (raw === null) return null;
@@ -206,6 +215,9 @@ function planRunCmdSplice(projectRoot: string): PlannedSplice | null {
   // Whole-line match on the shared heading constant — never a substring, never
   // a private copy of the literal, so the entry and the parser can never
   // disagree about where the section is.
+  // Loaded when first used: the module imports the settings loader, whose
+  // version helpers import this registry (STE-707).
+  const { VERIFICATION_HEADING } = require("../../verification_config") as typeof VerificationConfig;
   const start = lines.indexOf(VERIFICATION_HEADING);
   if (start < 0) return null;
 

@@ -14,6 +14,7 @@ import { linearTeamKey } from "./entries/linear_team_key";
 import { m104LegacyState } from "./entries/m104_legacy_state";
 import { modeNoneSequentialMilestone } from "./entries/mode_none_sequential_milestone";
 import { permissionShapes } from "./entries/permission_shapes";
+import { settingsFile } from "./entries/settings_file";
 import { staleHookEntries } from "./entries/stale_hook_entries";
 import { v1Orphans } from "./entries/v1_orphans";
 import { verificationRunKeys } from "./entries/verification_run_keys";
@@ -110,6 +111,7 @@ export const MIGRATIONS: MigrationEntry[] = [
   verificationRunKeys, // 2.70.0
   linearTeamKey, // 2.90.0
   dptGitignoreVideo, // 2.96.0
+  settingsFile, // 3.0.0
 ];
 
 validateRegistry(MIGRATIONS);

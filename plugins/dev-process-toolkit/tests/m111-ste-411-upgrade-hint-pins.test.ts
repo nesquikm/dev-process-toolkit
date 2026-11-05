@@ -23,6 +23,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { renderSettingsPointer, writeProjectSettings } from "../adapters/_shared/src/project_settings";
 import { LEGACY_MONOLITH_HINT } from "../adapters/_shared/src/upgrade_staleness";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
@@ -96,15 +97,22 @@ function makeUnmanagedMonolithFixture(): Fixture {
 }
 
 /**
- * A clean, toolkit-managed, current tree: `CLAUDE.md` carries the `## Task
- * Tracking` managed section (so the probe walks the registry rather than the
- * unmanaged sniff), and nothing legacy is on disk. Every detector reports
- * `applies: false`, so the report's notes — and therefore the CLI's stdout — are
- * empty.
+ * A clean, toolkit-managed, current tree: `specs/settings.yaml` marks it managed
+ * (so the probe walks the registry rather than the unmanaged sniff), CLAUDE.md
+ * carries only the `## Project Settings` pointer, and nothing legacy is on disk.
+ * Every detector reports `applies: false`, so the report's notes — and therefore
+ * the CLI's stdout — are empty.
  */
+// Amended by M_94e6f7/STE-711 (allowed difference 2): the fixture was a legacy
+// `## Task Tracking` tree, which 3.0 reports as a pending `settings-file` row; a
+// current managed tree is now a settings-file tree.
+// The floor sits below every running version (the loader refuses a floor above
+// it), so the fixture stays current before and after the 3.0 version bump.
+const FLOOR = "2.0.0";
 function makeCleanManagedFixture(): Fixture {
   const root = mkdtempSync(join(tmpdir(), "ste-411-clean-"));
-  writeFileSync(join(root, "CLAUDE.md"), "## Task Tracking\n\nmode: none\n");
+  writeFileSync(join(root, "CLAUDE.md"), ["# Project", "", "## Project Settings", "", renderSettingsPointer(FLOOR)].join("\n"));
+  writeProjectSettings(root, { schema_version: 1, min_dpt_version: FLOOR, task_tracking: { mode: "none" } }, { create: true });
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 

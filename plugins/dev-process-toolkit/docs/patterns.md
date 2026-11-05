@@ -389,13 +389,13 @@ This is a convention problem, not a clever-code problem. Every one of those read
 
 **Problem** (cross-cuts Pattern 9): Two modes coexist — `mode: none` (default, ACs in `specs/requirements.md`) and `mode: <tracker>` (Linear, Jira, custom — ACs in a task tracker). Every affected skill — `/setup`, `/spec-write`, `/implement`, `/gate-check`, `/pr`, `/spec-review`, `/spec-archive` — must run the right branch. If any skill guesses mode inconsistently or reads tracker state when the section is absent, the `mode: none` branch contract (Pattern 9) breaks silently.
 
-**Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section; section absence ≡ `mode: none` (the canonical no-tracker form); section presence means parse the `key: value` block per Schema L (technical-spec §3 Cross-Skill Schema Definitions). Only after the probe resolves does the skill branch.
+**Solution**: Every mode-aware skill begins with the same probe. The probe reads `CLAUDE.md` for the `## Task Tracking` section (on a settings-file tree, the binding stub rendered from `specs/settings.yaml`); section absence ≡ `mode: none` (the canonical no-tracker form); section presence means parse the `key: value` block per Schema L (technical-spec §3 Cross-Skill Schema Definitions). Only after the probe resolves does the skill branch.
 
 **Canonical probe (run at skill entry, before any side effect):**
 
 ```
 1. Read CLAUDE.md if it exists. If it doesn't, mode = none. Stop probing.
-2. grep -c '^## Task Tracking$' CLAUDE.md
+2. grep -c '^## Task Tracking$' CLAUDE.md   # legacy home, or the stub rendered from specs/settings.yaml
    - 0 → mode = none (default, mode-none code path runs unchanged)
    - 1 → section exists; continue to step 3
    - >1 → malformed file; fail with NFR-10 canonical error shape
@@ -406,7 +406,11 @@ This is a convention problem, not a clever-code problem. Every one of those read
 
 **Mode-none branch contract (Pattern 9):** in `mode: none`, **every** mode-aware skill runs the `mode: none` body unchanged. The probe step is the single insertion; if `## Task Tracking` is absent, the skill runs its `mode: none` branch. Tracker-mode branches are gated behind the probe — they are never entered in `none` mode.
 
-**Why the section heading is the single probe anchor:** a literal heading check is cheaper than YAML frontmatter parsing, deterministic across markdown renderers, and survives CLAUDE.md edits that preserve structure. Keys inside the section are parsed only after the heading is confirmed present, so malformed key lines never break the `none` path.
+**Why the section heading is the single probe anchor:** a literal heading check is cheaper than YAML frontmatter parsing, deterministic across markdown renderers, and survives CLAUDE.md edits that preserve structure. Keys inside the section are parsed only after the heading is confirmed present, so malformed key lines never break the `none` path. Through 3.x the heading stays the skills' anchor; on a settings-file tree it is carried by the generated binding stub. In 4.0 the stub goes away and the STE-708 front door, `project_settings.ts mode`, becomes the anchor.
+
+**Settings-file trees.** On a tree whose settings live in `specs/settings.yaml`, the `## Task Tracking` heading the probe reads is the generated binding stub, rendered from `task_tracking` in `specs/settings.yaml`. It carries the heading, the `mode:` line and the adapter's binding keys, and is never edited by hand. A tracker-mode settings tree always carries the stub, and gate-check probe #25 grades it byte-equal to its render. A settings tree in `mode: none` has no stub, so the absent heading still means `mode: none`. The prose read above therefore gives the same answer on every tree, with no extra call.
+
+**Code-side read.** Code reads the mode through the settings loader: `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/project_settings.ts" mode "<projectRoot>"` prints `mode: <value>` and `source: <settings|legacy|none>`. `project_settings.ts mode` is the code-side read and the skills' path in 4.0, when the stub goes away. It is not a skill entry step: through 3.x no skill runs it.
 
 **Rules:**
 - The probe must be the first action any mode-aware skill takes after reading its arguments — before branch inspection, before MCP calls, before file writes.
@@ -425,11 +429,11 @@ This is a convention problem, not a clever-code problem. Every one of those read
 | `jira_ac_field` | `customfield_XXXXX` (Jira only; blank otherwise) | Jira adapter only |
 | `branch_template` | branch-naming template (e.g., `{type}/m{N}-{slug}`) | `/implement` Phase 1 only |
 
-These four keys are the closed set; emitting **additional top-level keys** under `## Task Tracking` is a `/gate-check` failure (probe `task-tracking-canonical-keys` — gate-check #21). Tracker-specific metadata (project IDs, team names, workspace URLs) belong in a sub-section under `## Task Tracking` (e.g., `### Linear`, `### Jira`) or in the adapter's own config — **not** as Schema L keys at the top level. Sub-section contents are scoped out of the canonical-key check. Adding a new canonical key requires a deliberate `docs/patterns.md` edit + probe code change in the same PR.
+These four keys are the closed set; emitting **additional top-level keys** under `## Task Tracking` (the legacy home of these keys; a settings-file tree carries the generated stub there instead) is a `/gate-check` failure (probe `task-tracking-canonical-keys` — gate-check #21). The adapter's binding keys are the only sub-section content (`### Linear`, `### Jira`, closed shape below). Any other tracker metadata goes in a prose section outside `## Task Tracking` (e.g., `## Tracker Notes`) — **not** as Schema L keys at the top level and not as extra sub-section lines, since the settings schema is closed and the settings move refuses them. Sub-section contents are scoped out of the canonical-key check. Adding a new canonical key requires a deliberate `docs/patterns.md` edit + probe code change in the same PR.
 
-A one-time migration helper for projects that picked up the drift before the constraint landed lives at `scripts/migrate-task-tracking-canonical.ts` (dry-run only; outputs a unified diff to stdout — operator pipes to `patch -p1` if they want to apply). Greenfield projects don't need it.
+A one-time migration helper for projects that picked up the drift before the constraint landed lives at `scripts/migrate-task-tracking-canonical.ts` (moves each stray key line, verbatim and prefixed `- `, into a `## Tracker Notes` prose section directly after the `## Task Tracking` span; dry-run only; outputs a unified diff to stdout — operator pipes to `patch -p1` if they want to apply). Greenfield projects don't need it.
 
-**Workspace binding sub-sections.** Tracker-specific workspace metadata lives in mode-aware sub-sections under `## Task Tracking`. The shape is closed and parser-validated:
+**Workspace binding sub-sections.** The binding keys, and only those, live in mode-aware sub-sections under `## Task Tracking` (on a settings-file tree, the generated stub); any other tracker metadata goes to a prose section such as `## Tracker Notes`. The shape is closed and parser-validated:
 
 | Sub-section | Required keys | Optional keys |
 |-------------|---------------|---------------|
@@ -658,9 +662,9 @@ See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract
 
 ## Audit trail
 
-**Where**: CLAUDE.md `## Task Tracking` (Schema L) and all tracker-write code paths (`/setup --migrate`, `/spec-write` tracker push, `/implement` claimLock/releaseLock, bidirectional AC resolution).
+**Where**: `task_tracking` in `specs/settings.yaml` (legacy home: CLAUDE.md `## Task Tracking`, Schema L) and all tracker-write code paths (`/setup --migrate`, `/spec-write` tracker push, `/implement` claimLock/releaseLock, bidirectional AC resolution).
 
-**ADR**: the authoritative audit trail for sync, migration, and resolution events is `git log` on the repo and `git blame` on the specific FR file. An earlier append-only bulleted subsection under `## Task Tracking` recorded each event; that subsection is retired.
+**ADR**: the authoritative audit trail for sync, migration, and resolution events is `git log` on the repo and `git blame` on the specific FR file. An earlier append-only bulleted subsection under the legacy `## Task Tracking` recorded each event; that subsection is retired.
 
 **What is lost**: the legacy subsection offered per-AC conflict-resolution granularity (`- <ISO> — 2 AC conflicts resolved on LIN-123`). `git log` captures the commit but not the per-AC resolution count; `git blame` on the FR file recovers per-AC detail (which commit introduced which AC) at the cost of one extra lookup.
 
@@ -773,7 +777,7 @@ The canonical precedents are STE-225 (the original `/tdd` decomposition that int
 
 **Problem**: A green gate is not a working app. The compiler is satisfied, the linter is quiet, every unit test passes — and the feature is still broken end-to-end, because nothing exercised the real runtime surface (the app boots, the HTTP endpoint answers, the screen actually renders). Gate checks assert *the code is well-formed*; they do not assert *the built thing works*.
 
-**Solution**: Each consuming project authors its own **check skill** — a project-local Claude Code skill under `.claude/skills/<name>/SKILL.md` that drives the built artifact and reports pass/fail — and wires it to `/implement` through a `## Verification` block in CLAUDE.md (the `verify_skill` config key). `/implement`'s **Phase 4b″ — Project Verification** resolves that skill (declared → discover → scaffold-offer), runs it after the gate is GREEN but before the commit-approval gate, and reports the outcome. Because the check is *project-authored*, it can speak the project's own runtime language — boot a Flutter app over the dart MCP, curl an HTTP progress endpoint, smoke a CLI — rather than a one-size-fits-all harness. The check skill carries `disable-model-invocation: true` so it never fires opportunistically; it runs only when the verification flow invokes it. Author your own via `docs/verification-skills.md` (the authoring guide) or the `/setup` scaffold generator.
+**Solution**: Each consuming project authors its own **check skill** — a project-local Claude Code skill under `.claude/skills/<name>/SKILL.md` that drives the built artifact and reports pass/fail — and wires it to `/implement` through the `verification.verify_skill` key in `specs/settings.yaml` (legacy home: a `## Verification` block in CLAUDE.md). `/implement`'s **Phase 4b″ — Project Verification** resolves that skill (declared → discover → scaffold-offer), runs it after the gate is GREEN but before the commit-approval gate, and reports the outcome. Because the check is *project-authored*, it can speak the project's own runtime language — boot a Flutter app over the dart MCP, curl an HTTP progress endpoint, smoke a CLI — rather than a one-size-fits-all harness. The check skill carries `disable-model-invocation: true` so it never fires opportunistically; it runs only when the verification flow invokes it. Author your own via `docs/verification-skills.md` (the authoring guide) or the `/setup` scaffold generator.
 
 **Relation to the other verification patterns**:
 

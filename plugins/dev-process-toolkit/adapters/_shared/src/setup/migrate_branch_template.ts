@@ -15,7 +15,9 @@
 // the single source of truth for which form `/setup` seeds.
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { MILESTONE_BRANCH_TEMPLATE, TICKET_BRANCH_TEMPLATE } from "../branch_proposal";
+import { settingsWriteSource, loadProjectSettings, writeProjectSettings } from "../project_settings";
 import { appendAuditRow } from "./audit_log";
 
 /** Retired seeded default — the pre-M106 `/setup` step 7c seed. */
@@ -43,6 +45,15 @@ export function reseedBranchTemplate(
   claudeMdPath: string,
   opts: { date: string },
 ): ReseedBranchTemplateResult {
+  // STE-710 — a settings-file tree re-seeds `task_tracking.branch_template`;
+  // every other tree keeps the v2.101.4 CLAUDE.md line edit below.
+  const projectRoot = dirname(claudeMdPath);
+  if (settingsWriteSource(projectRoot) === "settings") {
+    if (loadProjectSettings(projectRoot).settings.task_tracking.branch_template !== RETIRED_SEEDED_DEFAULT) return { reseeded: false };
+    writeProjectSettings(projectRoot, { task_tracking: { branch_template: CANONICAL_BRANCH_TEMPLATE } });
+    appendReseedAuditRow(claudeMdPath, opts.date);
+    return { reseeded: true };
+  }
   const content = readFileSync(claudeMdPath, "utf-8");
   const lines = content.split("\n");
   const idx = lines.findIndex((line) => {
@@ -53,13 +64,17 @@ export function reseedBranchTemplate(
 
   lines[idx] = `branch_template: ${CANONICAL_BRANCH_TEMPLATE}`;
   writeFileSync(claudeMdPath, lines.join("\n"));
+  appendReseedAuditRow(claudeMdPath, opts.date);
+  return { reseeded: true };
+}
+
+function appendReseedAuditRow(claudeMdPath: string, date: string): void {
   appendAuditRow(claudeMdPath, {
-    date: opts.date,
+    date,
     step: "7c",
     field: "branch_template",
     value: CANONICAL_BRANCH_TEMPLATE,
     source: "default-applied",
     reason: "--migrate re-seed of retired seeded default",
   });
-  return { reseeded: true };
 }

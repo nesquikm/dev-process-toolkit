@@ -10,8 +10,10 @@
 // separate module — there is only one caller (the config builder below).
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseFrontmatter } from "./frontmatter";
+import { declaresMode, viewProjectSection } from "./project_settings";
+import { parseTaskTrackingSection } from "./project_settings_legacy";
 import type { ResolverConfig, TrackerConfig } from "./resolve";
 
 /**
@@ -31,32 +33,29 @@ export class MalformedAdapterMetadataError extends Error {
 }
 
 /**
- * Parse the `## Task Tracking` section of a CLAUDE.md file into a flat
- * key:value map. Returns {} when the file is absent OR the section is
- * absent (both = `mode: none` canonical form per AC-29.5).
+ * The `## Task Tracking` section as a flat key:value map. Returns {} when
+ * the file is absent OR the section is absent (both = `mode: none`
+ * canonical form per AC-29.5).
  *
- * Section terminates at the next heading line (`# `, `## `, `### `,
- * `#### `) — the canonical Schema L shape contains only flat `key: value`
- * pairs under the `## Task Tracking` heading.
- *
- * Exported so tests and sibling modules can reuse it without duplicating
- * the probe. Marked internal-to-FR-65 — may graduate to its own module if
- * a second caller appears.
+ * STE-707 — derived from `loadProjectSection(projectRoot, "task_tracking")`
+ * with the project root resolved as the directory of `claudeMdPath`: on a
+ * settings-file tree the section's declared string keys (the adapter
+ * sub-sections and the status vocabulary are not flat keys); on a legacy
+ * tree the v2.101.4 parse, which lives in the loader's legacy module.
  */
 export function readTaskTrackingSection(claudeMdPath: string): Record<string, string> {
-  if (!existsSync(claudeMdPath)) return {};
-  const md = readFileSync(claudeMdPath, "utf8");
-  const lines = md.split("\n");
-  const startIdx = lines.findIndex((l) => l === "## Task Tracking");
-  if (startIdx < 0) return {};
+  return viewProjectSection(dirname(claudeMdPath), "task_tracking", flatTaskTracking, () =>
+    parseTaskTrackingSection(claudeMdPath),
+  );
+}
+
+function flatTaskTracking(tt: Parameters<typeof declaresMode>[0]): Record<string, string> {
   const result: Record<string, string> = {};
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (/^#{1,4} /.test(line)) break;
-    const m = /^([a-z_]+):\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const [, key, rawValue] = m;
-    result[key!] = (rawValue ?? "").trim();
+  for (const key of Object.keys(tt)) {
+    if (key === "status_vocabulary") continue;
+    if (key === "mode" && !declaresMode(tt)) continue;
+    const value = tt[key];
+    if (typeof value === "string") result[key] = value;
   }
   return result;
 }

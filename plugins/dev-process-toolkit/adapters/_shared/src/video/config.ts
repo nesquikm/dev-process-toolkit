@@ -5,7 +5,7 @@
 // refuses any other value or unknown key in the NFR-10 canonical shape
 // (Refusing / Remedy / Context) naming the offending key path.
 
-import { videoConfigPath } from "../dpt_paths";
+import { VIDEO_CONFIG } from "../project_settings_legacy";
 import {
   enumRefusal,
   isObj,
@@ -15,9 +15,6 @@ import {
   rejectUnknownKeys as rejectUnknown,
   VideoShapeError,
 } from "./shape";
-
-/** Project-relative display path of the config file, composed by dpt_paths. */
-const CONFIG_DISPLAY_PATH = videoConfigPath(".");
 
 export type TtsProvider = "elevenlabs" | "google";
 export type RecorderKind = "web" | "ios-sim" | "android-emu" | "footage" | "command";
@@ -63,7 +60,7 @@ const RECORDER_KIND_KEYS: Record<RecorderKind, readonly string[]> = {
 /** NFR-10 refusal for a malformed video config. Never echoes key values. */
 export class VideoConfigShapeError extends VideoShapeError {
   constructor(keyPath: string, reason: string, remedy: string) {
-    super("config", CONFIG_DISPLAY_PATH, keyPath, reason, remedy);
+    super("config", VIDEO_CONFIG, keyPath, reason, remedy);
     this.name = "VideoConfigShapeError";
   }
 }

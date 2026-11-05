@@ -29,7 +29,7 @@ import { basename, join, relative } from "node:path";
 import { joinFrontmatter, parseFrontmatter, splitFrontmatter } from "../../frontmatter";
 import { mintMilestoneId } from "../../mint_milestone_id";
 import { PLAN_FILENAME_RE, parseMilestoneToken } from "../../milestone_token";
-import { readTaskTrackingSection } from "../../resolver_config";
+import type * as ResolverConfig from "../../resolver_config";
 import type { ApplyResult, DetectResult, MigrationEntry } from "../index";
 
 /**
@@ -76,9 +76,23 @@ interface RepairablePlan {
  * reading `resolver_config` documents (AC-29.5) and probe #73 shares. A
  * detector that disagreed would leave the very plans the probe fails
  * unrepairable.
+ *
+ * Null when the mode cannot be read — a tree whose settings live in two homes
+ * is refused by the loader, and resolving it is the `settings-file` entry's
+ * job later in the walk. Detect never throws, so null reads as "not applying"
+ * (the same choice `linear-team-key` makes).
  */
-function resolveMode(projectRoot: string): string {
-  const mode = readTaskTrackingSection(join(projectRoot, "CLAUDE.md"))["mode"];
+function resolveMode(projectRoot: string): string | null {
+  // Loaded when first used: the reader imports the settings loader, whose
+  // version helpers import this registry, so a module-load import would close
+  // a cycle through `migrations/index` (STE-707).
+  const { readTaskTrackingSection } = require("../../resolver_config") as typeof ResolverConfig;
+  let mode: string | undefined;
+  try {
+    mode = readTaskTrackingSection(join(projectRoot, "CLAUDE.md"))["mode"];
+  } catch {
+    return null;
+  }
   return mode === undefined || mode.length === 0 ? "none" : mode;
 }
 
@@ -491,7 +505,8 @@ export const modeNoneSequentialMilestone: MigrationEntry = {
         renameSync(plan.file, target);
         journal.push(() => renameSync(target, plan.file));
 
-        changed.push(relative(projectRoot, target), ...rebound);
+        // The old path is a write too (its removal): /upgrade stages exactly this set (review R2-F1).
+        changed.push(relative(projectRoot, target), relative(projectRoot, plan.file), ...rebound);
         repaired.push(`${plan.token} → ${minted.milestoneId}`);
       } catch (error) {
         rollback(journal);

@@ -447,6 +447,22 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 117,
+    commit: "ac246a7",
+    rationale:
+      "M_94e6f7/STE-706: the settings loader `project_settings.ts` (which has " +
+      "a front door) imports `token_stats_config.ts` and " +
+      "`task_tracking_canonical_keys.ts` through its legacy module, so both " +
+      "became reachable and their two ordered references " +
+      "(`docs/layout-reference.md:92` and `skills/gate-check/SKILL.md:76` at " +
+      "87ed4c9a) stopped naming a module nothing runnable reaches. Exactly " +
+      "those two left the set and none entered it; three " +
+      "`docs/setup-reference.md` records moved two lines down with the new " +
+      "settings-reference link and are the same records. Measured by the " +
+      "awaited `runModuleReachabilityProbe` (119 -> 117, diffed record by " +
+      "record against an export of 87ed4c9a), not carried from the FR.",
+  },
+  {
     value: 119,
     commit: "d2c9423",
     rationale:

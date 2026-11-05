@@ -18,101 +18,45 @@
 //     is the single decision point on absence.
 
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import { assertRepoTagForwarded } from "./create_idempotency_probe";
+import { basename, dirname, join } from "node:path";
+import { checkVersionFloor, runningDptVersion } from "./dpt_version";
+import { SETTINGS_FILE, viewProjectSection } from "./project_settings";
 import {
-  checkVersionFloor,
-  FIRST_GATED_DPT_VERSION,
-  nfr10Message,
-  runningDptVersion,
-  STRICT_SEMVER_RE,
-} from "./dpt_version";
-import { compareSemver } from "./migrations/coverage";
+  parseBindingSubsection,
+  refuseBinding as refuse,
+  validateBindingDeclaration,
+  type WorkspaceAdapterKey,
+  type WorkspaceBinding,
+} from "./project_settings_legacy";
 import { readTaskTrackingSection } from "./resolver_config";
 
-export interface WorkspaceBinding {
-  team?: string;
-  project?: string;
-  defaultLabels?: string[];
-  /** STE-602 — this repository's ownership label in a shared container. */
-  repoTag?: string;
-  /** STE-602 — the lowest toolkit version allowed to write into the shared container. */
-  minDptVersion?: string;
-  /** STE-679 — `jira_bug_issue_type:` override for `--bug` creates (Jira). */
-  jiraBugIssueType?: string;
-  /** STE-679 — `linear_bug_label:` override for `--bug` creates (Linear). */
-  linearBugLabel?: string;
-  /** STE-602 — always present; `true` exactly when a non-empty `repo_tag` is declared. */
-  shared: boolean;
-}
-
-export type WorkspaceAdapterKey = "linear" | "jira";
+export {
+  locateSubsection,
+  type WorkspaceAdapterKey,
+  type WorkspaceBinding,
+  WorkspaceBindingError,
+} from "./project_settings_legacy";
 
 /**
- * STE-602 — a malformed shared-container declaration (or an unreadable
- * CLAUDE.md). NFR-10 three-line message: verdict, `Remedy:`, `Context:`.
- * Tag membership (class 2) is refused by `RepoTagBindingError` instead.
+ * STE-707 — derived from `loadProjectSection(projectRoot, "task_tracking")`
+ * with the project root resolved as the directory of `claudeMdPath`: on a
+ * settings-file tree the `task_tracking.<adapter>` mapping, held to the same
+ * declaration rules; on a legacy tree the v2.101.4 sub-section parse, whose
+ * line grammar lives in the loader's legacy module.
  */
-export class WorkspaceBindingError extends Error {
-  constructor(verdict: string, remedy: string, context: string) {
-    super(nfr10Message(verdict, remedy, context));
-    this.name = "WorkspaceBindingError";
-  }
-}
-
-const REPO_TAG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-const SECTION_HEADING = "## Task Tracking";
-
-export function locateSubsection(lines: string[], adapterKey: WorkspaceAdapterKey): string[] | null {
-  const sectionStart = lines.findIndex((l) => l === SECTION_HEADING);
-  if (sectionStart < 0) return null;
-  let sectionEnd = lines.length;
-  for (let i = sectionStart + 1; i < lines.length; i++) {
-    // Matches `# H1` or `## H2` to align with the codebase convention
-    // (task_tracking_canonical_keys.ts, migrate-task-tracking-*.ts). H1 in
-    // CLAUDE.md only appears at the file head, so this is equivalent to
-    // `/^##\s/` in practice but keeps the parser shape consistent.
-    if (/^#{1,2}\s/.test(lines[i]!)) {
-      sectionEnd = i;
-      break;
-    }
-  }
-  const subTitle = adapterKey === "linear" ? "### Linear" : "### Jira";
-  let subStart = -1;
-  for (let i = sectionStart + 1; i < sectionEnd; i++) {
-    if (lines[i] === subTitle) {
-      subStart = i;
-      break;
-    }
-  }
-  if (subStart < 0) return null;
-  let subEnd = sectionEnd;
-  for (let i = subStart + 1; i < sectionEnd; i++) {
-    if (/^#{2,3}\s/.test(lines[i]!)) {
-      subEnd = i;
-      break;
-    }
-  }
-  return lines.slice(subStart + 1, subEnd);
-}
-
-function parseInlineYamlArray(raw: string): string[] {
-  const trimmed = raw.trim();
-  if (trimmed === "[]") return [];
-  const inner = trimmed.replace(/^\[/, "").replace(/\]$/, "");
-  if (inner.trim().length === 0) return [];
-  return inner
-    .split(",")
-    .map((s) => s.trim())
-    .map((s) => s.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1"))
-    .filter((s) => s.length > 0);
-}
-
 export function readWorkspaceBinding(
   claudeMdPath: string,
   adapterKey: WorkspaceAdapterKey,
 ): WorkspaceBinding {
+  return viewProjectSection(
+    dirname(claudeMdPath),
+    "task_tracking",
+    (tt) => bindingFromSettings(tt[adapterKey], adapterKey),
+    () => readLegacyBinding(claudeMdPath, adapterKey),
+  );
+}
+
+function readLegacyBinding(claudeMdPath: string, adapterKey: WorkspaceAdapterKey): WorkspaceBinding {
   if (!existsSync(claudeMdPath)) return { shared: false };
   const context = `file=${basename(claudeMdPath)}, adapter=${adapterKey}, helper=readWorkspaceBinding`;
   let content: string;
@@ -126,34 +70,42 @@ export function readWorkspaceBinding(
       `${context}, path=${claudeMdPath}, error=${code}`,
     );
   }
-  const lines = content.split("\n");
-  const sub = locateSubsection(lines, adapterKey);
-  if (!sub) return { shared: false };
+  const parsed = parseBindingSubsection(content, adapterKey);
+  if (!parsed) return { shared: false };
+  return finishBinding(parsed.result, parsed.occurrences, context);
+}
 
-  const result: Omit<WorkspaceBinding, "shared"> = {};
-  const occurrences: Record<string, string[]> = { repo_tag: [], min_dpt_version: [] };
-  for (const raw of sub) {
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) continue;
-    const m = /^([a-z_][a-z0-9_]*)\s*:\s*(.*)$/.exec(raw);
-    if (!m) continue;
-    const key = m[1]!;
-    const value = m[2]!.trim();
-    if (key in occurrences) occurrences[key]!.push(value);
-    if (key === "default_labels") {
-      result.defaultLabels = parseInlineYamlArray(value);
-      continue;
-    }
-    if (value.length === 0) continue;
-    if (key === "team") result.team = value;
-    else if (key === "project") result.project = value;
-    else if (key === "repo_tag") result.repoTag = value;
-    else if (key === "min_dpt_version") result.minDptVersion = value;
-    else if (key === "jira_bug_issue_type" && adapterKey === "jira") result.jiraBugIssueType = value;
-    else if (key === "linear_bug_label" && adapterKey === "linear") result.linearBugLabel = value;
-  }
-  validateDeclaration(result, occurrences, context);
+/** The one validation pass and the binding's final shape, for both homes. */
+function finishBinding(
+  result: Omit<WorkspaceBinding, "shared">,
+  occurrences: Record<string, string[]>,
+  context: string,
+): WorkspaceBinding {
+  validateBindingDeclaration(result, occurrences, context);
   return { ...result, shared: result.repoTag !== undefined };
+}
+
+/** The settings-file binding mapping in the reader's camelCase shape; empty values read as absent. */
+function bindingFromSettings(raw: unknown, adapterKey: WorkspaceAdapterKey): WorkspaceBinding {
+  if (typeof raw !== "object" || raw === null) return { shared: false };
+  const b = raw as Record<string, unknown>;
+  const str = (k: string): string | undefined => {
+    const v = b[k];
+    return typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined;
+  };
+  const result: Omit<WorkspaceBinding, "shared"> = {};
+  const set = <K extends keyof typeof result>(k: K, v: (typeof result)[K] | undefined): void => {
+    if (v !== undefined) result[k] = v;
+  };
+  set("team", str("team"));
+  set("project", str("project"));
+  if (Array.isArray(b.default_labels)) result.defaultLabels = (b.default_labels as string[]).filter((l) => l.length > 0);
+  set("repoTag", str("repo_tag"));
+  set("minDptVersion", str("min_dpt_version"));
+  if (adapterKey === "jira") set("jiraBugIssueType", str("jira_bug_issue_type"));
+  if (adapterKey === "linear") set("linearBugLabel", str("linear_bug_label"));
+  const context = `file=${SETTINGS_FILE}, key=task_tracking.${adapterKey}, adapter=${adapterKey}, helper=readWorkspaceBinding`;
+  return finishBinding(result, {}, context);
 }
 
 /**
@@ -167,74 +119,6 @@ export function resolveBugTrackerType(
   if (mode === "jira") return binding.jiraBugIssueType ?? "Bug";
   if (mode === "linear") return binding.linearBugLabel ?? "Bug";
   return null;
-}
-
-function refuse(verdict: string, remedy: string, context: string): never {
-  throw new WorkspaceBindingError(`WorkspaceBindingError: ${verdict}`, remedy, context);
-}
-
-/**
- * STE-602 — the one validation pass over `repo_tag` / `min_dpt_version`.
- * Vacuous for an undeclared sub-section, so that path is unchanged.
- */
-function validateDeclaration(
-  result: Omit<WorkspaceBinding, "shared">,
-  occurrences: Record<string, string[]>,
-  context: string,
-): void {
-  // Class 5 — a key written twice is refused, never last-wins.
-  for (const [key, values] of Object.entries(occurrences)) {
-    if (values.length > 1) {
-      refuse(
-        `\`${key}\` is written ${values.length} times (values: ${values.map((v) => `"${v}"`).join(", ")}) — a duplicated declaration key is ambiguous and is never resolved last-wins.`,
-        `keep exactly one \`${key}:\` line in the tracker sub-section.`,
-        `${context}, key=${key}, value="${values[values.length - 1]}"`,
-      );
-    }
-  }
-  const tag = result.repoTag;
-  const floor = result.minDptVersion;
-  // Class 1 — tag shape.
-  if (tag !== undefined && !REPO_TAG_RE.test(tag)) {
-    refuse(
-      `repo_tag "${tag}" is not lowercase-kebab (^[a-z0-9]+(-[a-z0-9]+)*$).`,
-      `rename the tag to lowercase letters, digits and single hyphens (e.g. "glade-be"), in both \`repo_tag\` and \`default_labels\`.`,
-      `${context}, key=repo_tag, value="${tag}"`,
-    );
-  }
-  // Class 3 — strict X.Y.Z floor.
-  if (floor !== undefined && !STRICT_SEMVER_RE.test(floor)) {
-    refuse(
-      `min_dpt_version "${floor}" is not strict X.Y.Z (no \`v\` prefix, no pre-release suffix).`,
-      `write the floor as a bare release version, e.g. "${FIRST_GATED_DPT_VERSION}".`,
-      `${context}, key=min_dpt_version, value="${floor}"`,
-    );
-  }
-  // Class 4 — the two keys come as a pair.
-  if (tag !== undefined && floor === undefined) {
-    refuse(
-      `repo_tag "${tag}" is declared with no min_dpt_version — a shared container needs a toolkit version floor.`,
-      `add \`min_dpt_version: ${FIRST_GATED_DPT_VERSION}\` (or later) beside \`repo_tag\`, or remove \`repo_tag\`.`,
-      `${context}, key=repo_tag, value="${tag}"`,
-    );
-  }
-  if (floor !== undefined && tag === undefined) {
-    refuse(
-      `min_dpt_version "${floor}" is declared with no repo_tag — a floor without an ownership label declares nothing.`,
-      `add \`repo_tag: <lowercase-kebab>\` beside the floor, or remove \`min_dpt_version\`.`,
-      `${context}, key=min_dpt_version, value="${floor}"`,
-    );
-  }
-  // Class 2 — tag membership, through its one definition.
-  assertRepoTagForwarded(tag, result.defaultLabels);
-  // Class 6 — a floor below the first gated release admits ungated clients.
-  if (floor !== undefined && (compareSemver(floor, FIRST_GATED_DPT_VERSION) ?? 0) < 0) {
-    refuse(
-      `min_dpt_version "${floor}" is below FIRST_GATED_DPT_VERSION ${FIRST_GATED_DPT_VERSION} — such a floor admits clients that carry no shared-container write gate.`,
-      `raise \`min_dpt_version\` to ${FIRST_GATED_DPT_VERSION} or later.`,
-      `${context}, key=min_dpt_version, value="${floor}"`,
-    );
-  }
 }
 
 /**

@@ -21,6 +21,8 @@ import { renderClosingLine, type ClosingLineCount } from "./test_count_parser";
 // read a malformed `changelog_ci_owned: yes` as `false` and rewrite the file
 // the project told us not to touch.
 import { readDocsConfig, MalformedDocsConfigError } from "./docs_config";
+import { viewProjectSection } from "./project_settings";
+import { DOCS_HEADING, RELEASE_FILES_HEADING, RELEASE_FILES_HEADING_RE } from "./project_settings_legacy";
 // STE-658 AC-STE-658.5: `--codename` passes the same rule set as a plan's codename.
 import { validateCodename, CODENAME_RULES } from "./milestone_codename";
 
@@ -122,7 +124,6 @@ export class DuplicateChangelogSectionError extends Error {
   }
 }
 
-const HEADING_RE = /^##\s+Release Files\s*$/m;
 const FENCE_RE = /```ya?ml\s*\n([\s\S]*?)\n```/;
 
 /**
@@ -146,7 +147,7 @@ function normalizeSource(raw: string): string {
 
 export function parseReleaseFiles(claudeMd: string): ReleaseFile[] {
   const source = normalizeSource(claudeMd);
-  const headingMatch = HEADING_RE.exec(source);
+  const headingMatch = RELEASE_FILES_HEADING_RE.exec(source);
   if (!headingMatch) {
     throw new MissingReleaseFilesBlockError(
       "no `## Release Files` heading found in CLAUDE.md",
@@ -173,6 +174,28 @@ export function parseReleaseFiles(claudeMd: string): ReleaseFile[] {
     validateEntry(entries[i]!, i);
   }
   return entries;
+}
+
+/**
+ * STE-707 — the release files the front door rewrites, derived from
+ * `loadProjectSection(projectRoot, "release")` (`release.files`, each entry
+ * held to the same rules); on a legacy tree the `## Release Files` block of
+ * the CLAUDE.md text `readClaudeMd` returns, parsed by `parseReleaseFiles`.
+ */
+export function readReleaseFiles(projectRoot: string, readClaudeMd: () => string): ReleaseFile[] {
+  return viewProjectSection(
+    projectRoot,
+    "release",
+    (rel) => {
+      const entries = rel.files as ReleaseFile[];
+      if (entries.length === 0) {
+        throw new MissingReleaseFilesBlockError("`release.files` in specs/settings.yaml has zero entries");
+      }
+      entries.forEach((e, i) => validateEntry(e, i));
+      return entries;
+    },
+    () => parseReleaseFiles(readClaudeMd()),
+  );
 }
 
 function parseFilesYaml(payload: string): ReleaseFile[] {
@@ -273,7 +296,7 @@ function unescapeYamlString(v: string): string {
   return v.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
-const VALID_KINDS = new Set<ReleaseKind>([
+export const VALID_KINDS = new Set<ReleaseKind>([
   "json",
   "toml",
   "yaml",
@@ -984,7 +1007,7 @@ if (import.meta.main) {
           "pass `unreleased` as the version, or set `changelog_unversioned: false` in the `## Docs` block of CLAUDE.md",
         );
       }
-      const entries = parseReleaseFiles(readFileSync(claudeMdPath, "utf-8"));
+      const entries = readReleaseFiles(root, () => readFileSync(claudeMdPath, "utf-8"));
       for (const entry of entries) {
         const abs = join(root, entry.path);
         if (unreleasedRun && entry.kind !== "changelog") {
@@ -1062,7 +1085,7 @@ if (import.meta.main) {
       // `parseReleaseFiles` read the same CLAUDE.md through two different
       // schemas, and sending an operator to `## Release Files` for a `## Docs`
       // failure sends them to a block that is fine.
-      const block = error instanceof MalformedDocsConfigError ? "## Docs" : "## Release Files";
+      const block = error instanceof MalformedDocsConfigError ? DOCS_HEADING : RELEASE_FILES_HEADING;
       const outcome =
         wrote === 0
           ? "nothing was written."

@@ -18,6 +18,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { loadProjectSection } from "../adapters/_shared/src/project_settings";
 import { runPublicSurfaceCountDriftProbe } from "../adapters/_shared/src/public_surface_count_drift";
 import {
   checkReadmeSurfaceReachability,
@@ -418,8 +419,10 @@ describe("AC-STE-567.10 / .11 — the CLAUDE.md structure block", () => {
   });
 
   test("the declared verify_skill lives in the root that is now named", () => {
-    const verify = /^verify_skill:\s*(\S+)\s*$/m.exec(CLAUDE_MD)?.[1];
+    // Amended by AC-STE-713.5 (M_94e6f7): read through the loader
+    const verify = loadProjectSection(repoRoot, "verification").verify_skill as string | undefined;
     expect(verify).toBeDefined();
+    expect(verify).toMatch(/^\S+$/);
     const { existsSync } = require("node:fs") as typeof import("node:fs");
     expect(existsSync(join(repoRoot, ".claude", "skills", verify!, "SKILL.md"))).toBe(
       true,

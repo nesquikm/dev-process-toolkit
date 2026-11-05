@@ -180,6 +180,10 @@ const POST_FR_ADDED_IDS: readonly string[] = [
   // PIN MOVED by M_1e0717 STE-670 (AC-STE-670.4): the ask-shaped explainer-video
   // offer after a release, registered mechanical.
   "ship_milestone_video",
+  // Amended by AC-STE-712.4 (M_94e6f7): the two opt-in close-out upgrade
+  // offers, registered mechanical in GATE_REGISTRY.
+  "implement_upgrade_offer",
+  "deliver_close_upgrade_offer",
 ];
 
 const row = (g: GateDescriptor): RegistryRow => ({

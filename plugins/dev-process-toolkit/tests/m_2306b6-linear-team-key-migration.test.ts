@@ -40,9 +40,10 @@ describe("migration linear-team-key", () => {
     expect(e?.introduced_in).toBe("2.90.0");
     // It was last when it shipped (2.90.0); STE-663 (M_1e0717) appended
     // `dpt-gitignore-video` (2.96.0) after it, so its ORDER is the property.
+    // Amended by M_94e6f7/STE-711 (AC-.13) — `settings-file` (3.0.0) follows last.
     const ids = MIGRATIONS.map((m) => m.id);
     expect(ids.indexOf("linear-team-key")).toBeGreaterThan(ids.indexOf("verification-run-keys"));
-    expect(ids.slice(ids.indexOf("linear-team-key") + 1)).toEqual(["dpt-gitignore-video"]);
+    expect(ids.slice(ids.indexOf("linear-team-key") + 1)).toEqual(["dpt-gitignore-video", "settings-file"]);
     expect(MIGRATIONS.find((m) => m.id === "dpt-gitignore-video")?.introduced_in).toBe("2.96.0");
   });
   test("PERMIT — a key-shaped team is not detected", () => {

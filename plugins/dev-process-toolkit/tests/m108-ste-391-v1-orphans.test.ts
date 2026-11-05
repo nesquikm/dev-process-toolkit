@@ -75,8 +75,12 @@ function cleanup(): void {
   }
 }
 
+// Amended by M_94e6f7/STE-711 (allowed difference 2): these fixtures are
+// unmoved managed trees (a `## Task Tracking` CLAUDE.md, no specs/settings.yaml),
+// so the `settings-file` entry also detects there (STE-713). The tests are about
+// the v1-orphans entry, so that one entry is left out of the walk.
 function detecting(root: string): MigrationEntry[] {
-  return MIGRATIONS.filter((e) => e.detect(root).applies);
+  return MIGRATIONS.filter((e) => e.id !== "settings-file" && e.detect(root).applies);
 }
 
 function soleDetectingEntry(root: string): MigrationEntry {

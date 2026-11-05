@@ -21,10 +21,19 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import {
+  detectSettingsSource,
+  loadProjectSettings,
+  SETTINGS_FILE,
+  settingsKeyPathLine,
+  settingsRefusal,
+  settingsViolation,
+} from "./project_settings";
+import { TRACKER_CONFIG_FILENAME } from "./project_settings_legacy";
 import { readTaskTrackingSection } from "./resolver_config";
 import { TrackerConfigShapeError, validateTrackerConfig } from "./tracker_config";
 
-const CONFIG_RELPATH = join("specs", "tracker-config.yaml");
+const CONFIG_RELPATH = join("specs", TRACKER_CONFIG_FILENAME);
 
 export interface TrackerConfigShapeViolation {
   file: string;
@@ -119,6 +128,9 @@ export async function runTrackerConfigShapeProbe(
 ): Promise<TrackerConfigShapeReport> {
   const violations: TrackerConfigShapeViolation[] = [];
 
+  // STE-709 — on a settings-file tree the vocabulary is `task_tracking.status_vocabulary`.
+  if (detectSettingsSource(projectRoot) === "settings") return settingsArm(projectRoot);
+
   // mode: none short-circuit — never read the YAML.
   const claudeMdPath = join(projectRoot, "CLAUDE.md");
   const tracking = readTaskTrackingSection(claudeMdPath);
@@ -205,4 +217,36 @@ export async function runTrackerConfigShapeProbe(
   }
 
   return { violations };
+}
+
+/**
+ * STE-709 — on a settings-file tree: grade `task_tracking.status_vocabulary`
+ * with the same validator, cross-checked against `task_tracking.mode`, cited
+ * as `specs/settings.yaml:<line>`. Vacuous under `mode: none` or with no
+ * vocabulary declared.
+ */
+function settingsArm(projectRoot: string): TrackerConfigShapeReport {
+  const svPath = "task_tracking.status_vocabulary";
+  const at = (line: number, reason: string, message: string): TrackerConfigShapeReport => ({
+    violations: [settingsViolation(projectRoot, line, reason, message)],
+  });
+  let tt;
+  try {
+    tt = loadProjectSettings(projectRoot).settings.task_tracking;
+  } catch (err) {
+    const { text, reason } = settingsRefusal(err);
+    return at(settingsKeyPathLine(projectRoot, svPath) ?? 1, reason, `tracker_config_shape: ${text}`);
+  }
+  if (tt.mode === "none") return { violations: [] };
+  const sv = tt.status_vocabulary;
+  if (sv === undefined || sv === null) return { violations: [] };
+  try {
+    validateTrackerConfig(sv, tt.mode);
+  } catch (err) {
+    const line = settingsKeyPathLine(projectRoot, svPath) ?? 1;
+    if (err instanceof TrackerConfigShapeError) return at(line, err.reason, `tracker_config_shape: ${err.message}`);
+    const reason = `unexpected error validating ${svPath}: ${err instanceof Error ? err.message : String(err)}`;
+    return at(line, reason, buildMessage(reason, "report the unexpected error shape — tracker_config_shape probe only knows TrackerConfigShapeError.", `file=${SETTINGS_FILE}, stage=validate`));
+  }
+  return { violations: [] };
 }

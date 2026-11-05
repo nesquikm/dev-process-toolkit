@@ -26,8 +26,11 @@
 // callers can render it verbatim. `readTrackerConfig` returns `null` when
 // the file is absent — callers fall back to per-adapter defaults.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import { settingsWriteSource, viewProjectSection, writeProjectSettings } from "./project_settings";
+import { parseTrackerConfigFile, TRACKER_CONFIG_FILENAME } from "./project_settings_legacy";
 
 export type Role = "initial" | "in_progress" | "in_review" | "done";
 
@@ -39,7 +42,6 @@ export interface TrackerConfig {
   roles: Record<Role, string>;
 }
 
-const CONFIG_FILENAME = "tracker-config.yaml";
 
 /**
  * Thrown when the tracker-config file or in-memory object violates the
@@ -51,7 +53,7 @@ export class TrackerConfigShapeError extends Error {
   constructor(reason: string, remedy?: string, context?: string) {
     const remedyLine =
       remedy ?? "fix specs/tracker-config.yaml to conform to the documented schema and re-run.";
-    const contextLine = context ?? `mode=tracker-config, file=specs/${CONFIG_FILENAME}`;
+    const contextLine = context ?? `mode=tracker-config, file=specs/${TRACKER_CONFIG_FILENAME}`;
     super(
       [
         `Refusing: ${reason}`,
@@ -155,7 +157,7 @@ export function validateTrackerConfig(
     if (!(role in rolesRaw)) {
       throw new TrackerConfigShapeError(
         `\`roles:\` is missing canonical role \`${role}\``,
-        `add a mapping like \`${role}: <one of statuses>\` to specs/${CONFIG_FILENAME}.`,
+        `add a mapping like \`${role}: <one of statuses>\` to specs/${TRACKER_CONFIG_FILENAME}.`,
         `mode=tracker-config, stage=validate, field=roles.${role}`,
       );
     }
@@ -166,7 +168,7 @@ export function validateTrackerConfig(
     if (!(CANONICAL_ROLES as readonly string[]).includes(key)) {
       throw new TrackerConfigShapeError(
         `\`roles:\` contains unknown role \`${key}\` — canonical four-role enum is locked at ${CANONICAL_ROLES.join(", ")}`,
-        `remove \`${key}\` from \`roles:\` in specs/${CONFIG_FILENAME}; non-canonical workflow stops belong in \`statuses:\` only.`,
+        `remove \`${key}\` from \`roles:\` in specs/${TRACKER_CONFIG_FILENAME}; non-canonical workflow stops belong in \`statuses:\` only.`,
         `mode=tracker-config, stage=validate, field=roles.${key}`,
       );
     }
@@ -318,54 +320,27 @@ export function prTransitionDecision(
 // ---------------------------------------------------------------------------
 
 function configPath(specsDir: string): string {
-  return join(specsDir, CONFIG_FILENAME);
+  return join(specsDir, TRACKER_CONFIG_FILENAME);
 }
 
 /**
- * Read `<specsDir>/tracker-config.yaml` and return a validated
- * `TrackerConfig`. Absent file returns `null` — callers fall back to the
- * per-adapter default vocabulary. Malformed YAML or schema violations
- * throw `TrackerConfigShapeError`.
+ * The project's validated status vocabulary, or `null` when none is declared
+ * — callers fall back to the per-adapter default vocabulary.
+ *
+ * STE-707 — derived from `loadProjectSection(projectRoot, "task_tracking")`
+ * (`task_tracking.status_vocabulary`, validated by the loader) with the
+ * project root resolved as the parent of `specsDir`. On a legacy tree the
+ * v2.101.4 read of `<specsDir>/tracker-config.yaml`, which lives in the
+ * loader's legacy module: malformed YAML or schema violations throw
+ * `TrackerConfigShapeError`.
  */
 export function readTrackerConfig(specsDir: string): TrackerConfig | null {
-  const path = configPath(specsDir);
-  if (!existsSync(path)) {
-    return null;
-  }
-
-  let raw: string;
-  try {
-    raw = readFileSync(path, "utf8");
-  } catch (err) {
-    throw new TrackerConfigShapeError(
-      `cannot read specs/${CONFIG_FILENAME}: ${err instanceof Error ? err.message : String(err)}`,
-      undefined,
-      `mode=tracker-config, stage=read, path=${path}`,
-    );
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = Bun.YAML.parse(raw);
-  } catch (err) {
-    throw new TrackerConfigShapeError(
-      `specs/${CONFIG_FILENAME} is not valid YAML: ${err instanceof Error ? err.message : String(err)}`,
-      "fix the YAML syntax (check indentation, colons, and quoting).",
-      `mode=tracker-config, stage=parse, path=${path}`,
-    );
-  }
-
-  if (!isPlainObject(parsed)) {
-    throw new TrackerConfigShapeError(
-      `specs/${CONFIG_FILENAME} top-level must be a mapping, got ${Array.isArray(parsed) ? "array" : typeof parsed}`,
-      undefined,
-      `mode=tracker-config, stage=parse, path=${path}`,
-    );
-  }
-
-  const config = parsed as TrackerConfig;
-  validateTrackerConfig(config);
-  return config;
+  return viewProjectSection(
+    dirname(specsDir),
+    "task_tracking",
+    (tt) => tt.status_vocabulary ?? null,
+    () => parseTrackerConfigFile(specsDir),
+  );
 }
 
 /**
@@ -376,6 +351,15 @@ export function readTrackerConfig(specsDir: string): TrackerConfig | null {
  */
 export function writeTrackerConfig(specsDir: string, config: TrackerConfig): void {
   validateTrackerConfig(config);
+  // STE-710 — a settings-file tree takes the vocabulary as
+  // `task_tracking.status_vocabulary`; every other tree keeps the v2.101.4 file.
+  const projectRoot = dirname(specsDir);
+  if (settingsWriteSource(projectRoot) === "settings") {
+    writeProjectSettings(projectRoot, {
+      task_tracking: { status_vocabulary: { tracker_key: config.tracker_key, statuses: [...config.statuses], roles: { ...config.roles } } },
+    });
+    return;
+  }
   const path = configPath(specsDir);
   writeFileSync(path, serializeConfig(config));
 }

@@ -38,6 +38,7 @@ import {
   siblingPlanPaths,
 } from "./sibling_release";
 import { sameRepository } from "./target_repo";
+import { detectSettingsSource, SETTINGS_FILE } from "./project_settings";
 import { UNRELEASED_STAMP, changelogUnversionedAt } from "./active_plan_ship_ready";
 
 const PROBE = "plan_ship_coherence";
@@ -313,6 +314,10 @@ export async function runPlanShipCoherenceProbe(
   // STE-690 — the `unreleased` stamp is legal only under the project's own
   // `changelog_unversioned: true`; read the flag once per call.
   const unversioned = changelogUnversionedAt(projectRoot);
+  // STE-707 AC-STE-707.6 — cite the home the flag is read from.
+  const onSettingsFile = detectSettingsSource(projectRoot) === "settings";
+  const unversionedHome = onSettingsFile ? `\`${SETTINGS_FILE}\`` : "CLAUDE.md's `## Docs`";
+  const unversionedKey = onSettingsFile ? "docs.changelog_unversioned" : "changelog_unversioned";
 
   for (const file of files) {
     let content: string;
@@ -356,8 +361,8 @@ export async function runPlanShipCoherenceProbe(
     const isUnreleased = shippedIn.value === UNRELEASED_STAMP;
     if (!stampMatch || (isUnreleased && !unversioned)) {
       const remedy = isUnreleased
-        ? `the \`${UNRELEASED_STAMP}\` stamp is legal only when CLAUDE.md's \`## Docs\` declares ` +
-          `\`changelog_unversioned: true\`; declare it, or rewrite the shipped_in stamp in ${rel} as v<X.Y.Z> ` +
+        ? `the \`${UNRELEASED_STAMP}\` stamp is legal only when ${unversionedHome} declares ` +
+          `\`${unversionedKey}: true\`; declare it, or rewrite the shipped_in stamp in ${rel} as v<X.Y.Z> ` +
           `matching the \`## [X.Y.Z]\` CHANGELOG.md heading of the release that shipped this milestone.`
         : `rewrite the shipped_in stamp in ${rel} as v<X.Y.Z> matching the ` +
           `\`## [X.Y.Z]\` CHANGELOG.md heading of the release that shipped this milestone.`;

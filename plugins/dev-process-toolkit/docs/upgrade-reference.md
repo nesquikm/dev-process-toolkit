@@ -361,6 +361,74 @@ unconditional and why the closing summary names its directory verbatim whatever
 the outcome: it is the operator's only restore path, and a summary that omits it
 strands them.
 
+## The `settings-file` entry (3.0.0)
+
+`entries/settings_file.ts` — `introduced_in: "3.0.0"`, `kind: "script"`,
+`requires_explicit_approval: true`, registered last in `MIGRATIONS`. It moves
+every project setting into one file, `specs/settings.yaml`, and removes each old
+copy, so no setting lives in two places. The full preview is shown, and nothing
+is written without an explicit yes.
+
+**What it moves.** The recognised key lines of these CLAUDE.md sections, and
+three standalone files:
+
+| Legacy home | Lands under |
+|---|---|
+| `## Task Tracking`, with its `### Linear` / `### Jira` sub-sections | `task_tracking` |
+| the standalone `milestone_scan_fetch:` line | `task_tracking.milestone_scan_fetch` |
+| `## Verification` | `verification` |
+| `## Docs` | `docs` |
+| `## Orchestration` | `orchestration` |
+| `## Token Stats` | `tracking.token_stats` |
+| `## Release Files` (its fenced YAML block) | `release.files` |
+| `specs/tracker-config.yaml` | `task_tracking.status_vocabulary` |
+| `.dpt/video/config.yaml` | `video.config` |
+| `.dpt/video/style.yaml` | `video.style` |
+
+The settings file is written with `schema_version: 1` and
+`min_dpt_version: 3.0.0`. On a shared tracker container the binding's floor is
+raised to at least `3.0.0`, and the stop paragraph moves into
+`## Project Settings`, re-rendered for that floor.
+
+**What it removes.** Only the key lines it moved. A moved heading whose remaining
+body is blank (or holds only HTML comment blocks) loses its heading line too; a
+heading that keeps any other line stays, byte-identical. The shipped template
+comment blocks that told the reader to edit a moved section are replaced by one
+pointer comment, and any later matching block is deleted. A key line at column 0
+inside any other comment block is read by the v2.101.5 readers, so the move takes
+its value too and removes only that line; the rest of the comment stays. The three retired
+files are deleted. A new `## Project Settings` section with the pointer
+paragraph takes the first removed section's place.
+
+**What it refuses.** An unrecognised key line, a prose line, or a foreign `###`
+heading inside the `## Task Tracking` span: the move writes nothing and names
+each line, with its destination — a prose section outside `## Task Tracking`.
+A key line inside a comment that also opens or closes the comment (`milestone_scan_fetch: true -->`),
+and a `## Release Files` key inside a comment, cannot be taken out alone and are refused by line.
+A foreign file already at `specs/settings.yaml` is never overwritten: the preview names it first, and the move refuses, naming it, until it is renamed. On a tree that has not been migrated, a settings file without a column-0 `min_dpt_version:` line is foreign (`docs/settings-reference.md` § Sources).
+
+Every entry's `changed` set names exactly the files its apply wrote, a removed or renamed-away file included, because the commit stages exactly that set.
+
+**What it never touches.** `.dpt/.env`, `.claude/settings.json` and the user's
+`userConfig` are never read or written. `## Testing Conventions` with its
+`Layout:` bullet, `## Key Commands`, `## /setup audit`, the `/setup` generation
+marker and every other prose section stay byte-identical and in order.
+
+**Cleanup and stub repair.** On a tree that already has the settings file, a
+leftover legacy home whose values equal the settings file's is removed; one
+whose values differ refuses, naming both homes and each differing key path. A
+missing, duplicated or drifted binding stub is re-rendered, or removed under
+`mode: none`. Probe #69 reports any leftover as a pending `settings-file` row,
+and a second run is a no-op.
+
+**The binding stub, and its 4.0 removal.** In a tracker mode a small generated
+block follows the `## Project Settings` pointer: the active adapter's
+`### Linear` / `### Jira` declaration, rendered from the settings file by
+`renderTrackingStub`. It exists for stale pre-3.0 plugin caches, which read only
+CLAUDE.md: their `pre-tracker-write-gate` keeps guarding from it, and on a shared
+container its raised `3.0.0` floor refuses a tracker write from a pre-3.0
+client. The stub is removed in 4.0, when NFR-2 allows it.
+
 ## Authoring a new entry
 
 1. **Add the retired literal to `legacy_paths.ts`** — if the state you are

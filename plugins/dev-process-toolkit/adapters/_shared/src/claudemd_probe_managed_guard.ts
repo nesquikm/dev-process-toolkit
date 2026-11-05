@@ -48,6 +48,12 @@ export const PROBE_ID = "claudemd_probe_managed_guard";
  * route it through `./toolkit_managed`.
  */
 export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
+  project_settings:
+    "the settings loader (M_94e6f7/STE-706) reads CLAUDE.md only to decide the settings source and to parse the legacy homes; it decides no applicability, and every caller keeps its own managed-tree guard.",
+  project_settings_legacy:
+    "the loader's legacy module (M_94e6f7/STE-706) parses the v2.101.x CLAUDE.md homes for values; it decides no applicability, and every caller keeps its own managed-tree guard.",
+  project_settings_writer:
+    "the settings writer (M_94e6f7/STE-710) edits CLAUDE.md only to keep the `## Task Tracking` stub byte-equal to its render over the written settings file; applicability is the settings file it just wrote, not managed-ness.",
   attach_project_milestone:
     "the attach target's front door reads the tracker binding through `readWorkspaceBinding` for `repo_tag` alone (the provenance check); applicability is the tracker mode its caller passes, and an undeclared tree resolves exactly as before in managed and unmanaged trees alike.",
   bun_zero_match_placeholder:
@@ -124,6 +130,24 @@ const CLAUDE_MD_JOIN_RE = /join\s*\([^)]*["']CLAUDE\.md["']/;
 
 /** A body COMPLIES when it pulls the shared predicate in from `./toolkit_managed`. */
 const TOOLKIT_MANAGED_IMPORT_RE = /from\s+["']\.\/toolkit_managed(?:\.[jt]s)?["']/;
+
+/**
+ * STE-709 — a body ALSO enters scope when it resolves the settings file path:
+ * the whole path as one string literal, or split into its two segments.
+ */
+const SETTINGS_FILE_PATH_RE = /["']specs\/settings\.yaml["']|["']specs["']\s*,\s*["']settings\.yaml["']/;
+
+/** A settings-file reader COMPLIES when it imports the loader. */
+const LOADER_IMPORT_RE = /from\s+["']\.\/project_settings(?:\.[jt]s)?["']/;
+
+/** The only modules that may open the settings file themselves: the loader and its legacy module. */
+const SETTINGS_FILE_OWNERS: ReadonlySet<string> = new Set(["project_settings", "project_settings_legacy"]);
+
+/**
+ * Modules that resolve the settings file path without importing the loader,
+ * each with a recorded reason. Empty: only the loader opens the file.
+ */
+export const SETTINGS_FILE_READ_EXEMPT: Record<string, string> = {};
 
 /** Candidate adapter-source roots, in resolution order (first existing wins). */
 const ADAPTER_SRC_CANDIDATES: ReadonlyArray<ReadonlyArray<string>> = [
@@ -230,11 +254,30 @@ export async function runClaudeMdProbeManagedGuardProbe(
       continue;
     }
 
+    const moduleId = name.slice(0, -".ts".length);
+
+    // ── settings-file arm (STE-709): selection + compliance ──
+    if (
+      SETTINGS_FILE_PATH_RE.test(body) &&
+      !SETTINGS_FILE_OWNERS.has(moduleId) &&
+      !LOADER_IMPORT_RE.test(body) &&
+      !Object.hasOwn(SETTINGS_FILE_READ_EXEMPT, moduleId)
+    ) {
+      pushViolation(
+        violations,
+        projectRoot,
+        absFile,
+        lineOfMatch(body, SETTINGS_FILE_PATH_RE),
+        `resolves the settings file path without importing the settings loader from ` +
+          `\`./project_settings\`, and \`${moduleId}\` is not a recorded entry in ` +
+          `\`SETTINGS_FILE_READ_EXEMPT\` — only the loader and its legacy module may open the settings file`,
+      );
+    }
+
     // ── selection ──
     if (!CLAUDE_MD_JOIN_RE.test(body)) continue;
 
     // ── compliance ──
-    const moduleId = name.slice(0, -".ts".length);
     if (TOOLKIT_MANAGED_IMPORT_RE.test(body)) continue;
     if (Object.hasOwn(CLAUDEMD_GUARD_EXEMPT, moduleId)) continue;
 
