@@ -99,26 +99,50 @@ function readSettingsTextOrRefuse(projectRoot: string): string | null {
 }
 
 /**
- * True when `specs/settings.yaml` exists, is readable, and is not the toolkit's
- * (review B3). The toolkit's file carries `min_dpt_version:` at column 0, or
- * parses to a mapping holding `schema_version` beside one of the toolkit's
- * sections — a project's own file that only shares the generic
- * `schema_version` key is foreign. A file that does not parse falls back to the
- * column-0 marker rule (`schema_version:` or `min_dpt_version:`), so a
- * malformed toolkit file is refused, never ignored (AC-STE-709.1). An
- * unreadable file is not foreign: whose it is cannot be told, so the loader
- * refuses it rather than ignore it (review #3).
+ * True when the tree still carries a v2.101.5 home the settings file would sit
+ * beside: a CLAUDE.md line or file a legacy reader reads as a setting, or a
+ * moved heading in a CLAUDE.md that has no `## Project Settings` section. The
+ * move and a 3.x /setup write that section; v2.101.5 never did. Never throws.
+ */
+function hasUnmigratedLegacyHome(projectRoot: string): boolean {
+  try {
+    if (legacyHomesBesideSettings(projectRoot, recognisedHeadingKeys()).length > 0) return true;
+    if (!hasLegacyHome(projectRoot)) return false;
+    const md = join(projectRoot, "CLAUDE.md");
+    return !existsSync(md) || projectSettingsSection(readFileSync(md, "utf8")) === null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when `specs/settings.yaml` exists and is not the toolkit's.
+ *
+ * Beside an unmigrated legacy home (review round 2, R2-B3) the file is the
+ * toolkit's ONLY when it carries a column-0 `min_dpt_version:` line, the key
+ * every toolkit writer writes and the header requires. Anything else there is
+ * the project's own file: every reader, hook and the ledger ignore it, as
+ * v2.101.5 does, and the move refuses to overwrite it. An unreadable file
+ * there is ignored too (R2-B3b): v2.101.5 never opened it.
+ *
+ * With no such home the file is the only home, and the round-1 rule stands:
+ * the toolkit's when `min_dpt_version:` sits at column 0, or when it parses to
+ * a mapping holding `schema_version` beside one of the toolkit's sections; a
+ * file that does not parse falls back to the column-0 marker rule, so a
+ * malformed toolkit file is refused, never ignored (AC-STE-709.1); an
+ * unreadable file is not foreign, so the loader refuses it (review #3).
  */
 export function isForeignSettingsFile(projectRoot: string): boolean {
   let text: string | null;
   try {
     text = readSettingsText(projectRoot);
   } catch {
-    return false;
+    return hasUnmigratedLegacyHome(projectRoot);
   }
   if (text === null) return false;
   const body = text.startsWith(BOM) ? text.slice(1) : text;
   if (/^min_dpt_version\s*:/m.test(body)) return false;
+  if (hasUnmigratedLegacyHome(projectRoot)) return true;
   let parsed: unknown;
   try {
     parsed = Bun.YAML.parse(body);

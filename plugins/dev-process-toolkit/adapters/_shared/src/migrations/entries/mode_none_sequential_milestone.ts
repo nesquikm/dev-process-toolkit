@@ -505,7 +505,8 @@ export const modeNoneSequentialMilestone: MigrationEntry = {
         renameSync(plan.file, target);
         journal.push(() => renameSync(target, plan.file));
 
-        changed.push(relative(projectRoot, target), ...rebound);
+        // The old path is a write too (its removal): /upgrade stages exactly this set (review R2-F1).
+        changed.push(relative(projectRoot, target), relative(projectRoot, plan.file), ...rebound);
         repaired.push(`${plan.token} → ${minted.milestoneId}`);
       } catch (error) {
         rollback(journal);

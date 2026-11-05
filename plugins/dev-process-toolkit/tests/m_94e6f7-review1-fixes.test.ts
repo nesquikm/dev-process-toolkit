@@ -396,8 +396,10 @@ const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
 
 describe("#3 an unreadable specs/settings.yaml refuses, consistent with the managed signal", () => {
   test("#3 chmod 000: readers throw an NFR-10 refusal naming the file; nothing falls back to the stub or defaults", () => {
+    // A migrated tree: the move writes `## Project Settings`. Without it the same CLAUDE.md is an
+    // un-upgraded tree, where an unreadable file is ignored as v2.101.5 does (review round 2, R2-B3b).
     const root = tree({
-      "CLAUDE.md": legacy(["## Task Tracking", "", "mode: jira", ""]),
+      "CLAUDE.md": legacy(["## Project Settings", "", "Project settings live in `specs/settings.yaml`.", ""], ["## Task Tracking", "", "mode: jira", ""]),
       "specs/settings.yaml": 'schema_version: 1\nmin_dpt_version: "3.0.0"\ntask_tracking:\n  mode: linear\n',
     });
     chmodSync(join(root, "specs", "settings.yaml"), 0o000);

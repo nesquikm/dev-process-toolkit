@@ -405,7 +405,9 @@ heading inside the `## Task Tracking` span: the move writes nothing and names
 each line, with its destination — a prose section outside `## Task Tracking`.
 A key line inside a comment that also opens or closes the comment (`milestone_scan_fetch: true -->`),
 and a `## Release Files` key inside a comment, cannot be taken out alone and are refused by line.
-A foreign file already at `specs/settings.yaml` is never overwritten.
+A foreign file already at `specs/settings.yaml` is never overwritten: the preview names it first, and the move refuses, naming it, until it is renamed. Beside a legacy home, a settings file without a column-0 `min_dpt_version:` line is foreign (`docs/settings-reference.md` § Sources).
+
+Every entry's `changed` set names exactly the files its apply wrote, a removed or renamed-away file included, because the commit stages exactly that set.
 
 **What it never touches.** `.dpt/.env`, `.claude/settings.json` and the user's
 `userConfig` are never read or written. `## Testing Conventions` with its
