@@ -120,6 +120,7 @@ export const ADOPTING_STAGES = [
   "gate-check",
   "implement",
   "report-issue",
+  "retro",
   "setup",
   "spec-archive",
   "spec-review",

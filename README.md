@@ -1,6 +1,6 @@
 # Dev Process Toolkit
 
-A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 19 commands, 8 agents, spec templates, and documentation.
+A Claude Code plugin that adds **Spec-Driven Development (SDD)** and **TDD** workflows to any project. Includes 20 commands, 8 agents, spec templates, and documentation.
 
 <p align="center">
   <img src="assets/dev-process-toolkit.jpg" alt="Dev Process Toolkit - spec-driven development and TDD workflows" width="600">
@@ -59,7 +59,7 @@ bun --version
 
 ## Workflow
 
-The diagram below maps the 15 skills that sit inside the four-phase lifecycle. Read left-to-right for the phase path, or jump to whichever phase matches what you're doing now. Four of the 19 user-invocable skills are deliberately not on it: `/deliver`, the pipeline that wraps all four phases; `/deps` and `/best-practices`, the two manifest-management surfaces that feed Plan and Build; and `/video`, which turns a shipped feature into an explainer video. All four have rows in the [Commands](#commands) table.
+The diagram below maps the 15 skills that sit inside the four-phase lifecycle. Read left-to-right for the phase path, or jump to whichever phase matches what you're doing now. Five of the 20 user-invocable skills are deliberately not on it. `/deliver` is the pipeline that wraps all four phases. `/deps` and `/best-practices` are the two manifest-management surfaces that feed Plan and Build. `/video` turns a shipped feature into an explainer video. `/retro` grades a finished run against the retro rules. All five have rows in the [Commands](#commands) table.
 
 ```mermaid
 flowchart LR
@@ -116,7 +116,7 @@ Tracker integration (Linear, Jira, or `mode: none`) threads through Plan → Bui
 
 All commits in toolkit-managed repositories follow [Conventional Commits v1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), enforced locally by a `commit-msg` hook that `/setup` installs (a POSIX-shell hook by default; opt into `--commitlint` for projects with Node/Bun tooling).
 
-> The diagram above is a deliberately high-level lifecycle map. The four skills it leaves out are `/deliver`, `/deps`, `/best-practices` and `/video`: an orchestrator that wraps the phases, two manifest-management surfaces that feed them, and an explainer-video producer that sits beside them. For the mechanics it omits — the TDD and self-review loops, the deterministic gates/evals, the `spec-research` / `deps-research` forks, and every artifact-write point — see [`docs/workflow-overview.md`](plugins/dev-process-toolkit/docs/workflow-overview.md).
+> The diagram above is a deliberately high-level lifecycle map. The five skills it leaves out are `/deliver`, `/deps`, `/best-practices`, `/video` and `/retro`. They are an orchestrator that wraps the phases, two manifest-management surfaces that feed them, an explainer-video producer, and a run grader that sit beside them. For the mechanics it omits — the TDD and self-review loops, the deterministic gates/evals, the `spec-research` / `deps-research` forks, and every artifact-write point — see [`docs/workflow-overview.md`](plugins/dev-process-toolkit/docs/workflow-overview.md).
 
 ## What You Get
 
@@ -145,6 +145,7 @@ Commands are invoked with the `/dev-process-toolkit:` plugin-namespace prefix in
 | `/deps`           | Manage a git-tracked `specs/deps.yaml` manifest of sibling packages — Socratic `add` / `edit` / `delete` / `list` / `sync` subcommands; underpins the `deps-research` retrieval fork that feeds `/brainstorm` and `/spec-write`                                    | `<subcommand> [args...]`                                                   |
 | `/best-practices` | Manage a git-tracked `specs/best-practices.yaml` manifest of house best-practices docs — Socratic `add` / `edit` / `delete` / `list` subcommands over repo-relative document paths with scope globs and topics                                                     | `<subcommand> [args...]`                                                   |
 | `/video`          | Turn a feature into a finished explainer video in your own session — `init` writes the video settings; `<slug>` asks the brief, checks every technical claim against the code, drafts a script with shots, and voices, records and renders only after you approve it | `init \| <slug>`                                                           |
+| `/retro`          | Grade a finished run against the retro rules and write one report under `.dpt/ledger/retro/` | `[<milestone> \| <fr-id>]` |
 
 Nine additional skills (`spec-research`, `spec-review-audit`, `tdd-write-test`, `tdd-implement`, `tdd-refactor`, `tdd-spec-review`, `deps-research`, `upgrade`, `setup-template`) are not user-invocable. The first seven are dispatch-only — they run only as `context: fork` children of `/brainstorm`, `/spec-write`, `/spec-review`, and `/tdd`. `/upgrade` and `setup-template` are the two non-fork exceptions: `/upgrade` is not a fork child and has no paired subagent — Claude still invokes it directly to migrate a bootstrapped project, and its discovery path is `/gate-check` probe #69 (`upgrade_staleness`) rather than a slot on the slash menu — while `setup-template` is likewise forkless and is dispatched exclusively by `/setup --template`.
 
@@ -171,7 +172,7 @@ dev-process-toolkit/
 │   └── dev-process-toolkit/         # The plugin
 │       ├── .claude-plugin/
 │       │   └── plugin.json          # Plugin manifest
-│       ├── skills/                  # 28 (19 + 9) skills (19 user-invocable + 9 internal forks)
+│       ├── skills/                  # 29 (20 + 9) skills (20 user-invocable + 9 internal forks)
 │       ├── agents/                  # 8 specialist agents (code-reviewer, spec-researcher, spec-reviewer, deps-researcher, tdd-{test-writer,implementer,refactorer,spec-reviewer})
 │       ├── adapters/                # 3 tracker adapters (linear, jira, _template) + _shared helpers (every deterministic probe, parser and bumper)
 │       ├── templates/               # CLAUDE.md and spec templates, permissions.json, git hooks

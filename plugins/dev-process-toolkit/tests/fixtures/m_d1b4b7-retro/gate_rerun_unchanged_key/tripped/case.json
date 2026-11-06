@@ -1,0 +1,12 @@
+{
+  "note": "two pass runs, same subject and key, key_stable true, across two sessions: sum 1",
+  "sessions": [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000002"
+  ],
+  "tracking": {
+    "token_stats": true,
+    "tool_calls": true,
+    "gate_outcomes": true
+  }
+}

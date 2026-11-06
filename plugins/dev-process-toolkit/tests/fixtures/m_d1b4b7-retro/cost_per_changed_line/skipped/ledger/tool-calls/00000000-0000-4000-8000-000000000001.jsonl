@@ -1,0 +1,2 @@
+{"schema":"tool-call/v1","tool_use_id":"toolu_SYNTH_17","tool":"Bash","class":"commit","skill":null,"tree":null,"scope":"main","event":"pre","ts":"2026-11-06T10:05:00.000Z","diff":{"files":1,"insertions":4,"deletions":2}}
+{"schema":"tool-call/v1","tool_use_id":"toolu_SYNTH_17","tool":"Bash","class":"commit","skill":null,"tree":null,"scope":"main","event":"post","ts":"2026-11-06T10:05:01.000Z","diff":null}

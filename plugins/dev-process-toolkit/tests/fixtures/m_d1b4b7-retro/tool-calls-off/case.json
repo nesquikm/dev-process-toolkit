@@ -1,0 +1,11 @@
+{
+  "note": "tracking.tool_calls off: no timeline file was written",
+  "sessions": [
+    "00000000-0000-4000-8000-000000000001"
+  ],
+  "tracking": {
+    "token_stats": true,
+    "tool_calls": false,
+    "gate_outcomes": true
+  }
+}

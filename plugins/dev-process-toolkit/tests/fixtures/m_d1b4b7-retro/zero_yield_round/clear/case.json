@@ -1,0 +1,11 @@
+{
+  "note": "one zero-yield round: count 1; a write-test round with no tree change does not count",
+  "sessions": [
+    "00000000-0000-4000-8000-000000000001"
+  ],
+  "tracking": {
+    "token_stats": true,
+    "tool_calls": true,
+    "gate_outcomes": true
+  }
+}

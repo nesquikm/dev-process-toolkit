@@ -91,7 +91,7 @@ describe("AC-STE-324.4 — NON_COMMIT_PRODUCING_SKILLS expanded to 8 entries", (
     const { NON_COMMIT_PRODUCING_SKILLS } = await import(
       "../adapters/_shared/src/commit_producing_skill_branch_gate"
     );
-    expect(NON_COMMIT_PRODUCING_SKILLS).toHaveLength(8);
+    expect(NON_COMMIT_PRODUCING_SKILLS).toHaveLength(9); // Amended by AC-STE-719.13 (M_d1b4b7): + retro
   });
 });
 

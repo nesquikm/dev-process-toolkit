@@ -172,19 +172,19 @@ describe("AC-STE-466.1 — /deps idiom mirror: router + four subcommand sections
   });
 });
 
-describe("AC-STE-466.1 — on-disk ground truth: 28 skill dirs, 19 user-invocable", () => {
-  test("28 skill directories, best-practices among them", () => {
+describe("AC-STE-466.1 — on-disk ground truth: 29 skill dirs, 20 user-invocable", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
+  test("29 skill directories, best-practices among them", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
     const dirs = skillDirs();
-    expect(dirs.length).toBe(28);
+    expect(dirs.length).toBe(29); // Amended by AC-STE-719.14 (M_d1b4b7)
     expect(dirs).toContain("best-practices");
   });
 
-  test("exactly 19 skills are user-invocable, best-practices among them; the fork/dispatch set is 9 (M125)", () => {
+  test("exactly 20 skills are user-invocable, best-practices among them; the fork/dispatch set is 9 (M125)", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
     const dirs = skillDirs();
     const userInvocable = dirs.filter(
       (dir) => !declaresNonUserInvocable(readFileSync(join(SKILLS_DIR, dir, "SKILL.md"), "utf-8")),
     );
-    expect(userInvocable.length).toBe(19);
+    expect(userInvocable.length).toBe(20); // Amended by AC-STE-719.14 (M_d1b4b7)
     expect(userInvocable).toContain("best-practices");
     expect(dirs.length - userInvocable.length).toBe(9);
   });
@@ -193,28 +193,28 @@ describe("AC-STE-466.1 — on-disk ground truth: 28 skill dirs, 19 user-invocabl
 describe("AC-STE-466.1 — README count surfaces (probe #57's exact lines)", () => {
   const readmeLines = (): string[] => mustRead(README).split("\n");
 
-  test("line 3 pitch reads `19 commands, 8 agents` (probe #57 parses line index 2)", () => {
+  test("line 3 pitch reads `20 commands, 8 agents` (probe #57 parses line index 2)", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
     const line3 = readmeLines()[2] ?? "";
-    expect(line3).toMatch(/19\s+commands?,\s+8\s+agents?/);
+    expect(line3).toMatch(/20\s+commands?,\s+8\s+agents?/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 
   test("the lifecycle prose states the DIAGRAM's node count, derived", () => {
     // STE-567: the sentence promised 18 skills over a fifteen-node diagram.
-    // It now states the diagram's own count, and the 19 user-invocable total
+    // It now states the diagram's own count, and the 20 user-invocable total
     // lives on README L3 where probe #57 grades it against CLAUDE.md's split.
     const body = mustRead(README);
     expect(readDiagramIntroCount(body)).toBe(readDiagramNodes(body).length);
     expect(onlyLine(body, /^A Claude Code plugin that adds/)).toMatch(
-      /\b19 commands\b/,
+      /\b20 commands\b/, // Amended by AC-STE-719.14 (M_d1b4b7)
     );
   });
 
-  test("the repo-tree skills row reads `28 (19 + 9)` with `(19 user-invocable + 9 internal forks)`", () => {
+  test("the repo-tree skills row reads `29 (20 + 9)` with `(20 user-invocable + 9 internal forks)`", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
     const rows = readmeLines().filter((l) => l.includes("── skills/"));
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
-    expect(row).toMatch(/28\s+\(19\s*\+\s*9\)/);
-    expect(row).toMatch(/\(19 user-invocable \+ 9 internal forks\)/);
+    expect(row).toMatch(/29\s+\(20\s*\+\s*9\)/); // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(row).toMatch(/\(20 user-invocable \+ 9 internal forks\)/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 
   test("`Nine additional skills` — the dispatch count moved with setup-template (M125)", () => {
@@ -223,7 +223,7 @@ describe("AC-STE-466.1 — README count surfaces (probe #57's exact lines)", () 
 });
 
 describe("AC-STE-466.1 — CLAUDE.md count surfaces (probe #57 reads them by content)", () => {
-  test("the skills row: 28 slash commands (19 user-invocable + 9 dispatch …)", () => {
+  test("the skills row: 29 slash commands (20 user-invocable + 9 dispatch …)", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
     // Content-anchored, not `split("\\n")[14]`. Probe #57 read this row off a
     // fixed index until STE-567 de-anchored it; a pin on the index outlived
     // the coupling it recorded.
@@ -233,8 +233,8 @@ describe("AC-STE-466.1 — CLAUDE.md count surfaces (probe #57 reads them by con
     expect(rows).toHaveLength(1);
     const line15 = rows[0]!;
     expect(line15).toMatch(/^├── skills\//);
-    expect(line15).toMatch(/28\s+slash commands?/);
-    expect(line15).toMatch(/\(19\s+user-invocable\s*\+\s*9\s+dispatch/);
+    expect(line15).toMatch(/29\s+slash commands?/); // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(line15).toMatch(/\(20\s+user-invocable\s*\+\s*9\s+dispatch/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 
   test("the agents row is untouched: 8 subagent templates", () => {
@@ -243,27 +243,27 @@ describe("AC-STE-466.1 — CLAUDE.md count surfaces (probe #57 reads them by con
 });
 
 describe("AC-STE-466.1 — remaining count surfaces", () => {
-  test("specs/technical-spec.md skills row: 19 user-invocable SKILL.md files", () => {
-    expect(mustRead(TECH_SPEC)).toMatch(/19 user-invocable SKILL\.md files/);
+  test("specs/technical-spec.md skills row: 20 user-invocable SKILL.md files", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(mustRead(TECH_SPEC)).toMatch(/20 user-invocable SKILL\.md files/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 
-  test("specs/testing-spec.md v2-minimal row: all 28 skills", () => {
-    expect(mustRead(TESTING_SPEC)).toMatch(/all 28 skills/);
+  test("specs/testing-spec.md v2-minimal row: all 29 skills", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(mustRead(TESTING_SPEC)).toMatch(/all 29 skills/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 
-  test("docs/skill-anatomy.md canonical-example line: the other 27 skills", () => {
+  test("docs/skill-anatomy.md canonical-example line: the other 28 skills", () => { // Amended by AC-STE-719.14 (M_d1b4b7): 27 -> 28, /retro carries no allowed-tools
     const lines = mustRead(SKILL_ANATOMY)
       .split("\n")
       .filter((l) => l.includes("canonical read-only example"));
     expect(lines).toHaveLength(1);
-    expect(lines[0]!).toMatch(/the other 27 skills/);
+    expect(lines[0]!).toMatch(/the other 28 skills/); // Amended by AC-STE-719.14 (M_d1b4b7): 27 -> 28, /retro carries no allowed-tools
   });
 });
 
 // Meta-meta pins — house M108→M109→M123 pattern: the shipped count-pin
 // suites must be RE-KEYED to the new 18 / 26 forms, not deleted and not left
 // green on stale numbers. Substring pins sidestep regex double-escaping.
-describe("AC-STE-466.1 — shipped count-pin suites re-key to the 19 / 28 forms (M_1e0717)", () => {
+describe("AC-STE-466.1 — shipped count-pin suites re-key to the 20 / 29 forms (M_1e0717)", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
   const testSrc = (name: string): string => mustRead(join(import.meta.dir, name));
 
   for (const suite of [
@@ -273,9 +273,9 @@ describe("AC-STE-466.1 — shipped count-pin suites re-key to the 19 / 28 forms 
   ]) {
     test(`${suite} carries the new live-tree literals`, () => {
       const src = testSrc(suite);
-      expect(src).toContain("19 commands");
-      expect(src).toContain("all 28 skills");
-      expect(src).toContain("the other 27 skills");
+      expect(src).toContain("20 commands"); // Amended by AC-STE-719.14 (M_d1b4b7)
+      expect(src).toContain("all 29 skills"); // Amended by AC-STE-719.14 (M_d1b4b7)
+      expect(src).toContain("the other 28 skills"); // Amended by AC-STE-719.14 (M_d1b4b7): 27 -> 28, /retro carries no allowed-tools
     });
   }
 });
