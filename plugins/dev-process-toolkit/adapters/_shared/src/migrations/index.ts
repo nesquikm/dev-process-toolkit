@@ -9,6 +9,7 @@
 // invariants at module load. Retired path literals live exclusively in
 // `./legacy_paths` — the entries import them, never compose them.
 
+import { captureRegistration } from "./entries/capture_registration";
 import { dptGitignoreVideo } from "./entries/dpt_gitignore_video";
 import { linearTeamKey } from "./entries/linear_team_key";
 import { m104LegacyState } from "./entries/m104_legacy_state";
@@ -112,6 +113,7 @@ export const MIGRATIONS: MigrationEntry[] = [
   linearTeamKey, // 2.90.0
   dptGitignoreVideo, // 2.96.0
   settingsFile, // 3.0.0
+  captureRegistration, // 3.1.0
 ];
 
 validateRegistry(MIGRATIONS);

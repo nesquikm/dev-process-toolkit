@@ -932,8 +932,17 @@ export function readLegacyOrchestration(projectRoot: string): Record<string, unk
   return snake(parseOrchestrationConfig(projectRoot));
 }
 
-export function readLegacyTracking(projectRoot: string): { token_stats: { enabled: boolean } } {
-  return { token_stats: parseTokenStatsConfig(claudeMd(projectRoot)) };
+export function readLegacyTracking(projectRoot: string): {
+  token_stats: { enabled: boolean };
+  gate_outcomes: { enabled: boolean };
+  tool_calls: { enabled: boolean };
+} {
+  // STE-715 / STE-716: no legacy home carries gate_outcomes or tool_calls; they read their defaults.
+  return {
+    token_stats: parseTokenStatsConfig(claudeMd(projectRoot)),
+    gate_outcomes: { enabled: false },
+    tool_calls: { enabled: false },
+  };
 }
 
 export function readLegacyRelease(projectRoot: string): { files: unknown[] } {

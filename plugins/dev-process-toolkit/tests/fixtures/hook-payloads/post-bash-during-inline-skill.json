@@ -1,0 +1,32 @@
+{
+  "registration": "local",
+  "wall_clock_ms": 1793939937008,
+  "cwd": "/synthetic/repo",
+  "claude_project_dir": "/synthetic/repo",
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000002",
+    "transcript_path": "/synthetic/repo/.claude-config/projects/-synthetic-repo/00000000-0000-4000-8000-000000000002.jsonl",
+    "cwd": "/synthetic/repo",
+    "scratchpad_dir": "/synthetic/repo/tmp/-synthetic-repo/00000000-0000-4000-8000-000000000002/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000100009",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "grep -n -B2 -A12 \"verification\\|gate\" specs/settings.yaml | head -50; cat plugins/dev-process-toolkit/package.json 2>/dev/null | head -30; cat specs/frs/spike-fixture.md",
+      "description": "Look up the verification settings and the untracked fixture"
+    },
+    "tool_response": {
+      "stdout": "22-      in_review: In Progress\n23-      done: Done\n24:verification:\n25-  verify_skill: smoke-test\n26-  verify_mode: manual\n27-  run_cmd: none\n28-docs:\n29-  user_facing_mode: false\n30-  packages_mode: false\n31-  changelog_ci_owned: false\n32-  changelog_unversioned: false\n33-orchestration:\n34-  default_effort: ultracode\n35-  merge_policy: auto\n36-tracking:\n--\n79-      prompt: \"High-energy modern electronic track for a playful developer-tool explainer: punchy drums, funky bass line, bright synth stabs, confident and fun, steady driving tempo, no vocals, never sleepy or elevator-like.\"\n80-    narration:\n81:      tone: \"Positive, dynamic and funny: quick upbeat delivery, playful jokes about dev workflows and approval gates, genuine excitement at each reveal. Use [excited] and [laughs] sparingly, at punchlines only.\"\n82-    banned_effects:\n83-      - slow_zoom\n84-      - ken_burns\n85-    humor: playful\n86-    layout:\n87-      viewport:\n88-        width: 1280\n89-        height: 720\n90-    loudness:\n91-      target_lufs: -16\n---\ntitle: Spike fixture \u2014 a helper doubles a number\nmilestone: M_7bc805\nstatus: active\narchived_at: null\ncreated_at: 2026-11-06T00:00:00Z\nchangelog_category: Added\n---\n\n# Spike fixture \u2014 a helper doubles a number\n\nThrowaway one-AC FR for the STE-714 measurement spike. Never committed to any shared branch.\n\n## Acceptance Criteria\n\n- AC-SPIKE.1: `plugins/dev-process-toolkit/adapters/_shared/src/spike_double.ts` exports `double(n: number): number`, returning `n * 2`, tested by `plugins/dev-process-toolkit/tests/spike-double.test.ts`.\n\n## Technical Design\n\nOne pure function in one new file.\n\n## Testing\n\nOne test file with two cases (a positive number and zero). Run only that file: `cd plugins/dev-process-toolkit && bun test tests/spike-double.test.ts`.",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false
+    },
+    "tool_use_id": "toolu_SYNTH_10",
+    "duration_ms": 29
+  }
+}

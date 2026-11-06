@@ -548,6 +548,9 @@ function offendingPaths(projectRoot: string): readonly string[] {
     .map(porcelainPath);
 }
 
+/** Exported for STE-715's reuse key (`clean`); the declaration above is unchanged. */
+export { offendingPaths };
+
 /**
  * The NFR-10 canonical refusal — verdict line, `Remedy:`, `Context:` — built in
  * ONE place so neither precondition can drift out of the shape.

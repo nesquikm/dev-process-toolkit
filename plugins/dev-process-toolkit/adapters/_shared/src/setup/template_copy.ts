@@ -11,6 +11,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { CAPTURE_WRAPPER_REL, dropCaptureEntries, isCaptureHookCommand } from "../capture_registration";
 import { isForeignSettingsFile, NEW_KEYS, SETTINGS_FILE } from "../project_settings";
 
 export const SETTINGS_REL = SETTINGS_FILE;
@@ -165,6 +166,40 @@ export function filterNewKeys(text: string): { text: string; dropped: string[] }
   return { text: lines.join("\n"), dropped };
 }
 
+/** The Claude Code settings files a template copy never lets register capture (STE-716 AC.23). */
+export const CLAUDE_SETTINGS_RELS: readonly string[] = [".claude/settings.json", ".claude/settings.local.json"];
+
+/**
+ * Drop every capture entry from a copied Claude Code settings file. A file
+ * holding none (or not parseable as JSON) comes back byte-identical; `dropped`
+ * names each removed entry as `<rel>: hooks.<Event> <wrapper>`.
+ */
+export function filterCaptureEntries(rel: string, text: string): { text: string; dropped: string[] } {
+  if (!text.includes(CAPTURE_WRAPPER_REL)) return { text, dropped: [] };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { text, dropped: [] };
+  }
+  const dropped: string[] = [];
+  const hooks = (parsed as { hooks?: unknown } | null)?.hooks;
+  if (hooks && typeof hooks === "object" && !Array.isArray(hooks)) {
+    for (const [ev, groups] of Object.entries(hooks as Record<string, unknown>)) {
+      if (!Array.isArray(groups)) continue;
+      for (const g of groups) {
+        const entries = (g as { hooks?: unknown } | null)?.hooks;
+        if (!Array.isArray(entries)) continue;
+        for (const h of entries) {
+          if (isCaptureHookCommand((h as { command?: unknown } | null)?.command)) dropped.push(`${rel}: hooks.${ev} ${CAPTURE_WRAPPER_REL}`);
+        }
+      }
+    }
+  }
+  if (dropped.length === 0) return { text, dropped };
+  return { text: `${JSON.stringify(dropCaptureEntries(parsed), null, 2)}\n`, dropped };
+}
+
 function pairRefusal(selected: string, missing: string, templateRoot: string): Error {
   return new Error(
     [
@@ -203,19 +238,25 @@ export function planTemplateCopy(templateRoot: string, targetRoot: string, opts:
   }
   const files: Record<string, string> = {};
   let dropped: string[] = [];
+  const captureDropped: string[] = [];
   for (const rel of selection) {
     const body = readFileSync(join(templateRoot, rel), "utf8");
     if (rel === SETTINGS_REL) {
       const filtered = filterNewKeys(body);
       files[rel] = filtered.text;
       dropped = filtered.dropped;
+    } else if (CLAUDE_SETTINGS_RELS.includes(rel)) {
+      const filtered = filterCaptureEntries(rel, body);
+      files[rel] = filtered.text;
+      captureDropped.push(...filtered.dropped);
     } else {
       files[rel] = body;
     }
   }
-  const report =
-    dropped.length === 0
-      ? ""
-      : `${SETTINGS_REL}: dropped ${dropped.length} key(s) this toolkit version introduces (NEW_KEYS) — ${dropped.join(", ")}. The target opts in on its own.`;
-  return { files, dropped, report };
+  const lines: string[] = [];
+  if (dropped.length > 0) {
+    lines.push(`${SETTINGS_REL}: dropped ${dropped.length} key(s) this toolkit version introduces (NEW_KEYS) — ${dropped.join(", ")}. The target opts in on its own.`);
+  }
+  for (const d of captureDropped) lines.push(`dropped capture entry ${d} — a template never registers capture in the target.`);
+  return { files, dropped: [...dropped, ...captureDropped], report: lines.join("\n") };
 }

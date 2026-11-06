@@ -262,6 +262,23 @@ function plantLegacySettingsHome(root: string): void {
   writeFileSync(path, `${readFileSync(path, "utf-8")}\n## Token Stats\n\nenabled: true\n`, "utf-8");
 }
 
+// Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
+// A `.claude/settings.local.json` holding one capture entry (its command names
+// `templates/hooks/process/tool-call-capture.sh`) beside a settings file with no
+// `tracking.tool_calls` key: the setting reads off, so the entry is pending removal.
+function plantCaptureEntryWithKeyAbsent(root: string): void {
+  mkdirSync(join(root, ".claude"), { recursive: true });
+  const command = "exec '/opt/synthetic/plugin/templates/hooks/process/tool-call-capture.sh' '/opt/synthetic/config/plugins/installed_plugins.json'; exit 0";
+  const group = { matcher: "Bash|Skill", hooks: [{ type: "command", command, timeout: 2 }] };
+  writeFileSync(
+    join(root, ".claude", "settings.local.json"),
+    `${JSON.stringify({ hooks: { PreToolUse: [group], PostToolUse: [group] } }, null, 2)}\n`,
+    "utf-8",
+  );
+  mkdirSync(join(root, "specs"), { recursive: true });
+  writeFileSync(join(root, "specs", "settings.yaml"), 'schema_version: 1\nmin_dpt_version: "2.0.0"\n', "utf-8");
+}
+
 function plantVerificationBlockWithoutRunCmd(root: string): void {
   const path = join(root, "CLAUDE.md");
   writeFileSync(
@@ -649,6 +666,8 @@ describe("AC-STE-394.9 — each live legacy state renders exactly its own row", 
     ["linear-team-key", plantLinearDisplayNameTeam],
     ["dpt-gitignore-video", plantPreVideoDptGitignore],
     ["settings-file", plantLegacySettingsHome], // Amended by M_94e6f7/STE-711 (AC-.13)
+    // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
+    ["capture-registration", plantCaptureEntryWithKeyAbsent],
   ];
 
   // Completeness guard. Without it the table above is a hand-maintained list

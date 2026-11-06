@@ -1,0 +1,32 @@
+{
+  "registration": "local",
+  "wall_clock_ms": 1793939738311,
+  "cwd": "/synthetic/repo",
+  "claude_project_dir": "/synthetic/repo",
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000002",
+    "transcript_path": "/synthetic/repo/.claude-config/projects/-synthetic-repo/00000000-0000-4000-8000-000000000002.jsonl",
+    "cwd": "/synthetic/repo",
+    "scratchpad_dir": "/synthetic/repo/tmp/-synthetic-repo/00000000-0000-4000-8000-000000000002/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000100001",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo case-ok",
+      "description": "Print a confirmation string"
+    },
+    "tool_response": {
+      "stdout": "case-ok",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false
+    },
+    "tool_use_id": "toolu_SYNTH_01",
+    "duration_ms": 341
+  }
+}

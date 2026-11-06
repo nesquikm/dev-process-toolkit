@@ -26,6 +26,7 @@ The orchestrator runs in the **main context** (no `context: fork`) so it can par
    Resolve to a list of FR file path(s) under `specs/frs/` (excluding `archive/`) and the changed-files surface to scan. This is the per-invocation input the audit fork needs — the orchestrator does not read the FR bodies itself; it hands the paths to the fork.
 
    Those paths settle which checkout is in scope. Record the run against it, before the fork is dispatched, with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" spec-review "<that checkout root>"`. If it refuses, stop and report its block verbatim — the PR gate reads that receipt inside the repository the PR is opened for, so without it `gh pr create` is refused later with no explanation.
+   Only if that call also printed `outcome: on`, after the audit result is parsed record its verdict with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" outcome spec-review "<that checkout root>" <pass|fail>`: `pass` when `drift_count` is 0 and every traceability row is `done`, else `fail`.
 
 2. **Dispatch the audit fork** — Invoke `Skill('dev-process-toolkit:spec-review-audit')` with the rendered prompt body:
 

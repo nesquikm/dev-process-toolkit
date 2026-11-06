@@ -281,9 +281,10 @@ describe("AC-STE-557.2 — the ledger records the moves git records", () => {
    */
   // Amended by AC-STE-677.5: the 120 -> 119 lowering is the fifteenth move.
   // Amended by M_94e6f7/STE-706: the 119 -> 117 lowering is the sixteenth move.
-  const MEASURED = [117, 119, 120, 121, 122, 124, 125, 129, 130, 131, 133, 136, 137, 139, 142, 146] as const;
+  // Amended by M_7bc805/STE-717: the 117 -> 116 lowering is the seventeenth move.
+  const MEASURED = [116, 117, 119, 120, 121, 122, 124, 125, 129, 130, 131, 133, 136, 137, 139, 142, 146] as const;
 
-  test("sixteen moves, in the measured order", () => {
+  test("seventeen moves, in the measured order", () => {
     expect(ORDERED_UNREACHABLE_PIN_LEDGER.map((m) => m.value)).toEqual([...MEASURED]);
   });
 

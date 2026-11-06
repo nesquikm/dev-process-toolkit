@@ -48,6 +48,8 @@ export const PROBE_ID = "claudemd_probe_managed_guard";
  * route it through `./toolkit_managed`.
  */
 export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
+  gate_reuse_key:
+    "the gate reuse key (M_7bc805/STE-715) hashes the bytes of CLAUDE.md's Key Commands section into an input digest; it decides no applicability and runs only once the outcome switch, read through the loader, is on.",
   project_settings:
     "the settings loader (M_94e6f7/STE-706) reads CLAUDE.md only to decide the settings source and to parse the legacy homes; it decides no applicability, and every caller keeps its own managed-tree guard.",
   project_settings_legacy:
@@ -147,7 +149,10 @@ const SETTINGS_FILE_OWNERS: ReadonlySet<string> = new Set(["project_settings", "
  * Modules that resolve the settings file path without importing the loader,
  * each with a recorded reason. Empty: only the loader opens the file.
  */
-export const SETTINGS_FILE_READ_EXEMPT: Record<string, string> = {};
+export const SETTINGS_FILE_READ_EXEMPT: Record<string, string> = {
+  gate_reuse_key:
+    "the gate reuse key (M_7bc805/STE-715) hashes the settings file's raw bytes into an input digest; it parses no setting and decides nothing from it, and its switch is read through the loader by gate_receipt.ts.",
+};
 
 /** Candidate adapter-source roots, in resolution order (first existing wins). */
 const ADAPTER_SRC_CANDIDATES: ReadonlyArray<ReadonlyArray<string>> = [

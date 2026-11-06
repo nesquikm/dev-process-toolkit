@@ -364,7 +364,7 @@ strands them.
 ## The `settings-file` entry (3.0.0)
 
 `entries/settings_file.ts` — `introduced_in: "3.0.0"`, `kind: "script"`,
-`requires_explicit_approval: true`, registered last in `MIGRATIONS`. It moves
+`requires_explicit_approval: true`, registered after every 2.x entry in `MIGRATIONS`. It moves
 every project setting into one file, `specs/settings.yaml`, and removes each old
 copy, so no setting lives in two places. The full preview is shown, and nothing
 is written without an explicit yes.
@@ -428,6 +428,24 @@ block follows the `## Project Settings` pointer: the active adapter's
 CLAUDE.md: their `pre-tracker-write-gate` keeps guarding from it, and on a shared
 container its raised `3.0.0` floor refuses a tracker write from a pre-3.0
 client. The stub is removed in 4.0, when NFR-2 allows it.
+
+## The `capture-registration` entry (3.1.0)
+
+`entries/capture_registration.ts` — `introduced_in: "3.1.0"`, `kind: "script"`,
+`requires_explicit_approval: true`, registered after `settings-file`. It keeps the
+user's own tool-call capture entry in `.claude/settings.local.json` in step with
+`tracking.tool_calls.enabled`, through `capture_registration.ts` (`status`,
+`register`, `unregister`).
+
+**Detect.** Pure. The setting is read from the working-tree `specs/settings.yaml`
+through the loader; a foreign settings file reads off. It applies when the
+setting is on and the registration is `none` or `stale`, or when the setting is
+off and a capture entry exists. On a default tree, with no key and no entry, it
+never applies.
+
+**Apply.** Registers when the setting is on, unregisters when it is off. Neither
+arm edits, restores or commits the settings file. A second detect reports
+`applies: false`.
 
 ## Authoring a new entry
 

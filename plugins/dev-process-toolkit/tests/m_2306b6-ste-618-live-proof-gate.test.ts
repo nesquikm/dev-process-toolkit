@@ -91,7 +91,12 @@ const RUN_DATE = "2026-09-21";
 // in place lines 43, 51, 72, 73, 74, 76, 77, 80, 139, 150, 156, 161, 167 and 174
 // (probes #12, #13, #17, #18, #19, #21, #22, #25, #52, #63, #69, #74, #80 and
 // #87 gain their settings-file arms). Same line count; the line sets are unchanged.
-const KICKOFF = "d2e99048";
+// RE-BASED (operator ruling 2026-11-04, M_7bc805 / STE-715), pre-granted once for
+// the milestone: the gate-check half moved its base from d2e99048 to c51843d8,
+// the STE-715 line-9 edit commit, which changed line 9 and nothing else: it
+// kept its v3.0.0 text and gained one sentence naming the outcome call. Same line
+// count; PERMITTED_LINES and its pin are unchanged.
+const KICKOFF = "c51843d8";
 // RE-BASED (operator ruling 2026-10-12, M_1e0717 / STE-670): the ship-milestone
 // half of the freeze moved its base to 134fe2e6 (the v2.95.1 merge, parent of
 // the M_1e0717 spec commit), where lines 91 and 265 hold the same text as at

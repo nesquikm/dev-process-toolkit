@@ -210,7 +210,8 @@ describe("AC-STE-507.3 — /upgrade carries a migration-registry entry", () => {
     const ids = MIGRATIONS.map((e) => e.id);
     expect(ids.indexOf(ENTRY_ID)).toBeGreaterThan(ids.indexOf(PREDECESSOR_ID));
     // Amended by M_94e6f7/STE-711 (AC-.13): `settings-file` (3.0.0) is appended last.
-    expect(ids.slice(ids.indexOf(ENTRY_ID) + 1)).toEqual(["linear-team-key", "dpt-gitignore-video", "settings-file"]);
+    // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
+    expect(ids.slice(ids.indexOf(ENTRY_ID) + 1)).toEqual(["linear-team-key", "dpt-gitignore-video", "settings-file", "capture-registration"]);
   });
 
   test("kind is `script`, and `apply` is present exactly BECAUSE of that", () => {

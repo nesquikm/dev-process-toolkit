@@ -198,7 +198,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.0.0 — "Home Base"** (M_94e6f7, one home for project settings. Every setting the toolkit reads now lives in `specs/settings.yaml`, read by one loader; a fresh `/setup` writes it with a slim CLAUDE.md, `/upgrade` moves an existing project over, and a project that has not moved keeps working from its CLAUDE.md headings unchanged)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.1.0 — "Flight Recorder"** (M_7bc805, a record of what a run actually did, all of it opt-in. Gate receipts can record whether a gate passed and on which exact input; an opt-in hook writes one privacy-safe row per Bash and Skill call; a reader turns the session log into a timeline of calls, review rounds and gate runs. With every new switch off, the default, the toolkit behaves exactly as v3.0.0)
 
 ## Core Philosophy
 

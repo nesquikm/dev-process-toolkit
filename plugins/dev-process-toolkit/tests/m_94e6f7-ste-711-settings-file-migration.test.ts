@@ -763,8 +763,10 @@ describe("AC-STE-711.1 the registry entry", () => {
     expect(e.title.length).toBeGreaterThan(0);
   });
 
-  test("AC-.1 the entry sits last in MIGRATIONS and validateRegistry passes", () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 1]!.id).toBe("settings-file");
+  // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
+  test("AC-.1 the entry sits last in MIGRATIONS before capture-registration and validateRegistry passes", () => {
+    expect(MIGRATIONS[MIGRATIONS.length - 2]!.id).toBe("settings-file");
+    expect(MIGRATIONS[MIGRATIONS.length - 1]!.id).toBe("capture-registration");
     expect(() => validateRegistry(MIGRATIONS)).not.toThrow();
     expect(MIGRATIONS.filter((m) => m.id === "settings-file")).toHaveLength(1);
   });

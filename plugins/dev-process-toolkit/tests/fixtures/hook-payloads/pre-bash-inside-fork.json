@@ -1,0 +1,26 @@
+{
+  "registration": "local",
+  "wall_clock_ms": 1793941071732,
+  "cwd": "/synthetic/repo",
+  "claude_project_dir": "/synthetic/repo",
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000002",
+    "transcript_path": "/synthetic/repo/.claude-config/projects/-synthetic-repo/00000000-0000-4000-8000-000000000002.jsonl",
+    "cwd": "/synthetic/repo",
+    "scratchpad_dir": "/synthetic/repo/tmp/-synthetic-repo/00000000-0000-4000-8000-000000000002/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000100006",
+    "permission_mode": "auto",
+    "agent_id": "agent_SYNTH_01",
+    "agent_type": "general-purpose",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cat specs/frs/spike-fixture.md; ls plugins/dev-process-toolkit/adapters/_shared/src | head -5; ls plugins/dev-process-toolkit/tests | head -5; head -15 \"plugins/dev-process-toolkit/tests/$(ls plugins/dev-process-toolkit/tests | grep test.ts | head -1)\"",
+      "description": "Read FR file and sample test conventions"
+    },
+    "tool_use_id": "toolu_SYNTH_08"
+  }
+}

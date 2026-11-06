@@ -447,6 +447,19 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 116,
+    commit: "71c1fda",
+    rationale:
+      "M_7bc805/STE-717: the session-log timeline reader `tool_call_timeline.ts` " +
+      "(which has a front door) imports `spec_review_result.ts` to grade a " +
+      "spec-review round, so that module became reachable and its one ordered " +
+      "reference (`skills/spec-review/SKILL.md`) stopped naming a module nothing " +
+      "runnable reaches. Exactly that reference left the set and none entered " +
+      "it. Measured by the awaited `runModuleReachabilityProbe` (117 -> 116, " +
+      "diffed record by record against a checkout of 6c62b32c), not carried " +
+      "from the FR.",
+  },
+  {
     value: 117,
     commit: "ac246a7",
     rationale:

@@ -44,11 +44,26 @@ const SKILLS: Array<[string, string]> = [
   ["skills/spec-review/SKILL.md", "spec-review"],
 ];
 
+// Amended by AC-STE-715.20 (M_7bc805): the one receipt order is the line naming the skill's own name.
+function ownOrderLines(body: string, skill: string): string[] {
+  return body.split("\n").filter((l) => l.includes(`${FRONT_DOOR_ORDER} ${skill}`));
+}
+
+// Amended by AC-STE-715.20 (M_7bc805): the lines beside the one receipt order.
+function otherFrontDoorLineViolations(body: string, skill: string): string[] {
+  return body
+    .split("\n")
+    .filter((l) => l.includes(FRONT_DOOR_ORDER) && !l.includes(`${FRONT_DOOR_ORDER} ${skill}`))
+    .filter((l) => !l.includes(`${FRONT_DOOR_ORDER} outcome`) || !l.includes("outcome: on"))
+    .map((l) => l.slice(0, 120));
+}
+
 describe("AC-STE-614.11 — each gate skill orders the front door exactly once", () => {
   for (const [rel, skill] of SKILLS) {
     test(`${rel} carries exactly one front-door order, naming \`${skill}\``, () => {
       const body = read(rel);
-      const lines = body.split("\n").filter((l) => l.includes(FRONT_DOOR_ORDER));
+      // Amended by AC-STE-715.20 (M_7bc805): count only the receipt order naming the skill's own name.
+      const lines = ownOrderLines(body, skill);
       expect({ rel, count: lines.length }).toEqual({ rel, count: 1 });
       expect(lines[0]).toContain(skill);
       // The other two skill names must not ride along on the same line.
@@ -60,10 +75,31 @@ describe("AC-STE-614.11 — each gate skill orders the front door exactly once",
       }
     });
 
+    // Amended by AC-STE-715.20 (M_7bc805): any further line naming the front door orders only `outcome`.
+    test(`${rel}: every other front-door line orders only the \`outcome\` verb and names \`outcome: on\``, () => {
+      expect(otherFrontDoorLineViolations(read(rel), skill)).toEqual([]);
+    });
+
     test(`CONTROL — ${rel} carried no such order at the fixed base`, () => {
       expect(readAtBase(rel).includes(FRONT_DOOR_ORDER)).toBe(false);
     });
   }
+
+  // Amended by AC-STE-715.20 (M_7bc805): controls, each on a temp copy of skills/tdd/SKILL.md.
+  test("CONTROL (AC-STE-715.20) — a second receipt order naming `tdd` reds the count row", () => {
+    const planted = `${read("skills/tdd/SKILL.md")}\nAlso record it with \`${FRONT_DOOR_ORDER} tdd "<root>"\`.\n`;
+    expect(ownOrderLines(planted, "tdd").length).toBe(2);
+  });
+
+  // Amended by AC-STE-715.20 (M_7bc805)
+  test("CONTROL (AC-STE-715.20) — an outcome order without `outcome: on` reds the new row", () => {
+    const planted = `${read("skills/tdd/SKILL.md")}\nThen run \`${FRONT_DOOR_ORDER} outcome tdd "<root>" pass\`.\n`;
+    expect(otherFrontDoorLineViolations(planted, "tdd").length).toBe(1);
+    const guarded = `${read("skills/tdd/SKILL.md")}\nOnly if it printed \`outcome: on\`, run \`${FRONT_DOOR_ORDER} outcome tdd "<root>" pass\`.\n`;
+    expect(otherFrontDoorLineViolations(guarded, "tdd")).toEqual(
+      otherFrontDoorLineViolations(read("skills/tdd/SKILL.md"), "tdd"),
+    );
+  });
 
   test("in gate-check the order sits in the paragraph BEFORE the first `##` section", () => {
     const body = read("skills/gate-check/SKILL.md");

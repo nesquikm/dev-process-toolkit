@@ -1,0 +1,29 @@
+{
+  "registration": "local",
+  "wall_clock_ms": 1793943668472,
+  "cwd": "/synthetic/repo",
+  "claude_project_dir": "/synthetic/repo",
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000003",
+    "transcript_path": "/synthetic/repo/.claude-config/projects/-synthetic-repo/00000000-0000-4000-8000-000000000003.jsonl",
+    "cwd": "/synthetic/repo",
+    "scratchpad_dir": "/synthetic/repo/tmp/-synthetic-repo/00000000-0000-4000-8000-000000000003/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000100010",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Skill",
+    "tool_input": {
+      "skill": "dev-process-toolkit:best-practices",
+      "args": "list"
+    },
+    "tool_response": {
+      "success": true,
+      "commandName": "dev-process-toolkit:best-practices"
+    },
+    "tool_use_id": "toolu_SYNTH_11",
+    "duration_ms": 5
+  }
+}

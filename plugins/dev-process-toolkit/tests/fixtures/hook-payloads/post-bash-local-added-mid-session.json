@@ -1,0 +1,32 @@
+{
+  "registration": "local",
+  "wall_clock_ms": 1793939684023,
+  "cwd": "/synthetic/repo",
+  "claude_project_dir": "/synthetic/repo",
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000001",
+    "transcript_path": "/synthetic/repo/.claude-config/projects/-synthetic-repo/00000000-0000-4000-8000-000000000001.jsonl",
+    "cwd": "/synthetic/repo",
+    "scratchpad_dir": "/synthetic/repo/tmp/-synthetic-repo/00000000-0000-4000-8000-000000000001/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000100005",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "echo case-a1",
+      "description": "Print case-a1"
+    },
+    "tool_response": {
+      "stdout": "case-a1",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false
+    },
+    "tool_use_id": "toolu_SYNTH_05",
+    "duration_ms": 14
+  }
+}
