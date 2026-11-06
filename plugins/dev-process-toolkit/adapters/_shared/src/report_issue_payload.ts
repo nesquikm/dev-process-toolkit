@@ -72,8 +72,16 @@ export function scrubPayloadDir(dir: string, ctx: PayloadContext): void {
 /** The identifier rows go after the seven secret rows of `redaction_summary`. */
 function appendIdentifierRows(metadataText: string, rows: readonly ScrubMatch[]): string {
   const meta = JSON.parse(metadataText);
-  const summary = Array.isArray(meta.redaction_summary) ? meta.redaction_summary : [];
-  meta.redaction_summary = [...summary, ...rows];
+  const summary: { pattern?: unknown; count?: unknown }[] = Array.isArray(meta.redaction_summary) ? meta.redaction_summary : [];
+  // A second flagged run over the same directory adds to the rows it already wrote,
+  // never appends a second set (the pass is idempotent, so its counts are zero then).
+  const next = [...summary];
+  for (const row of rows) {
+    const at = next.findIndex((r) => r !== null && typeof r === "object" && r.pattern === row.pattern);
+    if (at < 0) next.push({ ...row });
+    else next[at] = { ...next[at], count: (typeof next[at]!.count === "number" ? (next[at]!.count as number) : 0) + row.count };
+  }
+  meta.redaction_summary = next;
   return `${JSON.stringify(meta, null, 2)}\n`;
 }
 
@@ -99,7 +107,19 @@ if (import.meta.main) {
     );
     process.exit(1);
   }
-  const aliases = createAliasMap();
-  if (flags.includes("--from-retro")) seedAliasMap(aliases, retroSessions(workdir));
-  scrubPayloadDir(workdir, { home: homedir(), branches: repoBranches(projectRoot), aliases });
+  try {
+    const aliases = createAliasMap();
+    if (flags.includes("--from-retro")) seedAliasMap(aliases, retroSessions(workdir));
+    scrubPayloadDir(workdir, { home: homedir(), branches: repoBranches(projectRoot), aliases });
+  } catch (e) {
+    process.stderr.write(
+      [
+        `Refusing: the identifier pass could not scrub ${workdir}: ${e instanceof Error ? e.message : String(e)}`,
+        "Remedy: fix the payload file it names (metadata.json and retro.json must be valid JSON), then run the pass again.",
+        `Context: workdir=${workdir}, flags=${flags.join(" ")}`,
+        "",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
 }

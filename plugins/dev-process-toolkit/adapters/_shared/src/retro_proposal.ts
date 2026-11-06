@@ -474,7 +474,20 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
       if (refusals.length > 0) throw new RetroApplyRefusal(refusals[0]!);
     }
   } catch (e) {
-    restore();
+    try {
+      restore();
+    } catch (r) {
+      // Keep the original cause, and say the rollback did not complete.
+      // Built directly: asRefusal passes an already-shaped refusal through unchanged,
+      // which would drop the rollback failure on exactly the register-refusal path.
+      const why = r instanceof Error ? r.message : String(r);
+      const cause = (e instanceof Error ? e.message : String(e)).replace(/^Refusing: /, "").split("\n")[0]!;
+      throw RetroApplyRefusal.of(
+        `the settings change could not be applied (${cause}), and restoring the prior bytes failed (${why}).`,
+        "restore the settings file, .gitignore and .claude/settings.local.json by hand, then re-run propose and ask again.",
+        ctx,
+      );
+    }
     throw asRefusal(e, "the settings change could not be applied", reask, ctx);
   }
   return { keys };

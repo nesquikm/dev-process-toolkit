@@ -97,8 +97,12 @@ function branchAlias(name: string): string {
  * one-segment remote prefix such as `origin/`, which is kept. A trailing `.`
  * ends the token unless a token character follows it.
  */
+const BRANCH_ALIAS_RE = /^branch-[0-9a-f]{8}$/;
+
 function scrubBranches(text: string, branches: readonly string[]): [string, number] {
-  const names = [...new Set(branches)].filter((b) => b.length > 0 && !DEFAULT_BRANCHES.has(b));
+  // A name already in alias form came from an earlier pass (a scrubbed `gitBranch` field read back
+  // as a branch); re-hashing it would change scrubbed text on every run.
+  const names = [...new Set(branches)].filter((b) => b.length > 0 && !DEFAULT_BRANCHES.has(b) && !BRANCH_ALIAS_RE.test(b));
   if (names.length === 0) return [text, 0];
   names.sort((a, b) => b.length - a.length);
   const re = new RegExp(

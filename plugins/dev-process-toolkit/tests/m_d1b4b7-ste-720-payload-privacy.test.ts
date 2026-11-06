@@ -9,7 +9,7 @@
 // the branches as refs. Each run is a subprocess.
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -107,4 +107,31 @@ describe("AC-STE-720.7 redaction_summary: seven secret rows, then three identifi
       expect(meta.redaction_summary.length).toBe(10);
     });
   }
+
+  // Review round 1 (Pass 2): a second flagged run over the same directory must not duplicate the rows.
+  test("a second --redact-identifiers run keeps ten rows and the first run's counts", () => {
+    const repo = makeRepo("sum-twice-repo", { branches: [BRANCH, OTHER_BRANCH] });
+    const { dir, expected } = seedWorkdir("sum-twice-work");
+    expect(runFrontDoor(dir, repo, ["--redact-identifiers"]).status).toBe(0);
+    expect(runFrontDoor(dir, repo, ["--redact-identifiers"]).status).toBe(0);
+    const meta = JSON.parse(readFileSync(join(dir, "metadata.json"), "utf-8"));
+    expect(meta.redaction_summary).toEqual([
+      ...sevenSecretRows(SECRET_KEYS),
+      { pattern: "home_path", count: expected.home_path },
+      { pattern: "session_id", count: expected.session_id },
+      { pattern: "branch_name", count: expected.branch_name },
+    ]);
+  });
+
+  // Review round 1 (Pass 2): a malformed metadata.json refuses in the NFR-10 shape, never a raw stack trace.
+  test("a malformed metadata.json refuses in NFR-10 shape with exit 1", () => {
+    const repo = makeRepo("sum-bad-repo", { branches: [BRANCH] });
+    const { dir } = seedWorkdir("sum-bad-work");
+    writeFileSync(join(dir, "metadata.json"), "{ not json");
+    const r = runFrontDoor(dir, repo, ["--redact-identifiers"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/Refusing: /);
+    expect(r.stderr).toMatch(/Remedy: /);
+    expect(r.stderr).toMatch(/Context: /);
+  });
 });
