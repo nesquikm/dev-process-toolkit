@@ -131,6 +131,10 @@ const EXPECTED_NEW_GATE_IDS = [
   // offers, registered mechanical in GATE_REGISTRY.
   "implement_upgrade_offer",
   "deliver_close_upgrade_offer",
+  // Amended by AC-STE-722.9 (M_d1b4b7): the two opt-in close-out retrospective
+  // offers, registered mechanical in GATE_REGISTRY.
+  "implement_retro_offer",
+  "deliver_close_retro_offer",
 ] as const;
 
 /** The class every newly registered prompt declares. */

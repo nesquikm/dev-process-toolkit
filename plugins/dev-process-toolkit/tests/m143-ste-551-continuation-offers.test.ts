@@ -119,6 +119,8 @@ const SHIP_VIDEO = "ship_milestone_video"; // Amended by AC-STE-670.4
 const ARCHIVE_NEXT = "spec_archive_next";
 const IMPLEMENT_UPGRADE = "implement_upgrade_offer"; // Amended by AC-STE-712.4 (M_94e6f7)
 const DELIVER_UPGRADE = "deliver_close_upgrade_offer"; // Amended by AC-STE-712.4 (M_94e6f7)
+const IMPLEMENT_RETRO = "implement_retro_offer"; // Amended by AC-STE-722.9 (M_d1b4b7)
+const DELIVER_RETRO = "deliver_close_retro_offer"; // Amended by AC-STE-722.9 (M_d1b4b7)
 const UPGRADE_QUESTION = "Apply the pending toolkit upgrades now? [y/N]"; // Amended by AC-STE-712.4 (M_94e6f7)
 
 const ALL_OFFER_IDS = [
@@ -132,6 +134,8 @@ const ALL_OFFER_IDS = [
   ARCHIVE_NEXT,
   IMPLEMENT_UPGRADE, // Amended by AC-STE-712.4 (M_94e6f7)
   DELIVER_UPGRADE, // Amended by AC-STE-712.4 (M_94e6f7)
+  IMPLEMENT_RETRO, // Amended by AC-STE-722.9 (M_d1b4b7)
+  DELIVER_RETRO, // Amended by AC-STE-722.9 (M_d1b4b7)
 ] as const;
 
 /**
@@ -140,13 +144,15 @@ const ALL_OFFER_IDS = [
  * `deliver_close_upgrade_offer` is unreachable there; its modelled runs live in
  * tests/m_94e6f7-ste-712-upgrade-offer.test.ts (AC-STE-712.5).
  */
-const CHAIN_REACHED_IDS = ALL_OFFER_IDS.filter((id) => id !== DELIVER_UPGRADE);
+const CHAIN_REACHED_IDS = ALL_OFFER_IDS.filter((id) => id !== DELIVER_UPGRADE && id !== DELIVER_RETRO); // Amended by AC-STE-722.9 (M_d1b4b7)
 
 /** The shipped anchor each offer owns, measured on this tree on 2026-09-04. */
 const SHIPPED_ANCHORS: Record<string, { skill: string; anchor: string }> = {
   // Amended by AC-STE-712.4 (M_94e6f7): the opt-in close-out upgrade offers.
   [IMPLEMENT_UPGRADE]: { skill: "implement", anchor: UPGRADE_QUESTION },
   [DELIVER_UPGRADE]: { skill: "deliver", anchor: UPGRADE_QUESTION },
+  [IMPLEMENT_RETRO]: { skill: "implement", anchor: "Run a retrospective for <scope>? [y/N]" }, // Amended by AC-STE-722.9 (M_d1b4b7)
+  [DELIVER_RETRO]: { skill: "deliver", anchor: "Run a retrospective for the delivered milestones? [y/N]" }, // Amended by AC-STE-722.9 (M_d1b4b7)
   [BRAINSTORM_START_NOW]: {
     skill: "brainstorm",
     anchor: "or I can start now.",
@@ -228,7 +234,7 @@ describe("the registry names the surfaces it claims to describe", () => {
   test("exactly the eight shipped offers are registered, across five skills", () => {
     // Amended by AC-STE-670.4 (M_1e0717): the eighth entry is the explainer-video
     // offer — skill ship-milestone, runsWhenDriven: [].
-    expect(CONTINUATION_OFFERS.length).toBe(10); // Amended by AC-STE-712.4 (M_94e6f7) (was 8)
+    expect(CONTINUATION_OFFERS.length).toBe(12); // Amended by AC-STE-712.4 (M_94e6f7) (was 8); Amended by AC-STE-722.9 (M_d1b4b7) (10 -> 12)
     expect([...CONTINUATION_OFFERS].map((o) => o.id).sort()).toEqual(
       [...ALL_OFFER_IDS].sort(),
     );
@@ -254,9 +260,9 @@ describe("the registry names the surfaces it claims to describe", () => {
   test("an unregistered id resolves to nothing rather than to a default", () => {
     expect(continuationOffer("no_such_offer")).toBe(null);
     expect(offersForSkill("implement").map((o) => o.id).sort()).toEqual(
-      [IMPLEMENT_PHASE5, IMPLEMENT_SHIP_READY, IMPLEMENT_UPGRADE].sort(), // Amended by AC-STE-712.4 (M_94e6f7)
+      [IMPLEMENT_PHASE5, IMPLEMENT_SHIP_READY, IMPLEMENT_UPGRADE, IMPLEMENT_RETRO].sort(), // Amended by AC-STE-712.4 (M_94e6f7); Amended by AC-STE-722.9 (M_d1b4b7)
     );
-    expect(offersForSkill("deliver").map((o) => o.id)).toEqual([DELIVER_UPGRADE]); // Amended by AC-STE-712.4 (M_94e6f7)
+    expect(offersForSkill("deliver").map((o) => o.id)).toEqual([DELIVER_UPGRADE, DELIVER_RETRO]); // Amended by AC-STE-712.4 (M_94e6f7); Amended by AC-STE-722.9 (M_d1b4b7)
     expect(offersForSkill("brainstorm").length).toBe(1);
     expect(offersForSkill("spec-write").length).toBe(1);
     // Amended by AC-STE-670.4: ship-milestone owns three offers (was two at STE-551).
@@ -508,8 +514,8 @@ describe("every offer's SKILL.md documents its driven branch", () => {
     }
     // Two offers in one file is the case a file-level check cannot see.
     // Amended by AC-STE-670.4: ship-milestone owns three (the explainer-video offer joined).
-    expect(offersForSkill("implement").length).toBe(3); // Amended by AC-STE-712.4 (M_94e6f7) (was 2)
-    expect(offersForSkill("deliver").length).toBe(1); // Amended by AC-STE-712.4 (M_94e6f7)
+    expect(offersForSkill("implement").length).toBe(4); // Amended by AC-STE-712.4 (M_94e6f7) (was 2); Amended by AC-STE-722.9 (M_d1b4b7) (3 -> 4)
+    expect(offersForSkill("deliver").length).toBe(2); // Amended by AC-STE-712.4 (M_94e6f7); Amended by AC-STE-722.9 (M_d1b4b7) (1 -> 2)
     expect(offersForSkill("ship-milestone").length).toBe(3); // Amended by AC-STE-670.4
   });
 
@@ -688,7 +694,7 @@ describe("AC-STE-551.8 — restoring ONE offer costs exactly one operator turn",
       reachedOffers: [...ALL_OFFER_IDS],
       restoredOffers: [...ALL_OFFER_IDS],
     });
-    expect(run.operatorTurns.length).toBe(9); // Amended by AC-STE-670.4; Amended by AC-STE-712.4 (M_94e6f7) (8 → 9: the implement upgrade offer)
+    expect(run.operatorTurns.length).toBe(10); // Amended by AC-STE-670.4; Amended by AC-STE-712.4 (M_94e6f7) (8 → 9: the implement upgrade offer); Amended by AC-STE-722.9 (M_d1b4b7) (9 -> 10: the implement retro offer)
     expect([...run.operatorTurns].sort()).toEqual([...CHAIN_REACHED_IDS].sort()); // Amended by AC-STE-712.4 (M_94e6f7)
     // And the ceremony doubles, which is the aggregate's correctness half.
     expect(closeCeremonyExecutions(run)).toBeGreaterThan(1);
