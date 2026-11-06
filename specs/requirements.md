@@ -223,10 +223,10 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 
 ## 5. Out of Scope
 
-- No new slash commands (depth over breadth)
-- No fast-track workflow skipping ceremony
+- ~~No new slash commands (depth over breadth)~~ — superseded in v3.2.0 (M_d1b4b7, 2026-11-04 ruling): /retro (STE-719) ships as the 20th user-invocable command. Any later command needs its own note here.
+- No fast-track workflow skipping ceremony — still in force (v3.2.0, M_d1b4b7): /retro reads the record and changes a setting only on explicit approval (STE-728), and M_fd9a03 reuse, only when its knob is on, shortens a gate run that really happens; neither skips a gate, a review or an approval.
 - ~~No hooks/bin/.lsp.json in the plugin~~ — superseded in v3.1.0: hooks ship in hooks/hooks.json since STE-289, and v3.1.0 adds an opt-in tool-call capture hook that only an approved settings change registers. bin/ and .lsp.json stay out of scope.
-- No multi-agent orchestration
+- ~~No multi-agent orchestration~~ — superseded in v3.2.0 (M_d1b4b7): /tdd forks four subagents (STE-225) and /deliver drives spawned workers (STE-464); /retro grades only what their parent session can see.
 - No mutation testing gate
 - No legacy code support (/ingest, /map)
 - No actual CI pipeline implementation (only starter configs as example files)
