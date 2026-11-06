@@ -12,8 +12,18 @@
 // Registered after `settings-file`; `requires_explicit_approval` keeps it out of
 // auto-approve runs, because it writes a user's own settings file.
 
-import { captureStatus, LOCAL_SETTINGS_REL, registerCapture, unregisterCapture } from "../../capture_registration";
+//
+// The module loads `capture_registration.ts` lazily, on first detect/apply: the
+// registry is reached from every settings read (project_settings → dpt_version
+// → migrations), and the session-stop fold's fast path must load no fold module
+// on a default tree (STE-717).
+
+import type * as CaptureRegistration from "../../capture_registration";
 import type { ApplyResult, DetectResult, MigrationEntry } from "../index";
+
+function reg(): typeof CaptureRegistration {
+  return require("../../capture_registration") as typeof CaptureRegistration;
+}
 
 export const captureRegistration: MigrationEntry = {
   id: "capture-registration",
@@ -22,6 +32,7 @@ export const captureRegistration: MigrationEntry = {
   kind: "script",
   requires_explicit_approval: true,
   detect(projectRoot: string): DetectResult {
+    const { captureStatus, LOCAL_SETTINGS_REL } = reg();
     const s = captureStatus(projectRoot);
     if (s.setting === "on" && s.registration !== "current") {
       return {
@@ -38,6 +49,7 @@ export const captureRegistration: MigrationEntry = {
     return { applies: false, evidence: [] };
   },
   apply(projectRoot: string): ApplyResult {
+    const { captureStatus, LOCAL_SETTINGS_REL, registerCapture, unregisterCapture } = reg();
     const s = captureStatus(projectRoot);
     if (s.setting === "on") {
       if (s.registration === "current") return { changed: [], summary: "the capture entry is already current" };

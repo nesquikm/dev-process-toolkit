@@ -166,6 +166,17 @@ export function toolCallLedgerPath(projectRoot: string, sessionId: string): stri
 }
 
 /**
+ * Tool-call timeline: `<projectRoot>/.dpt/ledger/tool-calls/<sessionId>.timeline.json` (STE-717).
+ *
+ * The only composer of the timeline path, beside the capture rows it folds.
+ * Throws on a path-unsafe session id rather than composing an escaping path.
+ */
+export function toolCallTimelinePath(projectRoot: string, sessionId: string): string {
+  assertPathSafeSessionId(sessionId);
+  return join(dptRoot(projectRoot), "ledger", "tool-calls", `${sessionId}.timeline.json`);
+}
+
+/**
  * Feature-video workspace root: `<projectRoot>/.dpt/video` (STE-663).
  *
  * The only composer of the video subtree (AC-STE-663.1). `config.yaml`,

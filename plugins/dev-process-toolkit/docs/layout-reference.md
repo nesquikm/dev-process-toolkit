@@ -49,7 +49,7 @@ Design-reference images (mockups, screenshots, design-system artifacts) live und
 
 ## The `.dpt/` tree
 
-Toolkit-owned state lives in one folder at the project root. Every path under it is composed by `adapters/_shared/src/dpt_paths.ts` (`dptRoot`, `locksDir`, `ledgerPath`, `scratchRoot`, `scratchDir`, `skipBaselinePath`, `checkoutIdPath`, `advisoryNotesPath`, `smokeRunLedgerPath`, `receiptsRoot`, `receiptsDir`, `toolCallLedgerPath`, `videoRoot`, `videoConfigPath`, `videoStylePath`, `videoScenariosDir`, `videoWorkRoot`, `videoWorkDir`, `videoFootageDir`, `dptEnvPath`) — no other module composes a `.dpt` literal.
+Toolkit-owned state lives in one folder at the project root. Every path under it is composed by `adapters/_shared/src/dpt_paths.ts` (`dptRoot`, `locksDir`, `ledgerPath`, `scratchRoot`, `scratchDir`, `skipBaselinePath`, `checkoutIdPath`, `advisoryNotesPath`, `smokeRunLedgerPath`, `receiptsRoot`, `receiptsDir`, `toolCallLedgerPath`, `toolCallTimelinePath`, `videoRoot`, `videoConfigPath`, `videoStylePath`, `videoScenariosDir`, `videoWorkRoot`, `videoWorkDir`, `videoFootageDir`, `dptEnvPath`) — no other module composes a `.dpt` literal.
 
 ```
 .dpt/

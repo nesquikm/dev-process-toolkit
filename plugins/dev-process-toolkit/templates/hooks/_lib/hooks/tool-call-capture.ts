@@ -10,7 +10,8 @@
 //   3. the record-entry check: the record's `dev-process-toolkit@` entry for
 //      this checkout (else the user-scope entry) installs THIS plugin root;
 //   4. dynamic import of project_settings.ts; the flag reads true;
-//   5. only then the heavy modules, and one `tool-call/v1` row appended.
+//   5. only then the heavy modules (the classifier in tool_call_class.ts),
+//      and one `tool-call/v1` row appended.
 //
 // Every run exits 0 with empty stdout and stderr. Static imports: Node
 // built-ins, ../session.ts and ../capture_record.ts only.
@@ -60,11 +61,9 @@ async function main(): Promise<void> {
   if (event === null || (tool !== "Bash" && tool !== "Skill")) return;
   const sessionId = typeof payload.session_id === "string" ? payload.session_id : "";
 
-  const [{ toolCallLedgerPath }, commit, pr, receipt, { worktreeDigest }] = await Promise.all([
+  const [{ toolCallLedgerPath }, { classifyBashCall, skillClass }, { worktreeDigest }] = await Promise.all([
     import(join(SRC, "dpt_paths.ts")),
-    import(join(SRC, "commit_target_repo.ts")),
-    import(join(SRC, "pr_target_repo.ts")),
-    import(join(SRC, "gate_receipt.ts")),
+    import(join(SRC, "tool_call_class.ts")),
     import(join(SRC, "worktree_digest.ts")),
   ]);
   const ledger: string = toolCallLedgerPath(root, sessionId);
@@ -75,24 +74,15 @@ async function main(): Promise<void> {
   let diff: { files: number; insertions: number; deletions: number } | null = null;
   if (tool === "Bash") {
     const command = typeof payload.tool_input?.command === "string" ? payload.tool_input.command : "";
-    const target = commit.resolveCommitTargetFromPayload(payload);
-    if (target.isCommit) {
-      cls = "commit";
-      if (event === "pre") {
-        tree = worktreeDigest(root);
-        diff = stagedDiff(target.repoRoot);
-      }
-    } else if (pr.resolvePrTargetFromPayload(payload).isPr) {
-      cls = "pr-create";
-    } else if (receipt.announcesGateReceipt(command) || receipt.runsGateOutcome(command)) {
-      cls = "gate-receipt";
-    } else {
-      cls = "other";
+    const call = classifyBashCall(command, payload.cwd);
+    cls = call.class;
+    if (cls === "commit" && event === "pre") {
+      tree = worktreeDigest(root);
+      diff = stagedDiff(call.commitRepoRoot);
     }
   } else {
     cls = "skill";
-    const name = payload.tool_input?.skill;
-    skill = typeof name === "string" && name.startsWith("dev-process-toolkit:") ? name : "other";
+    skill = skillClass(payload.tool_input?.skill);
     tree = worktreeDigest(root);
   }
 
