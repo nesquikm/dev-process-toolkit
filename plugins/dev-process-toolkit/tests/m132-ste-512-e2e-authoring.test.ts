@@ -233,6 +233,8 @@ interface E2eAuthoringOutcome {
   counts: EvidenceCounts | null;
   /** One line per refusal ground; empty iff `ok`. */
   reasons: readonly string[];
+  /** Grounds the report states without refusing. */
+  advisories: readonly string[];
 }
 
 interface E2eModule {
@@ -970,6 +972,7 @@ describe("AC-STE-512.4 — an absent e2e_cmd is vacuous, and never the same as `
     expect([...outcome.evidenceRows]).toEqual([]);
     expect(outcome.counts).toBeNull();
     expect([...outcome.reasons]).toEqual([]);
+    expect([...outcome.advisories]).toEqual([]);
   }
 
   test("an absent key produces the vacuous outcome", async () => {
@@ -1720,5 +1723,356 @@ describe("HARDENING GAP 4 — docs/verification-skills.md owns the closed key ta
     expect(doc).toContain("The key set is **closed**");
     const rows = doc.split("\n").filter((line) => /^\|\s*`[a-z0-9_]+`\s*\|/.test(line));
     expect(rows.length).toBe(4);
+  });
+});
+
+// A run that EXECUTED nothing parses cleanly and counts zero passes and zero
+// failures, so every ground above reads it as clean — and the change is then
+// declared green on a suite that proved nothing. The usual cause is an
+// environment that made every test skip itself (a missing secret, no device),
+// which is why the refusal states the skip count. One executed test is enough: the
+// ground is "nothing ran", not "something skipped".
+describe("an end-to-end run that executed no test is not evidence", () => {
+  const E2E_ALL_SKIPPED = [
+    "bun test v1.1.29",
+    "",
+    " 0 pass",
+    " 16 skip",
+    " 0 fail",
+    "Ran 16 tests across 4 files. [3.10s]",
+  ].join("\n");
+
+  const E2E_ONE_RAN = [
+    "bun test v1.1.29",
+    "",
+    " 1 pass",
+    " 15 skip",
+    " 0 fail",
+    "Ran 16 tests across 4 files. [4.20s]",
+  ].join("\n");
+
+  test("an all-skipped run REFUSES, and the refusal states the skip count", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun("zero-ran", E2E_ALL_SKIPPED),
+    });
+
+    expect(outcome.counts).toEqual(
+      expect.objectContaining({ pass: 0, fail: 0, skip: 16 }),
+    );
+    expect(outcome.ok).toBe(false);
+    const reasons = outcome.reasons.join("\n");
+    expect(reasons).toContain("executed no test");
+    expect(reasons).toContain("16 skipped");
+  });
+
+  // The none-needed record is an authoring decision and stands on its reason;
+  // no test of this change was due to run. The empty run is still stated, as
+  // an advisory, so the report does not read it as regression evidence.
+  test("a none-needed record is not refused for a run that executed nothing — the report states it", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      noneNeeded: { reason: "the change is a config key with no journey" },
+      run: capturedRun("zero-ran-none-needed", E2E_ALL_SKIPPED),
+    });
+
+    expect({
+      ok: outcome.ok,
+      authoring: outcome.authoring,
+      reasons: [...outcome.reasons],
+      advisories: outcome.advisories.map((line) => line.includes("executed no test (16 skipped)")),
+    }).toEqual({ ok: true, authoring: "none_needed", reasons: [], advisories: [true] });
+  });
+
+  test("an edited test that never ran refuses like an authored one", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      editedTests: ["tests/e2e/b.e2e.test.ts"],
+      run: capturedRun("zero-ran-edited", E2E_ALL_SKIPPED),
+    });
+
+    expect({
+      ok: outcome.ok,
+      refusedForZeroExecuted: outcome.reasons.some((line) => line.includes("executed no test (16 skipped)")),
+      advisories: [...outcome.advisories],
+    }).toEqual({ ok: false, refusedForZeroExecuted: true, advisories: [] });
+  });
+
+  test("ONE executed test is enough — the ground is zero executed, not skips", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun("one-ran", E2E_ONE_RAN),
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.reasons).toEqual([]);
+  });
+
+  test("the refusal leaves the decision and the token alone — it is not a red suite", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun("zero-ran-token", E2E_ALL_SKIPPED),
+    });
+
+    expect(outcome.authoring).toBe("authored");
+    expect(outcome.suiteRed).toBe(false);
+    expect(outcome.capabilityToken).toBe(mod.E2E_CAPABILITY_TOKENS.authored);
+  });
+});
+
+// The zero-executed ground reads `pass` off the parsed counts, so a stack whose
+// parser misreads `pass` turns every green run into "executed no test". A real
+// `flutter test` capture opens with `00:00 +0: loading …` and prints one
+// cumulative progress line per test; only the LAST progress line carries the
+// run totals. Each capture below is asserted against literal numbers, never
+// against the shipped parser, which is the code under test here.
+describe("the zero-executed ground reads real Flutter and pytest captures", () => {
+  const FLUTTER_CMD = "flutter test integration_test";
+
+  // The progress log of tests/m132-ste-508-skip-parsing.test.ts
+  // (FLUTTER_PROGRESS_LOG): 7 passed, 3 skipped.
+  const FLUTTER_PROGRESS_LOG = [
+    "00:00 +0: loading test/widget_test.dart",
+    "00:01 +1: counter increments",
+    "00:02 +1 ~1: platform-only test (skipped)",
+    "00:02 +2 ~1: renders header",
+    "00:03 +2 ~3: golden tests (skipped)",
+    "00:03 +7 ~3: All tests passed!",
+  ].join("\n");
+
+  const FLUTTER_GREEN = [
+    "00:00 +0: loading integration_test/app_test.dart",
+    "00:01 +1: a",
+    "00:02 +2: b",
+    "00:03 +2: All tests passed!",
+  ].join("\n");
+
+  const FLUTTER_ALL_SKIPPED = [
+    "00:00 +0: loading integration_test/app_test.dart",
+    "00:01 +0 ~1: needs a device (skipped)",
+    "00:01 +0 ~2: needs a secret (skipped)",
+    "00:02 +0 ~2: All tests skipped.",
+  ].join("\n");
+
+  // Two failures, reached one at a time: an early `-1` line must not stand in
+  // for the final `-2`.
+  const FLUTTER_RED = [
+    "00:00 +0: loading integration_test/app_test.dart",
+    "00:01 +1: a",
+    "00:02 +1 -1: b [E]",
+    "00:03 +1 -2: c [E]",
+    "00:03 +1 -2: Some tests failed.",
+  ].join("\n");
+
+  test("Flutter: the 7-passed / 3-skipped progress log resolves ok with pass 7", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: FLUTTER_CMD,
+      addedTests: ["integration_test/app_test.dart"],
+      run: capturedRun("flutter-progress", FLUTTER_PROGRESS_LOG, "flutter", FLUTTER_CMD),
+    });
+
+    expect(outcome.counts).toEqual(
+      expect.objectContaining({ pass: 7, fail: 0, skip: 3 }),
+    );
+    expect(outcome.reasons).toEqual([]);
+    expect(outcome.ok).toBe(true);
+  });
+
+  test("Flutter: a green log that opens on `+0: loading` resolves ok with pass 2", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: FLUTTER_CMD,
+      addedTests: ["integration_test/app_test.dart"],
+      run: capturedRun("flutter-green", FLUTTER_GREEN, "flutter", FLUTTER_CMD),
+    });
+
+    expect(outcome.counts).toEqual(
+      expect.objectContaining({ pass: 2, fail: 0, skip: 0 }),
+    );
+    expect(outcome.reasons).toEqual([]);
+    expect(outcome.ok).toBe(true);
+  });
+
+  test("Flutter: a run where every test skipped refuses on the zero-executed ground", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: FLUTTER_CMD,
+      addedTests: ["integration_test/app_test.dart"],
+      run: capturedRun("flutter-all-skipped", FLUTTER_ALL_SKIPPED, "flutter", FLUTTER_CMD),
+    });
+
+    expect(outcome.counts).toEqual(
+      expect.objectContaining({ pass: 0, fail: 0, skip: 2 }),
+    );
+    expect(outcome.ok).toBe(false);
+    expect(outcome.suiteRed).toBe(false);
+    expect(outcome.reasons).toHaveLength(1);
+    expect(outcome.reasons[0]).toContain("executed no test (2 skipped)");
+  });
+
+  test("Flutter: a red log is suite-red on its final failure count", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: FLUTTER_CMD,
+      addedTests: ["integration_test/app_test.dart"],
+      run: capturedRun("flutter-red", FLUTTER_RED, "flutter", FLUTTER_CMD),
+    });
+
+    expect(outcome.counts).toEqual(
+      expect.objectContaining({ pass: 1, fail: 2, skip: 0 }),
+    );
+    expect(outcome.ok).toBe(false);
+    expect(outcome.suiteRed).toBe(true);
+    expect(outcome.capabilityToken).toBe(mod.E2E_CAPABILITY_TOKENS.suite_red);
+  });
+
+  test("pytest: an `N passed, M skipped` summary resolves ok", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: "pytest tests/e2e",
+      addedTests: ["tests/e2e/test_checkout.py"],
+      run: capturedRun("pytest-green", E2E_PYTEST, "pytest", "pytest tests/e2e"),
+    });
+
+    expect(outcome.counts).toEqual(
+      expect.objectContaining({ pass: 17, fail: 0, skip: 3 }),
+    );
+    expect(outcome.reasons).toEqual([]);
+    expect(outcome.ok).toBe(true);
+  });
+
+  // PR #121 review, table row 2: `Failing tests:` repeats a failing test named
+  // `total +5 -0: rounding` after the last progress line. Read there, a red
+  // run resolved ok with pass 5, fail 0.
+  test("Flutter: a red run whose failing test's name carries `+5 -0:` stays suite-red", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: FLUTTER_CMD,
+      addedTests: ["integration_test/app_test.dart"],
+      run: capturedRun(
+        "flutter-red-counter-name",
+        [
+          "00:00 +0: loading integration_test/app_test.dart",
+          "00:01 +1: a",
+          "00:02 +1 -1: b [E]",
+          "00:03 +1 -2: total +5 -0: rounding [E]",
+          "00:03 +1 -2: Some tests failed.",
+          "",
+          "Failing tests:",
+          "  integration_test/app_test.dart: b",
+          "  integration_test/app_test.dart: total +5 -0: rounding",
+        ].join("\n"),
+        "flutter",
+        FLUTTER_CMD,
+      ),
+    });
+
+    expect({ suiteRed: outcome.suiteRed, ok: outcome.ok, token: outcome.capabilityToken }).toEqual({
+      suiteRed: true,
+      ok: false,
+      token: mod.E2E_CAPABILITY_TOKENS.suite_red,
+    });
+  });
+
+  // Table row 1: an `e2e_cmd` of `flutter test && TZ=UTC date -Iseconds`
+  // appends `…+00:00`, which an unanchored pass pattern read as `+0` — a green
+  // run refused as one that executed nothing.
+  test("Flutter: a green run followed by a timestamp resolves ok with pass 2", async () => {
+    const cmd = "flutter test integration_test && TZ=UTC date -Iseconds";
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: cmd,
+      addedTests: ["integration_test/app_test.dart"],
+      run: capturedRun(
+        "flutter-green-timestamp",
+        [
+          "00:00 +0: loading integration_test/app_test.dart",
+          "00:01 +1: a",
+          "00:02 +2: b",
+          "00:02 +2: All tests passed!",
+          "2026-05-14T09:51:19+00:00",
+        ].join("\n"),
+        "flutter",
+        cmd,
+      ),
+    });
+
+    expect({ ok: outcome.ok, pass: outcome.counts?.pass, fail: outcome.counts?.fail }).toEqual({
+      ok: true,
+      pass: 2,
+      fail: 0,
+    });
+  });
+
+  // PR #121 review, round 2: real bun 1.4.3 output for the first run of a newly
+  // authored snapshot test, with one failure. `snapshots: +2 added` sits inside
+  // the summary block; a walk that stopped there read fail 0 and resolved ok.
+  test("bun: a red run that adds snapshots stays suite-red", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun(
+        "bun-red-snapshots",
+        [
+          "Expected: 2",
+          "Received: 1",
+          "",
+          "(fail) bad [1.98ms]",
+          "",
+          " 2 pass",
+          " 1 fail",
+          "snapshots: +2 added",
+          " 3 expect() calls",
+          "Ran 3 tests across 1 file. [15.00ms]",
+        ].join("\n"),
+      ),
+    });
+
+    expect({ suiteRed: outcome.suiteRed, ok: outcome.ok, fail: outcome.counts?.fail }).toEqual({
+      suiteRed: true,
+      ok: false,
+      fail: 1,
+    });
+  });
+
+  // `a; b` runs the second suite after the first failed. Read from the last
+  // summary alone, the red first suite resolved ok.
+  test("bun: a red first suite in a two-suite command stays suite-red", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun(
+        "bun-two-suites-red-first",
+        [" 4 pass", " 1 fail", "Ran 5 tests across 1 file.", " 3 pass", " 0 fail", "Ran 3 tests across 1 file."].join(
+          "\n",
+        ),
+      ),
+    });
+
+    expect({ suiteRed: outcome.suiteRed, ok: outcome.ok }).toEqual({ suiteRed: true, ok: false });
+  });
+
+  // Q3 for pytest: a skipped-only summary with a none-needed record lands in
+  // `advisories`, as bun and flutter already do, instead of refusing as
+  // unparseable.
+  test("pytest: a skipped-only run with a none-needed record is an advisory, not a refusal", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: "pytest tests/e2e",
+      noneNeeded: { reason: "the change is a config key with no journey" },
+      run: capturedRun(
+        "pytest-skipped-only",
+        "========== 3 skipped in 0.12s ==========",
+        "pytest",
+        "pytest tests/e2e",
+      ),
+    });
+
+    expect({
+      ok: outcome.ok,
+      reasons: [...outcome.reasons],
+      advisories: outcome.advisories.map((line) => line.includes("executed no test (3 skipped)")),
+    }).toEqual({ ok: true, reasons: [], advisories: [true] });
   });
 });

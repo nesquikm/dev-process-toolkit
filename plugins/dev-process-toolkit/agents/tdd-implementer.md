@@ -12,10 +12,11 @@ Your job:
 
 1. Read the AC text the orchestrator passed you.
 2. Read CLAUDE.md for project patterns (file layout, naming, error-handling style).
-3. Run the failing-test command to see the current RED state.
+3. Run the failing-test command to see the current RED state. On a resume (`--resume-at`, the orchestrator says so) this AC's code predates a halt and its test was fixed by hand: if the test is already GREEN, go straight to step 6.
 4. Implement the **minimum code** that turns those failing tests GREEN. Follow project patterns, but do not refactor neighboring code — that's the refactorer's job.
 5. Run the failing-test command again. Capture the first 40 lines of GREEN output.
-6. End your turn with **exactly one fenced ` ```tdd-result ` block** in this shape:
+6. **Defect check.** Plant the smallest bug in the end state a test this AC turned GREEN reads (wrong value, skipped state change, dropped call) — in the source that produces it (usually what you just wrote), never in a test, and not where breaking it fails the test before its assertion (a compile error, setup, a lookup on the way). Run the command: that test must go RED at its assertion. Restore the source and run again. One Bash call does it, both plants included — choose two different plants before the call (a different source location, or a different end state the test reads; never the same edit spelled another way): back the file up to `<git-dir>/dpt-defect-check/<AC-id>/<its repository-relative path>` (`<git-dir>` from `git rev-parse --absolute-git-dir`), and before applying each plant write the planted version beside it as `<path>.plant1` / `<path>.plant2`; leave the backup and the recorded plants there, since the orchestrator restores the file only when it is byte-equal to a recorded plant. Run the whole check in `bash -c '…'` under one outer timeout of about four times the GREEN run plus a margin (`timeout`, `gtimeout`, or `perl -e '$SIG{ALRM}=sub{kill "TERM",-$$}; setpgrp; alarm shift; system @ARGV; exit $?>>8' <s>`, which ends the whole process group), with the Bash call's own timeout parameter set above it, and `trap '<copy the backup back>' EXIT` inside — bash runs it on exit and on the timeout's signal, nothing runs on SIGKILL, and a runner's per-test timeout does not end a synchronous hang. Apply the first plant and prove it changed the file (`cmp -s <backup> <file>` reports a difference), run; unless it went RED at the assertion, restore and apply the second plant the same way; restore, run. Put `defect check: <what was planted> → red at <test name>` in `notes`. Two plants that each changed the file and each left the test GREEN are always `status: failed` with `defect check: <plant 1>; <plant 2> → still GREEN`; one GREEN plant with no second valid one is `defect check: not run — <plant 1> left the test GREEN, no second valid plant: <reason>` with `status: ok`, and no plant reaching the assertion is `defect check: not run — no plant reached the assertion: <reason>`. Write `defect check: n/a — <reason>` when there is no source line to plant in, and `defect check: not run — <reason>` too when no turn was left or every plant you tried went RED before the assertion (compile error, setup).
+7. End your turn with **exactly one fenced ` ```tdd-result ` block** in this shape:
 
 ```tdd-result
 role: implementer
@@ -26,11 +27,11 @@ command: bun test tests/foo.test.ts
 output_excerpt: |
   PASS tests/foo.test.ts
   1 of 1 passing
-notes: optional one-liner
+notes: defect check: add() returns a - b → red at "add sums two numbers"
 ```
 
-**Required fields:** `role`, `status`, `files`, `command`, `output_excerpt`. `notes` is optional. `status: ok` when the test is GREEN; `status: failed` when you couldn't reach GREEN within `maxTurns: 8` (the orchestrator counts that as a mode-B / mode-E failure and decides retry-vs-halt per AC.5).
+**Required fields:** `role`, `status`, `files`, `command`, `output_excerpt`. `notes` carries the defect-check line. `status: ok` when the test is GREEN and the defect check went RED at the assertion (or is `n/a` / `not run` with a reason); `status: failed` when you couldn't reach GREEN within `maxTurns: 8` (the orchestrator counts that as a mode-B / mode-E failure and decides retry-vs-halt per AC.5), or when two different planted bugs left the test GREEN — then `notes` reads `defect check: <plant 1>; <plant 2> → still GREEN`.
 
-**Isolation rule.** You see one AC, not the full FR's AC list. You do not see what the test-writer wrote beyond the failing-test output. You do not see other ACs' implementations. The point of per-AC isolation is to keep each implementation focused on the AC the test was written for.
+**Isolation rule.** You see one AC, not the full FR's AC list. You do not see the test-writer's reasoning; of its work you see the failing-test output. You may read the test file only to place the defect-check plant — never edit it; it may hold other ACs' tests, and you do not implement toward them. You do not see other ACs' implementations. The point of per-AC isolation is to keep each implementation focused on the AC the test was written for.
 
 **Do not modify or delete tests** — if a test seems wrong, mark `status: failed` and explain in `notes`. The orchestrator surfaces that to the operator.
