@@ -12,7 +12,7 @@ import { PLUGIN_ROOT, REPO_ROOT, atV300 } from "./_m_7bc805_gate_outcome_fixture
 
 const OLD_LINE = "- No hooks/bin/.lsp.json in the plugin";
 const NEW_LINE =
-  "- ~~No hooks/bin/.lsp.json in the plugin~~ — superseded in v3.1.0 (M_7bc805): hooks ship in hooks/hooks.json since STE-289, and M_7bc805 adds an opt-in tool-call capture hook that only an approved settings change registers. bin/ and .lsp.json stay out of scope.";
+  "- ~~No hooks/bin/.lsp.json in the plugin~~ — superseded in v3.1.0: hooks ship in hooks/hooks.json since STE-289, and v3.1.0 adds an opt-in tool-call capture hook that only an approved settings change registers. bin/ and .lsp.json stay out of scope.";
 
 /** The lines of `## 5. Out of Scope`, heading through the line before the next `## `. */
 function sectionFive(text: string): string[] {
@@ -37,13 +37,14 @@ describe("AC-STE-716.13 the Out of Scope hooks line is struck", () => {
     expect(base.filter((l) => l === OLD_LINE).length).toBe(1);
   });
 
-  test("§ 5 carries the hooks line struck inside ~~ markers, then a note naming v3.1.0 and M_7bc805", () => {
+  // Amended by operator ruling 2026-11-06 (AC-STE-716.13): the note names the release only, never a milestone id.
+  test("§ 5 carries the hooks line struck inside ~~ markers, then a note naming v3.1.0 and no milestone id", () => {
     const line = now.find((l) => l.includes("~~No hooks/bin/.lsp.json in the plugin~~"));
     expect(line).toBeDefined();
     expect(line!).toBe(NEW_LINE);
     const after = line!.slice(line!.indexOf("~~", 4) + 2);
     expect(after).toContain("v3.1.0");
-    expect(after).toContain("M_7bc805");
+    expect(after).not.toMatch(/\bM(?:_[0-9A-Za-z_]+|\d+)\b/);
   });
 
   test("bin/ and .lsp.json both appear after the strike as still out of scope", () => {
