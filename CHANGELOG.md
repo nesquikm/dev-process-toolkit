@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.1.0] — 2026-11-06 — "Flight Recorder"
+
+### Added
+
+- A measured record of what tool-call hooks and the session log can see (STE-714). `specs/notes/ste-714-hook-payload-measurement.md` holds payload keys, failure cases, fork timing and a D1–D6 decision table from live runs: calls inside a forked skill carry `agent_id`, no field carries an exit code, a fork's token use lands only in its own `subagents/` file, a Skill call's PostToolUse fires when the skill launches, and a project-local hook fires. Scrubbed payloads and transcript slices ship as fixtures, guarded by a synthetic-identifier scan.
+- Gate receipts can record whether the gate passed and the exact input it graded (STE-715). Behind `tracking.gate_outcomes` (off by default), the run receipt carries a reuse key over the commit, the working tree, the toolchain and toolkit versions, the gate commands and the settings. A new `gate_receipt.ts outcome` verb records pass or fail with `key_stable`. No commit or pull request gate reads an outcome. With the switch off every receipt, line and tool call is as in v3.0.0, and the outcome verb is silent.
+- An opt-in capture hook records each Bash and Skill call as a privacy-safe row (STE-716). Behind `tracking.tool_calls` (off by default), it writes the call class, the toolkit skill name, tree digests on commits and Skill calls, and staged diff counts. It never writes command text, paths or branch names. It is never bundled: `hooks/hooks.json` is unchanged, and only an approved opt-in registers it in the user's own `.claude/settings.local.json`, pinned to the installed plugin version. The `capture-registration` upgrade step adds or removes it on approval, and `/setup --template` drops capture entries from copied settings.
+- A timeline reader derives call timing, review rounds and gate runs from the session log (STE-717). `tool_call_timeline.ts` joins the transcript with capture rows and outcome receipts, and reports a field it cannot see as `not-observable`, never as zero. A forked round's result is read from its task notification. For a user who registered capture, the session-end hook saves the timeline next to the capture rows.
+
+### Changed
+
+- `/gate-check`, `/tdd` and `/spec-review` run the outcome call only when their receipt call printed `outcome: on`, so with the switch off they make exactly the v3.0.0 tool calls.
+
+Total test count at release: 21516 tests, 0 failures, 0 errors.
+
 ## [3.0.0] — 2026-11-05 — "Home Base"
 
 ### Breaking changes
