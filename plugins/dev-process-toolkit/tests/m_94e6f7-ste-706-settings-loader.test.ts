@@ -359,7 +359,8 @@ describe("AC-STE-706.1 exports", () => {
     expect(r.settings.verification).toEqual(BASE.verification);
     expect(r.settings.docs).toEqual(BASE.docs);
     expect(r.settings.orchestration).toEqual(BASE.orchestration);
-    expect(r.settings.tracking).toEqual(BASE.tracking);
+    // Amended by AC-STE-715.21 (M_7bc805): absent new tracking keys read their default.
+    expect(r.settings.tracking).toEqual({ ...(BASE.tracking as Record<string, unknown>), gate_outcomes: { enabled: false } });
     expect(r.settings.close_out).toEqual(BASE.close_out);
     expect(r.settings.release).toEqual(BASE.release);
     expect(r.settings.task_tracking.linear).toEqual((BASE.task_tracking as Record<string, unknown>).linear);
@@ -990,6 +991,8 @@ const MAPPING: Record<string, Row> = {
   "orchestration.default_effort": { kind: "legacy", replaces: "## Orchestration default_effort: (readOrchestrationConfig)" },
   "orchestration.merge_policy": { kind: "legacy", replaces: "## Orchestration merge_policy: (readOrchestrationConfig)" },
   "tracking.token_stats": { kind: "legacy", replaces: "## Token Stats enabled: (readTokenStatsConfig)" },
+  // Amended by AC-STE-715.14 (M_7bc805): the gate-outcome switch is a new key with no legacy home.
+  "tracking.gate_outcomes": { kind: "new", fr: "STE-715", note: "no legacy home" },
   "close_out.upgrade_offer": { kind: "new", fr: "STE-712", note: "no legacy home" },
   "release.files": { kind: "legacy", replaces: "## Release Files (parseReleaseFiles)" },
   "video.config": { kind: "legacy", replaces: ".dpt/video/config.yaml (parseVideoConfig)" },
@@ -1000,6 +1003,8 @@ const MAPPING: Record<string, Row> = {
 const LEAF_BLOCKS = new Set([
   "task_tracking.status_vocabulary.roles",
   "tracking.token_stats",
+  // Amended by AC-STE-715.14 (M_7bc805): the gate-outcome switch is one setting block.
+  "tracking.gate_outcomes",
   "close_out.upgrade_offer",
   "release.files",
   "video.config",

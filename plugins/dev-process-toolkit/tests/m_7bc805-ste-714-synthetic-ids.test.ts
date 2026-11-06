@@ -15,7 +15,8 @@ const NOTE_PATH = join(REPO_ROOT, "specs", "notes", "ste-714-hook-payload-measur
 
 // Paths are relative to the plugin root. STE-715 appends
 // "tests/fixtures/m_7bc805-gate-slices/" when it commits its slices.
-export const SCRUBBED_FIXTURE_DIRS: readonly string[] = ["tests/fixtures/hook-payloads/"];
+// Amended by AC-STE-715.16 (M_7bc805): the live gate-check slices are scanned too.
+export const SCRUBBED_FIXTURE_DIRS: readonly string[] = ["tests/fixtures/hook-payloads/", "tests/fixtures/m_7bc805-gate-slices/"];
 
 export type RuleName = "users-path" | "home-path" | "slug" | "email" | "git-branch" | "uuid" | "api-id";
 

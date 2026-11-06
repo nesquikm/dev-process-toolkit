@@ -41,7 +41,7 @@ export const SETTINGS_FILE = "specs/settings.yaml";
 const MODE_DEFAULTED = new WeakSet<object>();
 
 /** Dotted paths of the keys with no v2.101.4 reader (the AC-STE-706.12 `new` rows). */
-export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer"];
+export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes"];
 
 export type SettingsSource = "settings" | "legacy" | "none" | "both";
 
@@ -52,7 +52,7 @@ export interface ProjectSettings {
   verification: Record<string, unknown>;
   docs: Record<string, unknown>;
   orchestration: Record<string, unknown>;
-  tracking: { token_stats: { enabled: boolean } } & Record<string, unknown>;
+  tracking: { token_stats: { enabled: boolean }; gate_outcomes: { enabled: boolean } } & Record<string, unknown>;
   close_out: { upgrade_offer: { enabled: boolean } };
   release: { files: unknown[] };
   video: { config: VideoConfig | null; style: VideoStyle | null };
@@ -210,7 +210,7 @@ function defaults(): ProjectSettings {
     verification: {},
     docs: {},
     orchestration: {},
-    tracking: { token_stats: { enabled: false } },
+    tracking: { token_stats: { enabled: false }, gate_outcomes: { enabled: false } },
     close_out: { upgrade_offer: { enabled: false } },
     release: { files: [] },
     video: { config: null, style: null },
@@ -284,8 +284,9 @@ export function settingsKeyOrder(path: string): readonly string[] {
     verification: VERIFICATION_KEYS,
     docs: DOCS_KEYS,
     orchestration: ORCHESTRATION_KEYS,
-    tracking: ["token_stats"],
+    tracking: ["token_stats", "gate_outcomes"],
     "tracking.token_stats": ["enabled"],
+    "tracking.gate_outcomes": ["enabled"],
     close_out: ["upgrade_offer"],
     "close_out.upgrade_offer": ["enabled"],
     release: ["files"],
@@ -442,6 +443,7 @@ const SECTION_VALIDATORS: Record<SectionKey, (v: unknown) => void> = {
     const tr = requireMap(v, "tracking");
     closeKeys(tr, "tracking", settingsKeyOrder("tracking"));
     checkEnabledMap(tr, "tracking", "token_stats");
+    checkEnabledMap(tr, "tracking", "gate_outcomes");
   },
   close_out: (v) => {
     const co = requireMap(v, "close_out");
@@ -495,7 +497,14 @@ function buildSection<K extends SectionKey>(parsed: Record<string, unknown>, sec
     verification: () => (isObj(parsed.verification) ? parsed.verification : d.verification),
     docs: () => (isObj(parsed.docs) ? parsed.docs : d.docs),
     orchestration: () => (isObj(parsed.orchestration) ? parsed.orchestration : d.orchestration),
-    tracking: () => (isObj(parsed.tracking) ? parsed.tracking : d.tracking) as ProjectSettings["tracking"],
+    // AC-STE-715.21: a parsed map passes through with each absent NEW key
+    // filled from defaults(); keys v3.0.0 knows (token_stats) read as written.
+    tracking: () => {
+      if (!isObj(parsed.tracking)) return d.tracking;
+      const tr: Record<string, unknown> = { ...parsed.tracking };
+      if (!("gate_outcomes" in tr)) tr.gate_outcomes = d.tracking.gate_outcomes;
+      return tr as ProjectSettings["tracking"];
+    },
     close_out: () => ({
       upgrade_offer: {
         enabled:
@@ -609,6 +618,20 @@ export function loadProjectSection<K extends keyof ProjectSettings>(projectRoot:
 export function upgradeOfferSwitchOn(projectRoot: string): boolean {
   try {
     return loadProjectSection(projectRoot, "close_out")?.upgrade_offer?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * STE-715 — the gate-outcome switch `tracking.gate_outcomes.enabled`, read
+ * through the loader in the `upgradeOfferSwitchOn` shape: true only for an
+ * explicit `true`; any loader refusal (a malformed `tracking` section, a
+ * both-homes tree) reads as off.
+ */
+export function gateOutcomesSwitchOn(projectRoot: string): boolean {
+  try {
+    return loadProjectSection(projectRoot, "tracking")?.gate_outcomes?.enabled === true;
   } catch {
     return false;
   }

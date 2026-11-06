@@ -672,6 +672,8 @@ const BUN_RUN_RE = /bun run\s+"?([^\s"`]+?\.ts)"?(?:[ \t]+([a-z][a-z0-9-]*)(?=[\
 const CONDITIONAL_TARGETS: { module: string; verb?: string; condition: string }[] = [
   { module: "project_settings.ts", verb: "set", condition: "## Project Settings" }, // STE-710
   { module: "upgrade_offer.ts", condition: "upgrade_offer: on" }, // STE-712
+  // Amended by AC-STE-715.19 (M_7bc805)
+  { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
 ];
 
 function sentences(text: string): string[] {
@@ -739,6 +741,20 @@ describe("AC-STE-708.13 zero extra tool calls", () => {
   test("AC-.13 control: upgrade_offer.ts passes beside upgrade_offer: on and fails without it", () => {
     expect(plant("When settings carry `upgrade_offer: on`, run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/upgrade_offer.ts <projectRoot>`.")).toEqual([]);
     expect(plant("Run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/upgrade_offer.ts <projectRoot>`.")).not.toEqual([]);
+  });
+
+  // Amended by AC-STE-715.19 (M_7bc805): the outcome order is admitted only beside `outcome: on`.
+  test("AC-.13 control: a planted gate_receipt.ts outcome order naming outcome: on passes", () => {
+    expect(
+      plant('Only if that call also printed `outcome: on`, run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" outcome spec-review . pass`.'),
+    ).toEqual([]);
+  });
+
+  // Amended by AC-STE-715.19 (M_7bc805)
+  test("AC-.13 control: the same gate_receipt.ts outcome order without outcome: on is reported", () => {
+    expect(plant('Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" outcome spec-review . pass`.')).toEqual([
+      "added without its condition (outcome: on): gate_receipt.ts outcome",
+    ]);
   });
 
   test("AC-.13 control: a removed trunk target turns the pin red", () => {

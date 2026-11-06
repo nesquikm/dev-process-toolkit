@@ -112,6 +112,7 @@ Optional key, not written by `/setup`: `docs.changelog_unversioned` (default `fa
 | Key | Type | Default | Replaces |
 | --- | --- | --- | --- |
 | `tracking.token_stats` | block `{ enabled: boolean }` | `{ enabled: false }` | `## Token Stats` `enabled:` |
+| `tracking.gate_outcomes` | block `{ enabled: boolean }` | `{ enabled: false }` | new (STE-715), no legacy home; absent means off. It shares the `tracking` section, so a malformed value refuses every `tracking` read, the token-stats switch included |
 
 ### `close_out`
 

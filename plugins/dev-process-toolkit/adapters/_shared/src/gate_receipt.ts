@@ -22,13 +22,14 @@
 // that does not exist, which is worse than the missing receipt it was told
 // about. So stdout carries a whole announcement or nothing at all.
 
-import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { receiptsDir } from "./dpt_paths";
 import { nfr10Message } from "./dpt_version";
 import { bunInvocation, realpathOr } from "./shell_invocations";
 import { isToolkitManaged } from "./toolkit_managed";
+import { dptGitignorePath, writeDptGitignore } from "./setup/dpt_gitignore";
 import { announceReceipt, oneLine, readSessionReceipts, receiptDigest, writeReceipt } from "./tracker_receipts";
 
 /**
@@ -63,6 +64,9 @@ export function gateSubject(name: GateSkillName): string {
 /** This module's own file, as the filesystem sees it: the front door itself. */
 const OWN_FRONT_DOOR = realpathOr(resolve(import.meta.dir, "gate_receipt.ts"));
 
+/** The plugin this front door ships in — the reuse key's `plugin` names its version, not `CLAUDE_PLUGIN_ROOT`'s. */
+const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..");
+
 /**
  * Whether a Bash command RAN this front door — the question every `dpt-receipt:`
  * line's provenance turns on, since the line is evidence only when the call that
@@ -89,6 +93,18 @@ export function announcesGateReceipt(command: string): boolean {
 }
 
 /**
+ * STE-715 — whether a Bash command RAN this front door's `outcome` verb: one
+ * plain `bun [run] <absolute path> outcome …` whose path realpaths to THIS file,
+ * read by the same `bunInvocation` grammar `announcesGateReceipt` uses. An
+ * outcome run is never a gate receipt announcement, so no evidence reader
+ * counts it.
+ */
+export function runsGateOutcome(command: string): boolean {
+  const run = bunInvocation(command);
+  return run !== null && run.module === OWN_FRONT_DOOR && run.args[0] === "outcome";
+}
+
+/**
  * STE-650 — whether `command` ran the front door for THIS gate (`subject`, the
  * full skill name). Another gate's run cannot vouch for this one, so only its
  * own run may make this gate wait on a pending result.
@@ -108,6 +124,8 @@ export const GATE_RECEIPT_REASONS = [
   "no-checkout",
   "session-id-unavailable",
   "receipt-not-written",
+  "no-run",
+  "unknown-outcome",
 ] as const;
 
 export type GateReceiptReason = (typeof GATE_RECEIPT_REASONS)[number];
@@ -195,8 +213,15 @@ export function headOf(root: string): string | null {
  * below is not a second rule but a better message for the one case an operator
  * actually hits — a gate run by hand, outside a Claude Code session, where the
  * store's own throw would name a variable without saying why a gate needs it.
+ *
+ * STE-715: async because both of its new modules load by dynamic `import()` —
+ * the settings module on every run (reading the switch needs it), the
+ * reuse-key module only once the switch reads on — so a hook importing this
+ * file statically loads neither. Any error loading either or computing the key
+ * degrades to `{ head, key: null, key_digest: null }`: a key error never
+ * blocks the receipt.
  */
-export function recordGateRun(skill: string, target: string): string {
+export async function recordGateRun(skill: string, target: string): Promise<string> {
   if (!isGateSkillName(skill)) {
     throw new GateReceiptError(
       "unknown-skill",
@@ -226,6 +251,23 @@ export function recordGateRun(skill: string, target: string): string {
     );
   }
 
+  const head = headOf(root);
+  let evidence: Record<string, unknown> = { head };
+  const switchOn = await outcomesSwitchOn(root, (error) =>
+    console.error(`gate-outcome: the settings module could not be loaded: ${errorText(error)}`),
+  );
+  if (switchOn) {
+    try {
+      // The same `.dpt/.gitignore` writeReceipt would create, created first so
+      // the key sees the tree the receipt leaves behind.
+      if (!existsSync(dptGitignorePath(root))) writeDptGitignore(root);
+      evidence = { head, ...(await computeReuseKey(root)) };
+    } catch (error) {
+      evidence = { head, key: null, key_digest: null };
+      console.error(`gate-outcome: the reuse key could not be computed, so no outcome is recorded: ${errorText(error)}`);
+    }
+  }
+
   try {
     return writeReceipt(root, {
       kind: GATE_RECEIPT_KIND,
@@ -233,7 +275,7 @@ export function recordGateRun(skill: string, target: string): string {
       container: null,
       subject: gateSubject(skill),
       decision: GATE_RECEIPT_DECISION,
-      evidence: { head: headOf(root) },
+      evidence,
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -243,6 +285,225 @@ export function recordGateRun(skill: string, target: string): string {
       `make the toolkit's ${root}/.dpt tree writable, and run the skill from a session whose id is a single path-safe segment, then re-run the gate`,
       `reason=receipt-not-written, skill=${skill}, root=${root}`,
     );
+  }
+}
+
+function errorText(error: unknown): string {
+  return oneLine(error instanceof Error ? error.message : String(error));
+}
+
+/**
+ * Read the gate-outcome switch through a dynamic `import()` of the settings
+ * module, so a hook importing this file statically never loads it. A load
+ * failure reads as off; `onLoadError` sees the error first when given.
+ */
+async function outcomesSwitchOn(root: string, onLoadError?: (error: unknown) => void): Promise<boolean> {
+  try {
+    const settings = await import("./project_settings");
+    return settings.gateOutcomesSwitchOn(root);
+  } catch (error) {
+    onLoadError?.(error);
+    return false;
+  }
+}
+
+/**
+ * The reuse key for `root` and its digest, through a dynamic `import()` of the
+ * reuse-key module (loaded only once the switch reads on). Throws whatever
+ * loading or computing throws; each caller decides how a key error degrades.
+ */
+async function computeReuseKey(root: string): Promise<{ key: unknown; key_digest: string }> {
+  const reuse = await import("./gate_reuse_key");
+  const key = reuse.gateReuseKey(root, { pluginRoot: OWN_PLUGIN_ROOT });
+  return { key, key_digest: reuse.reuseKeyDigest(key) };
+}
+
+// ---------------------------------------------------------------------------
+// The outcome front door (STE-715).
+// ---------------------------------------------------------------------------
+
+/** The receipt kind an outcome is recorded under. */
+export const GATE_OUTCOME_KIND = "gate-outcome";
+
+/** The line prefix an outcome write is announced with — never `dpt-receipt: `. */
+export const GATE_OUTCOME_ANNOUNCEMENT_PREFIX = "dpt-gate-outcome: ";
+
+const STEP_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
+
+export interface GateOutcomeStep {
+  name: string;
+  result: "pass" | "fail";
+}
+
+function unknownOutcome(verdict: string, context: string): GateReceiptError {
+  return new GateReceiptError(
+    "unknown-outcome",
+    `${verdict}, so no outcome was recorded`,
+    "run `bun run gate_receipt.ts outcome <skill> <path> <pass|fail> [--step <name>=<pass|fail>]...`, with each step name matching ^[a-z][a-z0-9_-]{0,39}$",
+    `reason=unknown-outcome, ${context}`,
+  );
+}
+
+/** Parse `<pass|fail> [--step <name>=<pass|fail>]...`, or throw `unknown-outcome`. */
+function parseOutcomeArgs(rest: readonly string[]): { verdict: "pass" | "fail"; steps: GateOutcomeStep[] } {
+  const [verdict, ...flags] = rest;
+  if (verdict !== "pass" && verdict !== "fail") {
+    throw unknownOutcome(`the verdict "${verdict ?? ""}" is neither pass nor fail`, `verdict=${verdict ?? ""}`);
+  }
+  const steps: GateOutcomeStep[] = [];
+  for (let i = 0; i < flags.length; i += 2) {
+    const flag = flags[i];
+    const value = flags[i + 1];
+    if (flag !== "--step" || value === undefined) {
+      throw unknownOutcome(`the argument "${flag ?? ""}" is not a --step <name>=<pass|fail> pair`, `arg=${flag ?? ""}`);
+    }
+    const eq = value.indexOf("=");
+    const name = eq < 0 ? value : value.slice(0, eq);
+    const result = eq < 0 ? "" : value.slice(eq + 1);
+    if (!STEP_NAME.test(name) || (result !== "pass" && result !== "fail")) {
+      throw unknownOutcome(`the step "${value}" is not <name>=<pass|fail> with a lowercase name`, `step=${value}`);
+    }
+    steps.push({ name, result });
+  }
+  return { verdict, steps };
+}
+
+interface StoredReceipt {
+  bytes: Buffer;
+  record: Record<string, any>;
+}
+
+function sessionReceiptFiles(root: string, sessionId: string): StoredReceipt[] {
+  const dir = receiptsDir(root, sessionId);
+  if (!existsSync(dir)) return [];
+  const out: StoredReceipt[] = [];
+  for (const name of readdirSync(dir).sort()) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      const bytes = readFileSync(join(dir, name));
+      const record = JSON.parse(bytes.toString("utf-8"));
+      if (record !== null && typeof record === "object" && record.sessionId === sessionId) out.push({ bytes, record });
+    } catch {
+      // A file that does not parse pairs with nothing.
+    }
+  }
+  return out;
+}
+
+/**
+ * Record the outcome of the latest unpaired run of `skill` against the
+ * checkout containing `target`, and return the outcome receipt's path — or
+ * `null` when the switch reads off, in which case nothing is written.
+ */
+export async function recordGateOutcome(
+  skill: string | undefined,
+  target: string | undefined,
+  rest: readonly string[],
+): Promise<string | null> {
+  const switchRoot = checkoutRootOf(target ?? process.cwd());
+  if (switchRoot === null) return null;
+  if (!(await outcomesSwitchOn(switchRoot))) return null;
+
+  if (skill === undefined || target === undefined) {
+    throw new GateReceiptError(
+      "incomplete-argv",
+      "the outcome front door was given fewer than the values it needs",
+      "run `bun run gate_receipt.ts outcome <skill> <path> <pass|fail> [--step <name>=<pass|fail>]...`",
+      "reason=incomplete-argv",
+    );
+  }
+  if (!isGateSkillName(skill)) {
+    throw new GateReceiptError(
+      "unknown-skill",
+      `"${skill}" is not a gate that records an outcome, so nothing was recorded`,
+      `name one of ${GATE_SKILL_NAMES.join(", ")} when running the outcome front door`,
+      `reason=unknown-skill, skill=${skill}`,
+    );
+  }
+  const { verdict, steps } = parseOutcomeArgs(rest);
+
+  const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
+  if (sessionId === undefined || sessionId === "") {
+    throw new GateReceiptError(
+      "session-id-unavailable",
+      "CLAUDE_CODE_SESSION_ID is unset or empty, and an outcome pairs with a run of the same session, so it cannot be recorded",
+      "run the outcome call from the Claude Code session that ran the gate",
+      `reason=session-id-unavailable, skill=${skill}`,
+    );
+  }
+
+  const root = switchRoot;
+  const subject = gateSubject(skill);
+  const stored = sessionReceiptFiles(root, sessionId);
+  const referenced = new Set(
+    stored.filter((s) => s.record.kind === GATE_OUTCOME_KIND).map((s) => s.record.evidence?.run),
+  );
+  const candidates = stored.filter(
+    (s) =>
+      s.record.kind === GATE_RECEIPT_KIND &&
+      s.record.subject === subject &&
+      s.record.root === root &&
+      !referenced.has(receiptDigest(s.bytes)),
+  );
+  // Files are named by creation time, so the last candidate is the latest run.
+  const paired = candidates[candidates.length - 1];
+  if (paired === undefined) {
+    throw new GateReceiptError(
+      "no-run",
+      `this session holds no run receipt for ${subject} under ${root} that an outcome does not already reference`,
+      `run the gate first (\`bun run gate_receipt.ts ${skill} <path>\`), then record its outcome once`,
+      `reason=no-run, skill=${skill}, root=${root}`,
+    );
+  }
+
+  let key: unknown = null;
+  let keyDigest: string | null = null;
+  try {
+    ({ key, key_digest: keyDigest } = await computeReuseKey(root));
+  } catch (error) {
+    console.error(`gate-outcome: the reuse key could not be computed, so key_stable is false: ${errorText(error)}`);
+  }
+  const pairedDigest = paired.record.evidence?.key_digest;
+  const evidence = {
+    run: receiptDigest(paired.bytes),
+    key,
+    key_digest: keyDigest,
+    key_stable: keyDigest !== null && keyDigest === pairedDigest,
+    steps,
+  };
+
+  try {
+    return writeReceipt(root, {
+      kind: GATE_OUTCOME_KIND,
+      adapter: null,
+      container: null,
+      subject,
+      decision: verdict,
+      evidence,
+    });
+  } catch (error) {
+    throw new GateReceiptError(
+      "receipt-not-written",
+      `the gate outcome for ${subject} could not be stored under ${root}: ${errorText(error)}`,
+      `make the toolkit's ${root}/.dpt tree writable, then re-run the outcome call`,
+      `reason=receipt-not-written, skill=${skill}, root=${root}`,
+    );
+  }
+}
+
+/** `dpt-gate-outcome: <absolute path> sha256:<digest>` for an outcome receipt. */
+export function announceGateOutcome(path: string): string {
+  const abs = resolve(path);
+  return `${GATE_OUTCOME_ANNOUNCEMENT_PREFIX}${abs} sha256:${receiptDigest(readFileSync(abs))}`;
+}
+
+/** True when the receipt at `path` carries a non-null reuse key (STE-715). */
+function receiptCarriesKey(path: string): boolean {
+  try {
+    const r = JSON.parse(readFileSync(path, "utf-8")) as { evidence?: { key_digest?: unknown } };
+    return typeof r.evidence?.key_digest === "string";
+  } catch {
+    return false;
   }
 }
 
@@ -1481,7 +1742,28 @@ function uniqueRoots(roots: readonly string[]): string[] {
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
-  const [skill, target] = process.argv.slice(2);
+  if (process.argv[2] === "outcome") {
+    await runOutcomeFrontDoor(process.argv.slice(3));
+  } else {
+    await runReceiptFrontDoor(process.argv.slice(2));
+  }
+}
+
+/** The STE-715 outcome verb: silent when the switch is off, else one record. */
+async function runOutcomeFrontDoor(argv: readonly string[]): Promise<void> {
+  const [outcomeSkill, outcomeTarget, ...rest] = argv;
+  try {
+    const path = await recordGateOutcome(outcomeSkill, outcomeTarget, rest);
+    if (path !== null) console.log(announceGateOutcome(path));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}
+
+/** The receipt order every gate skill names: one announcement, then `outcome: on` when keyed. */
+async function runReceiptFrontDoor(argv: readonly string[]): Promise<void> {
+  const [skill, target] = argv;
   try {
     if (skill === undefined || target === undefined) {
       throw new GateReceiptError(
@@ -1491,7 +1773,11 @@ if (import.meta.main) {
         "reason=incomplete-argv",
       );
     }
-    console.log(announceReceipt(recordGateRun(skill, target)));
+    const path = await recordGateRun(skill, target);
+    console.log(announceReceipt(path));
+    // STE-715: a receipt carrying a key means the switch read on and the key
+    // was computed, so the gate's outcome call may follow.
+    if (receiptCarriesKey(path)) console.log("outcome: on");
   } catch (error) {
     // stderr, never stdout — the fail-closed invariant in this file's header.
     console.error(error instanceof Error ? error.message : String(error));
