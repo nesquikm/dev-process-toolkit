@@ -13,6 +13,12 @@ export interface HaltReport {
   role: TddRole;
   /** The FR the run was for — lets the resume command be copied as it stands. */
   fr?: string;
+  /**
+   * Which skill started the run. A run `/implement` started resumes through
+   * `/implement`, so its gate, review, commit and tracker close still run.
+   * Absent means `/tdd` was invoked directly.
+   */
+  entry?: "tdd" | "implement";
   ac?: string;
   retryCount: number;
   lastBlock?: string;
@@ -38,9 +44,33 @@ const MODE_DESCRIPTIONS: Record<FailureMode, string> = {
     "defect check — the AC's test stayed GREEN under two different plants with the behavior broken",
 };
 
-/** `/tdd <FR> --resume-at <AC>`, with placeholders for what the report lacks. */
-function resumeCommand(report: HaltReport): string {
-  return `/dev-process-toolkit:tdd ${report.fr ?? "<FR-id>"} --resume-at ${report.ac ?? "<AC-id>"}`;
+/**
+ * The resume command for a halt: the skill that started the run, the FR, and
+ * the point to resume at — an AC, `refactor` or `audit`. Placeholders stand in
+ * for what the report lacks.
+ */
+function resumeCommand(report: HaltReport, at: string = report.ac ?? "<AC-id>"): string {
+  return `/dev-process-toolkit:${report.entry ?? "tdd"} ${report.fr ?? "<FR-id>"} --resume-at ${at}`;
+}
+
+/**
+ * The resume sentence for a halt that is not `not-load-bearing`, or "" when a
+ * plain re-run is right. A halt in Stage GREEN resumes at its AC; after GREEN
+ * every test passes, so a re-run from Stage RED would halt in mode A — a
+ * refactorer halt resumes at `refactor`, an audit halt at `audit`. A
+ * test-writer halt has nothing implemented yet, and a re-run is the remedy.
+ */
+function resumeSentence(report: HaltReport): string {
+  if (report.mode === "spec-gap") {
+    return ` After the audit, every test is GREEN: implement the ACs it reports missing, or correct the FR, then resume with ${resumeCommand(report, "audit")}.`;
+  }
+  if (report.role === "refactorer") {
+    return ` After GREEN, every test passes: fix or revert the refactor, then resume with ${resumeCommand(report, "refactor")}.`;
+  }
+  if (report.role === "implementer" && report.ac) {
+    return ` For this implementer halt, resume at its AC instead: ${resumeCommand(report)}.`;
+  }
+  return "";
 }
 
 export function formatHaltReport(report: HaltReport): string {
@@ -103,11 +133,7 @@ export function formatHaltReport(report: HaltReport): string {
       "identified failure mode (test-writer false-RED, implementer GREEN " +
       "miss, refactorer regression, format drift, subagent maxTurns, or " +
       "spec-review reporting unimplemented acceptance criteria)." +
-      // A halt in Stage GREEN has ACs before it implemented: a re-run from
-      // Stage RED would dispatch the test-writer over their tests again.
-      (report.role === "implementer" && report.ac
-        ? ` For this implementer halt, resume at its AC instead: ${resumeCommand(report)}.`
-        : ""),
+      resumeSentence(report),
   );
   lines.push(
     `Context: skill=tdd, mode=${report.mode}, role=${report.role}` +
