@@ -285,7 +285,8 @@ const PLANS: Partial<Record<AdoptingStage, StageReportPlan>> = {
   // absorb, and the one content here that cannot be bounded by sampling.
   // § 9 now AGGREGATES it to a count and CITES `metadata.json`, whose
   // `redaction_summary` field § 6 composes and § 8 uploads in the same gist.
-  // The file list is bounded by construction (§ 6: three files maximum).
+  // The file list is bounded by construction (§ 6: three files maximum, or
+  // four files maximum under --from-retro). Amended by AC-STE-721.6.
   "report-issue": {
     prose: [
       "https://gist.github.com/octocat/0f7a1c9e2b3d4f5a6b7c8d9e0f1a2b3c",
@@ -691,7 +692,10 @@ describe("THE CONFORMANCE MATRIX — every adopting stage's own report must conf
       deps: "bounded:3",
       "gate-check": "aggregated | aggregated | bounded:3",
       implement: "bounded:3 | bounded:3 (+8 mandates)",
-      "report-issue": "aggregated | fixed:3",
+      // Amended by AC-STE-721.6: § 9 states three files maximum without
+      // --from-retro and **four files maximum** with it; the bolded bound is the
+      // true maximum a run can list, so the ledger keys on four.
+      "report-issue": "aggregated | fixed:4",
       setup: "bounded:3",
       "spec-archive": "bounded:3",
       "spec-review": "bounded:3",

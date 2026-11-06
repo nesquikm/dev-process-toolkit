@@ -47,7 +47,8 @@ function sentencesNaming(text: string, needle: string): string[] {
 // ===========================================================================
 
 // Amended by AC-STE-720.15 (206 -> 208)
-const LINE_DELTA: Record<string, number> = { "skills/report-issue/SKILL.md": 2 };
+// Amended by AC-STE-721.13 (208 -> 212)
+const LINE_DELTA: Record<string, number> = { "skills/report-issue/SKILL.md": 6 };
 const SKILL_PAGES = ["skills/spec-research/SKILL.md", "skills/deps-research/SKILL.md", "skills/report-issue/SKILL.md"];
 
 describe("AC-STE-656.1 — no skill page calls commit_producing_skill_branch_gate a probe", () => {

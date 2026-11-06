@@ -5,12 +5,12 @@
 // git is called through PATH.
 
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { IDENTIFIER_PATTERNS, type ScrubMatch, createAliasMap, scrubIdentifiers } from "./scrub_identifiers";
-import type { AliasMap } from "./session_aliases";
+import { type AliasMap, type SessionAlias, seedAliasMap } from "./session_aliases";
 
 export interface PayloadContext {
   home?: string;
@@ -77,6 +77,14 @@ function appendIdentifierRows(metadataText: string, rows: readonly ScrubMatch[])
   return `${JSON.stringify(meta, null, 2)}\n`;
 }
 
+/** The `sessions` list of the working directory's `retro.json`; none when it is absent. */
+export function retroSessions(dir: string): SessionAlias[] {
+  const p = join(dir, "retro.json");
+  if (!existsSync(p)) return [];
+  const sessions = JSON.parse(readFileSync(p, "utf-8")).sessions;
+  return Array.isArray(sessions) ? sessions : [];
+}
+
 if (import.meta.main) {
   const [workdir, projectRoot, ...flags] = process.argv.slice(2);
   const flagged = flags.includes("--redact-identifiers") || flags.includes("--from-retro");
@@ -91,5 +99,7 @@ if (import.meta.main) {
     );
     process.exit(1);
   }
-  scrubPayloadDir(workdir, { home: homedir(), branches: repoBranches(projectRoot), aliases: createAliasMap() });
+  const aliases = createAliasMap();
+  if (flags.includes("--from-retro")) seedAliasMap(aliases, retroSessions(workdir));
+  scrubPayloadDir(workdir, { home: homedir(), branches: repoBranches(projectRoot), aliases });
 }
