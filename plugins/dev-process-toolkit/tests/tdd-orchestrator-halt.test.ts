@@ -221,4 +221,42 @@ describe("an implementer halt names the resume at its AC", () => {
     const remedy = out.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
     expect(remedy).not.toContain("--resume-at");
   });
+
+  // A run /implement started resumes through /implement, or the gate, review,
+  // commit and tracker close never run, and the next /implement re-enters
+  // Stage RED and halts in mode A.
+  test("a run /implement started resumes through /implement", () => {
+    const out = formatHaltReport({
+      mode: "not-load-bearing",
+      role: "implementer",
+      entry: "implement",
+      fr: "STE-901",
+      ac: "AC-STE-901.2",
+      retryCount: 0,
+    });
+    const remedy = out.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+    expect(remedy).toContain("/dev-process-toolkit:implement STE-901 --resume-at AC-STE-901.2");
+  });
+});
+
+// After GREEN every test passes, so a re-run from Stage RED halts in mode A.
+// A refactorer halt and an audit halt each name the stage to resume at.
+describe("a halt after GREEN names the stage to resume at", () => {
+  test("a refactorer halt resumes at refactor", () => {
+    const out = formatHaltReport({ mode: "C", role: "refactorer", fr: "STE-901", retryCount: 2 });
+    const remedy = out.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+    expect(remedy).toContain("/dev-process-toolkit:tdd STE-901 --resume-at refactor");
+  });
+
+  test("a spec-gap halt resumes at audit", () => {
+    const out = formatHaltReport({
+      mode: "spec-gap",
+      role: "spec-reviewer",
+      fr: "STE-901",
+      retryCount: 1,
+      missingAcs: ["AC-STE-901.4"],
+    });
+    const remedy = out.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
+    expect(remedy).toContain("/dev-process-toolkit:tdd STE-901 --resume-at audit");
+  });
 });
