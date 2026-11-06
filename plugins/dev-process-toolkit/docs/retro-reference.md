@@ -24,3 +24,9 @@ Thresholds are constants in code, never settings knobs.
 ## Report
 
 One file, `.dpt/ledger/retro/<scope-slug>-<UTC yyyymmddThhmmssZ>.json`, schema `dpt-retro/1`. Sessions appear only as `s<N>` aliases with a 16-hex digest; the report holds no absolute path, raw command, cwd or branch name. `suggested_severity` is `low` for one tripped rule and `medium` for two or more, never `high`.
+
+## Settings proposal
+
+`adapters/_shared/src/retro_proposal.ts` reads a saved report and proposes turning on a recording key a skipped rule named. `propose` prints `set`, `because` and optional `add .gitignore:` lines, then one `digest=` line. It writes nothing.
+
+`apply` writes only on a verified approval in the session transcript: a real `propose` result carrying the digest, then an `AskUserQuestion` holding every printed line, answered `Apply the shown change`. It first writes one `retro-apply` receipt, which consumes the approval and is never rolled back, and prints `retro-apply: consumed digest=<digest>`. One approval admits one `apply`: it is consumed by that receipt, by any recorded `apply` call naming the digest, or by that printed line in any later tool result. It then checks preconditions, writes the keys, appends any printed `.gitignore` line, and registers the capture hook. A refused `register` restores the prior bytes. `retro.ts` never imports this module; the report schema is unchanged.
