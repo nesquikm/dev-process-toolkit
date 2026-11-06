@@ -1,0 +1,24 @@
+{
+  "registration": "local",
+  "wall_clock_ms": 1793939936476,
+  "cwd": "/synthetic/repo",
+  "claude_project_dir": "/synthetic/repo",
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000002",
+    "transcript_path": "/synthetic/repo/.claude-config/projects/-synthetic-repo/00000000-0000-4000-8000-000000000002.jsonl",
+    "cwd": "/synthetic/repo",
+    "scratchpad_dir": "/synthetic/repo/tmp/-synthetic-repo/00000000-0000-4000-8000-000000000002/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000100009",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "grep -n -B2 -A12 \"verification\\|gate\" specs/settings.yaml | head -50; cat plugins/dev-process-toolkit/package.json 2>/dev/null | head -30; cat specs/frs/spike-fixture.md",
+      "description": "Look up the verification settings and the untracked fixture"
+    },
+    "tool_use_id": "toolu_SYNTH_10"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "registration": "local",
+  "wall_clock_ms": 1793939871840,
+  "cwd": "/synthetic/repo",
+  "claude_project_dir": "/synthetic/repo",
+  "payload": {
+    "session_id": "00000000-0000-4000-8000-000000000002",
+    "transcript_path": "/synthetic/repo/.claude-config/projects/-synthetic-repo/00000000-0000-4000-8000-000000000002.jsonl",
+    "cwd": "/synthetic/repo",
+    "scratchpad_dir": "/synthetic/repo/tmp/-synthetic-repo/00000000-0000-4000-8000-000000000002/scratchpad",
+    "prompt_id": "00000000-0000-4000-8000-000000100003",
+    "permission_mode": "auto",
+    "effort": {
+      "level": "medium"
+    },
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "for i in $(seq 1 120); do sleep 1; done; echo case-interrupt",
+      "timeout": 180000,
+      "description": "Wait two minutes in one-second steps, then print a string"
+    },
+    "tool_use_id": "toolu_SYNTH_03"
+  }
+}
