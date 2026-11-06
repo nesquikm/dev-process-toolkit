@@ -4,7 +4,7 @@
 // times in this run. Each case spawns the rendered registered command through
 // `sh -c` 30 times. Bounds (AC-STE-716.10):
 //   key absent            p95 <= baseline p95
-//   flag false            p95 <= baseline p95 + 25 ms
+//   flag false            p95 <= baseline p95 + 50 ms (amended by operator ruling 2026-11-06)
 //   flag on, other Bash   p95 <= baseline p95 + 50 ms
 //   flag on, commit/Skill in a 2,000-file repo   p95 <= 500 ms
 //   every case            max < 2,000 ms (the registered timeout)
@@ -91,7 +91,7 @@ describe("AC-STE-716.10 capture latency", () => {
 
     const cases: Case[] = [
       { name: "key absent", root: absent, command: commandFor(absent), stdin: stdinFor(absent, { event: "pre", tool: "Bash", cwd: absent, command: "ls" }), bound: (b) => b },
-      { name: "flag false", root: off, command: commandFor(off), stdin: stdinFor(off, { event: "pre", tool: "Bash", cwd: off, command: "ls" }), bound: (b) => b + 25 },
+      { name: "flag false", root: off, command: commandFor(off), stdin: stdinFor(off, { event: "pre", tool: "Bash", cwd: off, command: "ls" }), bound: (b) => b + 50 }, // Amended by operator ruling 2026-11-06 (AC-STE-716.10): was b + 25
       { name: "flag on, other Bash", root: on, command: commandFor(on), stdin: stdinFor(on, { event: "pre", tool: "Bash", cwd: on, command: "ls" }), bound: (b) => b + 50 },
       { name: "flag on, commit, 2,000 files", root: big, command: commandFor(big), stdin: stdinFor(big, { event: "pre", tool: "Bash", cwd: big, command: "git commit -m x" }), bound: () => 500 },
       { name: "flag on, Skill, 2,000 files", root: big, command: commandFor(big), stdin: stdinFor(big, { event: "pre", tool: "Skill", cwd: big, skill: "dev-process-toolkit:tdd" }), bound: () => 500 },

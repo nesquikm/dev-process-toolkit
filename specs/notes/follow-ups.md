@@ -25,6 +25,16 @@ reproduces should be deleted with a one-line reason rather than left to rot.
 
 ---
 
+## From M_7bc805 — the capture-latency bound (2026-11-06)
+
+### 1. Reading one settings section transpiles the whole settings loader
+
+**Measured, on this branch.** A capture hook run with `tracking.tool_calls` present but `false` must load `project_settings.ts` (AC-STE-716.4). That module's static graph is about 166 KB of TypeScript, about 10 ms to transpile unloaded, against 0.4 ms for a module with no imports. Unloaded, the flag-false run costs about 7 ms over a no-op Bun start; on a machine at load average 5–6 it cost 37–44 ms, which missed the original +25 ms bound on both rounds. The operator widened that bound to +50 ms (AC-STE-716.10, 2026-11-06), so nothing is red.
+
+**The speedup.** `project_settings.ts` statically imports every section's validator (release kinds, tracker config, video config and style, the writer). A `tracking` read needs none of them. Loading those validators lazily, only when their section is read, would cut the transpile for every settings read, hooks included. Cutting the migration registry out of the graph (`compareSemver` via `migrations/coverage.ts`) was tried and saved nothing measurable, so the weight is the validators, not the registry.
+
+---
+
 ## From M137 — PR #76 adversarial review (2026-09-01)
 
 ### 1. The CHANGELOG's release test count still drifts after the release commit is written
