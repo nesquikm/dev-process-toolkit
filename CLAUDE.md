@@ -11,7 +11,7 @@ This repo is a **Claude Code plugin marketplace** containing one plugin. The plu
 ```
 .claude-plugin/marketplace.json          → Marketplace catalog
 .claude/skills/                          → This repo's own maintainer-only skills — NOT shipped in the plugin.
-                                           Holds the declared `verify_skill` (see ## Verification below);
+                                           Holds the declared `verify_skill` (see `verification` in specs/settings.yaml);
                                            31 skills ship across the two roots, and only the 28 below are the plugin's.
 plugins/dev-process-toolkit/             → The plugin
 ├── .claude-plugin/plugin.json           → Plugin manifest
@@ -43,9 +43,9 @@ Users add the marketplace, install the plugin, then run `/dev-process-toolkit:se
 
 ## Release Checklist
 
-`/ship-milestone` reads the `## Release Files` block below to drive the per-release version bump. The block is the single source of truth for which files get rewritten on a release: a file that ships in the block is rewritten by the ceremony, and a release surface that does not ship in it is maintained by hand and will go stale. One documented exception: when `changelog_ci_owned: true`, `/ship-milestone` deliberately does not write `CHANGELOG.md` even though it ships in the block — CI owns it. Shipping in the block is therefore necessary for a file to be rewritten, and sufficient for every kind but `changelog` under that flag. That is the whole guarantee — the block does not make partial-update bugs impossible, it makes them a missing entry, which is a thing you can look for.
+`/ship-milestone` reads the `release.files` list in `specs/settings.yaml` (formerly the `## Release Files` block here) to drive the per-release version bump. The list is the single source of truth for which files get rewritten on a release: a file that is listed there is rewritten by the ceremony, and a release surface that is not listed there is maintained by hand and will go stale. One documented exception: when `changelog_ci_owned: true`, `/ship-milestone` deliberately does not write `CHANGELOG.md` even though it is listed there — CI owns it. Being listed is therefore necessary for a file to be rewritten, and sufficient for every kind but `changelog` under that flag. That is the whole guarantee — the list does not make partial-update bugs impossible, it makes them a missing entry, which is a thing you can look for.
 
-`specs/requirements.md` ships in the block as of v2.80.1 (STE-554). Its `Latest shipped release:` line carries a version and a codename, both rewritten by the release run and both graded by gate-check probe #9b (root spec hygiene); before STE-554 the line had no writer, so every release commit red that probe until a human amended the file by hand.
+`specs/requirements.md` is listed in `release.files` as of v2.80.1 (STE-554). Its `Latest shipped release:` line carries a version and a codename, both rewritten by the release run and both graded by gate-check probe #9b (root spec hygiene); before STE-554 the line had no writer, so every release commit red that probe until a human amended the file by hand.
 
 What remains hand-maintained, deliberately: the prose paragraph after the README "Latest:" banner and the milestone id inside it. Those are written by a person, and `release_surface_agreement` grades the milestone before the release commit is created.
 
