@@ -896,7 +896,8 @@ describe("AC-STE-558.7 — the pin moved at most once, and only downward", () =>
     // extra entry nobody accounts for still reds this leg.
     // Amended by AC-STE-677.5: the 120 -> 119 lowering names STE-677.
     // Amended by M_94e6f7/STE-706: the 119 -> 117 lowering names STE-706.
-    const LATER_MOVES = ["STE-602", "STE-603", "STE-605", "STE-612", "STE-677", "STE-706"];
+    // Amended by M_7bc805/STE-717: the 117 -> 116 lowering names STE-717.
+    const LATER_MOVES = ["STE-602", "STE-603", "STE-605", "STE-612", "STE-677", "STE-706", "STE-717"];
     const laterEntries = ORDERED_UNREACHABLE_PIN_LEDGER.filter((m) =>
       LATER_MOVES.some((fr) => m.rationale.includes(fr)),
     ).length;
