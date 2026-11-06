@@ -36,7 +36,7 @@ describe("AC-STE-229.1 — /report-issue SKILL.md frontmatter shape", () => {
     expect(m![1]!.trim().length).toBeGreaterThan(0);
   });
 
-  test("argument-hint is exactly '[--full] [--dry-run]'", () => {
+  test("argument-hint is exactly '[--full] [--dry-run] [--redact-identifiers]'", () => {
     // STE-428 AC.4 consciously widened this pin. `--dry-run` must be visible on
     // the spawn command line — what the 2026-07-27 Jira leg's auto-mode
     // classifier denied was the SPAWN, before the child started, so an env var
@@ -45,7 +45,8 @@ describe("AC-STE-229.1 — /report-issue SKILL.md frontmatter shape", () => {
     const body = readSkill("report-issue");
     const m = body.match(/^argument-hint:\s*['"](.+?)['"]\s*$/m);
     expect(m).not.toBeNull();
-    expect(m![1]).toBe("[--full] [--dry-run]");
+    // Amended by AC-STE-720.9: argument-hint gains --redact-identifiers.
+    expect(m![1]).toBe("[--full] [--dry-run] [--redact-identifiers]");
   });
 });
 

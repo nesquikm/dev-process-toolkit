@@ -987,7 +987,8 @@ describe("AC-STE-428.4 — the --dry-run path", () => {
     // classifier denied on 2026-07-27 was the SPAWN, before the child started.
     const m = REPORT_ISSUE.match(/^argument-hint:\s*['"](.+?)['"]\s*$/m);
     expect(m).not.toBeNull();
-    expect(m![1]).toBe("[--full] [--dry-run]");
+    // Amended by AC-STE-720.9: argument-hint gains --redact-identifiers.
+    expect(m![1]).toBe("[--full] [--dry-run] [--redact-identifiers]");
   });
 
   test("the SKILL documents the dry-run path inside the preview-gate section", () => {
@@ -1037,6 +1038,7 @@ describe("AC-STE-428.4 — the --dry-run path", () => {
       "report_issue_session_select",
       "report_issue_verify_evidence",
       "report_issue_publish_gate_marker",
+      "report_issue_payload", // Amended by AC-STE-720.15
     ]);
     const map = specWriteStep7Map(
       readFileSync(join(PLUGIN_ROOT, "skills", "spec-write", "SKILL.md"), "utf8"),

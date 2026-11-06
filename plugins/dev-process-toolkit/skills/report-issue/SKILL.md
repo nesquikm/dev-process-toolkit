@@ -1,7 +1,7 @@
 ---
 name: report-issue
 description: Capture a structured bug report — narrative + redacted curated context (and optional session transcript) — and publish to a secret GitHub gist for triage by the maintainer or self-debug via /brainstorm.
-argument-hint: '[--full] [--dry-run]'
+argument-hint: '[--full] [--dry-run] [--redact-identifiers]'
 ---
 
 # Report Issue
@@ -109,6 +109,8 @@ Three files maximum, written into the temp working directory:
 **Severity cap on absent evidence.** When the declared `severity` is `high` or `critical` AND the incident is NOT found in the captured transcript (`found: false`), auto-cap the severity — drop it to `medium` — set `verified: false`, and tag the report `unverified` in both `report.md` and `metadata.json`. When the incident IS found (`found: true`), set `verified: true` and leave the declared severity unchanged. `low` / `medium` reports carry the `verification` block for the record but are **never capped** — the cap applies only to the high/critical tier, where an unverified high-severity claim would otherwise over-weight triage. (The § 2 severity prompt currently offers `low` / `medium` / `high`, so the cap fires on `high` in practice today; the `critical` branch is handled forward-compatibly should the severity vocabulary later expand.) The verification outcome surfaces in the closing summary: MUST emit `report_issue_severity_capped_unverified` when the cap fires (high/critical + incident not found), and MUST emit `report_issue_evidence_verified` when the incident is found in the captured transcript.
 
 **Advisory, never blocking.** The evidence gate is **advisory** and never blocks the upload — the report still publishes on the unverified path. The capped severity + `unverified` tag + `verification` block make the evidentiary gap explicit in `metadata.json` (and the gist), but nothing aborts the `gh gist create`. The maintainer still receives even unverified reports; the only change is that a report can no longer silently assert high severity without evidence.
+
+**Identifier pass (flagged runs only).** When the invocation carries `--redact-identifiers` or `--from-retro`, run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/report_issue_payload.ts <workdir> <projectRoot> <flag>` once, passing that flag through. It runs after every file is written and secret-scrubbed, and before the preview gate. A run with neither flag skips this step and makes no extra call. The closing summary's redaction row counts the `redaction_summary` rows: `across 7 pattern(s)` without the pass, `across 10 pattern(s)` with it.
 
 ### 7. Preview gate
 
