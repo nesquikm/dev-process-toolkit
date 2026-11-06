@@ -165,11 +165,11 @@ and states the skip count it parsed. It is a refusal, not a red suite: the
 capability token stays the one the authoring decision earned. A none-needed
 record is not refused for such a run — the decision stands on its reason —
 but the empty run is no regression evidence, so it lands in the outcome's
-`advisories` and the step-14 report states it. Two limits. A
-runner whose all-skipped summary carries no pass or fail counter (pytest's bare
-`N skipped`) does not parse, so that run is refused as unparseable rather than
-as zero-executed. And the refusal belongs to the `/implement` end-to-end hook
-alone: the shared evidence renderer other stages use does not apply it.
+`advisories` and the step-14 report states it. Every supported runner's
+all-skipped summary parses as zero executed, pytest's bare `N skipped`
+included; one command running two bun suites is read as both summed. The
+refusal belongs to the `/implement` end-to-end hook alone: the shared
+evidence renderer other stages use does not apply it.
 
 Whether a change *has* an end-to-end observable surface is a tier question, so
 answer it the way the testing-spec template's *Which tier a check belongs in*

@@ -2003,4 +2003,76 @@ describe("the zero-executed ground reads real Flutter and pytest captures", () =
       fail: 0,
     });
   });
+
+  // PR #121 review, round 2: real bun 1.4.3 output for the first run of a newly
+  // authored snapshot test, with one failure. `snapshots: +2 added` sits inside
+  // the summary block; a walk that stopped there read fail 0 and resolved ok.
+  test("bun: a red run that adds snapshots stays suite-red", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun(
+        "bun-red-snapshots",
+        [
+          "Expected: 2",
+          "Received: 1",
+          "",
+          "(fail) bad [1.98ms]",
+          "",
+          " 2 pass",
+          " 1 fail",
+          "snapshots: +2 added",
+          " 3 expect() calls",
+          "Ran 3 tests across 1 file. [15.00ms]",
+        ].join("\n"),
+      ),
+    });
+
+    expect({ suiteRed: outcome.suiteRed, ok: outcome.ok, fail: outcome.counts?.fail }).toEqual({
+      suiteRed: true,
+      ok: false,
+      fail: 1,
+    });
+  });
+
+  // `a; b` runs the second suite after the first failed. Read from the last
+  // summary alone, the red first suite resolved ok.
+  test("bun: a red first suite in a two-suite command stays suite-red", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun(
+        "bun-two-suites-red-first",
+        [" 4 pass", " 1 fail", "Ran 5 tests across 1 file.", " 3 pass", " 0 fail", "Ran 3 tests across 1 file."].join(
+          "\n",
+        ),
+      ),
+    });
+
+    expect({ suiteRed: outcome.suiteRed, ok: outcome.ok }).toEqual({ suiteRed: true, ok: false });
+  });
+
+  // Q3 for pytest: a skipped-only summary with a none-needed record lands in
+  // `advisories`, as bun and flutter already do, instead of refusing as
+  // unparseable.
+  test("pytest: a skipped-only run with a none-needed record is an advisory, not a refusal", async () => {
+    const outcome = (await loadE2e()).resolveE2eAuthoring({
+      e2eCmd: "pytest tests/e2e",
+      noneNeeded: { reason: "the change is a config key with no journey" },
+      run: capturedRun(
+        "pytest-skipped-only",
+        "========== 3 skipped in 0.12s ==========",
+        "pytest",
+        "pytest tests/e2e",
+      ),
+    });
+
+    expect({
+      ok: outcome.ok,
+      reasons: [...outcome.reasons],
+      advisories: outcome.advisories.map((line) => line.includes("executed no test (3 skipped)")),
+    }).toEqual({ ok: true, reasons: [], advisories: [true] });
+  });
 });
