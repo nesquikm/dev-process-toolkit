@@ -43,7 +43,8 @@ describe("migration linear-team-key", () => {
     // Amended by M_94e6f7/STE-711 (AC-.13) — `settings-file` (3.0.0) follows last.
     const ids = MIGRATIONS.map((m) => m.id);
     expect(ids.indexOf("linear-team-key")).toBeGreaterThan(ids.indexOf("verification-run-keys"));
-    expect(ids.slice(ids.indexOf("linear-team-key") + 1)).toEqual(["dpt-gitignore-video", "settings-file"]);
+    // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
+    expect(ids.slice(ids.indexOf("linear-team-key") + 1)).toEqual(["dpt-gitignore-video", "settings-file", "capture-registration"]);
     expect(MIGRATIONS.find((m) => m.id === "dpt-gitignore-video")?.introduced_in).toBe("2.96.0");
   });
   test("PERMIT — a key-shaped team is not detected", () => {

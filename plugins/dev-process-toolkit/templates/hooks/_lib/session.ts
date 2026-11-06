@@ -81,6 +81,27 @@ export function parseHookPayload(stdin: string): HookPayload | null {
 }
 
 // ---------------------------------------------------------------------------
+// findCheckoutRoot — nearest ancestor holding a `.git` entry (STE-716)
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk up from `cwd` to the nearest directory holding a `.git` entry (a
+ * directory or a worktree's `.git` file) and return it, or `null` when no
+ * ancestor has one. No child process; the path is split and joined with string
+ * operations so this file keeps its one import, `node:fs`.
+ */
+export function findCheckoutRoot(cwd: unknown): string | null {
+  if (typeof cwd !== "string" || !cwd.startsWith("/")) return null;
+  const segments = cwd.split("/").filter((s) => s !== "" && s !== ".");
+  for (let n = segments.length; n >= 0; n--) {
+    const dir = "/" + segments.slice(0, n).join("/");
+    const probe = dir === "/" ? "/.git" : `${dir}/.git`;
+    if (existsSync(probe)) return dir;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // emitNFR10 — byte-stable NFR-10 stderr block (STE-286 §104)
 // ---------------------------------------------------------------------------
 

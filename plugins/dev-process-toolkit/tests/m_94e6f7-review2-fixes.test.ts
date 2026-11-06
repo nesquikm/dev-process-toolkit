@@ -391,6 +391,18 @@ function triggerFiles(mode: "linear" | "none"): Record<string, string> {
       null,
       2,
     )}\n`,
+    // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
+    // One capture entry with the key absent, so the entry detects and its apply unregisters.
+    ".claude/settings.local.json": `${JSON.stringify(
+      {
+        hooks: {
+          PreToolUse: [{ matcher: "Bash|Skill", hooks: [{ type: "command", command: "exec '/opt/synthetic/plugin/templates/hooks/process/tool-call-capture.sh'; exit 0", timeout: 2 }] }],
+          PostToolUse: [{ matcher: "Bash|Skill", hooks: [{ type: "command", command: "exec '/opt/synthetic/plugin/templates/hooks/process/tool-call-capture.sh'; exit 0", timeout: 2 }] }],
+        },
+      },
+      null,
+      2,
+    )}\n`,
     ".dpt-locks/M1.lock": "synthetic\n",
     ".dev-process/token-ledger.jsonl": "{}\n",
     ".gitignore": "node_modules/\n.dev-process/\n",

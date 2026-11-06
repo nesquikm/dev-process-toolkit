@@ -225,7 +225,7 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 
 - No new slash commands (depth over breadth)
 - No fast-track workflow skipping ceremony
-- No hooks/bin/.lsp.json in the plugin
+- ~~No hooks/bin/.lsp.json in the plugin~~ — superseded in v3.1.0 (M_7bc805): hooks ship in hooks/hooks.json since STE-289, and M_7bc805 adds an opt-in tool-call capture hook that only an approved settings change registers. bin/ and .lsp.json stay out of scope.
 - No multi-agent orchestration
 - No mutation testing gate
 - No legacy code support (/ingest, /map)

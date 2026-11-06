@@ -852,6 +852,8 @@ describe("AC-STE-541.4 — the adoption notice is registered and owned by /spec-
       // Amended by M_94e6f7/STE-711 (AC-.13) — the settings-file move (3.0.0) is
       // registered last; M139 still ships none.
       "settings-file",
+      // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
+      "capture-registration",
     ]);
   });
 
