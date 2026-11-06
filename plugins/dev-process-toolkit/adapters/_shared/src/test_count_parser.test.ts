@@ -399,9 +399,10 @@ describe("parseTestOutput — counters a name, a path or a second run cannot sha
     });
   });
 
-  // A command that runs two suites prints two summary blocks; `Ran` must come
-  // from the same block as `fail` and `skip`, the last one.
-  test("bun: two suites in one capture read the last summary block whole", () => {
+  // A command that runs two suites prints two summary blocks. Each counter is
+  // read from its own block and the blocks are summed, so neither suite's
+  // numbers stand in for the other's.
+  test("bun: two suites in one capture are summed, each from its own block", () => {
     const output = [
       " 5 pass",
       " 0 fail",
@@ -413,21 +414,38 @@ describe("parseTestOutput — counters a name, a path or a second run cannot sha
     ].join("\n");
     const count = assertOk(parseTestOutput(output, "bun"));
     expect({ total: count.total, failures: count.failures, skipped: count.skipped }).toEqual({
-      total: 16,
+      total: 21,
       failures: 0,
       skipped: 5,
     });
   });
 
-  // `Ran 5` counts two todo tests that never executed; left in `total`, they
-  // read downstream as two passes of a run that executed nothing.
-  test("bun: todo tests leave `total`, so nothing executed reads as zero passes", () => {
+  // `a; b` or an npm script chaining with `;` runs the second suite after the
+  // first one failed. Read from the last block alone, or last-match over the
+  // whole capture, the red first suite disappears.
+  test("bun: a red first suite stays red when a later suite is green", () => {
+    const output = [
+      " 4 pass",
+      " 1 fail",
+      "Ran 5 tests across 1 file.",
+      " 3 pass",
+      " 0 fail",
+      "Ran 3 tests across 1 file.",
+    ].join("\n");
+    const count = assertOk(parseTestOutput(output, "bun"));
+    expect({ total: count.total, failures: count.failures }).toEqual({ total: 8, failures: 1 });
+  });
+
+  // `Ran 5` counts two todo tests that never executed. `total` stays `Ran N`
+  // (AC-STE-683.2) and the todos count as not executed, beside the skips, so
+  // the derived pass is zero.
+  test("bun: todo tests count as not executed, and `total` stays `Ran N`", () => {
     const output = [" 0 pass", " 3 skip", " 2 todo", " 0 fail", "Ran 5 tests across 2 files."].join("\n");
     const count = assertOk(parseTestOutput(output, "bun"));
     expect({ total: count.total, failures: count.failures, skipped: count.skipped }).toEqual({
-      total: 3,
+      total: 5,
       failures: 0,
-      skipped: 3,
+      skipped: 5,
     });
   });
 
@@ -446,11 +464,15 @@ describe("parseTestOutput — counters a name, a path or a second run cannot sha
       "Ran 4 tests across 2 files. [3.00ms]",
     ].join("\n");
     const count = assertOk(parseTestOutput(output, "bun"));
-    expect({ total: count.total, failures: count.failures }).toEqual({ total: 4, failures: 1 });
+    expect({ total: count.total, failures: count.failures, skipped: count.skipped }).toEqual({
+      total: 4,
+      failures: 1,
+      skipped: 0,
+    });
   });
 
   // A green run whose test logs `loaded: 4 todo items`: read as four todo tests,
-  // `Ran 4` would drop to an executed total of zero.
+  // the run would execute nothing.
   test("bun: `N todo` in a log line is not the todo counter", () => {
     const output = [
       "b.test.ts:",
@@ -462,13 +484,27 @@ describe("parseTestOutput — counters a name, a path or a second run cannot sha
       "Ran 4 tests across 2 files. [2.00ms]",
     ].join("\n");
     const count = assertOk(parseTestOutput(output, "bun"));
-    expect(count.total).toBe(4);
+    expect({ total: count.total, skipped: count.skipped }).toEqual({ total: 4, skipped: 0 });
   });
 
-  // Bun writes `1 file.` in the singular, so the last summary below is the
-  // single-file one; and the first suite's two todo tests belong to its own
-  // summary, not to the second one's `Ran 6`.
-  test("bun: a single-file last summary and an earlier suite's todos are read from their own blocks", () => {
+  // Bun omits `N skip` at zero, so a skip counter read anywhere but the block
+  // finds a test name instead.
+  test("bun: `N skip` in a test name is not the skip counter", () => {
+    const output = [
+      "(pass) renders 3 skip buttons [0.10ms]",
+      "",
+      " 4 pass",
+      " 0 fail",
+      " 4 expect() calls",
+      "Ran 4 tests across 1 file. [2.00ms]",
+    ].join("\n");
+    const count = assertOk(parseTestOutput(output, "bun"));
+    expect({ total: count.total, skipped: count.skipped }).toEqual({ total: 4, skipped: 0 });
+  });
+
+  // Bun writes `1 file.` in the singular, and each suite's todos belong to its
+  // own summary block.
+  test("bun: a single-file summary is read, and each suite's todos stay in its own block", () => {
     const output = [
       " 1 pass",
       " 2 todo",
@@ -480,10 +516,30 @@ describe("parseTestOutput — counters a name, a path or a second run cannot sha
     ].join("\n");
     const count = assertOk(parseTestOutput(output, "bun"));
     expect({ total: count.total, failures: count.failures, skipped: count.skipped }).toEqual({
-      total: 6,
+      total: 9,
       failures: 0,
-      skipped: 0,
+      skipped: 2,
     });
+  });
+
+  // Real bun 1.4.3 output for a run that wrote two new snapshots and had one
+  // failure: `snapshots: +2 added` sits inside the summary block, between
+  // `fail` and `expect() calls`. A walk that stopped there never saw `fail`.
+  test("bun: a run that adds snapshots keeps its failure count", () => {
+    const output = [
+      "Expected: 2",
+      "Received: 1",
+      "",
+      "(fail) bad [1.98ms]",
+      "",
+      " 2 pass",
+      " 1 fail",
+      "snapshots: +2 added",
+      " 3 expect() calls",
+      "Ran 3 tests across 1 file. [15.00ms]",
+    ].join("\n");
+    const count = assertOk(parseTestOutput(output, "bun"));
+    expect({ total: count.total, failures: count.failures }).toEqual({ total: 3, failures: 1 });
   });
 
   // A smoke step prints its own `0 passed` before the real summary line.
@@ -495,6 +551,55 @@ describe("parseTestOutput — counters a name, a path or a second run cannot sha
       failures: 0,
       skipped: 3,
     });
+  });
+
+  // A run where every test skipped prints only `N skipped`. It parses as zero
+  // executed, as bun and flutter already do, so it reaches the zero-executed
+  // ground instead of reading as unparseable.
+  test("pytest: a skipped-only summary parses as zero executed", () => {
+    const result = parseTestOutput("========== 3 skipped in 0.12s ==========", "pytest");
+    // Not through assertOk: an unparsed capture must fail at this assertion.
+    expect(
+      result.ok
+        ? { total: result.count.total, failures: result.count.failures, skipped: result.count.skipped }
+        : result,
+    ).toEqual({ total: 0, failures: 0, skipped: 3 });
+  });
+
+  // The counters are anchored to the START of a progress line: a failing test
+  // whose name carries a stamp-shaped `10:00 +5 -0:` is repeated after the last
+  // progress line, and read mid-line it turns the red run green.
+  test("flutter: a stamp-shaped name in `Failing tests:` is not a progress line", () => {
+    const output = [
+      "00:00 +0: loading test/a_test.dart",
+      "00:01 +1: a",
+      "00:02 +1 -1: resets at 10:00 +5 -0: rounding [E]",
+      "  Expected: true",
+      "    Actual: <false>",
+      "00:02 +1 -1: Some tests failed.",
+      "",
+      "Failing tests:",
+      "  test/a_test.dart: resets at 10:00 +5 -0: rounding",
+    ].join("\n");
+    const count = assertOk(parseTestOutput(output, "flutter"));
+    expect({ total: count.total, failures: count.failures }).toEqual({ total: 2, failures: 1 });
+  });
+
+  // `melos run test` prefixes every line of a package's output with its name.
+  test("flutter: a package-prefixed capture parses to the same totals", () => {
+    const output = [
+      "app: 00:00 +0: loading test/a_test.dart",
+      "app: 00:01 +1: a",
+      "app: 00:02 +2 ~1: b (skipped)",
+      "app: 00:02 +3 ~1: All tests passed!",
+    ].join("\n");
+    const result = parseTestOutput(output, "flutter");
+    // Not through assertOk: an unparsed capture must fail at this assertion.
+    expect(
+      result.ok
+        ? { total: result.count.total, failures: result.count.failures, skipped: result.count.skipped }
+        : result,
+    ).toEqual({ total: 3, failures: 0, skipped: 1 });
   });
 });
 
