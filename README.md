@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.1.0 — "Flight Recorder"** (M_7bc805, a record of what a run actually did, all of it opt-in. Gate receipts can record whether a gate passed and on which exact input; an opt-in hook writes one privacy-safe row per Bash and Skill call; a reader turns the session log into a timeline of calls, review rounds and gate runs. With every new switch off, the default, the toolkit behaves exactly as v3.0.0)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.2.0 — "Hindsight"** (M_d1b4b7, a retrospective that reads the run's own record. `/retro` grades a finished run against four fixed rules and says which ones it could not see; close-out can offer it when a rule tripped; a saved retrospective can seed `/report-issue`, whose payload can hide home paths, session ids and branch names; and `/retro` can propose turning a recording setting on, applied only on explicit approval. With every new switch off, the default, the toolkit behaves exactly as v3.1.0)
 
 ## Core Philosophy
 

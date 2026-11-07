@@ -6,6 +6,7 @@ kickoff_branch: null
 frozen_at: null
 migration: none
 codename: Hindsight
+shipped_in: v3.2.0
 ---
 
 # Implementation Plan
@@ -113,3 +114,16 @@ Defaults unchanged (operator rule, 2026-11-04): "these changes SHOULD NOT change
 - `/gate-check` clean, including probes #57, #81 and #85 and the closing-summary capability-key probe
 - Defaults unchanged: with no settings file, and with a migrated file holding only the moved keys, skill, hook and probe outputs equal v3.0.0, the M_94e6f7 merge commit (tests/m_d1b4b7-defaults-unchanged.test.ts); a default close-out and a flagless /report-issue make no extra tool call; no setting changes without a transcript-verified approval. One named difference, on a CLI no skill calls by default: `project_settings.ts get retro` exits 0 with its `enabled: false` default where v3.0.0 refused, and the `get` refusal's section list gains `retro` (AC-STE-722.12)
 - implement, deliver, spec-write and the new retro skill each at most 358 lines; implement stays at exactly 358 split-lines
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| dev-process-toolkit:ship-milestone | claude-opus-5-5 | 24 | 4737 | 2498300 | 44720 |
+| design/exploration | <synthetic> | 0 | 0 | 0 | 0 |
+| design/exploration | claude-opus-5-5 | 2396 | 757654 | 527147591 | 5584275 |
+| total |  | 2420 | 762391 | 529645891 | 5628995 |
+
+<!-- token-stats:end -->
