@@ -19,7 +19,8 @@ export function retroPromptDefaults(report: RetroReport): [string, string, strin
   const clauses = tripped.map((r) => `${r.id} (${r.value} ${r.unit}, threshold ${formatRetroThreshold(r)})`);
   const whatHappened = `${tripped.length} retro rule(s) tripped: ${clauses.join("; ")}`;
   const severity = report.suggested_severity ?? "";
-  const reproducible = `Run /dev-process-toolkit:retro ${report.scope.id ?? report.scope.kind}.`;
+  // A session-scope report has no id, and /retro takes no word for "this session": the bare command is it.
+  const reproducible = report.scope.id ? `Run /dev-process-toolkit:retro ${report.scope.id}.` : "Run /dev-process-toolkit:retro.";
   return [whatHappened, RETRO_EXPECTED_DEFAULT, severity, reproducible];
 }
 

@@ -16,6 +16,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 
+import { resolveRetroScope } from "../adapters/_shared/src/retro_scope";
+
 import { cleanupTemps } from "./_m_d1b4b7_ste720_fixture";
 import {
   EXPECTED_DEFAULT,
@@ -26,6 +28,7 @@ import {
   buildReport,
   isNfr10,
   predPathRule,
+  projectRoot,
   refusalInputs,
   retroMod,
   treeSnapshot,
@@ -82,6 +85,34 @@ describe("AC-STE-721.2 retroPromptDefaults", () => {
     const d = retroPromptDefaults(await buildReport(ONE_TRIPPED, undefined, { kind: "fr", id: "fixture-fr" }));
     expect(d[3]).toBe("Run /dev-process-toolkit:retro fixture-fr.");
   });
+});
+
+// STE-721 pre-merge fix (L1): the suggested reproduction is a command the
+// /retro front door accepts, for every scope kind. A session-scope report has
+// no scope id, and `/retro session` is refused as free text.
+describe("AC-STE-721.2 the reproducible answer is a /retro command the front door accepts", () => {
+  const SCOPES: { kind: string; id: string | null; want: string }[] = [
+    { kind: "session", id: null, want: "Run /dev-process-toolkit:retro." },
+    { kind: "fr", id: "STE-123", want: "Run /dev-process-toolkit:retro STE-123." },
+    { kind: "milestone", id: "M_abc123", want: "Run /dev-process-toolkit:retro M_abc123." },
+  ];
+  test("control: the old session suggestion's argument, `session`, is refused as free text", () => {
+    const { root } = projectRoot("l1-control");
+    expect(() => resolveRetroScope(root, "session")).toThrow(/not free text/);
+  });
+
+  for (const { kind, id, want } of SCOPES) {
+    test(`${kind} scope: suggests ${JSON.stringify(want)}, and resolveRetroScope takes its argument without refusing, as the same scope`, async () => {
+      const { retroPromptDefaults } = await retroMod();
+      const d = retroPromptDefaults(await buildReport(ONE_TRIPPED, undefined, { kind, id }));
+      expect(d[3]).toBe(want);
+      const m = /^Run \/dev-process-toolkit:retro(?: (\S+))?\.$/.exec(d[3]);
+      expect(m, "the answer is one /retro command").not.toBeNull();
+      const { root } = projectRoot(`l1-${kind}`);
+      const resolved = resolveRetroScope(root, m![1]);
+      expect({ kind: resolved.kind, id: resolved.id }).toEqual({ kind, id });
+    });
+  }
 });
 
 describe("AC-STE-721.3 the --from-retro input check", () => {
