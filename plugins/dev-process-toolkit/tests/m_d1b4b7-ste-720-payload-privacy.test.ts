@@ -22,6 +22,7 @@ import {
   predFrontDoorSharedMap,
   runFrontDoor,
   secretsMod,
+  seedBoundaryWorkdir,
   seedWorkdir,
   sevenSecretRows,
 } from "./_m_d1b4b7_ste720_fixture";
@@ -52,6 +53,26 @@ describe("AC-STE-720.6 privacy guard: no identifier survives a flagged run", () 
         const text = readFileSync(join(dir, f), "utf-8");
         expect({ file: f, leaks: leaks(text) }).toEqual({ file: f, leaks: [] });
       }
+    });
+  }
+
+  for (const { label, flags } of RUNS) {
+    test(`${flags.join(" ")}: the branch name is gone after refs/heads/, refs/remotes/origin/, /tree/, /pull/new/, /compare/...  and a worktree path`, () => {
+      const repo = makeRepo(`priv-bound-${label}-repo`, { branches: [BRANCH] });
+      const { dir, expected } = seedBoundaryWorkdir(`priv-bound-${label}-work`);
+      const seeded = FILES.map((f) => readFileSync(join(dir, f), "utf-8")).join("\n");
+      expect(leaks(seeded, [BRANCH]), "seed carries the branch").toContain(`branch:${BRANCH}`);
+      const r = runFrontDoor(dir, repo, flags);
+      expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: r.stderr });
+      for (const f of FILES) {
+        const text = readFileSync(join(dir, f), "utf-8");
+        expect({ file: f, leaks: leaks(text, [BRANCH]) }).toEqual({ file: f, leaks: [] });
+      }
+      const meta = JSON.parse(readFileSync(join(dir, "metadata.json"), "utf-8"));
+      expect(meta.redaction_summary.find((row: any) => row.pattern === "branch_name")).toEqual({
+        pattern: "branch_name",
+        count: expected.branch_name,
+      });
     });
   }
 

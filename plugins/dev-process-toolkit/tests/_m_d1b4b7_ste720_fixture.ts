@@ -193,6 +193,29 @@ export function seedWorkdir(label: string): { dir: string; expected: Record<stri
   return { dir, expected: { home_path: 6, session_id: 5, branch_name: 7 } };
 }
 
+/**
+ * STE-720 pre-merge fix (M2): a work directory whose report.md carries the
+ * branch after a `/` or `.` boundary, in every ref, URL and path form a git
+ * report shows. `expected.branch_name` is the number of seeded forms.
+ */
+export const BOUNDARY_LINES: readonly string[] = [
+  `refs/heads/${BRANCH}`,
+  `refs/remotes/origin/${BRANCH}`,
+  `https://github.com/o/r/tree/${BRANCH}`,
+  `https://github.com/o/r/pull/new/${BRANCH}`,
+  `https://github.com/o/r/compare/main...${BRANCH}`,
+  `/tmp/wt/${BRANCH}`,
+  `origin/${BRANCH}`,
+];
+
+export function seedBoundaryWorkdir(label: string): { dir: string; expected: { branch_name: number } } {
+  const dir = tempDir(label);
+  writeFileSync(join(dir, "report.md"), ["## Curated Context", "", ...BOUNDARY_LINES, ""].join("\n"));
+  writeFileSync(join(dir, "metadata.json"), `${JSON.stringify({ redaction_summary: sevenSecretRows(SECRET_KEYS) }, null, 2)}\n`);
+  writeFileSync(join(dir, "transcript.jsonl"), `${JSON.stringify({ type: "user", message: `pushed to refs/heads/${BRANCH}` })}\n`);
+  return { dir, expected: { branch_name: BOUNDARY_LINES.length + 1 } };
+}
+
 /** Every file of `dir`, name -> bytes. */
 export function snapshot(dir: string): Record<string, string> {
   const out: Record<string, string> = {};

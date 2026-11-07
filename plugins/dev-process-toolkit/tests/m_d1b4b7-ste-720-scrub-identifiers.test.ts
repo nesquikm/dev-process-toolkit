@@ -211,6 +211,70 @@ describe("AC-STE-720.4 branch_name", () => {
   });
 });
 
+// STE-720 pre-merge fix (M2): a known branch name after `/`, `.` or `:` is at a
+// path or ref boundary and is rewritten; it is still never matched inside a
+// larger identifier.
+const BOUNDARY_FORMS: readonly [string, (h: string) => string][] = [
+  [`refs/heads/${BRANCH}`, (h) => `refs/heads/${h}`],
+  [`refs/remotes/origin/${BRANCH}`, (h) => `refs/remotes/origin/${h}`],
+  [`https://github.com/o/r/tree/${BRANCH}`, (h) => `https://github.com/o/r/tree/${h}`],
+  [`https://github.com/o/r/pull/new/${BRANCH}`, (h) => `https://github.com/o/r/pull/new/${h}`],
+  [`/compare/main...${BRANCH}`, (h) => `/compare/main...${h}`],
+  [`/tmp/wt/${BRANCH}`, (h) => `/tmp/wt/${h}`],
+  [`origin/${BRANCH}`, (h) => `origin/${h}`],
+  [`branch:${BRANCH}`, (h) => `branch:${h}`],
+];
+
+describe("AC-STE-720.4 branch_name at a path or ref boundary", () => {
+  for (const [text, want] of BOUNDARY_FORMS) {
+    test(`${JSON.stringify(text)} has the branch rewritten, counted once`, async () => {
+      const { scrubIdentifiers } = await idMod();
+      const make = await fresh();
+      const r = scrubIdentifiers(text, { branches: [BRANCH], aliases: make() });
+      expect(r.scrubbed).toBe(want(branchAlias(BRANCH)));
+      expect(counts(r.matches).branch_name).toBe(1);
+    });
+  }
+
+  // Controls: the same name inside a larger identifier is never matched.
+  const CONTROLS: [string, string[]][] = [
+    [`${BRANCH}2`, [BRANCH]],
+    [`x${BRANCH}`, [BRANCH]],
+    [`refs/heads/${BRANCH}2`, [BRANCH]],
+    [`/tree/${BRANCH}_old`, [BRANCH]],
+    ["refixture and fixtures and fixture2", ["fixture"]],
+    ["a/refixture/b and pre-fixture", ["fixture"]],
+  ];
+  for (const [text, branches] of CONTROLS) {
+    test(`control: ${JSON.stringify(text)} with ${JSON.stringify(branches)} is left alone`, async () => {
+      const { scrubIdentifiers } = await idMod();
+      const make = await fresh();
+      const r = scrubIdentifiers(text, { branches, aliases: make() });
+      expect(r.scrubbed).toBe(text);
+      expect(counts(r.matches).branch_name).toBe(0);
+    });
+  }
+
+  test("a short name after a path separator or a dot is rewritten; one followed by / is not (it may be a longer ref)", async () => {
+    const { scrubIdentifiers } = await idMod();
+    const make = await fresh();
+    const h = branchAlias("fixture");
+    const r = scrubIdentifiers("a/fixture and x.fixture and fixture/y", { branches: ["fixture"], aliases: make() });
+    expect(r.scrubbed).toBe(`a/${h} and x.${h} and fixture/y`);
+    expect(counts(r.matches).branch_name).toBe(2);
+  });
+
+  test("every boundary form is idempotent: a second pass changes nothing and counts zero", async () => {
+    const { scrubIdentifiers } = await idMod();
+    const make = await fresh();
+    const ctx = { branches: [BRANCH, branchAlias(BRANCH)], aliases: make() };
+    const once = scrubIdentifiers(BOUNDARY_FORMS.map(([t]) => t).join("\n"), ctx);
+    const twice = scrubIdentifiers(once.scrubbed, ctx);
+    expect(twice.scrubbed).toBe(once.scrubbed);
+    expect(counts(twice.matches).branch_name).toBe(0);
+  });
+});
+
 // ===========================================================================
 // AC-STE-720.5 — idempotence
 // ===========================================================================

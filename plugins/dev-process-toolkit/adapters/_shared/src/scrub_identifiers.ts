@@ -93,9 +93,12 @@ function branchAlias(name: string): string {
 }
 
 /**
- * `branch_name`: each name in `branches` as a whole token, optionally after a
- * one-segment remote prefix such as `origin/`, which is kept. A trailing `.`
- * ends the token unless a token character follows it.
+ * `branch_name`: each name in `branches` as a whole token. The token may start
+ * at a path or ref boundary (`/`, `.`, `:`, whitespace, a quote, the start of
+ * the text), so `refs/heads/<name>`, `origin/<name>`, `/tree/<name>` and
+ * `main...<name>` are all rewritten and every prefix is kept. It never starts
+ * after a letter, digit, `_` or `-`, so a name inside a larger word is left
+ * alone. A trailing `.` ends the token unless a token character follows it.
  */
 const BRANCH_ALIAS_RE = /^branch-[0-9a-f]{8}$/;
 
@@ -106,10 +109,10 @@ function scrubBranches(text: string, branches: readonly string[]): [string, numb
   if (names.length === 0) return [text, 0];
   names.sort((a, b) => b.length - a.length);
   const re = new RegExp(
-    `(?<![A-Za-z0-9._/-])((?:[A-Za-z0-9._-]+/)?)(${names.map(escapeRegExp).join("|")})(?![A-Za-z0-9_/-]|\\.[A-Za-z0-9_-])`,
+    `(?<![A-Za-z0-9_-])(?:${names.map(escapeRegExp).join("|")})(?![A-Za-z0-9_/-]|\\.[A-Za-z0-9_-])`,
     "g",
   );
-  return replaceCounting(text, re, (_whole, prefix, name) => `${prefix}${branchAlias(name)}`);
+  return replaceCounting(text, re, (name) => branchAlias(name));
 }
 
 /** A fresh map for one report; every file of that report shares it. */
