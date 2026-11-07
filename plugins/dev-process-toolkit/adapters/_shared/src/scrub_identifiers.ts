@@ -102,8 +102,40 @@ function branchAlias(name: string): string {
  * name; names are tried longest first, so with `feat` and `feat/x` both known,
  * `feat/x/y` becomes `<alias of feat/x>/y`. A trailing `.` ends the token
  * unless a token character follows it.
+ *
+ * Each `/` of a name also matches its URL-encoded (`%2F`, `%2f`) and
+ * JSON-escaped (`\/`) forms, and the token may start right after an encoded
+ * `%2F`; every form takes the plain name's alias.
+ *
+ * Inside a Claude project-folder slug (the segment after `.claude/projects/`,
+ * home-rewritten `-~-…` form included) a name appears as `cwdToSlug(name)`
+ * (`feat/x` → `feat-x`) between a `-` and a `-` or the segment's end; it takes
+ * the same alias, so the slug and the cwd it encodes stay consistent.
  */
 const BRANCH_ALIAS_RE = /^branch-[0-9a-f]{8}$/;
+
+const SLASH_FORMS = "(?:/|%2[Ff]|\\\\/)";
+const SLASH_FORMS_RE = /%2[Ff]|\\\//g;
+
+/** The segment after `.claude/projects/` (plain or JSON-escaped slashes): slug characters and `~` only. */
+const SLUG_SEGMENT_RE = /(\.claude(?:\/|\\\/)projects(?:\/|\\\/))([-A-Za-z0-9~]+)/g;
+
+function scrubSlugBranches(text: string, names: readonly string[]): [string, number] {
+  const bySlug = new Map<string, string>();
+  for (const b of names) {
+    const s = cwdToSlug(b);
+    if (!bySlug.has(s)) bySlug.set(s, b);
+  }
+  const slugs = [...bySlug.keys()].sort((a, b) => b.length - a.length);
+  const inner = new RegExp(`(?<=-)(?:${slugs.map(escapeRegExp).join("|")})(?=-|$)`, "g");
+  let total = 0;
+  const out = text.replace(SLUG_SEGMENT_RE, (_m, prefix: string, segment: string) => {
+    const [next, n] = replaceCounting(segment, inner, (s) => branchAlias(bySlug.get(s)!));
+    total += n;
+    return prefix + next;
+  });
+  return [out, total];
+}
 
 function scrubBranches(text: string, branches: readonly string[]): [string, number] {
   // A name already in alias form came from an earlier pass (a scrubbed `gitBranch` field read back
@@ -111,11 +143,18 @@ function scrubBranches(text: string, branches: readonly string[]): [string, numb
   const names = [...new Set(branches)].filter((b) => b.length > 0 && !DEFAULT_BRANCHES.has(b) && !BRANCH_ALIAS_RE.test(b));
   if (names.length === 0) return [text, 0];
   names.sort((a, b) => b.length - a.length);
+  const [slugged, slugCount] = scrubSlugBranches(text, names);
+  const known = new Set(names);
+  const pattern = (b: string) => b.split("/").map(escapeRegExp).join(SLASH_FORMS);
   const re = new RegExp(
-    `(?<![A-Za-z0-9_-])(?:${names.map(escapeRegExp).join("|")})(?![A-Za-z0-9_-]|\\.[A-Za-z0-9_-])`,
+    `(?:(?<![A-Za-z0-9_-])|(?<=%2[Ff]))(?:${names.map(pattern).join("|")})(?![A-Za-z0-9_-]|\\.[A-Za-z0-9_-])`,
     "g",
   );
-  return replaceCounting(text, re, (name) => branchAlias(name));
+  const [out, n] = replaceCounting(slugged, re, (match) => {
+    const plain = match.replace(SLASH_FORMS_RE, "/");
+    return branchAlias(known.has(plain) ? plain : match);
+  });
+  return [out, slugCount + n];
 }
 
 /** A fresh map for one report; every file of that report shares it. */

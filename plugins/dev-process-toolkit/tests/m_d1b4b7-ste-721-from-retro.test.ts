@@ -101,6 +101,20 @@ describe("AC-STE-721.2 the reproducible answer is a /retro command the front doo
     expect(() => resolveRetroScope(root, "session")).toThrow(/not free text/);
   });
 
+  // F3: a session scope built from a real session id carries its alias (`s1`),
+  // and `/retro s1` is refused as free text; the bare command is the one that
+  // names that session.
+  test("session scope carrying an alias id: suggests the bare /retro, which resolveRetroScope takes as a session scope", async () => {
+    const { retroPromptDefaults } = await retroMod();
+    const report = await buildReport(ONE_TRIPPED, undefined, { kind: "session", id: "00000000-0000-4000-8000-000000000001" });
+    expect(report.scope).toEqual({ kind: "session", id: "s1" });
+    const d = retroPromptDefaults(report);
+    expect(d[3]).toBe("Run /dev-process-toolkit:retro.");
+    const { root } = projectRoot("f3-session-alias");
+    expect(() => resolveRetroScope(root, "s1")).toThrow(/not free text/);
+    expect(resolveRetroScope(root, undefined).kind).toBe("session");
+  });
+
   for (const { kind, id, want } of SCOPES) {
     test(`${kind} scope: suggests ${JSON.stringify(want)}, and resolveRetroScope takes its argument without refusing, as the same scope`, async () => {
       const { retroPromptDefaults } = await retroMod();
