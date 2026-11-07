@@ -14,7 +14,7 @@ import { resolve } from "node:path";
 
 import { retroSwitchOn } from "./project_settings";
 import { gatherRetroInputs } from "./retro";
-import { evaluateRetroRules } from "./retro_rules";
+import { evaluateRetroRules, formatRetroThreshold } from "./retro_rules";
 import { resolveRetroScope } from "./retro_scope";
 
 export interface RetroOfferDeps {
@@ -31,7 +31,7 @@ export function retroOfferLines(projectRoot: string, scope: string, deps: RetroO
   if (resolved.sessions.length === 0) return [];
   const tripped = evaluate(gatherRetroInputs(projectRoot, resolved)).filter((r) => r.disposition === "tripped");
   if (tripped.length === 0) return [];
-  return [`scope=${scope}`, ...tripped.map((r) => `rule=${r.id} ${r.value} ${r.unit} > ${r.threshold}`)];
+  return [`scope=${scope}`, ...tripped.map((r) => `rule=${r.id} ${r.value} ${r.unit} > ${formatRetroThreshold(r)}`)];
 }
 
 if (import.meta.main) {

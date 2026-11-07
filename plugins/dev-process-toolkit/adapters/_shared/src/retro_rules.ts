@@ -6,7 +6,7 @@
 // to exactly one disposition in RETRO_DISPOSITIONS. A rule never reports
 // `clear` from absent data.
 
-import { gateSubject } from "./gate_receipt";
+import { GATE_SKILL_NAMESPACE, gateSubject } from "./gate_receipt";
 
 /** The closed set of sources a rule may read: each a session's own, parent-visible file. */
 export const PARENT_VISIBLE_SOURCES = ["timeline", "capture_ledger", "token_ledger"] as const;
@@ -186,6 +186,24 @@ function assertParentVisible(rules: readonly RetroRule[]): void {
       );
     }
   }
+}
+
+/**
+ * The `<threshold>` text of a rule line, shared by every renderer. A number
+ * prints as itself. A per-subject map prints each bound the result's value
+ * passes, as `<bound> <unit> (<subject>)`, with the toolkit namespace dropped
+ * from the subject. A tripped map always has one such bound, since the value
+ * is the largest timed run. The report does not record which run tripped, so
+ * when the value passes several bounds, each is named.
+ */
+export function formatRetroThreshold(r: Pick<RetroRuleResult, "threshold" | "unit" | "value">): string {
+  if (typeof r.threshold === "number") return String(r.threshold);
+  const entries = Object.entries(r.threshold).sort((a, b) => a[1] - b[1]);
+  const passed = entries.filter(([, bound]) => typeof r.value === "number" && r.value > bound);
+  const prefix = `${GATE_SKILL_NAMESPACE}:`;
+  return (passed.length > 0 ? passed : entries)
+    .map(([subject, bound]) => `${bound} ${r.unit} (${subject.startsWith(prefix) ? subject.slice(prefix.length) : subject})`)
+    .join(", ");
 }
 
 export function evaluateRetroRules(inputs: RetroInputs, rules: readonly RetroRule[] = RETRO_RULES): RetroRuleResult[] {

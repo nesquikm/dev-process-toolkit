@@ -10,12 +10,13 @@ import { sep } from "node:path";
 
 import { retroReportsDir } from "./dpt_paths";
 import { parseRetroReport, type RetroReport } from "./retro_report";
+import { formatRetroThreshold } from "./retro_rules";
 
 export const RETRO_EXPECTED_DEFAULT = "Every retro rule within its threshold.";
 
 export function retroPromptDefaults(report: RetroReport): [string, string, string, string] {
   const tripped = report.rules.filter((r) => r.disposition === "tripped");
-  const clauses = tripped.map((r) => `${r.id} (${r.value} ${r.unit}, threshold ${r.threshold})`);
+  const clauses = tripped.map((r) => `${r.id} (${r.value} ${r.unit}, threshold ${formatRetroThreshold(r)})`);
   const whatHappened = `${tripped.length} retro rule(s) tripped: ${clauses.join("; ")}`;
   const severity = report.suggested_severity ?? "";
   const reproducible = `Run /dev-process-toolkit:retro ${report.scope.id ?? report.scope.kind}.`;

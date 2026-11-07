@@ -20,7 +20,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The out-of-scope list stops ruling out what the toolkit ships (STE-718). The new-slash-command and multi-agent lines are struck with a dated note; the fast-track line is kept, with a note saying why nothing here skips a gate.
 
-Total test count at release: 22077 tests, 0 failures, 0 errors.
+### Fixed
+
+- A tripped `slow_gate_run` names the bound it passed, such as `900001 ms > 900000 ms (gate-check)`, in the close-out offer and the `--from-retro` default answer, instead of `[object Object]` (STE-722, STE-721). Both now format the threshold through one shared formatter.
+
+Total test count at release: 22081 tests, 0 failures, 0 errors.
 
 ## [3.1.0] — 2026-11-06 — "Flight Recorder"
 

@@ -61,7 +61,7 @@ Relay any refusal from stderr verbatim. A refused apply consumes the approval: f
 
 ## Rules
 
-- Never change a gate, a threshold, a receipt, a ledger row, a tracked file or a tracker. The one exception: the settings change `apply` makes on explicit approval, plus its one consuming `retro-apply` receipt.
+- Never change a gate, a threshold, a receipt, a ledger row, a tracked file or a tracker. The one exception: the change `apply` makes on explicit approval (the settings keys, any printed `.gitignore` line, the capture-hook registration in `.claude/settings.local.json`), plus its one consuming `retro-apply` receipt.
 - Never refuse on `retro.enabled`.
 - Never compose a rule's value in prose; every value comes from the report file.
 
