@@ -343,14 +343,14 @@ describe("AC-STE-712.4 registry entries", () => {
     const ids = CONTINUATION_OFFERS.map((o) => o.id);
     expect(ids).toContain(IMPLEMENT_OFFER);
     expect(ids).toContain(DELIVER_OFFER);
-    expect(offersForSkill("deliver").map((o) => o.id)).toEqual([DELIVER_OFFER]);
+    expect(offersForSkill("deliver").map((o) => o.id)).toEqual([DELIVER_OFFER, "deliver_close_retro_offer"]); // Amended by AC-STE-722.9 (M_d1b4b7)
     expect(offersForSkill("implement").map((o) => o.id)).toContain(IMPLEMENT_OFFER);
   });
 
-  test("AC-.4 each skill carries one omission clause per offer it owns (implement 3, deliver 1)", () => {
+  test("AC-.4 each skill carries one omission clause per offer it owns (implement 4, deliver 2)", () => { // Amended by AC-STE-722.9 (M_d1b4b7)
     expect(drivenOmissionOccurrences(read(IMPLEMENT_SKILL))).toBe(offersForSkill("implement").length);
-    expect(offersForSkill("implement").length).toBe(3);
-    expect(drivenOmissionOccurrences(read(DELIVER_SKILL))).toBe(1);
+    expect(offersForSkill("implement").length).toBe(4); // Amended by AC-STE-722.9 (M_d1b4b7)
+    expect(drivenOmissionOccurrences(read(DELIVER_SKILL))).toBe(2); // Amended by AC-STE-722.9 (M_d1b4b7)
   });
 
   test("AC-.4 probe #85 reports zero violations on the tree", () => {

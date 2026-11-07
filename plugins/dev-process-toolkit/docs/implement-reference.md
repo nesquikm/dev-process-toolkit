@@ -347,6 +347,18 @@ The skill body carries the condensed offer; this section is its full text. The o
 4. **Remedy line.** Probe #69's remedy line in the Phase 4 notes is dropped only when the offer is made — the offer names the upgrade itself. When no offer was made (switch off, nothing stale, or a driven run), the notes keep the remedy line unchanged.
 5. **Driven runs.** Omit the offer when the invocation body carries the driven-run marker; `/deliver` makes its own once-per-run close-out offer after the last milestone instead.
 
+## Retro offer
+
+The skill body carries the condensed offer, appended to the upgrade offer's paragraph; this section is its full text. The offer is opt-in: `retro.enabled: true` in the project settings file turns it on, and step 14's `gate_capture.ts` run then prints `retro: on` among its trailing switch lines, before `upgrade_offer: on`. With the switch off no step below runs.
+
+1. **When.** After the upgrade offer settles, and before both the ship-ready close offer and the Phase 5 prompt.
+2. **Scope.** The scope is the milestone on a milestone-scope run and the FR otherwise.
+3. **Run.** Only when step 14 printed `retro: on`, run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/retro_offer.ts <projectRoot> <scope>` once. Under `retro: on`, retro_offer.ts prints `scope=<scope>` followed by one `rule=` row per tripped rule, or nothing when no session resolves or no rule trips. It always exits 0 and writes no file; empty stdout means no offer is made.
+4. **Ask.** Relay the printed rows, then ask `Run a retrospective for <scope>? [y/N]`.
+5. **Accept.** Accept: `/dev-process-toolkit:retro <scope>`.
+6. **Decline.** On decline or non-interactive stdin, print `Run: /dev-process-toolkit:retro <scope>` and exit 0.
+7. **Driven runs.** Omit the offer when the invocation body carries the driven-run marker; `/deliver` makes its own once-per-run retro offer covering every delivered milestone instead.
+
 ## Phase 4b Doc Fragment Hook
 
 The skill body carries the condensed flow; this section covers edge cases and the diagnostic log shape.

@@ -674,6 +674,8 @@ const CONDITIONAL_TARGETS: { module: string; verb?: string; condition: string }[
   { module: "upgrade_offer.ts", condition: "upgrade_offer: on" }, // STE-712
   // Amended by AC-STE-715.19 (M_7bc805)
   { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
+  // Amended by AC-STE-722.16 (M_d1b4b7)
+  { module: "retro_offer.ts", condition: "retro: on" },
 ];
 
 function sentences(text: string): string[] {
@@ -755,6 +757,14 @@ describe("AC-STE-708.13 zero extra tool calls", () => {
     expect(plant('Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" outcome spec-review . pass`.')).toEqual([
       "added without its condition (outcome: on): gate_receipt.ts outcome",
     ]);
+  });
+
+  // Amended by AC-STE-722.16 (M_d1b4b7): retro_offer.ts is admitted only beside `retro: on`.
+  test("AC-.13 control: a planted retro_offer.ts run without retro: on is reported, and admitted with it", () => {
+    expect(plant('Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/retro_offer.ts" .`.')).toEqual([
+      "added without its condition (retro: on): retro_offer.ts",
+    ]);
+    expect(plant('Only if that call also printed `retro: on`, run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/retro_offer.ts" .`.')).toEqual([]);
   });
 
   test("AC-.13 control: a removed trunk target turns the pin red", () => {

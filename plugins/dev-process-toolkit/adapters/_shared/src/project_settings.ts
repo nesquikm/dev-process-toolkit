@@ -41,7 +41,7 @@ export const SETTINGS_FILE = "specs/settings.yaml";
 const MODE_DEFAULTED = new WeakSet<object>();
 
 /** Dotted paths of the keys with no v2.101.4 reader (the AC-STE-706.12 `new` rows). */
-export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes", "tracking.tool_calls"];
+export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes", "tracking.tool_calls", "retro"];
 
 export type SettingsSource = "settings" | "legacy" | "none" | "both";
 
@@ -58,6 +58,7 @@ export interface ProjectSettings {
     tool_calls: { enabled: boolean };
   } & Record<string, unknown>;
   close_out: { upgrade_offer: { enabled: boolean } };
+  retro: { enabled: boolean };
   release: { files: unknown[] };
   video: { config: VideoConfig | null; style: VideoStyle | null };
 }
@@ -216,6 +217,7 @@ function defaults(): ProjectSettings {
     orchestration: {},
     tracking: { token_stats: { enabled: false }, gate_outcomes: { enabled: false }, tool_calls: { enabled: false } },
     close_out: { upgrade_offer: { enabled: false } },
+    retro: { enabled: false },
     release: { files: [] },
     video: { config: null, style: null },
   };
@@ -235,6 +237,7 @@ const TOP_KEYS = [
   "orchestration",
   "tracking",
   "close_out",
+  "retro",
   "release",
   "video",
 ] as const;
@@ -294,6 +297,7 @@ export function settingsKeyOrder(path: string): readonly string[] {
     "tracking.tool_calls": ["enabled"],
     close_out: ["upgrade_offer"],
     "close_out.upgrade_offer": ["enabled"],
+    retro: ["enabled"],
     release: ["files"],
     "release.files[]": RELEASE_ENTRY_KEYS,
     video: ["config", "style"],
@@ -456,6 +460,11 @@ const SECTION_VALIDATORS: Record<SectionKey, (v: unknown) => void> = {
     closeKeys(co, "close_out", settingsKeyOrder("close_out"));
     checkEnabledMap(co, "close_out", "upgrade_offer");
   },
+  retro: (v) => {
+    const rt = requireMap(v, "retro");
+    closeKeys(rt, "retro", settingsKeyOrder("retro"));
+    checkBool(rt, "retro", "enabled");
+  },
   release: validateRelease,
   video: (v) => closeKeys(requireMap(v, "video"), "video", settingsKeyOrder("video")),
 };
@@ -520,6 +529,7 @@ function buildSection<K extends SectionKey>(parsed: Record<string, unknown>, sec
             : d.close_out.upgrade_offer.enabled,
       },
     }),
+    retro: () => ({ enabled: isObj(parsed.retro) ? parsed.retro.enabled === true : d.retro.enabled }),
     release: () => (isObj(parsed.release) ? parsed.release : d.release) as ProjectSettings["release"],
     video: () => {
       const video = isObj(parsed.video) ? parsed.video : {};
@@ -549,6 +559,7 @@ export function loadFromSettingsFile(projectRoot: string): ProjectSettings {
     orchestration: buildSection(parsed, "orchestration"),
     tracking: buildSection(parsed, "tracking"),
     close_out: buildSection(parsed, "close_out"),
+    retro: buildSection(parsed, "retro"),
     release: buildSection(parsed, "release"),
     video: buildSection(parsed, "video"),
   };
@@ -600,6 +611,7 @@ function loadLegacy(projectRoot: string): ProjectSettings {
     orchestration: loadLegacySection(projectRoot, "orchestration"),
     tracking: loadLegacySection(projectRoot, "tracking"),
     close_out: defaults().close_out,
+    retro: defaults().retro,
     release: loadLegacySection(projectRoot, "release"),
     video: loadLegacySection(projectRoot, "video"),
   };
@@ -625,6 +637,20 @@ export function loadProjectSection<K extends keyof ProjectSettings>(projectRoot:
 export function upgradeOfferSwitchOn(projectRoot: string): boolean {
   try {
     return loadProjectSection(projectRoot, "close_out")?.upgrade_offer?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * STE-719 — the close-out retro offer switch `retro.enabled`, read through the
+ * loader in the `upgradeOfferSwitchOn` shape: true only for an explicit
+ * `true`; any loader refusal (a malformed `retro` section, a both-homes tree)
+ * reads as off.
+ */
+export function retroSwitchOn(projectRoot: string): boolean {
+  try {
+    return loadProjectSection(projectRoot, "retro")?.enabled === true;
   } catch {
     return false;
   }

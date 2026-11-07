@@ -23,7 +23,7 @@
 
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 /**
@@ -56,6 +56,51 @@ export function defaultConfigDir(): string {
   const env = process.env.CLAUDE_CONFIG_DIR;
   if (env && env.length > 0) return env;
   return join(homedir(), ".claude");
+}
+
+/** A session id `sessionTranscriptPath` will join into a path. */
+const SESSION_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+
+function isFile(p: string): boolean {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Locate `<sessionId>.jsonl` under `<configDir>/projects/` (STE-728 § apply).
+ * Looks first in the slug folder of `cwd`, then in the slug folder of each
+ * ancestor of `cwd` nearest first, then scans every project folder and takes
+ * the file only when exactly one folder holds it. Returns `null` when none or
+ * more than one folder holds it, or when `sessionId` is not
+ * `^[A-Za-z0-9-]{1,64}$`. Pure lookup: never writes.
+ */
+export function sessionTranscriptPath(
+  sessionId: string,
+  cwd: string,
+  configDir: string = defaultConfigDir(),
+): string | null {
+  if (typeof sessionId !== "string" || !SESSION_ID_RE.test(sessionId)) return null;
+  const projects = join(configDir, "projects");
+  const file = `${sessionId}.jsonl`;
+  let dir = resolve(cwd);
+  for (;;) {
+    const candidate = join(projects, cwdToSlug(dir), file);
+    if (isFile(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  let folders: string[];
+  try {
+    folders = readdirSync(projects);
+  } catch {
+    return null;
+  }
+  const hits = folders.map((f) => join(projects, f, file)).filter(isFile);
+  return hits.length === 1 ? hits[0]! : null;
 }
 
 /** How much of a transcript `firstRecordedCwd` reads, at most. */

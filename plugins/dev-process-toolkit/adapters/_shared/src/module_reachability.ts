@@ -447,6 +447,19 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 115,
+    commit: "0e072c3",
+    rationale:
+      "M_d1b4b7/STE-719: the retro front door `retro.ts` (which has a front " +
+      "door) reads the token ledger through `retro_scope.ts`, which imports " +
+      "`token_usage.ts`, so that module became reachable and its one ordered " +
+      "reference (`skills/spec-write/SKILL.md:119`) stopped naming a module " +
+      "nothing runnable reaches. Exactly that reference left the set and none " +
+      "entered it. Measured by the awaited `runModuleReachabilityProbe` " +
+      "(116 -> 115, diffed record by record against a checkout of effc0981), " +
+      "not carried from the FR.",
+  },
+  {
     value: 116,
     commit: "71c1fda",
     rationale:

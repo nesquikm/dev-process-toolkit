@@ -184,6 +184,10 @@ const POST_FR_ADDED_IDS: readonly string[] = [
   // offers, registered mechanical in GATE_REGISTRY.
   "implement_upgrade_offer",
   "deliver_close_upgrade_offer",
+  // Amended by AC-STE-722.9 (M_d1b4b7): the two opt-in close-out retrospective
+  // offers, registered mechanical in GATE_REGISTRY.
+  "implement_retro_offer",
+  "deliver_close_retro_offer",
 ];
 
 const row = (g: GateDescriptor): RegistryRow => ({

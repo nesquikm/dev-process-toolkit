@@ -341,6 +341,17 @@ export const GATE_REGISTRY: readonly GateDescriptor[] = [
     "mechanical",
     "confirm the pending toolkit upgrades are applied now that the last milestone has closed",
   ),
+  // AC-STE-722.4 (M_d1b4b7): the two opt-in close-out retrospective offers.
+  gate(
+    "implement_retro_offer",
+    "mechanical",
+    "confirm a read-only retrospective runs for the finished scope",
+  ),
+  gate(
+    "deliver_close_retro_offer",
+    "mechanical",
+    "confirm a read-only retrospective runs for the delivered milestones",
+  ),
 
   // IRREVERSIBLE — the operator alone, per action.
   gate("merge_pr", "irreversible", "merge the open pull request"),

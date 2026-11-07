@@ -301,7 +301,7 @@ function unmarkedHunks(diff: string): string[] {
   ).map((h) => h.split("\n")[0]!);
 }
 
-const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6|690\.1|690\.2|692\.\d+|693\.6|712\.4|712\.7)\b/;
+const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6|690\.1|690\.2|692\.\d+|693\.6|712\.4|712\.7|722\.9)\b/; // Amended by AC-STE-722.9 (M_d1b4b7)
 
 /** The suite's working-tree bytes equal `ref`'s committed bytes. */
 function expectUnedited(suite: string, ref: "main" | "HEAD"): void {

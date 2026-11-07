@@ -509,6 +509,9 @@ const EXPECTED_ELEVEN = [
   "gate-check",
   "implement",
   "report-issue",
+  // Amended by AC-STE-719.13 (M_d1b4b7): `/retro` closes with one
+  // stage-status-block, so it joins the adopting stages — twelve become thirteen.
+  "retro",
   "setup",
   "spec-archive",
   "spec-review",
@@ -522,7 +525,7 @@ const EXPECTED_ELEVEN = [
 describe("AC-STE-533.1 — the closed list of eleven adopting stages (twelve since M_1e0717)", () => {
   test("ADOPTING_STAGES is exactly the operator-resolved eleven, in order", () => {
     expect([...ADOPTING_STAGES]).toEqual([...EXPECTED_ELEVEN]);
-    expect(ADOPTING_STAGES.length).toBe(12);
+    expect(ADOPTING_STAGES.length).toBe(13); // Amended by AC-STE-719.13 (M_d1b4b7)
   });
 
   test("every adopting stage names a real shipped skill — ENUMERATED, not sampled", () => {
@@ -1582,7 +1585,7 @@ describe("AC-STE-533.1a — the adopting stages own their banner", () => {
       });
       checked += 1;
     }
-    expect(checked).toBe(12);
+    expect(checked).toBe(13); // Amended by AC-STE-719.13 (M_d1b4b7)
   });
 
   test("the adoption grader REFUSES a /deliver-only stage value", () => {
@@ -1606,7 +1609,7 @@ describe("AC-STE-533.1a — the adopting stages own their banner", () => {
     const outside = (ADOPTING_STAGES as readonly string[]).filter(
       (s) => !(DELIVER_STAGE_IDS as readonly string[]).includes(s),
     );
-    expect(outside.length).toBe(10); // M_1e0717: + video
+    expect(outside.length).toBe(11); // M_1e0717: + video. Amended by AC-STE-719.13 (M_d1b4b7): + retro
     // …and the two survivors are exactly the two /deliver already knows.
     const inside = (ADOPTING_STAGES as readonly string[]).filter((s) =>
       (DELIVER_STAGE_IDS as readonly string[]).includes(s),
@@ -2665,7 +2668,7 @@ describe("M137 audit leftovers — no surface claims what its neighbour denies",
     // in M_1e0717 / STE-669 (AC-STE-669.8). The later additions are listed
     // explicitly, and the original eleven are DERIVED as the current list minus
     // them, so a stage silently dropped from ADOPTING_STAGES still reddens here.
-    const ADDED_AFTER_STE_533 = ["video"] as const; // M_1e0717 / STE-669
+    const ADDED_AFTER_STE_533 = ["video", "retro"] as const; // M_1e0717 / STE-669. Amended by AC-STE-719.13 (M_d1b4b7): + retro
     for (const later of ADDED_AFTER_STE_533) {
       expect(ADOPTING_STAGES as readonly string[]).toContain(later);
     }

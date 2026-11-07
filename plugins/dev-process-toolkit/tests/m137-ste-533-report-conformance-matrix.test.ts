@@ -285,7 +285,8 @@ const PLANS: Partial<Record<AdoptingStage, StageReportPlan>> = {
   // absorb, and the one content here that cannot be bounded by sampling.
   // § 9 now AGGREGATES it to a count and CITES `metadata.json`, whose
   // `redaction_summary` field § 6 composes and § 8 uploads in the same gist.
-  // The file list is bounded by construction (§ 6: three files maximum).
+  // The file list is bounded by construction (§ 6: three files maximum, or
+  // four files maximum under --from-retro). Amended by AC-STE-721.6.
   "report-issue": {
     prose: [
       "https://gist.github.com/octocat/0f7a1c9e2b3d4f5a6b7c8d9e0f1a2b3c",
@@ -425,6 +426,21 @@ const PLANS: Partial<Record<AdoptingStage, StageReportPlan>> = {
     ],
     cite: "skills/video/SKILL.md § Closing report",
     driving: "12 pipeline stages — bounded to first 3, total stated",
+  },
+
+  // Amended by AC-STE-719.13 (M_d1b4b7): § Closing — `/retro` rolls its rule
+  // verdicts into exactly two aggregated `summary:` rows, a tripped count and a
+  // suggested severity; the per-rule verdicts stay in the report file.
+  retro: {
+    prose: [
+      "/retro M_d1b4b7 — 2 of 4 rules tripped; the report file holds every verdict.",
+    ],
+    summary: [
+      "  - tripped: 2",
+      "  - severity: medium",
+    ],
+    cite: "skills/retro/SKILL.md § Closing",
+    driving: "every rule verdict — aggregated to one tripped row and one severity row",
   },
 };
 
@@ -611,7 +627,7 @@ describe("THE CONFORMANCE MATRIX — every adopting stage's own report must conf
     }
     // Named, not counted away: these three state their budget without an item
     // bound, so there is no bounding edit to revert.
-    expect(noBoundToRevert).toEqual(["brainstorm", "report-issue"]);
+    expect(noBoundToRevert).toEqual(["brainstorm", "report-issue", "retro"]); // Amended by AC-STE-719.13 (M_d1b4b7): + retro
     expect(reverted).toBe(ADOPTING_STAGES.length - noBoundToRevert.length);
   });
 
@@ -676,13 +692,17 @@ describe("THE CONFORMANCE MATRIX — every adopting stage's own report must conf
       deps: "bounded:3",
       "gate-check": "aggregated | aggregated | bounded:3",
       implement: "bounded:3 | bounded:3 (+8 mandates)",
-      "report-issue": "aggregated | fixed:3",
+      // Amended by AC-STE-721.6: § 9 states three files maximum without
+      // --from-retro and **four files maximum** with it; the bolded bound is the
+      // true maximum a run can list, so the ledger keys on four.
+      "report-issue": "aggregated | fixed:4",
       setup: "bounded:3",
       "spec-archive": "bounded:3",
       "spec-review": "bounded:3",
       "spec-write": "bounded:6",
       upgrade: "bounded:3",
       video: "bounded:3", // M_1e0717 / STE-669
+      retro: "aggregated | aggregated", // Amended by AC-STE-719.13 (M_d1b4b7)
     };
     for (const stage of ADOPTING_STAGES) {
       const derived = derivedFor(stage);
@@ -708,7 +728,7 @@ describe("THE CONFORMANCE MATRIX — every adopting stage's own report must conf
     const analysable = ADOPTING_STAGES.filter(
       (s) => derivedFor(s).unanalysable.length === 0,
     );
-    expect(analysable.length).toBe(12);
+    expect(analysable.length).toBe(13); // Amended by AC-STE-719.13 (M_d1b4b7)
     expect(analysable.length).toBe(ADOPTING_STAGES.length);
     // Every stage's budget comes from one of the three dispositions the
     // derivation admits, and from nothing else.

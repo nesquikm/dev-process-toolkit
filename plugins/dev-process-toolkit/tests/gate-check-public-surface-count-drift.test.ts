@@ -413,7 +413,7 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     // "19 commands, 8 agents" — the one-paragraph pitch under the H1
     // (M124: `/best-practices` joined the menu, 17 → 18; M_1e0717: `/video`, 18 → 19).
     expect(onlyLine(readme, /^A Claude Code plugin that adds/)).toMatch(
-      /19 commands?,\s+8 agents?/,
+      /20 commands?,\s+8 agents?/, // Amended by AC-STE-719.14 (M_d1b4b7)
     );
     // 83 numbered probes (M140 added #83 external_link_verdicts on top of
     // M137's #82 stage_block_adoption) — the Features bullet.
@@ -436,7 +436,7 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
       /Nine additional skills/,
     );
     // "28 (19 + 9)" — the skills/ row of the repo-tree block.
-    expect(onlyLine(readme, /^│\s+├── skills\//)).toMatch(/28\s+\(19\s*\+\s*9\)/);
+    expect(onlyLine(readme, /^│\s+├── skills\//)).toMatch(/29\s+\(20\s*\+\s*9\)/); // Amended by AC-STE-719.14 (M_d1b4b7)
     // "8 specialist agents" with spec-reviewer enumerated — the agents/ row.
     // M108 ships no new agent — the registry is a library, not a subagent.
     const agentsRow = onlyLine(readme, /^│\s+├── agents\//);
@@ -452,7 +452,7 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     // numbers — the probe's `splitMatch` regex reads it, and rewording off the
     // regex silently disables the whole README-versus-CLAUDE leg (AC-STE-395.4).
     expect(onlyLine(claudeMd, /^├── skills\//)).toMatch(
-      /28\s+slash commands\s+\(19\s+user-invocable\s+\+\s+9\s+dispatch/,
+      /29\s+slash commands\s+\(20\s+user-invocable\s+\+\s+9\s+dispatch/, // Amended by AC-STE-719.14 (M_d1b4b7)
     );
     // "8 subagent templates"
     const agentsRow = onlyLine(claudeMd, /^├── agents\//);
@@ -460,7 +460,7 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     expect(agentsRow).toMatch(/spec-reviewer/);
   });
 
-  test("docs/skill-anatomy.md says 'the other 27 skills'", () => {
+  test("docs/skill-anatomy.md says 'the other 28 skills'", () => { // Amended by AC-STE-719.14 (M_d1b4b7): 27 -> 28, /retro carries no allowed-tools
     // M125: 25 → 26. This counts TOTAL skills minus the one canonical
     // `allowed-tools:` carrier (spec-review), so it tracks the 26 → 27 → 28 on-disk
     // total, not the user-invocable split.
@@ -470,7 +470,7 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
       join(repoRoot, "plugins", "dev-process-toolkit", "docs", "skill-anatomy.md"),
       "utf-8",
     );
-    expect(onlyLine(doc, /canonical read-only example/)).toMatch(/the other 27 skills/);
+    expect(onlyLine(doc, /canonical read-only example/)).toMatch(/the other 28 skills/); // Amended by AC-STE-719.14 (M_d1b4b7): 27 -> 28, /retro carries no allowed-tools
   });
 
   test("skills/gate-check/SKILL.md carries a 'probe N+' next-probe anchor near the probe-authoring contract", () => {
@@ -480,11 +480,11 @@ describe("AC-STE-315.4 — post-backfill, /gate-check PASSes on the real toolkit
     expect(skillMd).toMatch(/probe 60\+/);
   });
 
-  test("specs/testing-spec.md says 'all 28 skills'", () => {
+  test("specs/testing-spec.md says 'all 29 skills'", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
     // M125: 26 → 27; M_1e0717: 27 → 28. Like the skill-anatomy anchor above, this row counts
     // the on-disk skill total, not the user-invocable split.
     const doc = readFileSync(join(repoRoot, "specs", "testing-spec.md"), "utf-8");
-    expect(onlyLine(doc, /v2-minimal regression/)).toMatch(/all 28 skills/);
+    expect(onlyLine(doc, /v2-minimal regression/)).toMatch(/all 29 skills/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 });
 
@@ -663,12 +663,12 @@ describe("AC-STE-394.8 — the probe-count leg is live, not silently skipped", (
   }
 
   // Must agree with the REAL README bytes these fixtures pair it with. M124
-  // re-keyed that README to `18 commands` (M_1e0717: `19 commands`), so a stale split here would silently
+  // re-keyed that README to `18 commands` (M_1e0717: `19 commands`; M_d1b4b7: `20 commands`), so a stale split here would silently
   // fire the cross-doc commands leg — invisible to the probe-count-filtered
   // assertions below, and it would make the "no over-fire" case a false green.
   const matchingClaudeMd = claudeMdWith({
     skillsLine:
-      "├── skills/                              → 28 slash commands (19 user-invocable + 9 dispatch)",
+      "├── skills/                              → 29 slash commands (20 user-invocable + 9 dispatch)", // Amended by AC-STE-719.14 (M_d1b4b7)
     agentsLine: "├── agents/                              → 8 subagent templates",
   });
 
@@ -683,7 +683,7 @@ describe("AC-STE-394.8 — the probe-count leg is live, not silently skipped", (
     const readme = realReadme();
     const documented = documentedProbeCount(readme);
     const fx = makeFixture({
-      skillsCount: 28,
+      skillsCount: 29, // Amended by AC-STE-719.14 (M_d1b4b7)
       agentsCount: 8,
       // Deliberately one higher than what the README documents.
       maxProbeNumber: documented + 1,
@@ -710,7 +710,7 @@ describe("AC-STE-394.8 — the probe-count leg is live, not silently skipped", (
     // The premise of the repair: the token has moved off the hard-coded index.
     expect(line).not.toBe(10);
     const fx = makeFixture({
-      skillsCount: 28,
+      skillsCount: 29, // Amended by AC-STE-719.14 (M_d1b4b7)
       agentsCount: 8,
       maxProbeNumber: documented + 1,
       readmeContent: readme,
@@ -780,7 +780,7 @@ describe("AC-STE-394.8 — the probe-count leg is live, not silently skipped", (
     const readme = realReadme();
     const documented = documentedProbeCount(readme);
     const fx = makeFixture({
-      skillsCount: 28,
+      skillsCount: 29, // Amended by AC-STE-719.14 (M_d1b4b7)
       agentsCount: 8,
       maxProbeNumber: documented,
       readmeContent: readme,

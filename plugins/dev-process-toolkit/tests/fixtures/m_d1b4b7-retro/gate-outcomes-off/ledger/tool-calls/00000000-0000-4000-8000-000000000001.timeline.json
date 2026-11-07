@@ -1,0 +1,43 @@
+{
+  "schema": "tool-call-timeline/v1",
+  "calls": [
+    {
+      "tool_use_id": "toolu_SYNTH_19",
+      "tool": "Skill",
+      "class": "skill",
+      "skill": "dev-process-toolkit:gate-check",
+      "started_at": 1793959200000,
+      "ended_at": 1793959205000,
+      "wall_ms": 5000,
+      "is_error": false,
+      "diff": null,
+      "duration_ms": 5000,
+      "pairing": "paired"
+    }
+  ],
+  "rounds": [],
+  "gate_runs": [
+    {
+      "subject": "dev-process-toolkit:gate-check",
+      "ran_at": "2026-11-06T10:00:00.000Z",
+      "outcome": "none",
+      "wall_ms": null,
+      "key_digest": null,
+      "key_stable": null
+    },
+    {
+      "subject": "dev-process-toolkit:gate-check",
+      "ran_at": "2026-11-06T10:00:00.000Z",
+      "outcome": "none",
+      "wall_ms": null,
+      "key_digest": null,
+      "key_stable": null
+    }
+  ],
+  "gaps": {
+    "orphan_pre": 0,
+    "orphan_post": 0,
+    "uncaptured": 0,
+    "duplicates": 0
+  }
+}

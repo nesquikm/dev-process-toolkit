@@ -1,0 +1,12 @@
+{
+  "note": "same key three times, but one pass run key_stable false and one fail run: sum 0; a second key once",
+  "sessions": [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000002"
+  ],
+  "tracking": {
+    "token_stats": true,
+    "tool_calls": true,
+    "gate_outcomes": true
+  }
+}

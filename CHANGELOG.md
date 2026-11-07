@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.2.0] — 2026-11-07 — "Hindsight"
+
+### Added
+
+- A retrospective command grades a run's trace against fixed rules (STE-719). `/retro [<milestone> | <fr-id>]` reads the timeline, capture rows and token ledger a session can see, and grades four rules: `slow_gate_run`, `gate_rerun_unchanged_key`, `zero_yield_round` and `cost_per_changed_line`. Each rule has a fixed threshold in code and reports `tripped`, `clear` or `skipped: input not observable` with a reason, never `clear` from missing data. It writes one ignored report under `.dpt/ledger/retro/`, with sessions stored only as aliases. Running it by hand always works; the new `retro.enabled` key (off by default) only decides whether close-out offers it.
+- Bug report payloads can hide home paths, session ids and branch names (STE-720). `/report-issue --redact-identifiers` runs a second pass after the secret scrub: home paths become `~`, session ids become `s<N>` aliases shared across every file, and every branch the repository knows, other than `main`, `master`, `develop`, `trunk` and `HEAD`, becomes a short hash (`branch-<8 hex>`) wherever it stands as its own name, including after `refs/heads/`, a remote such as `origin/`, a `/tree/` or `/compare/` link, inside a worktree path such as `<worktree>/<branch>/src/a.ts`, in its URL-encoded (`%2F`) and JSON-escaped (`\/`) forms, and inside a Claude project-folder slug such as `.claude/projects/-~-<worktree>-<branch>/`, where `feat/x` reads `feat-x`; every form takes the same hash. Without the flag a report is byte-identical to v3.1.0.
+- A retrospective can seed a bug report and travel with it to brainstorm (STE-721). `/report-issue --from-retro <file>` takes a saved retrospective as the suggested answer to each of the four prompts, which are all still asked. It always runs the identifier pass and uploads `retro.json` as a fourth file, which `/brainstorm` reads back.
+- Close-out offers a retrospective only when a rule tripped (STE-722). With `retro.enabled` on, `/implement` and `/deliver` ask once at close-out when at least one rule tripped. The switch rides the close-out calls the toolkit already makes, so with it off a close-out makes exactly the v3.1.0 tool calls and prints exactly its lines.
+- A retrospective can propose a settings change the operator must approve (STE-728). When a rule skipped because a recording setting is off, `/retro` proposes turning that one setting on, with the evidence and a digest. The change is applied only after an explicit answer to its own question, checked against the session transcript, and each approval admits one apply. It can only turn a `tracking` recording on, never a gate off.
+
+### Changed
+
+- The out-of-scope list stops ruling out what the toolkit ships (STE-718). The new-slash-command and multi-agent lines are struck with a dated note; the fast-track line is kept, with a note saying why nothing here skips a gate.
+
+Total test count at release: 22138 tests, 0 failures, 0 errors.
+
 ## [3.1.0] — 2026-11-06 — "Flight Recorder"
 
 ### Added

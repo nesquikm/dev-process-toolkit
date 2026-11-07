@@ -1,0 +1,21 @@
+{
+  "schema": "tool-call-timeline/v1",
+  "calls": [],
+  "rounds": [],
+  "gate_runs": [
+    {
+      "subject": "dev-process-toolkit:gate-check",
+      "ran_at": "2026-11-06T12:00:00.000Z",
+      "outcome": "pass",
+      "wall_ms": 1000,
+      "key_digest": "c0ffee0000000000000000000000000000000000000000000000000000000000",
+      "key_stable": true
+    }
+  ],
+  "gaps": {
+    "orphan_pre": 0,
+    "orphan_post": 0,
+    "uncaptured": 0,
+    "duplicates": 0
+  }
+}

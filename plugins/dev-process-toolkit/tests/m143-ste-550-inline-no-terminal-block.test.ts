@@ -527,6 +527,9 @@ const BASELINE_LINES: Readonly<Record<string, number>> = {
   // after STE-550's 2026-09-04 measurement (the skill did not exist then).
   // Measured 2026-10-12 with this suite's `split("\n")` count (`wc -l` = 94).
   video: 95,
+  // Amended by AC-STE-719.13 (M_d1b4b7): `retro` joined ADOPTING_STAGES.
+  // Measured 2026-11-06 with this suite's `split("\n")` count (`wc -l` = 48).
+  retro: 49,
 };
 
 /** The zero-headroom three: their edits must not add a line. */
