@@ -98,7 +98,10 @@ function branchAlias(name: string): string {
  * the text), so `refs/heads/<name>`, `origin/<name>`, `/tree/<name>` and
  * `main...<name>` are all rewritten and every prefix is kept. It never starts
  * after a letter, digit, `_` or `-`, so a name inside a larger word is left
- * alone. A trailing `.` ends the token unless a token character follows it.
+ * alone. It may end at `/` too, so `<worktree>/<name>/src/a.ts` loses the
+ * name; names are tried longest first, so with `feat` and `feat/x` both known,
+ * `feat/x/y` becomes `<alias of feat/x>/y`. A trailing `.` ends the token
+ * unless a token character follows it.
  */
 const BRANCH_ALIAS_RE = /^branch-[0-9a-f]{8}$/;
 
@@ -109,7 +112,7 @@ function scrubBranches(text: string, branches: readonly string[]): [string, numb
   if (names.length === 0) return [text, 0];
   names.sort((a, b) => b.length - a.length);
   const re = new RegExp(
-    `(?<![A-Za-z0-9_-])(?:${names.map(escapeRegExp).join("|")})(?![A-Za-z0-9_/-]|\\.[A-Za-z0-9_-])`,
+    `(?<![A-Za-z0-9_-])(?:${names.map(escapeRegExp).join("|")})(?![A-Za-z0-9_-]|\\.[A-Za-z0-9_-])`,
     "g",
   );
   return replaceCounting(text, re, (name) => branchAlias(name));

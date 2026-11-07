@@ -223,6 +223,8 @@ const BOUNDARY_FORMS: readonly [string, (h: string) => string][] = [
   [`/tmp/wt/${BRANCH}`, (h) => `/tmp/wt/${h}`],
   [`origin/${BRANCH}`, (h) => `origin/${h}`],
   [`branch:${BRANCH}`, (h) => `branch:${h}`],
+  [`/tmp/wt/${BRANCH}/src/a.ts`, (h) => `/tmp/wt/${h}/src/a.ts`],
+  [`refs/heads/${BRANCH}/sub`, (h) => `refs/heads/${h}/sub`],
 ];
 
 describe("AC-STE-720.4 branch_name at a path or ref boundary", () => {
@@ -255,13 +257,42 @@ describe("AC-STE-720.4 branch_name at a path or ref boundary", () => {
     });
   }
 
-  test("a short name after a path separator or a dot is rewritten; one followed by / is not (it may be a longer ref)", async () => {
+  test("a short name after a path separator or a dot is rewritten, and so is one followed by /", async () => {
     const { scrubIdentifiers } = await idMod();
     const make = await fresh();
     const h = branchAlias("fixture");
     const r = scrubIdentifiers("a/fixture and x.fixture and fixture/y", { branches: ["fixture"], aliases: make() });
-    expect(r.scrubbed).toBe(`a/${h} and x.${h} and fixture/y`);
-    expect(counts(r.matches).branch_name).toBe(2);
+    expect(r.scrubbed).toBe(`a/${h} and x.${h} and ${h}/y`);
+    expect(counts(r.matches).branch_name).toBe(3);
+  });
+
+  // A full known name followed by `/` is a match too; at one position the
+  // longest known name that matches wins.
+  const TRAILING: [string, string[], (a: (n: string) => string) => string][] = [
+    [`/tmp/wt/${BRANCH}/src/a.ts`, [BRANCH], (a) => `/tmp/wt/${a(BRANCH)}/src/a.ts`],
+    [`refs/heads/${BRANCH}/sub/path`, [BRANCH], (a) => `refs/heads/${a(BRANCH)}/sub/path`],
+    ["feat/x/y", ["feat", "feat/x"], (a) => `${a("feat/x")}/y`],
+    ["feat/x/y", ["feat/x", "feat"], (a) => `${a("feat/x")}/y`],
+    ["feat/x", ["feat"], (a) => `${a("feat")}/x`],
+    ["feat/xy/z", ["feat", "feat/x"], (a) => `${a("feat")}/xy/z`],
+  ];
+  for (const [text, branches, want] of TRAILING) {
+    test(`trailing /: ${JSON.stringify(text)} with ${JSON.stringify(branches)} becomes ${JSON.stringify(want(branchAlias))}, counted once`, async () => {
+      const { scrubIdentifiers } = await idMod();
+      const make = await fresh();
+      const r = scrubIdentifiers(text, { branches, aliases: make() });
+      expect(r.scrubbed).toBe(want(branchAlias));
+      expect(counts(r.matches).branch_name).toBe(1);
+    });
+  }
+
+  test("trailing /: the boundary controls still stay untouched", async () => {
+    const { scrubIdentifiers } = await idMod();
+    const make = await fresh();
+    for (const text of [`${BRANCH}2/src`, `x${BRANCH}/src`, `/tmp/wt/${BRANCH}_old/src`, `${BRANCH}-old/src`]) {
+      const r = scrubIdentifiers(text, { branches: [BRANCH], aliases: make() });
+      expect({ text, out: r.scrubbed, n: counts(r.matches).branch_name }).toEqual({ text, out: text, n: 0 });
+    }
   });
 
   test("every boundary form is idempotent: a second pass changes nothing and counts zero", async () => {

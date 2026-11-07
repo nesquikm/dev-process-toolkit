@@ -206,6 +206,8 @@ export const BOUNDARY_LINES: readonly string[] = [
   `https://github.com/o/r/compare/main...${BRANCH}`,
   `/tmp/wt/${BRANCH}`,
   `origin/${BRANCH}`,
+  `/tmp/wt/${BRANCH}/src/a.ts`,
+  `refs/heads/${BRANCH}/sub/path`,
 ];
 
 export function seedBoundaryWorkdir(label: string): { dir: string; expected: { branch_name: number } } {
