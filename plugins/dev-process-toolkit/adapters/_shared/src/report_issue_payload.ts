@@ -10,10 +10,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { IDENTIFIER_PATTERNS, type ScrubMatch, createAliasMap, scrubIdentifiers } from "./scrub_identifiers";
+import { defaultConfigDir } from "./find_current_session";
 import { type AliasMap, type SessionAlias, seedAliasMap } from "./session_aliases";
 
 export interface PayloadContext {
   home?: string;
+  /** The resolved Claude config root; defaults to nothing (only `.claude*` and `.config/claude` anchor slugs). */
+  configDir?: string;
   /** Branches from the repository's refs; field values are added per run. */
   branches: readonly string[];
   aliases: AliasMap;
@@ -56,7 +59,7 @@ export function scrubPayloadDir(dir: string, ctx: PayloadContext): void {
   const texts = new Map(files.map((f) => [f, readFileSync(join(dir, f), "utf-8")]));
   const branches = new Set(ctx.branches);
   for (const t of texts.values()) for (const b of fieldBranches(t)) branches.add(b);
-  const scrubCtx = { home: ctx.home, branches: [...branches], aliases: ctx.aliases };
+  const scrubCtx = { home: ctx.home, configDir: ctx.configDir, branches: [...branches], aliases: ctx.aliases };
   const totals: ScrubMatch[] = IDENTIFIER_PATTERNS.map((p) => ({ pattern: p.key, count: 0 }));
   const scrubbedTexts = new Map<string, string>();
   for (const [f, t] of texts) {
@@ -110,7 +113,7 @@ if (import.meta.main) {
   try {
     const aliases = createAliasMap();
     if (flags.includes("--from-retro")) seedAliasMap(aliases, retroSessions(workdir));
-    scrubPayloadDir(workdir, { home: homedir(), branches: repoBranches(projectRoot), aliases });
+    scrubPayloadDir(workdir, { home: homedir(), configDir: defaultConfigDir(), branches: repoBranches(projectRoot), aliases });
   } catch (e) {
     process.stderr.write(
       [
