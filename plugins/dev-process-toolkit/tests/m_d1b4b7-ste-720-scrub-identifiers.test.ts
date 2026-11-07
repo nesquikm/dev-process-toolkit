@@ -7,7 +7,7 @@
 // `00000000-0000-4000-8000-00000000000N`, branches `feat/...-fixture`.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -296,6 +296,9 @@ describe("AC-STE-720.14 no settings key", () => {
   });
 
   test("the M_d1b4b7 plan records the amendment", () => {
-    expect(readFileSync(join(REPO_ROOT, "specs", "plan", "M_d1b4b7.md"), "utf-8")).toContain("Amended by AC-STE-720.14");
+    // The plan moves to specs/plan/archive/ when the milestone archives; read it where it lives.
+    const live = join(REPO_ROOT, "specs", "plan", "M_d1b4b7.md");
+    const plan = existsSync(live) ? live : join(REPO_ROOT, "specs", "plan", "archive", "M_d1b4b7.md");
+    expect(readFileSync(plan, "utf-8")).toContain("Amended by AC-STE-720.14");
   });
 });

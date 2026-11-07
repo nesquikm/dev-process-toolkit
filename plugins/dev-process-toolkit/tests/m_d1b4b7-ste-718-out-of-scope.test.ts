@@ -32,11 +32,11 @@ const TRUNK_FAST = "- No fast-track workflow skipping ceremony";
 const TRUNK_MULTI = "- No multi-agent orchestration";
 
 const NEW_SLASH =
-  "- ~~No new slash commands (depth over breadth)~~ — superseded in v3.2.0 (M_d1b4b7, 2026-11-04 ruling): /retro (STE-719) ships as the 20th user-invocable command. Any later command needs its own note here.";
+  "- ~~No new slash commands (depth over breadth)~~ — superseded in v3.2.0 (2026-11-04 ruling): /retro (STE-719) ships as the 20th user-invocable command. Any later command needs its own note here.";
 const NEW_FAST =
-  "- No fast-track workflow skipping ceremony — still in force (v3.2.0, M_d1b4b7): /retro reads the record and changes a setting only on explicit approval (STE-728), and M_fd9a03 reuse, only when its knob is on, shortens a gate run that really happens; neither skips a gate, a review or an approval.";
+  "- No fast-track workflow skipping ceremony — still in force (v3.2.0): /retro reads the record and changes a setting only on explicit approval (STE-728), and v3.3.0 reuse, only when its knob is on, shortens a gate run that really happens; neither skips a gate, a review or an approval.";
 const NEW_MULTI =
-  "- ~~No multi-agent orchestration~~ — superseded in v3.2.0 (M_d1b4b7): /tdd forks four subagents (STE-225) and /deliver drives spawned workers (STE-464); /retro grades only what their parent session can see.";
+  "- ~~No multi-agent orchestration~~ — superseded in v3.2.0: /tdd forks four subagents (STE-225) and /deliver drives spawned workers (STE-464); /retro grades only what their parent session can see.";
 
 // ---------------------------------------------------------------- the eight unchanged lines (literals)
 
@@ -85,7 +85,8 @@ const noteAfterStrike = (line: string): string => line.slice(line.indexOf("~~", 
 
 type Grader = (lines: readonly string[]) => string[];
 
-/** AC-STE-718.1 — the two superseded lines struck, notes naming v3.2.0 and M_d1b4b7. */
+/** AC-STE-718.1 — the two superseded lines struck, notes naming v3.2.0 and no milestone id (Amended by operator ruling 2026-11-07). */
+const MILESTONE_ID = /\bM(?:_[0-9A-Za-z]+|\d+)\b/;
 const gradeStrikes: Grader = (lines) => {
   const out: string[] = [];
   for (const wording of ["No new slash commands (depth over breadth)", "No multi-agent orchestration"]) {
@@ -96,7 +97,7 @@ const gradeStrikes: Grader = (lines) => {
     }
     const note = noteAfterStrike(line);
     if (!note.includes("v3.2.0")) out.push(`'${wording}' note does not name v3.2.0`);
-    if (!note.includes("M_d1b4b7")) out.push(`'${wording}' note does not name M_d1b4b7`);
+    if (MILESTONE_ID.test(note)) out.push(`'${wording}' note names a milestone id`); // Amended by operator ruling 2026-11-07
   }
   return out;
 };
@@ -127,7 +128,9 @@ const gradeFastTrack: Grader = (lines) => {
   if (!/\bgate\b/.test(note)) out.push("fast-track note does not say 'gate'");
   if (!note.includes("STE-728")) out.push("fast-track note does not name STE-728");
   if (!note.includes("/retro")) out.push("fast-track note does not name /retro");
-  if (!note.includes("M_fd9a03")) out.push("fast-track note does not name M_fd9a03");
+  // Amended by operator ruling 2026-11-07: releases only, no milestone id.
+  if (!note.includes("v3.3.0")) out.push("fast-track note does not name v3.3.0");
+  if (MILESTONE_ID.test(note)) out.push("fast-track note names a milestone id");
   if (!/neither skips a gate/.test(note)) out.push("fast-track note does not say neither skips a gate");
   return out;
 };
@@ -171,19 +174,19 @@ const liveSlice = (): string[] => sliceSectionFive(readFileSync(REQUIREMENTS, "u
 
 // ---------------------------------------------------------------- AC.1 – AC.5
 
-describe("AC-STE-718.1 the slash-command and multi-agent lines are struck with a v3.2.0 / M_d1b4b7 note", () => {
-  test("the new-slash-command line is struck and its note names v3.2.0 and M_d1b4b7", () => {
+describe("AC-STE-718.1 the slash-command and multi-agent lines are struck with a v3.2.0 note naming no milestone id", () => { // Amended by operator ruling 2026-11-07
+  test("the new-slash-command line is struck and its note names v3.2.0 and no milestone id", () => {
     const line = struckLine(liveSlice(), "No new slash commands (depth over breadth)");
     expect(line).toBe(NEW_SLASH);
     expect(noteAfterStrike(line!)).toContain("v3.2.0");
-    expect(noteAfterStrike(line!)).toContain("M_d1b4b7");
+    expect(MILESTONE_ID.test(noteAfterStrike(line!))).toBe(false); // Amended by operator ruling 2026-11-07
   });
 
-  test("the multi-agent line is struck and its note names v3.2.0 and M_d1b4b7", () => {
+  test("the multi-agent line is struck and its note names v3.2.0 and no milestone id", () => {
     const line = struckLine(liveSlice(), "No multi-agent orchestration");
     expect(line).toBe(NEW_MULTI);
     expect(noteAfterStrike(line!)).toContain("v3.2.0");
-    expect(noteAfterStrike(line!)).toContain("M_d1b4b7");
+    expect(MILESTONE_ID.test(noteAfterStrike(line!))).toBe(false); // Amended by operator ruling 2026-11-07
   });
 
   test("the grader reports no strike failure on the live tree", () => {

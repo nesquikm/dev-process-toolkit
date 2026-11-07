@@ -1,7 +1,7 @@
 ---
 milestone: M_d1b4b7
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-11-06T22:24:08Z
 kickoff_branch: null
 frozen_at: null
 migration: none
@@ -41,35 +41,35 @@ Defaults unchanged (operator rule, 2026-11-04): "these changes SHOULD NOT change
 
 ### Tasks
 
-- [ ] Rewrite the two superseded requirements.md § 5 lines with struck wording and dated notes, and narrow the fast-track line
+- [x] Rewrite the two superseded requirements.md § 5 lines with struck wording and dated notes, and narrow the fast-track line
   verify: the out-of-scope test passes; covers STE-718 ACs 1 to 5
-- [ ] Amend M_7bc805's Out of Scope test so its remainder excludes the three STE-718 lines, and append the AC-STE-716.13 clause to the archived STE-716
+- [x] Amend M_7bc805's Out of Scope test so its remainder excludes the three STE-718 lines, and append the AC-STE-716.13 clause to the archived STE-716
   verify: m_7bc805-ste-716-out-of-scope green with only its exclusion edited and an `Amended by AC-STE-718.8` comment; the archived STE-716 FR differs from its M_7bc805 merge bytes only by the clause; covers STE-718 AC 8
-- [ ] Calibrate the four thresholds against M_7bc805's captured fixtures before any test freezes them; write the values into the STE-719 Requirement table, which AC-STE-719.4 pins, and their source into its Notes
+- [x] Calibrate the four thresholds against M_7bc805's captured fixtures before any test freezes them; write the values into the STE-719 Requirement table, which AC-STE-719.4 pins, and their source into its Notes
   verify: each trip fixture sits on the first tripping value and each clear fixture on the last clear one; covers STE-719 ACs 4 and 7
-- [ ] Build session_aliases.ts, retro_rules.ts, retro_report.ts, retro_scope.ts and the retro.ts front door
+- [x] Build session_aliases.ts, retro_rules.ts, retro_report.ts, retro_scope.ts and the retro.ts front door
   verify: fixture triples per rule; skip reasons name tracking.tool_calls and tracking.gate_outcomes when off; one report written for every setting value; covers STE-719 ACs 2, 5, 6 and 8 to 12
-- [ ] Add retro to the settings loader's closed sets (`TOP_KEYS`, `settingsKeyOrder`, `NEW_KEYS`, defaults, `retroSwitchOn`), settings-reference and the M_94e6f7 key-mapping table
+- [x] Add retro to the settings loader's closed sets (`TOP_KEYS`, `settingsKeyOrder`, `NEW_KEYS`, defaults, `retroSwitchOn`), settings-reference and the M_94e6f7 key-mapping table
   verify: unknown retro key throws; the AC-STE-706.12 walk maps `retro` and the planted-knob control still names only `orchestration.skip_gates`; covers STE-719 AC 3
-- [ ] Ship skills/retro/SKILL.md and move every 28/19 count to 29/20, plus the adoption and allowlist pins
+- [x] Ship skills/retro/SKILL.md and move every 28/19 count to 29/20, plus the adoption and allowlist pins
   verify: count tests green; public_surface_count_drift, skill_unreachable and probe #81 clean; covers STE-719 ACs 1 and 13 to 15
-- [ ] Add the `--redact-identifiers` flag, scrub_identifiers.ts on the shared aliaser and the report_issue_payload.ts front door; call it, only under either flag, after the unchanged secret scrub
+- [x] Add the `--redact-identifiers` flag, scrub_identifiers.ts on the shared aliaser and the report_issue_payload.ts front door; call it, only under either flag, after the unchanged secret scrub
   verify: no flag means no front-door call and a byte-identical payload with seven rows; each flag finds no home path, project-folder slug, UUID or branch name and writes ten rows; every front-door mention names a flag; no `report_issue` settings key exists, and archived AC-STE-706.12 carries only its appended Amended-by clause; covers STE-720 ACs 1 to 10, 13, 14 and 15
-- [ ] Add --from-retro, the prompt defaults, the fourth payload file, the alias seed step and the brainstorm fetch line
+- [x] Add --from-retro, the prompt defaults, the fourth payload file, the alias seed step and the brainstorm fetch line
   verify: refusal cases, unchanged prompt order, seeded aliases match with the switch off; without the flag the shipped text and payload equal v3.0.0; covers STE-721 ACs 1 to 9, 12 and 13
-- [ ] Print `retro: on` as a trailing switch line of `gate_capture.ts` and `deliver_decision.ts`, before any `upgrade_offer: on` line; add retro_offer.ts and the two registry entries at the /implement and /deliver close-outs
+- [x] Print `retro: on` as a trailing switch line of `gate_capture.ts` and `deliver_decision.ts`, before any `upgrade_offer: on` line; add retro_offer.ts and the two registry entries at the /implement and /deliver close-outs
   verify: both calls byte-identical with retro off, upgrade switch on or off; `upgrade_offer: on` stays last with both on; `upgrade_offer.ts` untouched; empty stdout when off or nothing tripped, with no scope read when off; every retro_offer.ts mention names `retro: on`; probe #85 clean; one question per /deliver run; the archived AC-STE-712.14 carries only its appended Amended-by clause; covers STE-722 ACs 1 to 9, 13, 14, 15 and 16
-- [ ] Add retro_proposal.ts with its closed table, propose and apply verbs, and the /retro approval gate
+- [x] Add retro_proposal.ts with its closed table, propose and apply verbs, and the /retro approval gate
   verify: silent when nothing applies; propose writes nothing; the digest covers the realpath of the root, and apply needs a fresh digest and a transcript-verified answer after a real propose, whose question carries every printed line, not only the digest line; apply writes its one `retro-apply` receipt before any other write and a recorded receipt, apply call or consumption line consumes the approval; checks register preconditions with the setting taken as on before any write, adds the shown ignore line, and registers capture for the tool_calls row; a declined, marker-only, prose-only or echoed run leaves settings byte-identical; rollback covers the local settings file; covers STE-728 ACs 1 to 12, 15 and 16
-- [ ] Grade the approval as a live lone `apply` call sees its transcript: no own line, the propose result and answer required, a recorded earlier `apply` result consuming the approval
+- [x] Grade the approval as a live lone `apply` call sees its transcript: no own line, the propose result and answer required, a recorded earlier `apply` result consuming the approval
   verify: a child-process `apply` writes with no own line in the transcript, refuses after a consumed approval, and a temp copy re-adding the own-line step refuses the live shape; covers STE-728 AC 17
-- [ ] Add the milestone's defaults-unchanged test
+- [x] Add the milestone's defaults-unchanged test
   verify: gate_capture.ts, deliver_decision.ts, upgrade CLI, offers and close-outs equal their v3.0.0 literals; modelled close-outs make no retro_offer.ts call; covers STE-722 AC 12
-- [ ] Mutation controls for each FR
+- [x] Mutation controls for each FR
   verify: removing each named rule or check reds a named test; covers STE-718 AC 6, STE-719 AC 16, STE-720 AC 11, STE-721 AC 10, STE-722 AC 10 and STE-728 AC 13
-- [ ] Full suite after each FR
+- [x] Full suite after each FR
   verify: 0 fail and baseline skip identities; covers STE-718 AC 7, STE-719 AC 17, STE-720 AC 12, STE-721 AC 11, STE-722 AC 11 and STE-728 AC 14
-- [ ] Full suite by name vs trunk before commit; every red caused by this milestone's own edits is either replaced by this milestone's tests or amended with an `Amended by AC-STE-<N>.<M>` marker naming it; list each in the archived FR notes. Zero unexplained reds.
+- [x] Full suite by name vs trunk before commit; every red caused by this milestone's own edits is either replaced by this milestone's tests or amended with an `Amended by AC-STE-<N>.<M>` marker naming it; list each in the archived FR notes. Zero unexplained reds.
   verify: the JUnit test names of `bun test` from `plugins/dev-process-toolkit` on the milestone's last commit, compared with the same run on trunk under the same bun, show no red outside that list; each listed test names its marker; the pins this plan already names are in the list; covers STE-718 AC 7, STE-719 AC 17, STE-720 AC 12, STE-721 AC 11, STE-722 AC 11 and STE-728 AC 14
 
 ### SKILL.md line budget
