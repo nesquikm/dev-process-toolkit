@@ -1,0 +1,12 @@
+{
+  "note": "5010 parent-visible output tokens over 10 changed main-scope lines: 501; a fork commit row is ignored",
+  "sessions": [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000002"
+  ],
+  "tracking": {
+    "token_stats": true,
+    "tool_calls": true,
+    "gate_outcomes": true
+  }
+}

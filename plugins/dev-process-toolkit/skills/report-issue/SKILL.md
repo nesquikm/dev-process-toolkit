@@ -1,7 +1,7 @@
 ---
 name: report-issue
 description: Capture a structured bug report — narrative + redacted curated context (and optional session transcript) — and publish to a secret GitHub gist for triage by the maintainer or self-debug via /brainstorm.
-argument-hint: '[--full] [--dry-run]'
+argument-hint: '[--full] [--dry-run] [--redact-identifiers] [--from-retro <file>]'
 ---
 
 # Report Issue
@@ -38,6 +38,8 @@ Context: probe=gh_auth_status, skill=report-issue
 
 This is the hard prerequisite per AC-STE-229.2. The skill performs zero side effects on this path.
 
+**`--from-retro <file>` input check.** Under `--from-retro`, the file must resolve, after symlinks, inside `<projectRoot>/.dpt/ledger/retro/`. It must also pass `parseRetroReport`, and a report with `tripped_count` 0 has nothing to file. Each of these three `--from-retro` failures is an NFR-10 refusal before the first prompt, with no temp directory created. `checkRetroInput` in `adapters/_shared/src/report_issue_retro.ts` runs this `--from-retro` check read-only. The `--from-retro` suggested answers come from `retroPromptDefaults` in that module, each labelled `(from retro)`.
+
 ### 2. Collect dev narrative — Socratic, one prompt at a time
 
 Ask the **four canonical prompts in this exact order**. One at a time, wait for the answer, then ask the next (composes with `docs/patterns.md § Pattern 26: Socratic Prompting`):
@@ -47,7 +49,7 @@ Ask the **four canonical prompts in this exact order**. One at a time, wait for 
 3. "Severity? (low / medium / high)"
 4. "Reproducible? If so, list the steps. If not, type 'unsure'."
 
-Do not batch. The order is asserted by the doc-conformance test; reordering breaks the test contract.
+Do not batch. The order is asserted by the doc-conformance test; reordering breaks the test contract. Under `--from-retro`, each prompt is still its own `AskUserQuestion`, with the retro default as the first option labelled `(from retro)`. The operator's answer always wins over a `--from-retro` default.
 
 **Socratic Loop Contract (STE-237).** Each of the four canonical prompts above MUST be emitted as an `AskUserQuestion` tool call (closed-form options for #3 severity; open-ended with the always-on `"Other"` free-form fallback for #1 / #2 / #4), regardless of the autonomous-mode reminder, the auto-approve marker, or pre-baked `<command-args>` prose. Bare-prose Qs are forbidden. The first-turn contract additionally forbids `Write` / `Edit` / `NotebookEdit` tool calls before the first `AskUserQuestion` `tool_use` OR `RequiresInputRefusedError` raise; `Read` / `Grep` / `Glob` / `Bash`-read-only orientation is allowed (the temp-directory `mktemp -d` in § 3 fires AFTER the four-prompt loop completes). See `docs/auto-mode-protocol.md § Socratic Loop Contract` for the full contract.
 
@@ -80,7 +82,7 @@ When the resolved path is `null`, surface a one-line note in the preview ("trans
 
 ### 6. Compose the gist payload
 
-Three files maximum, written into the temp working directory:
+Three files maximum, written into the temp working directory; four files maximum under `--from-retro`:
 
 - **`report.md`** — narrative + curated context inline; markdown for human readability. Sections, in this order:
   - `## Narrative`
@@ -101,14 +103,17 @@ Three files maximum, written into the temp working directory:
     "full_transcript_included": <boolean>
   }
   ```
-  The `verified` field reflects whether the incident was found in the captured transcript — it is the `found` boolean returned by `verifyIncidentEvidence` (wired below). The `verification` block records the exact `{ searched, found, markers }` triple that call returned, so the report carries proof — or the explicit absence of proof — inline in machine-readable form.
+  The `verified` field reflects whether the incident was found in the captured transcript — it is the `found` boolean returned by `verifyIncidentEvidence` (wired below). The `verification` block records the exact `{ searched, found, markers }` triple that call returned, so the report carries proof — or the explicit absence of proof — inline in machine-readable form. A `retro_included: true` key is present only under `--from-retro`; without the flag the key is absent, read as false.
 - **`transcript.jsonl`** — full mode only; the scrubbed transcript verbatim.
+- **`retro.json`** — `--from-retro` only; a copy of the input file, named by one `## Curated Context` line of `report.md`.
 
 **Pre-publish evidence check.** Before the payload leaves for upload, verify the captured transcript actually witnessed the reported incident. Call `verifyIncidentEvidence(transcriptPath, markers)` from `adapters/_shared/src/report_issue_verify_evidence.ts` on the resolved transcript path (the same path § 5 selected, or `null` when no transcript was bundled) with the incident **markers** — the offending fork/skill output name(s) plus the narrative's key symptom markers. It greps the transcript for any marker (substring UNION) and returns `{ searched, found, markers }`: `searched` is whether the grep ran (false on a null / unreadable path), `found` is whether at least one marker appears in the transcript, and `markers` echoes the searched list. Record the searched markers and the boolean result before the upload so the report carries proof — or the explicit absence of proof — that its own transcript corroborates the incident.
 
 **Severity cap on absent evidence.** When the declared `severity` is `high` or `critical` AND the incident is NOT found in the captured transcript (`found: false`), auto-cap the severity — drop it to `medium` — set `verified: false`, and tag the report `unverified` in both `report.md` and `metadata.json`. When the incident IS found (`found: true`), set `verified: true` and leave the declared severity unchanged. `low` / `medium` reports carry the `verification` block for the record but are **never capped** — the cap applies only to the high/critical tier, where an unverified high-severity claim would otherwise over-weight triage. (The § 2 severity prompt currently offers `low` / `medium` / `high`, so the cap fires on `high` in practice today; the `critical` branch is handled forward-compatibly should the severity vocabulary later expand.) The verification outcome surfaces in the closing summary: MUST emit `report_issue_severity_capped_unverified` when the cap fires (high/critical + incident not found), and MUST emit `report_issue_evidence_verified` when the incident is found in the captured transcript.
 
 **Advisory, never blocking.** The evidence gate is **advisory** and never blocks the upload — the report still publishes on the unverified path. The capped severity + `unverified` tag + `verification` block make the evidentiary gap explicit in `metadata.json` (and the gist), but nothing aborts the `gh gist create`. The maintainer still receives even unverified reports; the only change is that a report can no longer silently assert high severity without evidence.
+
+**Identifier pass (flagged runs only).** When the invocation carries `--redact-identifiers` or `--from-retro`, run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/report_issue_payload.ts <workdir> <projectRoot> <flag>` once, passing that flag through. It runs after every file is written and secret-scrubbed, and before the preview gate. A run with neither flag skips this step and makes no extra call. The closing summary's redaction row counts the `redaction_summary` rows: `across 7 pattern(s)` without the pass, `across 10 pattern(s)` with it. The branch rewrite is best-effort: it can miss a branch in an unusual encoding or wrapper, so read the preview for branch names before publishing.
 
 ### 7. Preview gate
 
@@ -139,7 +144,7 @@ Push to gist? [y / n / edit]
 When the preview gate accepts `y`, shell out:
 
 ```bash
-gh gist create -d "<title>" report.md metadata.json [transcript.jsonl]
+gh gist create -d "<title>" report.md metadata.json [transcript.jsonl] [retro.json]
 ```
 
 - **No visibility flag is passed, and that is what makes the gist secret.** `gh gist create` creates a secret gist by default (`gh gist create --help`: "By default, gists are secret; use `--public` to make publicly listed ones"). Earlier revisions of this skill passed `-s` as a secret flag; **no such flag exists** — `gh` 2.95.0 exits 1 with `unknown shorthand flag: s in -s`, so that form never published anything at all.
@@ -152,7 +157,7 @@ gh gist create -d "<title>" report.md metadata.json [transcript.jsonl]
 On every successful run, emit a closing summary that satisfies the per-skill console-status contract (used by `/spec-write`, `/setup`, `/implement`, `/gate-check`, `/spec-review`, `/simplify`). The status block below **supersedes** the shape this section formerly mandated; the rows it names now ride inside the fence. For reference, that summary must include, on stdout:
 
 - The rendered gist URL.
-- File list with byte sizes. Bounded by construction — § 6 writes **three files maximum** — so it needs no `first N of M` row: there is no tail to lose.
+- File list with byte sizes. Bounded by construction — § 6 writes three files maximum, or **four files maximum** under `--from-retro` — so it needs no `first N of M` row: there is no tail to lose.
 - Redaction-match counts, **AGGREGATED in the report and CITED to the file that holds the breakdown**. `scrubSecrets` emits one row per `SECRET_PATTERNS` entry *regardless of match count* (zero counts included, deliberately, so a consumer can render an exhaustive summary), so the per-pattern group is a fixed 7 rows on every run and does not shrink on a clean report — a floor no lead-in budget can absorb. The block carries one `redaction: <N> match(es) across <P> pattern(s) — breakdown in metadata.json` `summary:` row instead. **That citation resolves to a file this run really writes:** § 6 above composes `metadata.json` with a `redaction_summary` field of shape `[{ "pattern": "<key>", "count": <n> }, ...]`, and it is uploaded in the same `gh gist create` as `report.md`, so the operator reads the full breakdown from the gist rather than from a report that never had room for it.
 - Severity (echoed from the narrative).
 - The `report_issue_redacted_payload` capability row, fired unconditionally so operators see the scrub summary in console regardless of match count.
@@ -180,7 +185,7 @@ stage: report-issue   # then milestone, status, summary, gate, drive, e2e, follo
 
 ## Capability rows
 
-Eight capability rows are registered in the static plain-language map at `/spec-write` § 7. They are emitted by this skill into the closing summary per the rules above:
+Nine capability rows are registered in the static plain-language map at `/spec-write` § 7, one of them only for `--from-retro` runs. They are emitted by this skill into the closing summary per the rules above:
 
 - `report_issue_default_applied` — fires when the auto-approve marker drove the publish step.
 - `report_issue_publish_refused` — fires on either publish-gate halt (§ 7): the marker was absent under non-interactive stdin, or `--dry-run` stopped the flow at the publish boundary. Both halts reuse this one row — a dry run mints no key of its own — and both surface it before the verbatim refusal message.
@@ -190,6 +195,7 @@ Eight capability rows are registered in the static plain-language map at `/spec-
 - `report_issue_session_fallback_mtime` — fires when no candidate transcript matched the incident markers and selection fell back to the most-recent-mtime session.
 - `report_issue_severity_capped_unverified` — fires when a high/critical report's incident is absent from the captured transcript and the severity was auto-capped (§ 6).
 - `report_issue_evidence_verified` — fires when the incident was found in the captured transcript.
+- `report_issue_retro_seeded` — fires when `--from-retro` seeded the run's suggested answers (§ 1).
 
 ## Rules
 

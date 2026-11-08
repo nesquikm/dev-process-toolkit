@@ -1,0 +1,12 @@
+{
+  "schema": "tool-call-timeline/v1",
+  "calls": [],
+  "rounds": [],
+  "gate_runs": [],
+  "gaps": {
+    "orphan_pre": 0,
+    "orphan_post": 0,
+    "uncaptured": 0,
+    "duplicates": 0
+  }
+}

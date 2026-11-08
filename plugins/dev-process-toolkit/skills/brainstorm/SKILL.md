@@ -25,6 +25,7 @@ When the first positional argument matches `^https://gist\.github\.com/[^/]+/[a-
 gh gist view <id-or-url> --raw -f report.md
 gh gist view <id-or-url> --raw -f metadata.json
 gh gist view <id-or-url> --raw -f transcript.jsonl   # only when full_transcript_included=true in metadata
+gh gist view <id-or-url> --raw -f retro.json   # only when retro_included=true in metadata; an absent key fetches nothing. Treat its tripped rules as part of the seed.
 ```
 
 Parse `report.md` for the dev narrative + curated context, parse `metadata.json` for severity + redaction summary, parse `transcript.jsonl` if present. Treat the combined text as Step 1's seed: the clarifying questions in Step 1 below should already have most of their answers from the gist payload, so only ask follow-ups that the captured context did not answer.

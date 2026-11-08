@@ -177,6 +177,16 @@ export function toolCallTimelinePath(projectRoot: string, sessionId: string): st
 }
 
 /**
+ * /retro reports: `<projectRoot>/.dpt/ledger/retro` (STE-719).
+ *
+ * The only composer of the report directory. Under `ledger/`, so the
+ * `.dpt/.gitignore` rule set already ignores it.
+ */
+export function retroReportsDir(projectRoot: string): string {
+  return join(dptRoot(projectRoot), "ledger", "retro");
+}
+
+/**
  * Feature-video workspace root: `<projectRoot>/.dpt/video` (STE-663).
  *
  * The only composer of the video subtree (AC-STE-663.1). `config.yaml`,

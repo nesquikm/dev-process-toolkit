@@ -228,15 +228,15 @@ describe("AC.1 — the skill document and its frontmatter", () => {
       rmSync(scratch, { recursive: true, force: true });
     }
   });
-  // Re-keyed for STE-669 (M_1e0717): /video joined the plugin root, so 28 plugin +
-  // 3 maintainer skills = 31 ship across the two roots.
-  test("the root CLAUDE.md skill count reads 31, derived from both roots", () => {
+  // Re-keyed for STE-719 (M_d1b4b7): /retro joined the plugin root, so 29 plugin +
+  // 3 maintainer skills = 32 ship across the two roots.
+  test("the root CLAUDE.md skill count reads 32, derived from both roots", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
     docText();
     const claude = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");
-    expect(shippedSkillCount(), "the two roots hold 31 SKILL.md files").toBe(31);
+    expect(shippedSkillCount(), "the two roots hold 32 SKILL.md files").toBe(32); // Amended by AC-STE-719.14 (M_d1b4b7)
     expect(skillCountViolations(claude, shippedSkillCount())).toEqual([]);
     expect(claude).toContain(`${shippedSkillCount()} skills ship across the two roots`);
-    expect(claude).not.toContain("30 skills ship across the two roots");
+    expect(claude).not.toContain("31 skills ship across the two roots"); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
   test("MUTATION — a CLAUDE.md copy saying 32, or 30, skills ship across the two roots is red", () => {
     const claude = readFileSync(join(repoRoot, "CLAUDE.md"), "utf-8");

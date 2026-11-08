@@ -56,7 +56,10 @@ describe("AC-STE-716.13 the Out of Scope hooks line is struck", () => {
   });
 
   test("every other line of § 5 is byte-identical to the milestone base", () => {
-    expect(now).toEqual(base.map((l) => (l === OLD_LINE ? NEW_LINE : l)));
+    // Amended by AC-STE-718.8 (M_d1b4b7): the three lines STE-718 rewrites are graded by m_d1b4b7-ste-718-out-of-scope.test.ts.
+    const rewritten = (l: string) =>
+      l.startsWith("- ") && ["No new slash commands", "No fast-track workflow", "No multi-agent orchestration"].some((s) => l.includes(s));
+    expect(now.filter((l) => !rewritten(l))).toEqual(base.filter((l) => !rewritten(l)).map((l) => (l === OLD_LINE ? NEW_LINE : l)));
   });
 });
 

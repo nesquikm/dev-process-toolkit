@@ -122,12 +122,12 @@ const skillFile = (skill: string): string =>
   `plugins/dev-process-toolkit/skills/${skill}/SKILL.md`;
 
 /**
- * THE seven shipped offers, in file order within each skill.
+ * THE twelve shipped offers, in file order within each skill.
  *
- * Two skills own two offers each, which is the case a file-level check cannot
- * see: a surface that adopted the driven branch for one of its two closes and
- * not the other reads as compliant to any `includes`, and as delinquent to the
- * span-scoped scanner below.
+ * Several skills own more than one offer (implement four, deliver two), which is
+ * the case a file-level check cannot see: a surface that adopted the driven
+ * branch for one of its closes and not another reads as compliant to any
+ * `includes`, and as delinquent to the span-scoped scanner below.
  */
 export const CONTINUATION_OFFERS: readonly ContinuationOffer[] = [
   {
@@ -219,6 +219,24 @@ export const CONTINUATION_OFFERS: readonly ContinuationOffer[] = [
     runsWhenAccepted: ["/upgrade"],
     runsWhenDriven: [],
     asks: "whether to apply the pending toolkit upgrades now, once the last milestone has closed",
+  },
+  {
+    id: "implement_retro_offer",
+    skill: "implement",
+    file: skillFile("implement"),
+    anchor: "Run a retrospective for <scope>? [y/N]",
+    runsWhenAccepted: ["/retro"],
+    runsWhenDriven: [],
+    asks: "whether to run a read-only retrospective for the finished scope now",
+  },
+  {
+    id: "deliver_close_retro_offer",
+    skill: "deliver",
+    file: skillFile("deliver"),
+    anchor: "Run a retrospective for the delivered milestones? [y/N]",
+    runsWhenAccepted: ["/retro"],
+    runsWhenDriven: [],
+    asks: "whether to run a read-only retrospective for the delivered milestones now",
   },
 ];
 
@@ -628,7 +646,9 @@ export function drivenClauseParagraph(
   if (withinSpan < 0) return null;
   const start = body.indexOf(offer.anchor) + withinSpan;
   const blank = body.indexOf("\n\n", start);
-  return body.slice(start, blank < 0 ? body.length : blank);
+  // A paragraph that closes the file ends before the file's final newline.
+  const end = blank >= 0 ? blank : body.endsWith("\n") ? body.length - 1 : body.length;
+  return body.slice(start, end);
 }
 
 /**

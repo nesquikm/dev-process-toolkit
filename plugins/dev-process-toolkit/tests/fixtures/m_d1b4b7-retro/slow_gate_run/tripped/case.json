@@ -1,0 +1,11 @@
+{
+  "note": "gate-check run wall_ms 900001 (first tripping value); its Skill call lasts 0 ms",
+  "sessions": [
+    "00000000-0000-4000-8000-000000000001"
+  ],
+  "tracking": {
+    "token_stats": true,
+    "tool_calls": true,
+    "gate_outcomes": true
+  }
+}

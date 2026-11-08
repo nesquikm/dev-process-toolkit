@@ -996,6 +996,8 @@ const MAPPING: Record<string, Row> = {
   // Amended by AC-STE-716.1 (M_7bc805): the tool-call capture switch is a new key with no legacy home.
   "tracking.tool_calls": { kind: "new", fr: "STE-716", note: "no legacy home" },
   "close_out.upgrade_offer": { kind: "new", fr: "STE-712", note: "no legacy home" },
+  // Amended by AC-STE-719.3 (M_d1b4b7): the retro offer switch is a new block with no legacy home.
+  retro: { kind: "new", fr: "STE-719", note: "no legacy home" },
   "release.files": { kind: "legacy", replaces: "## Release Files (parseReleaseFiles)" },
   "video.config": { kind: "legacy", replaces: ".dpt/video/config.yaml (parseVideoConfig)" },
   "video.style": { kind: "legacy", replaces: ".dpt/video/style.yaml (parseVideoStyle)" },
@@ -1010,6 +1012,8 @@ const LEAF_BLOCKS = new Set([
   // Amended by AC-STE-716.1 (M_7bc805): the tool-call capture switch is one setting block.
   "tracking.tool_calls",
   "close_out.upgrade_offer",
+  // Amended by AC-STE-719.3 (M_d1b4b7): the retro switch is one setting block.
+  "retro",
   "release.files",
   "video.config",
   "video.style",

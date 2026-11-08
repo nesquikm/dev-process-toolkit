@@ -1,0 +1,11 @@
+{
+  "note": "timeline written while tracking.gate_outcomes was off: no outcome, no wall time, no key",
+  "sessions": [
+    "00000000-0000-4000-8000-000000000001"
+  ],
+  "tracking": {
+    "token_stats": true,
+    "tool_calls": true,
+    "gate_outcomes": false
+  }
+}

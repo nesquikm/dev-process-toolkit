@@ -720,30 +720,30 @@ describe("AC-STE-669.7 — skill counts and reachability", () => {
   const README = (): string => read(join(REPO_ROOT, "README.md"));
   const CLAUDE_MD = (): string => read(join(REPO_ROOT, "CLAUDE.md"));
 
-  test("on disk: 28 skills, 19 user-invocable, 9 dispatch", () => {
+  test("on disk: 29 skills, 20 user-invocable, 9 dispatch", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
     const { userInvocable, dispatch } = readShippedSkills(PLUGIN_ROOT);
-    expect(userInvocable.length + dispatch.length).toBe(28);
-    expect(userInvocable.length).toBe(19);
+    expect(userInvocable.length + dispatch.length).toBe(29); // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(userInvocable.length).toBe(20); // Amended by AC-STE-719.14 (M_d1b4b7)
     expect(dispatch.length).toBe(9);
   });
 
-  test("CLAUDE.md: 28 slash commands (19 user-invocable + 9 dispatch", () => {
-    expect(CLAUDE_MD()).toMatch(/28\s+slash commands\s+\(19\s+user-invocable\s+\+\s+9\s+dispatch/);
+  test("CLAUDE.md: 29 slash commands (20 user-invocable + 9 dispatch", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(CLAUDE_MD()).toMatch(/29\s+slash commands\s+\(20\s+user-invocable\s+\+\s+9\s+dispatch/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 
-  test("README: `19 commands, 8 agents` and the `28 (19 + 9)` repo-tree row", () => {
+  test("README: `20 commands, 8 agents` and the `29 (20 + 9)` repo-tree row", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
     const body = README();
-    expect(body.split("\n")[2] ?? "").toMatch(/19\s+commands?,\s+8\s+agents?/);
-    expect(body).toMatch(/28\s*\(19\s*\+\s*9\)/);
-    expect(body).toMatch(/\(19 user-invocable \+ 9 internal forks\)/);
+    expect(body.split("\n")[2] ?? "").toMatch(/20\s+commands?,\s+8\s+agents?/); // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(body).toMatch(/29\s*\(20\s*\+\s*9\)/); // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(body).toMatch(/\(20 user-invocable \+ 9 internal forks\)/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 
-  test("specs/technical-spec.md: 19 user-invocable SKILL.md files", () => {
-    expect(read(join(REPO_ROOT, "specs", "technical-spec.md"))).toMatch(/19 user-invocable SKILL\.md files/);
+  test("specs/technical-spec.md: 20 user-invocable SKILL.md files", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(read(join(REPO_ROOT, "specs", "technical-spec.md"))).toMatch(/20 user-invocable SKILL\.md files/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 
-  test("specs/testing-spec.md: all 28 skills", () => {
-    expect(read(join(REPO_ROOT, "specs", "testing-spec.md"))).toMatch(/all 28 skills/);
+  test("specs/testing-spec.md: all 29 skills", () => { // Amended by AC-STE-719.14 (M_d1b4b7)
+    expect(read(join(REPO_ROOT, "specs", "testing-spec.md"))).toMatch(/all 29 skills/); // Amended by AC-STE-719.14 (M_d1b4b7)
   });
 
   test("the README reaches /video — a diagram node or named in the carve-out prose", () => {

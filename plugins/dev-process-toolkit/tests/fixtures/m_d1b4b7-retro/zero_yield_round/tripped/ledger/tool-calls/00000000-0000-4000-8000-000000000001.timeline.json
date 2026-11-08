@@ -1,0 +1,45 @@
+{
+  "schema": "tool-call-timeline/v1",
+  "calls": [],
+  "rounds": [
+    {
+      "tool_use_id": "toolu_SYNTH_4",
+      "skill": "dev-process-toolkit:tdd-implement",
+      "status": "ok",
+      "tree_changed": false,
+      "tree_disposition": "observed",
+      "tokens": "not-observable"
+    },
+    {
+      "tool_use_id": "toolu_SYNTH_5",
+      "skill": "dev-process-toolkit:tdd-implement",
+      "status": "ok",
+      "tree_changed": true,
+      "tree_disposition": "observed",
+      "tokens": "not-observable"
+    },
+    {
+      "tool_use_id": "toolu_SYNTH_6",
+      "skill": "dev-process-toolkit:tdd-refactor",
+      "status": "ok",
+      "tree_changed": false,
+      "tree_disposition": "observed",
+      "tokens": "not-observable"
+    },
+    {
+      "tool_use_id": "toolu_SYNTH_7",
+      "skill": "dev-process-toolkit:tdd-write-test",
+      "status": "ok",
+      "tree_changed": false,
+      "tree_disposition": "observed",
+      "tokens": "not-observable"
+    }
+  ],
+  "gate_runs": [],
+  "gaps": {
+    "orphan_pre": 0,
+    "orphan_post": 0,
+    "uncaptured": 0,
+    "duplicates": 0
+  }
+}

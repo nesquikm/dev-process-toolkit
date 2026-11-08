@@ -121,6 +121,12 @@ Optional key, not written by `/setup`: `docs.changelog_unversioned` (default `fa
 | --- | --- | --- | --- |
 | `close_out.upgrade_offer` | block `{ enabled: boolean }` | `{ enabled: false }` | new (STE-712), no legacy home; absent means off |
 
+### `retro`
+
+| Key | Type | Default | Replaces |
+| --- | --- | --- | --- |
+| `retro.enabled` | boolean | `false` | new (STE-719), no legacy home; absent means off. The switch for the close-out retro offer only |
+
 ### `release`
 
 | Key | Type | Default | Replaces |
