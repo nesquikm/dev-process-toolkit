@@ -6,6 +6,7 @@ kickoff_branch: null
 frozen_at: null
 migration: none
 codename: Proof of Work
+shipped_in: v3.3.0
 ---
 
 # Implementation Plan
@@ -114,3 +115,15 @@ codename: Proof of Work
 - `bun test` from `plugins/dev-process-toolkit`: 0 fail, skip identities equal to the baseline
 - `/gate-check` clean, including the new probe on this repo's own settings file
 - Defaults unchanged: with no settings file, and with a migrated file holding only the moved keys, skill, hook and probe outputs equal v3.0.0, the M_94e6f7 merge commit (tests/m_fd9a03-defaults-unchanged.test.ts); no extra tool call by default. One named difference, accepted by operator ruling: the conformance-probes summary counts one more vacuous probe (STE-723). A second, on a CLI no skill calls by default: `project_settings.ts get optimizations` exits 0 with its `gate_commands: run` default where v3.0.0 refused, and the `get` refusal's section list gains `optimizations` last (AC-STE-725.11)
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| dev-process-toolkit:ship-milestone | claude-opus-5-5 | 22 | 6633 | 5117529 | 66041 |
+| design/exploration | claude-opus-5-5 | 1800 | 485136 | 308679875 | 1348020 |
+| total |  | 1822 | 491769 | 313797404 | 1414061 |
+
+<!-- token-stats:end -->

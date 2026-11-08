@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.2.0 — "Hindsight"** (M_d1b4b7, a retrospective that reads the run's own record. `/retro` grades a finished run against four fixed rules and says which ones it could not see; close-out can offer it when a rule tripped; a saved retrospective can seed `/report-issue`, whose payload can hide home paths, session ids and branch names; and `/retro` can propose turning a recording setting on, applied only on explicit approval. With every new switch off, the default, the toolkit behaves exactly as v3.1.0)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.3.0 — "Proof of Work"** (M_fd9a03, a gate that reuses only what it proves itself. One `optimizations.gate_commands` knob, off unless set and live only with gate outcomes on, lets `/gate-check` skip a deterministic command that already passed in this session on a key it recomputes on the spot; the code review and every probe still run, a new probe refuses any other knob, and no commit or pull request gate reads a reused step. With the knob off, the default, the toolkit behaves exactly as v3.2.0)
 
 ## Core Philosophy
 

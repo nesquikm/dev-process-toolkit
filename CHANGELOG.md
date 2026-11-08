@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.3.0] — 2026-11-08 — "Proof of Work"
+
+### Added
+
+- One settings section can ask the gate to reuse a proven result, and a probe refuses anything else (STE-723). `optimizations.gate_commands` in `specs/settings.yaml` takes `reuse` or `run`, and is `run` when absent. It reads `reuse` only when `tracking.gate_outcomes` is on and the section is valid, and nothing turns that key on for you. The loader admits the section as a closed set, so an unknown or refused knob name, such as `code_review`, refuses that section's reads and reads as `run`. The new probe #90, `optimizations_reuse_only`, names the reason: `unknown-knob`, `unknown-value`, `never-reusable`, `not-a-mapping` or `requires-gate-outcomes`. On a tree with no section it is vacuous. `/retro` can propose the knob when `gate_rerun_unchanged_key` tripped, and applies it only on an explicit approval.
+- The gate can skip a command that already passed on identical input, and it proves that itself (STE-724). With the knob on, `gate_reuse.ts run <root> <label> -- '<command>'` recomputes the full key on the spot: the commit, a clean tree, the toolchain and toolkit versions, the gate commands, the settings and the command text. It skips the command only when this session announced a passing step receipt under that same key, joined to a passing, key-stable gate outcome. Otherwise it runs the command and records one `gate-step` receipt. A reused command reports the stored run's numbers. The code review and every probe always run. The door sends the command's own output to stderr, and it trusts a step announcement only as the single line of its own recorded stdout, so a command cannot print evidence for itself. No commit or pull request gate reads a step receipt.
+
+### Changed
+
+- The skills that demand a fresh gate say when a proven reuse counts as fresh (STE-725). With the knob on, `/simplify` skips its gate re-run only when the new `gate_reuse.ts verdict` prints `clean`. `/implement` and `/gate-check` say a command reported `(reused)` counts as fresh because its key was recomputed, and that the code review never is. `docs/patterns.md` gains Pattern 32, Reuse of a Proven Result. With the knob off, which is the default, every skill makes exactly the v3.0.0 tool calls and prints exactly its lines. The conformance-probes summary counts one more vacuous probe.
+
+Total test count at release: 22510 tests, 0 failures, 0 errors.
+
 ## [3.2.0] — 2026-11-07 — "Hindsight"
 
 ### Added
