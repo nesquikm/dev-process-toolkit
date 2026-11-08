@@ -196,7 +196,9 @@ describe("AC-STE-692.3 the stamp-literal counter recognises both shipped forms",
       const src = git(PLUGIN_ROOT, "show", `HEAD:./adapters/_shared/src/${f}`);
       expect(atHead.get(f) ?? 0, f).toBe(stampLiteralCount(src));
     }
-  });
+    // One `git show` per shared module: 6.9-8.0 s under full-suite load on trunk
+    // 13fdf144, past bun's 5 s default. The assertions are unchanged.
+  }, 30_000);
 });
 
 describe("AC-STE-692.4 a second stamp literal of either form is a gain over main", () => {

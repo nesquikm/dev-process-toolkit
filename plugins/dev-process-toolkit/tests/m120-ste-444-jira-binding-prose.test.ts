@@ -605,7 +605,8 @@ describe("AC-STE-444.6 — the prose edit breaks no test that reads the edited p
       expect(Number(ran![1]), "the subset run executed suspiciously few tests").toBeGreaterThan(50);
       expect(Number(ran![2])).toBe(files.length);
     },
-    60_000,
+    // Load budget: the nested subset run missed 60 s under full-suite load on trunk 13fdf144.
+    180_000,
   );
 });
 

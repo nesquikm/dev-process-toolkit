@@ -193,10 +193,20 @@ function unmarkedHunks(diff: string, marker: RegExp): string[] {
     .map((h) => h.split("\n")[0]!);
 }
 
+// A load-budget hunk changes a test's numeric timeout and adds one `// Load budget:`
+// comment, nothing else: no assertion, no prose, no other line can ride along.
+function isLoadBudgetHunk(hunk: string): boolean {
+  const changed = hunk.split("\n").slice(1).filter((l) => l.startsWith("+") || l.startsWith("-"));
+  const numeric = /^[-+]\s*(?:\}, )?\d[\d_]*\)?;?,?\s*$/;
+  const comments = changed.filter((l) => /^\+\s*\/\/ Load budget: /.test(l));
+  return comments.length === 1 && changed.every((l) => numeric.test(l) || comments.includes(l)) && changed.some((l) => l.startsWith("-"));
+}
+
 function expectUneditedBeyondMarked(path: string, ref: string, marker: RegExp): void {
   const proc = spawnSync("git", ["diff", "-U0", ref, "--", path], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(proc.status, proc.stderr).toBe(0);
-  expect(unmarkedHunks(proc.stdout, marker), `${path} has unmarked edits against ${ref}`).toEqual([]);
+  const hunks = proc.stdout.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ ") && !isLoadBudgetHunk(h)).join("");
+  expect(unmarkedHunks(hunks, marker), `${path} has unmarked edits against ${ref}`).toEqual([]);
   const tracked = spawnSync("git", ["cat-file", "-e", `${ref}:./${path}`], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(tracked.status, `${path} is not tracked on ${ref}`).toBe(0);
 }
@@ -686,6 +696,15 @@ describe("structural — gate-check's probe rows stay where the pins expect them
     expect(unmarkedHunks(marked, STE685_MARKER)).toEqual([]);
     expect(unmarkedHunks(marked + unmarked, STE685_MARKER)).toEqual(["@@ -9 +9 @@"]);
     expect(unmarkedHunks(marked.replace("685.3", "999.9"), STE685_MARKER)).toEqual(["@@ -1 +1 @@"]);
+  });
+
+  test("MUTATION: a load-budget hunk is admitted only when it moves a timeout and nothing else", () => {
+    const budget = "@@ -608 +608,2 @@\n-    60_000,\n+    // Load budget: missed 60 s under load.\n+    180_000,\n";
+    expect(isLoadBudgetHunk(budget)).toBe(true);
+    expect(isLoadBudgetHunk(budget.replace("// Load budget:", "// Budget:"))).toBe(false);
+    expect(isLoadBudgetHunk(`${budget}+    expect(x).toBe(1);\n`)).toBe(false);
+    expect(isLoadBudgetHunk(budget.replace("-    60_000,\n", "-    expect(y).toBe(2);\n"))).toBe(false);
+    expect(isLoadBudgetHunk("@@ -1,0 +1 @@\n+    // Load budget: nothing moved.\n")).toBe(false);
   });
 
   test("tests/m120-ste-444-jira-binding-prose.test.ts is green", () => {
