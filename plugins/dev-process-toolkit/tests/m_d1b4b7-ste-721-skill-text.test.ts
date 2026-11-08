@@ -19,6 +19,7 @@
 // implementer; the rows below assert the amended contents those files carry.
 
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -307,6 +308,29 @@ describe("AC-STE-721.12 no-flag identity of the shipped text", () => {
   });
 });
 
+// Amended by AC-STE-723.7 (M_fd9a03): the probe-count sweep's marked hunk in ste-587 is admitted.
+// A hunk of the -U0 diff against trunk is admitted only when every line it adds carries the
+// marker; an unmarked hunk, or a hunk that only deletes, is still an edit.
+const STE587_REL = "tests/m_8f07e0-ste-587-span-fixture.test.ts";
+const STE723_SWEEP_MARKER = /Amended by AC-STE-723\.7\b/;
+
+function diffAgainstTrunk(rel: string): string {
+  const proc = spawnSync("git", ["diff", "-U0", TRUNK_SHA, "--", rel], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
+  expect(proc.status, proc.stderr).toBe(0);
+  return proc.stdout;
+}
+
+function unmarkedSweepHunks(diff: string): string[] {
+  return diff
+    .split(/^(?=@@ )/m)
+    .filter((h) => h.startsWith("@@ "))
+    .filter((h) => {
+      const added = h.split("\n").filter((l) => l.startsWith("+"));
+      return added.length === 0 || !added.every((l) => STE723_SWEEP_MARKER.test(l));
+    })
+    .map((h) => h.split("\n")[0]!);
+}
+
 describe("AC-STE-721.13 the line budget and its pins", () => {
   test("SKILL.md measures exactly 212 split-lines (208 at STE-720) and keeps its STE-<n> token count", () => {
     expect(at720().split("\n").length).toBe(208);
@@ -348,7 +372,12 @@ describe("AC-STE-721.13 the line budget and its pins", () => {
     ];
     for (const [rel, line] of pins) {
       const cur = read(rel);
-      expect({ rel, unedited: cur === atRev(TRUNK_SHA, `plugins/dev-process-toolkit/${rel}`) }).toEqual({ rel, unedited: true });
+      // Amended by AC-STE-723.7 (M_fd9a03): the probe-count sweep's marked hunk in ste-587 is admitted.
+      if (rel === STE587_REL) {
+        expect({ rel, unmarked: unmarkedSweepHunks(diffAgainstTrunk(rel)) }).toEqual({ rel, unmarked: [] });
+      } else {
+        expect({ rel, unedited: cur === atRev(TRUNK_SHA, `plugins/dev-process-toolkit/${rel}`) }).toEqual({ rel, unedited: true });
+      }
       const pin = cur.split("\n")[line - 1]!.trim();
       expect({ rel, line, pin, at47: /^expect\((CANONICAL_CAPABILITY_KEYS\.length|discovered\.size)\)\.toBe\(47\);$/.test(pin) }).toEqual({ rel, line, pin, at47: true });
     }

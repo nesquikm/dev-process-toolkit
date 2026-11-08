@@ -323,3 +323,86 @@ describe("AC-STE-725.12 archived STE-722 differs from the M_d1b4b7 merge commit 
     expect(C_722_8.startsWith(" *(")).toBe(true);
   });
 });
+
+// ===========================================================================
+// AC-STE-725.5 — /gate-check's ## Rules and ## Reporting fresh-run lines
+// ===========================================================================
+
+const GATE_CHECK = `${PLUGIN_REL}/skills/gate-check/SKILL.md`;
+const RULE_FRESH = "- Do NOT report GATE PASSED without running commands fresh this session";
+const RULE_NO_SKIP = "- Do NOT skip any step — run all commands AND the code review";
+const REPORT_FRESH = "Run each command fresh and read the result";
+const RED_FLAGS = "## Red Flags";
+const RATIONALIZATION = "### Rationalization Prevention";
+
+/** The one line of `## Rules` starting with `head`. */
+function rulesLine(body: string, head: string): string[] {
+  return section(body, "## Rules").split("\n").filter((l) => l.startsWith(head));
+}
+
+/** `## Red Flags` up to `### Rationalization Prevention`, and that block up to the next `## ` or EOF. */
+function redFlagsBlock(body: string): string {
+  const a = body.indexOf(`\n${RED_FLAGS}\n`);
+  const b = body.indexOf(`\n${RATIONALIZATION}\n`, a);
+  return a < 0 || b < 0 ? "" : body.slice(a, b);
+}
+function rationalizationBlock(body: string): string {
+  const a = body.indexOf(`\n${RATIONALIZATION}\n`);
+  if (a < 0) return "";
+  const n = body.indexOf("\n## ", a + 1);
+  return body.slice(a, n < 0 ? body.length : n);
+}
+
+describe("AC-STE-725.5 /gate-check's fresh-run lines name the proven-reuse exception", () => {
+  test("CONTROL: trunk carries each line this AC rewrites exactly once, and none names the exception", () => {
+    const t = trunk(GATE_CHECK);
+    expect(rulesLine(t, RULE_FRESH)).toEqual([RULE_FRESH]);
+    expect(rulesLine(t, RULE_NO_SKIP)).toEqual([RULE_NO_SKIP]);
+    const rep = sentences(section(t, "## Reporting")).filter((s) => s.includes(REPORT_FRESH));
+    expect(rep.length).toBe(1);
+    expect(rep[0]).not.toContain("dpt-reuse:");
+  });
+
+  test("AC-STE-725.5 the ## Rules fresh-run line keeps its trunk text and names the front door and the live key", () => {
+    const lines = rulesLine(now(GATE_CHECK), RULE_FRESH);
+    expect(lines.length).toBe(1);
+    const appended = lines[0]!.slice(RULE_FRESH.length);
+    expect(appended).toContain("front door");
+    expect(appended).toContain("live key");
+  });
+
+  test("AC-STE-725.5 the ## Rules skip-no-step line keeps its wording, names (reused) and says the code review is never reused", () => {
+    const lines = rulesLine(now(GATE_CHECK), RULE_NO_SKIP);
+    expect(lines.length).toBe(1);
+    const appended = lines[0]!.slice(RULE_NO_SKIP.length);
+    expect(appended).toContain("(reused)");
+    expect(appended).toMatch(/code review is never reused/);
+  });
+
+  test("AC-STE-725.5 the ## Reporting fresh-run sentence names `dpt-reuse:`", () => {
+    const rep = sentences(section(now(GATE_CHECK), "## Reporting")).filter((s) => s.includes(REPORT_FRESH));
+    expect(rep.length).toBe(1);
+    expect(rep[0]).toContain("dpt-reuse:");
+  });
+
+  test("AC-STE-725.5 the ## Red Flags and ### Rationalization Prevention blocks are byte-identical to trunk", () => {
+    const t = trunk(GATE_CHECK);
+    const c = now(GATE_CHECK);
+    expect(redFlagsBlock(t).length).toBeGreaterThan(0);
+    expect(rationalizationBlock(t).length).toBeGreaterThan(0);
+    expect(redFlagsBlock(c)).toBe(redFlagsBlock(t));
+    expect(rationalizationBlock(c)).toBe(rationalizationBlock(t));
+  });
+
+  test("CONTROL: a one-byte edit inside either block in a temp copy is reported", () => {
+    const t = trunk(GATE_CHECK);
+    const flags = readFileSync(tempFile("SKILL.md", t.replace("→ run it now", "→ run it now!")), "utf-8");
+    expect(redFlagsBlock(flags)).not.toBe(redFlagsBlock(t));
+    const table = readFileSync(tempFile("SKILL.md", t.replace("| Just this once | No exceptions |", "| Just this once | No exception |")), "utf-8");
+    expect(rationalizationBlock(table)).not.toBe(rationalizationBlock(t));
+  });
+
+  test("AC-STE-725.5 needle: every gate-check sentence naming gate_reuse.ts names `reuse: on`", () => {
+    expect(unkeyedReuseMentions(now(GATE_CHECK))).toEqual([]);
+  });
+});

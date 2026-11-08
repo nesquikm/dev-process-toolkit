@@ -676,6 +676,8 @@ const CONDITIONAL_TARGETS: { module: string; verb?: string; condition: string }[
   { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
   // Amended by AC-STE-722.16 (M_d1b4b7)
   { module: "retro_offer.ts", condition: "retro: on" },
+  // Amended by AC-STE-724.21 (M_fd9a03)
+  { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },
 ];
 
 function sentences(text: string): string[] {
@@ -765,6 +767,16 @@ describe("AC-STE-708.13 zero extra tool calls", () => {
       "added without its condition (retro: on): retro_offer.ts",
     ]);
     expect(plant('Only if that call also printed `retro: on`, run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/retro_offer.ts" .`.')).toEqual([]);
+  });
+
+  // Amended by AC-STE-724.21 (M_fd9a03): gate_reuse.ts run is admitted only beside `reuse: on`.
+  test("AC-.13 control: a planted gate_reuse.ts run without reuse: on is reported, and admitted with it", () => {
+    expect(plant('Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_reuse.ts" run "<root>" test -- "bun test"`.')).toEqual([
+      "added without its condition (reuse: on): gate_reuse.ts run",
+    ]);
+    expect(
+      plant('Only if that call also printed `reuse: on`, run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_reuse.ts" run "<root>" test -- "bun test"`.'),
+    ).toEqual([]);
   });
 
   test("AC-.13 control: a removed trunk target turns the pin red", () => {

@@ -837,7 +837,8 @@ function probeRegistrationLines(): { number: number; line: string }[] {
 /** The count before this FR registered its probe — no surface may still read it. */
 const PREVIOUS_PROBE_COUNT = 87;
 /** The live registry count. Amended by AC-STE-693.6: probe count 88 -> 89 (probe #89 landed after #88). */
-const LIVE_PROBE_COUNT = 89;
+// Amended by AC-STE-723.7: probe count 89 -> 90.
+const LIVE_PROBE_COUNT = 90;
 
 /** Probe-count pins (the STE-673.6 table): after #88, none may still read 87. */
 const PINS: readonly (readonly [string, string])[] = [

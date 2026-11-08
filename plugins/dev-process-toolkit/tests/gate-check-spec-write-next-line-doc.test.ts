@@ -390,13 +390,15 @@ describe("AC-STE-380.5 — probe #66 registered in gate-check SKILL.md", () => {
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(readme).toContain("89 numbered");
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(readme).toContain("90 numbered");
     expect(readme).not.toContain("68 numbered");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(readme).toMatch(/layers 89 probes/);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(readme).toMatch(/layers 90 probes/);
     expect(readme).not.toMatch(/layers 68 probes/);
   });
 });
@@ -421,7 +423,8 @@ describe("AC-STE-380.7 — probe-count calibration stays coherent across surface
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(Math.max(...numbers)).toBe(89);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(Math.max(...numbers)).toBe(90);
 
     const readme = readFileSync(readmePath, "utf-8");
     const counted = readme.match(/(\d+) numbered `\/gate-check` probes/);
@@ -430,6 +433,7 @@ describe("AC-STE-380.7 — probe-count calibration stays coherent across surface
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(Number(counted![1])).toBe(89);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(Number(counted![1])).toBe(90);
   });
 });

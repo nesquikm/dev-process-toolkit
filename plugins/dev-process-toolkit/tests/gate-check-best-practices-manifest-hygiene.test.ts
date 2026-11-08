@@ -316,20 +316,23 @@ describe("AC-STE-465.4 — gate-check SKILL.md registers probe #76 best_practice
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
-  test("the numbered probe list is contiguous 1..89", () => {
+  // Amended by AC-STE-723.7: probe count 89 -> 90.
+  test("the numbered probe list is contiguous 1..90", () => {
     // Recalibrated 82 → 83: M140 added #83 external_link_verdicts.
     const numbers = [...gateCheckSkill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(numbers.length).toBe(89);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(numbers.length).toBe(90);
     expect([...numbers].sort((a, b) => a - b)).toEqual(
       // Amended by AC-STE-659.3: probe count 85 -> 86.
       // Amended by AC-STE-673.6: probe count 86 -> 87.
       // Amended by AC-STE-680.6: probe count 87 -> 88.
       // Amended by AC-STE-693.6: probe count 88 -> 89.
-      Array.from({ length: 89 }, (_, i) => i + 1),
+      // Amended by AC-STE-723.7: probe count 89 -> 90.
+      Array.from({ length: 90 }, (_, i) => i + 1),
     );
   });
 });
