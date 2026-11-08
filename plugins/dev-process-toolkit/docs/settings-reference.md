@@ -127,6 +127,19 @@ Optional key, not written by `/setup`: `docs.changelog_unversioned` (default `fa
 | --- | --- | --- | --- |
 | `retro.enabled` | boolean | `false` | new (STE-719), no legacy home; absent means off. The switch for the close-out retro offer only |
 
+### `optimizations`
+
+The key set is closed: exactly the one knob `gate_commands`. Any other key under `optimizations` is a config error, and a step that can never be reused (such as `code_review`) is refused by name. `/setup` writes no `optimizations` section.
+
+| Key | Type | Default | Replaces |
+| --- | --- | --- | --- |
+| `optimizations.gate_commands` | `reuse` \| `run` | `run` | new (STE-723), no legacy home; absent means `run` |
+
+- `run` (the default): `/gate-check` runs the project's deterministic gate commands (typecheck, lint, test, build) exactly as it always has. An absent key or an absent section reads `run`.
+- `reuse`: `/gate-check` may reuse a stored deterministic pass proved on identical input instead of running the command again. It takes effect only when `tracking.gate_outcomes.enabled` is `true`; nothing turns that key on implicitly, and without it the knob reads `run`. No value skips a command, lowers a severity or changes what a run checks.
+- The loader checks the knob name only. The value is graded by `/gate-check` probe `optimizations_reuse_only`, which refuses any value other than `reuse` or `run`.
+- Residual (STE-724): git-ignored paths such as a local `.env`, dependency directories such as `node_modules`, generated and build output, and runtimes other than Bun are outside the key; a change there can make a reused pass one a fresh run would not produce. The same-session limit bounds that residual, it is not closed.
+
 ### `release`
 
 | Key | Type | Default | Replaces |

@@ -163,8 +163,12 @@ const V300_GET: Record<Fixture, Record<string, Out>> = {
 const NAMED_DIFFERENCES: Record<string, { why: string; now: Out }> = {
   tracking: { why: "get tracking prints the M_7bc805 blocks as STE-717 pins it", now: TRACKING_NOW },
   retro: { why: "get retro exits 0 and prints the retro section", now: ok(json(["{", '  "enabled": false', "}"])) },
-  nosuch: { why: "the Remedy: section list gains retro after close_out", now: notASection("nosuch", NOW_SECTIONS) },
+  // Amended by AC-STE-723.15 (M_fd9a03): optimizations joins TOP_KEYS last.
+  nosuch: { why: "the Remedy: section list gains retro after close_out", now: notASection("nosuch", `${NOW_SECTIONS}, optimizations`) },
 };
+
+// Amended by AC-STE-723.15 (M_fd9a03): optimizations joins TOP_KEYS last.
+const GET_OPTIMIZATIONS: Out = ok(json(["{", '  "gate_commands": "run"', "}"]));
 
 const nowGet = (f: Fixture, section: string): Out => NAMED_DIFFERENCES[section]?.now ?? V300_GET[f][section]!;
 
@@ -295,6 +299,8 @@ describe("AC-STE-722.12 named difference: project_settings.ts get", () => {
       for (const section of Object.keys(V300_GET[f])) {
         expect({ section, ...getRun(root, section) }).toEqual({ section, ...nowGet(f, section) });
       }
+      // Amended by AC-STE-723.15 (M_fd9a03): optimizations joins TOP_KEYS last.
+      expect({ section: "optimizations", ...getRun(root, "optimizations") }).toEqual({ section: "optimizations", ...GET_OPTIMIZATIONS });
     }, T);
   }
 

@@ -4,9 +4,11 @@
 //   bun run retro_proposal.ts propose <projectRoot> <report-file>
 //   bun run retro_proposal.ts apply   <projectRoot> <report-file> <digest>
 //
-// `PROPOSABLE_SETTINGS` is the closed table of proposable rows. Every row
-// turns a recording on: its key is `tracking.<name>.enabled` and its value is
-// `true`. A row outside that shape is refused when the module loads, before
+// `PROPOSABLE_SETTINGS` is the closed table of proposable rows. A row either
+// turns a recording on (its key is `tracking.<name>.enabled` and its value is
+// `true`) or, per STE-723, turns an optimization knob to reuse (its key is
+// `optimizations.<knob>` for a knob in `OPTIMIZATION_KNOBS` and its value is
+// `reuse`). A row outside that shape is refused when the module loads, before
 // any proposal is computed.
 
 import { spawnSync } from "node:child_process";
@@ -20,6 +22,7 @@ import { sessionTranscriptPath } from "./find_current_session";
 import { perQuestionConsent } from "./join_consent_ownership";
 import { loadProjectSection, SETTINGS_FILE, settingsWriteSource } from "./project_settings";
 import { writeProjectSettings } from "./project_settings_writer";
+import { OPTIMIZATION_KNOBS } from "./optimizations_config";
 import { parseRetroReport, type RetroReport } from "./retro_report";
 import { EMPTY_SCOPE_REASON } from "./retro_scope";
 import { bunInvocation, realpathOr } from "./shell_invocations";
@@ -32,11 +35,13 @@ export interface ProposalTrigger {
   names: string;
   /** Also fires when the scope resolved to no session with a reason naming `names`. */
   emptyScope: boolean;
+  /** STE-723: fires when one of `rules` tripped (not on a skip), and only while the key `requires` is true. */
+  tripped?: { requires: string };
 }
 
 export interface ProposableSetting {
   key: string;
-  value: true;
+  value: true | "reuse";
   trigger: ProposalTrigger;
 }
 
@@ -56,19 +61,44 @@ export const PROPOSABLE_SETTINGS: readonly ProposableSetting[] = Object.freeze([
     value: true,
     trigger: { rules: ["slow_gate_run", "gate_rerun_unchanged_key"], names: "tracking.gate_outcomes off", emptyScope: false },
   },
+  {
+    key: "optimizations.gate_commands",
+    value: "reuse",
+    trigger: {
+      rules: ["gate_rerun_unchanged_key"],
+      names: "tracking.gate_outcomes on",
+      emptyScope: false,
+      tripped: { requires: "tracking.gate_outcomes.enabled" },
+    },
+  },
 ] as ProposableSetting[]);
 
 const ROW_KEY_RE = /^tracking\.[a-z][a-z0-9_]*\.enabled$/;
 
-/** Refuse any row outside the closed shape: a `tracking.<name>.enabled` key with the value `true`. */
+const OPTIMIZATION_PREFIX = "optimizations.";
+
+/** True for `optimizations.<knob>` with the knob in `OPTIMIZATION_KNOBS` (STE-723). */
+function isOptimizationKey(key: string): boolean {
+  return key.startsWith(OPTIMIZATION_PREFIX) && (OPTIMIZATION_KNOBS as readonly string[]).includes(key.slice(OPTIMIZATION_PREFIX.length));
+}
+
+/**
+ * Refuse any row outside the closed shape: a `tracking.<name>.enabled` key with
+ * the value `true`, or (STE-723) an `optimizations.<knob>` key, the knob in
+ * `OPTIMIZATION_KNOBS`, with the value `reuse`.
+ */
 function assertClosedShape(rows: readonly unknown[]): void {
   for (const row of rows) {
     const r = row as Partial<ProposableSetting> | null;
     const key = typeof r?.key === "string" ? r.key : JSON.stringify(r?.key);
-    if (r === null || typeof r !== "object" || typeof r.key !== "string" || !ROW_KEY_RE.test(r.key)) {
-      throw new Error(`PROPOSABLE_SETTINGS: row ${key} is outside the closed shape (a tracking.<name>.enabled key)`);
+    const optimization = r !== null && typeof r === "object" && typeof r.key === "string" && isOptimizationKey(r.key);
+    if (r === null || typeof r !== "object" || typeof r.key !== "string" || (!ROW_KEY_RE.test(r.key) && !optimization)) {
+      throw new Error(`PROPOSABLE_SETTINGS: row ${key} is outside the closed shape (a tracking.<name>.enabled key or an optimizations.<knob> key)`);
     }
-    if (r.value !== true) {
+    if (optimization && r.value !== "reuse") {
+      throw new Error(`PROPOSABLE_SETTINGS: row ${key} proposes ${JSON.stringify(r.value)}; only reuse is proposable for an optimizations knob`);
+    }
+    if (!optimization && r.value !== true) {
       throw new Error(`PROPOSABLE_SETTINGS: row ${key} proposes ${JSON.stringify(r.value)}; only true is proposable`);
     }
     if (r.trigger === null || r.trigger === undefined) {
@@ -90,6 +120,11 @@ export interface ProposalMatch {
 export function matchProposals(report: RetroReport): ProposalMatch[] {
   const out: ProposalMatch[] = [];
   for (const row of PROPOSABLE_SETTINGS) {
+    if (row.trigger.tripped !== undefined) {
+      const trip = report.rules.find((r) => r.disposition === "tripped" && row.trigger.rules.includes(r.id));
+      if (trip !== undefined) out.push({ row, rule: trip.id, disposition: "tripped", reason: typeof trip.reason === "string" ? trip.reason : row.trigger.names });
+      continue;
+    }
     const hit = report.rules.find(
       (r) =>
         r.disposition !== "tripped" &&
@@ -107,9 +142,12 @@ export const LOCAL_SETTINGS_PATH = ".claude/settings.local.json";
 const TOOL_CALLS_KEY = "tracking.tool_calls.enabled";
 export const GITIGNORE_LINE = `add .gitignore: ${LOCAL_SETTINGS_PATH}`;
 
-/** The row's current value, read through its own section: `tracking.<name>.enabled`. */
+/** The row's current value, read through its own section: `tracking.<name>.enabled` or `optimizations.<knob>`. */
 function currentValue(projectRoot: string, key: string): unknown {
   const [section, name, leaf] = key.split(".");
+  if (section === "optimizations" && leaf === undefined) {
+    return (loadProjectSection(projectRoot, "optimizations") as Record<string, unknown> | undefined)?.[name!];
+  }
   if (section !== "tracking") throw new Error(`no section read for ${key}`);
   const tracking = loadProjectSection(projectRoot, "tracking") as Record<string, Record<string, unknown> | undefined>;
   return tracking?.[name!]?.[leaf!];
@@ -164,7 +202,11 @@ export function proposalDigest(projectRoot: string, lines: readonly string[]): s
 export function proposeLines(projectRoot: string, reportText: string): string[] {
   const report = parseRetroReport(reportText);
   if (settingsWriteSource(projectRoot) !== "settings") return [];
-  const matches = matchProposals(report).filter((m) => currentValue(projectRoot, m.row.key) !== m.row.value);
+  const matches = matchProposals(report).filter(
+    (m) =>
+      (m.row.trigger.tripped === undefined || currentValue(projectRoot, m.row.trigger.tripped.requires) === true) &&
+      currentValue(projectRoot, m.row.key) !== m.row.value,
+  );
   if (matches.length === 0) return [];
   const lines = [
     ...matches.map((m) => `set ${m.row.key}: ${m.row.value}`),
@@ -351,11 +393,14 @@ function asRefusal(e: unknown, why: string, remedy: string, context: string): Re
 }
 
 /** The nested settings update that sets each `section.name.leaf` key to its value. */
-function settingsUpdate(keys: readonly string[]): Record<string, unknown> {
-  const out: Record<string, Record<string, Record<string, unknown>>> = {};
-  for (const key of keys) {
-    const [section, name, leaf] = key.split(".") as [string, string, string];
-    ((out[section] ??= {})[name] ??= {})[leaf] = true;
+function settingsUpdate(rows: readonly ProposableSetting[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const row of rows) {
+    const parts = row.key.split(".");
+    const leaf = parts.pop()!;
+    let node = out;
+    for (const part of parts) node = (node[part] ??= {}) as Record<string, unknown>;
+    node[leaf] = row.value;
   }
   return out;
 }
@@ -438,7 +483,8 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
   }
   process.stdout.write(`${CONSUMED_PREFIX}${digest}\n`);
 
-  const keys = PROPOSABLE_SETTINGS.map((r) => r.key).filter((k) => lines.includes(`set ${k}: true`));
+  const rows = PROPOSABLE_SETTINGS.filter((r) => lines.includes(`set ${r.key}: ${r.value}`));
+  const keys = rows.map((r) => r.key);
   const toolCalls = keys.includes(TOOL_CALLS_KEY);
   const addIgnore = lines.includes(GITIGNORE_LINE);
 
@@ -461,7 +507,7 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
   };
   try {
     // 2. Write each row's key.
-    writeProjectSettings(projectRoot, settingsUpdate(keys));
+    writeProjectSettings(projectRoot, settingsUpdate(rows));
     // 3. Append the printed .gitignore line.
     if (addIgnore) {
       const gi = paths[1]!;

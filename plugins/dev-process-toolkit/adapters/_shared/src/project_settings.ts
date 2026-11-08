@@ -41,7 +41,7 @@ export const SETTINGS_FILE = "specs/settings.yaml";
 const MODE_DEFAULTED = new WeakSet<object>();
 
 /** Dotted paths of the keys with no v2.101.4 reader (the AC-STE-706.12 `new` rows). */
-export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes", "tracking.tool_calls", "retro"];
+export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes", "tracking.tool_calls", "retro", "optimizations.gate_commands"];
 
 export type SettingsSource = "settings" | "legacy" | "none" | "both";
 
@@ -61,6 +61,7 @@ export interface ProjectSettings {
   retro: { enabled: boolean };
   release: { files: unknown[] };
   video: { config: VideoConfig | null; style: VideoStyle | null };
+  optimizations: Record<string, unknown>;
 }
 
 /** NFR-10 refusal shape: Refusing / Remedy / Context. */
@@ -220,6 +221,7 @@ function defaults(): ProjectSettings {
     retro: { enabled: false },
     release: { files: [] },
     video: { config: null, style: null },
+    optimizations: Object.fromEntries(OPTIMIZATION_KEYS.map((k) => [k, "run"])),
   };
 }
 
@@ -240,6 +242,7 @@ const TOP_KEYS = [
   "retro",
   "release",
   "video",
+  "optimizations",
 ] as const;
 // A function, not a const: `CANONICAL_KEYS` may still be uninitialised while an
 // import cycle through probe #21 (which reads the settings file through this
@@ -261,6 +264,12 @@ const STATUS_VOCABULARY_KEYS = ["tracker_key", "statuses", "roles"];
 const DOCS_KEYS = ["user_facing_mode", "packages_mode", "changelog_ci_owned", "changelog_unversioned"];
 const ORCHESTRATION_KEYS = ["default_effort", "merge_policy"];
 const RELEASE_ENTRY_KEYS = ["path", "kind", "field", "pattern", "replace", "optional"];
+/**
+ * STE-723 — the closed `optimizations` knob set (key order and every knob's `run` default).
+ * Equals `OPTIMIZATION_KNOBS` in optimizations_config.ts, which imports this
+ * module, so the list stays local here rather than closing an import cycle.
+ */
+const OPTIMIZATION_KEYS = ["gate_commands"];
 
 /** The moved CLAUDE.md headings (stub slot excluded) and the keys that make each a second home. */
 // A function, not a const: the legacy module's key sets may still be
@@ -301,6 +310,7 @@ export function settingsKeyOrder(path: string): readonly string[] {
     release: ["files"],
     "release.files[]": RELEASE_ENTRY_KEYS,
     video: ["config", "style"],
+    optimizations: OPTIMIZATION_KEYS,
   };
   return orders[path] ?? [];
 }
@@ -467,6 +477,8 @@ const SECTION_VALIDATORS: Record<SectionKey, (v: unknown) => void> = {
   },
   release: validateRelease,
   video: (v) => closeKeys(requireMap(v, "video"), "video", settingsKeyOrder("video")),
+  // STE-723: the knob name is closed here; the value is graded by validateOptimizations.
+  optimizations: (v) => closeKeys(requireMap(v, "optimizations"), "optimizations", settingsKeyOrder("optimizations")),
 };
 
 /** Whole-file shape check of a parsed settings file (AC-STE-706.2). */
@@ -542,6 +554,7 @@ function buildSection<K extends SectionKey>(parsed: Record<string, unknown>, sec
           video.style === undefined ? null : delegateVideo("video.style", () => parseVideoStyle(JSON.stringify(video.style))),
       };
     },
+    optimizations: () => ({ ...d.optimizations, ...(isObj(parsed.optimizations) ? parsed.optimizations : {}) }),
   };
   return built[section]() as ProjectSettings[K];
 }
@@ -562,6 +575,7 @@ export function loadFromSettingsFile(projectRoot: string): ProjectSettings {
     retro: buildSection(parsed, "retro"),
     release: buildSection(parsed, "release"),
     video: buildSection(parsed, "video"),
+    optimizations: buildSection(parsed, "optimizations"),
   };
 }
 
@@ -614,6 +628,7 @@ function loadLegacy(projectRoot: string): ProjectSettings {
     retro: defaults().retro,
     release: loadLegacySection(projectRoot, "release"),
     video: loadLegacySection(projectRoot, "video"),
+    optimizations: defaults().optimizations,
   };
 }
 
@@ -778,6 +793,24 @@ export function settingsSectionKeys(projectRoot: string, section: string): { key
       if (m) out.push({ key: m[1]!, line: i + 1 });
     }
     return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * STE-723 — the parsed value of top-level section `section`, through the
+ * loader's own `Bun.YAML.parse`: `{ value }` (`null` for a bare key, `undefined`
+ * for an absent one), or null when the file is absent, unreadable, not valid
+ * YAML or not a mapping. Validates nothing; never throws.
+ */
+export function settingsSectionValue(projectRoot: string, section: string): { value: unknown } | null {
+  try {
+    const text = readSettingsText(projectRoot);
+    if (text === null) return null;
+    const parsed: unknown = Bun.YAML.parse(text);
+    if (!isObj(parsed)) return null;
+    return { value: parsed[section] };
   } catch {
     return null;
   }
