@@ -328,7 +328,8 @@ export const GATE_OUTCOME_KIND = "gate-outcome";
 /** The line prefix an outcome write is announced with — never `dpt-receipt: `. */
 export const GATE_OUTCOME_ANNOUNCEMENT_PREFIX = "dpt-gate-outcome: ";
 
-const STEP_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
+/** The step-name rule `--step` names follow; the gate_reuse front door's labels follow it too. */
+export const STEP_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
 
 export interface GateOutcomeStep {
   name: string;
@@ -368,21 +369,24 @@ function parseOutcomeArgs(rest: readonly string[]): { verdict: "pass" | "fail"; 
   return { verdict, steps };
 }
 
-interface StoredReceipt {
+export interface StoredReceipt {
+  path: string;
   bytes: Buffer;
   record: Record<string, any>;
 }
 
-function sessionReceiptFiles(root: string, sessionId: string): StoredReceipt[] {
+/** This session's parseable receipt files under `root`, in file-name order. Throws on an unsafe session id. */
+export function sessionReceiptFiles(root: string, sessionId: string): StoredReceipt[] {
   const dir = receiptsDir(root, sessionId);
   if (!existsSync(dir)) return [];
   const out: StoredReceipt[] = [];
   for (const name of readdirSync(dir).sort()) {
     if (!name.endsWith(".json")) continue;
     try {
-      const bytes = readFileSync(join(dir, name));
+      const path = join(dir, name);
+      const bytes = readFileSync(path);
       const record = JSON.parse(bytes.toString("utf-8"));
-      if (record !== null && typeof record === "object" && record.sessionId === sessionId) out.push({ bytes, record });
+      if (record !== null && typeof record === "object" && record.sessionId === sessionId) out.push({ path, bytes, record });
     } catch {
       // A file that does not parse pairs with nothing.
     }
@@ -1777,7 +1781,21 @@ async function runReceiptFrontDoor(argv: readonly string[]): Promise<void> {
     console.log(announceReceipt(path));
     // STE-715: a receipt carrying a key means the switch read on and the key
     // was computed, so the gate's outcome call may follow.
-    if (receiptCarriesKey(path)) console.log("outcome: on");
+    if (!receiptCarriesKey(path)) return;
+    console.log("outcome: on");
+    // STE-724 (AC-STE-724.20): only the gate-check receipt call reports the
+    // gate_commands knob. A dynamic import keeps optimizations_config.ts off
+    // the hooks' static import graph and unloaded with the outcome switch off;
+    // any load or read error prints nothing extra and changes nothing else.
+    if (skill !== "gate-check") return;
+    try {
+      const root = checkoutRootOf(target);
+      if (root === null) return;
+      const { readOptimizations } = await import("./optimizations_config");
+      if (readOptimizations(root).gate_commands === "reuse") console.log("reuse: on");
+    } catch {
+      // best effort: the receipt and its two lines stand as written
+    }
   } catch (error) {
     // stderr, never stdout — the fail-closed invariant in this file's header.
     console.error(error instanceof Error ? error.message : String(error));

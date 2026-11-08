@@ -363,7 +363,7 @@ function readGatePid(pidFile: string): number | null {
 }
 
 /** Signal a whole process group; a group that is already gone is not an error. */
-function signalGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
+export function signalGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
   try {
     process.kill(-pid, signal);
   } catch {

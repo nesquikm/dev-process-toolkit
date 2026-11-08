@@ -389,6 +389,7 @@ describe("AC-STE-715.13 switch off", () => {
   test("switch on: the receipt CLI prints exactly two lines, the announcement then `outcome: on`", () => {
     const root = makeTree("on-two-lines", "on");
     const { run, path } = mintRun(root);
+    // Amended by AC-STE-724.20: two lines -> three when reuse is on.
     expect(run.stdout).toBe(`dpt-receipt: ${path} sha256:${sha(readFileSync(path))}\noutcome: on\n`);
     expect(run.stderr).toBe("");
   }, T);
