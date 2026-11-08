@@ -49,6 +49,7 @@ import { GATE_STEP_KIND } from "../adapters/_shared/src/gate_reuse";
 import { GIT_ENV, PLUGIN_REL, PLUGIN_ROOT, REPO_ROOT, atV300, cleanupTemps, makeTree, sentences } from "./_m_7bc805_gate_outcome_fixture";
 import { snapshot, v300Plugin } from "./_m_7bc805_timeline_fixture";
 import { settingsYaml } from "./_m_d1b4b7_ste722_fixture";
+import { readSpecFile } from "./_spec_tree";
 
 afterAll(cleanupTemps);
 
@@ -352,7 +353,7 @@ describe("AC-STE-725.13 the AC-STE-715.15 /gate-check modeller, re-run on the fi
       new RegExp(["\\bno\\b", "/gate-check", "modell?er", "\\bexists?\\b"].join("[^.]*"), "i"),
       new RegExp(["\\bno\\b", "modell?er", "\\bexists?\\b", "/gate-check"].join("[^.]*"), "i"),
     ];
-    const fr = readFileSync(join(REPO_ROOT, "specs", "frs", "STE-725.md"), "utf-8");
+    const fr = readSpecFile(REPO_ROOT, "specs/frs", "STE-725.md").body; // active, or its archived twin once M_fd9a03 is archived
     // The AC's own rule sentence quotes the ban it states: it is exempt by its exact bytes, read from the
     // AC-STE-725.13 line itself, and is the only sentence of that line that names the test file.
     const acLine = fr.split("\n").find((l) => l.startsWith("- AC-STE-725.13:")) ?? "";
