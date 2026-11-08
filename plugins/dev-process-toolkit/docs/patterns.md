@@ -799,3 +799,17 @@ Two riders, both learned the hard way. Prefer replacing a narrowed ban with some
 Two more, added by STE-450 after both were hit in one FR. **Run the mutation against the form you are REPLACING, not only the one you are shipping.** A RED under the new pin proves nothing until you know the old pin stayed green — otherwise the mutation cannot distinguish them and the "proof" is that both forms work. Measured instance: a document-wide `toContain` was narrowed to one line and the obvious mutation (delete that line) reddened both, because the token occurred exactly once; only deleting the line *while leaving the token elsewhere* separated them. And **the collision has a positive twin that is harder to see.** Everything above is about bans firing where they should not. The same wrong-scope root cause also makes *positive* pins succeed where they should not — `toContain("GATE FAILED")` satisfied by the `<…>` placeholder in a failure-diagnostic template while the operative assertion it guards is deleted. A spurious RED announces itself; a spurious GREEN never does.
 
 **Cross-refs**: Pattern 12 (Verification-Before-Completion), `specs/notes/follow-ups.md` § 0b (mutation-probe hazards), `specs/plan/archive/M121.md` § Recorded conflict — AC-STE-423.4 vs AC-STE-446.4 (what happens when a pin and a shipped AC cannot both be satisfied).
+
+## Pattern 32: Reuse of a Proven Result {#pattern-proven-reuse}
+
+**Problem**: A gate run costs minutes, and the tempting shortcut is to skip it when "nothing changed". Said from memory, that is a stale claim. The question is not whether a past run passed, but whether it still proves anything about the tree in front of you.
+
+**Solution**: **Reuse a result only when its key is recomputed on the spot and matches.** The key names everything the result depends on, and a mismatch, a missing record or any doubt means run the thing again. The house shape has three instances:
+
+- **STE-196 carve-out** — `/simplify` skips its gate re-run only when its edits were a no-op and the prior gate stamp is clean.
+- **Skip baseline** — `assertCapturable` captures a baseline only at HEAD with an empty `git status --porcelain`, untracked files included, so the stored result names exactly the bytes it was taken on.
+- **STE-724** — the gate-command reuse key recomputes a command's key from the live tree and reuses its stored pass only on a deep-equal match; anything else reruns. It is off by default.
+
+A reused result is a recomputed fact, not a remembered one, so it satisfies Pattern 12. It never stands in for evidence a guard asks for: the commit and pull request hooks still read the same legs.
+
+**Cross-refs**: Pattern 12 (Verification-Before-Completion), `adapters/_shared/src/skip_baseline.ts` (`assertCapturable`), `adapters/_shared/src/gate_reuse.ts` (the STE-724 front door), `docs/hooks-reference.md` (the "What counts as evidence" paragraph).

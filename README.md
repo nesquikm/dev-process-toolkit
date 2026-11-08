@@ -227,7 +227,7 @@ The key insight: **deterministic checks always override LLM judgment**. A failin
 - [`plugins/dev-process-toolkit/docs/sdd-methodology.md`](plugins/dev-process-toolkit/docs/sdd-methodology.md) — What SDD is and how it works
 - [`plugins/dev-process-toolkit/docs/skill-anatomy.md`](plugins/dev-process-toolkit/docs/skill-anatomy.md) — How Claude Code skills work
 - [`plugins/dev-process-toolkit/docs/adaptation-guide.md`](plugins/dev-process-toolkit/docs/adaptation-guide.md) — Reference for customizing skills and configuration after `/setup`
-- [`plugins/dev-process-toolkit/docs/patterns.md`](plugins/dev-process-toolkit/docs/patterns.md) — 31 proven patterns + anti-patterns
+- [`plugins/dev-process-toolkit/docs/patterns.md`](plugins/dev-process-toolkit/docs/patterns.md) — 32 proven patterns + anti-patterns
 - [`plugins/dev-process-toolkit/docs/upgrade-reference.md`](plugins/dev-process-toolkit/docs/upgrade-reference.md) — `/upgrade` migration-registry contract + entry-authoring guide (detector purity, kind semantics, approval rails)
 - [`plugins/dev-process-toolkit/docs/layout-reference.md`](plugins/dev-process-toolkit/docs/layout-reference.md) — spec layout behavioral contract (file-per-FR keyed by tracker ID / short-ULID; ULID in frontmatter; Provider interface; skill integration map)
 - [`plugins/dev-process-toolkit/docs/hooks-reference.md`](plugins/dev-process-toolkit/docs/hooks-reference.md) — The manual for the bundled hooks: what each one does, the blocking `PreToolUse` gates that refuse `git commit` and `gh pr create` until the Skill they name has run in the session, the receipt-demanding `pre-tracker-write-gate` that refuses shared-container tracker writes no deciding command approved, their exact refusal text, and the override path

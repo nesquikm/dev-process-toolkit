@@ -43,6 +43,11 @@ const V300_IMPLEMENT_SHA = "ac70d0fe5fa910e619acef3b8dd0c42b5b5b16bf4ce56bda8865
 const V300_LINE_297_INDEX = 296;
 const V300_LINE_297_LENGTH = 959;
 const V300_LINE_297_SHA = "623415a58299bb89f58ff631ca0f5bd0533a1dff7af734f9969b801838586e58";
+// Amended by AC-STE-725.12 (M_fd9a03): step i gains the reuse clause.
+// Measured on 9dab5086: line 213 (index 212), the Phase 3 step-i line, is 146 UTF-16 code units.
+const V300_STEP_I_INDEX = 212;
+const V300_STEP_I_LENGTH = 146;
+const V300_STEP_I_SHA = "ddcfac191f62b1f2eb17a88cd98f6cffd1591d50cd87b731f50ebb162bcd069c";
 
 const IMPLEMENT_ACCEPT = "Accept: `/dev-process-toolkit:retro <scope>`.";
 const IMPLEMENT_DECLINE = "Run: /dev-process-toolkit:retro <scope>";
@@ -58,6 +63,10 @@ function appendedToLine297(body: string): { appended: string } | { error: string
   if (sha256(base) !== V300_LINE_297_SHA) return { error: "line 297 does not start with its v3.0.0 bytes" };
   const restored = [...lines];
   restored[V300_LINE_297_INDEX] = base;
+  // Amended by AC-STE-725.12 (M_fd9a03): step i gains the reuse clause.
+  const stepI = lines[V300_STEP_I_INDEX]!.slice(0, V300_STEP_I_LENGTH);
+  if (sha256(stepI) !== V300_STEP_I_SHA) return { error: "the step-i line does not start with its v3.0.0 bytes" };
+  restored[V300_STEP_I_INDEX] = stepI;
   if (sha256(restored.join("\n")) !== V300_IMPLEMENT_SHA) return { error: "a line other than 297 differs from v3.0.0" };
   const appended = line.slice(V300_LINE_297_LENGTH);
   if (appended.length === 0) return { error: "nothing appended to line 297" };
@@ -107,6 +116,22 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     const edited = [...lines];
     edited[5] = `${edited[5]}x`;
     expect(appendedToLine297(edited.join("\n"))).toHaveProperty("error");
+  });
+
+  // Amended by AC-STE-725.12 (M_fd9a03): step i gains the reuse clause.
+  test("AC-.8 control (AC-STE-725.12): one byte of the step-i trunk prefix edited, or a third line edited, is rejected", () => {
+    const lines = read(IMPLEMENT_SKILL).split("\n");
+    expect(appendedToLine297(lines.join("\n"))).not.toHaveProperty("error");
+    const prefix = [...lines];
+    const l = prefix[V300_STEP_I_INDEX]!;
+    prefix[V300_STEP_I_INDEX] = `${l.slice(0, 10)}${l[10] === "x" ? "y" : "x"}${l.slice(11)}`;
+    expect(appendedToLine297(prefix.join("\n"))).toHaveProperty("error");
+    const appendedToStepI = [...lines];
+    appendedToStepI[V300_STEP_I_INDEX] = `${appendedToStepI[V300_STEP_I_INDEX]} extra clause.`;
+    expect(appendedToLine297(appendedToStepI.join("\n"))).not.toHaveProperty("error");
+    const third = [...lines];
+    third[V300_STEP_I_INDEX + 1] = `${third[V300_STEP_I_INDEX + 1]}x`;
+    expect(appendedToLine297(third.join("\n"))).toHaveProperty("error");
   });
 
   test("AC-.8 the appended text carries the anchor, the retro: on condition, accept, decline, the clause and the pointer, and no STE token", () => {

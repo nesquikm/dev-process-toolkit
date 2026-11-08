@@ -22,6 +22,7 @@ import {
   GATE_OUTCOME_ANNOUNCEMENT_PREFIX,
   GATE_OUTCOME_KIND,
   GATE_RECEIPT_KIND,
+  announcesGateReceipt,
   gateSubject,
   runsGateOutcome,
   sessionReceiptFiles,
@@ -109,9 +110,16 @@ function storedFiles(root: string, sessionId: string): StoredFile[] {
 }
 
 /** The transcript's announcements of each kind, each vouched by the call that printed it. */
-function vouchedAnnouncements(transcript: string): { steps: Map<string, string>; outcomes: Map<string, string> } {
+interface Announcements {
+  steps: Map<string, string>;
+  outcomes: Map<string, string>;
+  runs: Map<string, string>;
+}
+
+function vouchedAnnouncements(transcript: string): Announcements {
   const steps = new Map<string, string>();
   const outcomes = new Map<string, string>();
+  const runs = new Map<string, string>();
   let records: unknown[];
   try {
     records = readFileSync(transcript, "utf-8")
@@ -124,7 +132,7 @@ function vouchedAnnouncements(transcript: string): { steps: Map<string, string>;
         }
       });
   } catch {
-    return { steps, outcomes };
+    return { steps, outcomes, runs };
   }
   const commands = new Map<string, string>();
   for (const { block, record } of firstCopies(records)) {
@@ -138,7 +146,8 @@ function vouchedAnnouncements(transcript: string): { steps: Map<string, string>;
     if (command === undefined) continue;
     const isStep = announcesGateStep(command);
     const isOutcome = !isStep && runsGateOutcome(command);
-    if (!isStep && !isOutcome) continue;
+    const isRun = !isStep && !isOutcome && announcesGateReceipt(command);
+    if (!isStep && !isOutcome && !isRun) continue;
     // A step is vouched only by the door's own stdout: the recorded
     // `toolUseResult.stdout`, never the concatenated content, which also
     // carries the gated command's output. No string stdout vouches nothing.
@@ -151,16 +160,16 @@ function vouchedAnnouncements(transcript: string): { steps: Map<string, string>;
     if (isStep && text.split("\n").filter((l) => l.trim() !== "").length !== 1) continue;
     for (const raw of text.split("\n")) {
       const line = raw.trim();
-      if (isStep) {
+      if (isStep || isRun) {
         const a = parseReceiptAnnouncement(line);
-        if (a !== null && a.digest !== null) steps.set(resolve(a.path), a.digest);
+        if (a !== null && a.digest !== null) (isStep ? steps : runs).set(resolve(a.path), a.digest);
       } else if (line.startsWith(GATE_OUTCOME_ANNOUNCEMENT_PREFIX)) {
         const a = parseReceiptAnnouncement(RECEIPT_ANNOUNCEMENT_PREFIX + line.slice(GATE_OUTCOME_ANNOUNCEMENT_PREFIX.length));
         if (a !== null && a.digest !== null) outcomes.set(resolve(a.path), a.digest);
       }
     }
   }
-  return { steps, outcomes };
+  return { steps, outcomes, runs };
 }
 
 /** The Bash result record's `toolUseResult.stdout`, or null when it is not a string. */
@@ -199,6 +208,61 @@ function knobOn(root: string): boolean {
   }
 }
 
+/** This session's stored receipts, read against what its transcript announced. */
+interface VouchedSession {
+  files: StoredFile[];
+  announced: Announcements;
+  /** The digests of the runs an announced `gate-outcome` pass with `key_stable: true` references. */
+  passedRuns: Set<unknown>;
+}
+
+const vouched = (f: StoredFile, announced: Map<string, string>): boolean =>
+  announced.get(resolve(f.path)) === receiptDigest(f.bytes);
+
+/** The session's vouched store, or the reason there is none. Reads `CLAUDE_CODE_SESSION_ID`; runs nothing. */
+function vouchedSession(realRoot: string): VouchedSession | string {
+  const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
+  if (sessionId === undefined || sessionId === "") return "no-session";
+  const transcript = sessionTranscriptPath(sessionId, process.cwd());
+  if (transcript === null) return "no-transcript";
+  const announced = vouchedAnnouncements(transcript);
+  const files = storedFiles(realRoot, sessionId);
+  const passedRuns = new Set(
+    files
+      .filter(
+        (f) =>
+          f.record.kind === GATE_OUTCOME_KIND &&
+          f.record.decision === "pass" &&
+          f.record.evidence?.key_stable === true &&
+          vouched(f, announced.outcomes),
+      )
+      .map((f) => f.record.evidence?.run),
+  );
+  return { files, announced, passedRuns };
+}
+
+/**
+ * The ONE decision both verbs share: the `gate-step` receipts `select` picks,
+ * newest first, that are vouched passes on `liveKey` of a passed run.
+ */
+function reusableSteps(
+  s: VouchedSession,
+  select: (r: Record<string, any>) => boolean,
+  liveKey: (r: Record<string, any>) => ReuseKey,
+): StoredFile[] {
+  const { passedRuns, announced: { steps } } = s;
+  const out: StoredFile[] = [];
+  for (const f of [...s.files].reverse()) {
+    const r = f.record;
+    if (r.kind !== GATE_STEP_KIND || r.decision !== "pass" || !select(r)) continue;
+    if (r.evidence?.key === null || !deepEqual(r.evidence?.key, liveKey(r))) continue;
+    if (typeof r.evidence?.run !== "string" || !passedRuns.has(r.evidence.run)) continue;
+    if (!vouched(f, steps)) continue;
+    out.push(f);
+  }
+  return out;
+}
+
 /**
  * Decide whether `commandText` under `label` may be reused in `root`. Reads
  * `CLAUDE_CODE_SESSION_ID` and the session transcript; runs nothing.
@@ -213,41 +277,65 @@ export async function decideReuse(
   if (!knobOn(realRoot)) return { reuse: false, reason: "knob-off", key: null };
   const key = computeReuseKey(realRoot, commandText, options);
   if (key === null) return { reuse: false, reason: "no-key", key };
-  const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
-  if (sessionId === undefined || sessionId === "") return { reuse: false, reason: "no-session", key };
-  const transcript = sessionTranscriptPath(sessionId, process.cwd());
-  if (transcript === null) return { reuse: false, reason: "no-transcript", key };
-  const { steps, outcomes } = vouchedAnnouncements(transcript);
-  const files = storedFiles(realRoot, sessionId);
-  const vouched = (f: StoredFile, announced: Map<string, string>): boolean =>
-    announced.get(resolve(f.path)) === receiptDigest(f.bytes);
-  const passedRuns = new Set(
-    files
-      .filter(
-        (f) =>
-          f.record.kind === GATE_OUTCOME_KIND &&
-          f.record.decision === "pass" &&
-          f.record.evidence?.key_stable === true &&
-          vouched(f, outcomes),
-      )
-      .map((f) => f.record.evidence?.run),
+  const session = vouchedSession(realRoot);
+  if (typeof session === "string") return { reuse: false, reason: session, key };
+  const f = reusableSteps(session, (r) => r.evidence?.label === label, () => key)[0];
+  if (f === undefined) return { reuse: false, reason: "no-stored-pass", key };
+  const r = f.record;
+  return { reuse: true, receipt: f.path, summary: String(r.evidence.summary ?? ""), createdAt: String(r.createdAt), key };
+}
+
+/** The `gate-check` run receipts among `files` recorded for `root`, oldest first. */
+function gateRunReceipts(files: StoredFile[], root: string): StoredFile[] {
+  return files.filter(
+    (f) => f.record.kind === GATE_RECEIPT_KIND && f.record.subject === STEP_SUBJECT && f.record.root === root,
   );
-  for (const f of [...files].reverse()) {
-    const r = f.record;
-    if (r.kind !== GATE_STEP_KIND || r.decision !== "pass" || r.evidence?.label !== label) continue;
-    if (r.evidence?.key === null || !deepEqual(r.evidence?.key, key)) continue;
-    if (typeof r.evidence?.run !== "string" || !passedRuns.has(r.evidence.run)) continue;
-    if (!vouched(f, steps)) continue;
-    return { reuse: true, receipt: f.path, summary: String(r.evidence.summary ?? ""), createdAt: String(r.createdAt), key };
+}
+
+/**
+ * STE-725 — whether this session's latest announced `gate-check` run is clean:
+ * a passed run that recorded at least one `gate-step`, every one of them a
+ * vouched pass on the live key (its `command_sha256` taken from the stored
+ * step), and the run's latest vouched `gate-outcome` is itself a pass with
+ * `key_stable: true` that lists those step labels exactly, each `pass`. Runs nothing and writes nothing; any error reads as not clean.
+ */
+export function gateRunClean(root: string): boolean {
+  try {
+    const realRoot = realpathOr(root);
+    if (!knobOn(realRoot)) return false;
+    const live = computeReuseKey(realRoot, "");
+    if (live === null) return false;
+    const session = vouchedSession(realRoot);
+    if (typeof session === "string") return false;
+    const runs = gateRunReceipts(session.files, realRoot).filter((f) => vouched(f, session.announced.runs));
+    const latest = runs[runs.length - 1];
+    if (latest === undefined) return false;
+    const run = receiptDigest(latest.bytes);
+    const ofRun = (r: Record<string, any>): boolean => r.evidence?.run === run;
+    const recorded = session.files.filter((f) => f.record.kind === GATE_STEP_KIND && ofRun(f.record));
+    if (recorded.length === 0) return false;
+    const passes = reusableSteps(session, ofRun, (r) => ({ gate: live.gate, command_sha256: r.evidence?.key?.command_sha256 }));
+    if (passes.length !== recorded.length) return false;
+    // One account (STE-724): the run's vouched outcome names exactly the labels of its vouched step passes, each `pass`.
+    const outcome = session.files
+      .filter((f) => f.record.kind === GATE_OUTCOME_KIND && ofRun(f.record) && vouched(f, session.announced.outcomes))
+      .pop();
+    // STE-725.2: the LATEST vouched outcome alone decides; an earlier pass never rescues it.
+    if (outcome?.record.decision !== "pass" || outcome.record.evidence?.key_stable !== true) return false;
+    const listed: unknown = outcome.record.evidence?.steps;
+    if (!Array.isArray(listed) || listed.length === 0) return false;
+    if (!listed.every((s) => typeof s?.name === "string" && s.result === "pass")) return false;
+    const names = new Set(listed.map((s) => s.name as string));
+    const labels = new Set(passes.map((f) => f.record.evidence?.label));
+    return names.size === labels.size && [...names].every((n) => labels.has(n));
+  } catch {
+    return false;
   }
-  return { reuse: false, reason: "no-stored-pass", key };
 }
 
 /** The digest of this session's latest `gate` run receipt for `root`, or null. */
 function enclosingRun(root: string, sessionId: string): string | null {
-  const runs = storedFiles(root, sessionId).filter(
-    (f) => f.record.kind === GATE_RECEIPT_KIND && f.record.subject === STEP_SUBJECT && f.record.root === root,
-  );
+  const runs = gateRunReceipts(storedFiles(root, sessionId), root);
   const last = runs[runs.length - 1];
   return last === undefined ? null : receiptDigest(last.bytes);
 }
@@ -315,6 +403,10 @@ async function runCommand(commandText: string, cwd: string): Promise<{ exit: num
 
 async function frontDoor(argv: readonly string[]): Promise<number> {
   const [verb, rootArg, label, sep, ...rest] = argv;
+  if (verb === "verdict") {
+    console.log(rootArg !== undefined && label === undefined && gateRunClean(rootArg) ? "clean" : "rerun");
+    return 0;
+  }
   if (verb !== "run" || rootArg === undefined || label === undefined || sep !== "--" || rest.length === 0) {
     console.error(
       nfr10Message(
