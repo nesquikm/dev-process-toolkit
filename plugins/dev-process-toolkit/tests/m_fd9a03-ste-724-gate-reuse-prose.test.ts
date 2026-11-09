@@ -229,14 +229,47 @@ describe("AC-STE-724.13 ## Commands names `reuse: on` and the front door; the pa
     expect((body.match(/STE-\d+/g) ?? []).length).toBe(87);
   });
 
-  test("AC-STE-724.13 `git diff --numstat main` on gate-check SKILL.md shows added equal to deleted, and the file was edited", () => {
-    const g = spawnSync("git", ["-C", REPO_ROOT, "diff", "--numstat", "main", "--", GATE_CHECK], { encoding: "utf-8" });
+  // The AC's "main" is the trunk the milestone started from. Diffing against
+  // the live `main` ref graded nothing once the milestone merged (an empty
+  // diff, red on every main checkout), so the base is the pinned TRUNK, and
+  // the leg means the same on a branch and on main.
+  /** Problems with `body` as a net-zero edit of TRUNK's gate-check SKILL.md; empty when it is one. */
+  function netZeroDrift(body: string): string[] {
+    const base = tempCopy("SKILL.trunk.md", gcTrunk());
+    const cur = tempCopy("SKILL.now.md", body);
+    const g = spawnSync("git", ["diff", "--no-index", "--numstat", base, cur], { encoding: "utf-8" });
+    // --no-index exits 1 when the files differ, 0 when identical.
+    if (g.status !== 0 && g.status !== 1) return [`git diff exited ${g.status}: ${g.stderr}`];
+    const rows = g.stdout.trim().split("\n").filter(Boolean);
+    if (rows.length !== 1) return [`expected 1 numstat row, got ${rows.length} (file not edited)`];
+    const [added, deleted] = rows[0]!.split("\t").map(Number);
+    const out: string[] = [];
+    if (!(added! > 0)) out.push(`added ${added} is not > 0`);
+    if (added !== deleted) out.push(`added ${added} != deleted ${deleted}`);
+    return out;
+  }
+
+  test("AC-STE-724.13 numstat against the trunk (13fdf144) on gate-check SKILL.md shows added equal to deleted, and the file was edited", () => {
+    expect(netZeroDrift(gcNow())).toEqual([]);
+    // The tracked instrument agrees: the working tree against the pinned trunk commit.
+    const g = spawnSync("git", ["-C", REPO_ROOT, "diff", "--numstat", TRUNK, "--", GATE_CHECK], { encoding: "utf-8" });
     expect(g.status).toBe(0);
     const row = g.stdout.trim().split("\n").filter(Boolean);
     expect(row.length).toBe(1);
     const [added, deleted] = row[0]!.split("\t");
     expect(Number(added)).toBeGreaterThan(0);
     expect(Number(added)).toBe(Number(deleted));
+  });
+
+  test("AC-STE-724.13 CONTROL: the numstat leg goes red when the edit is not in place", () => {
+    // Unedited (the trunk bytes): no row.
+    expect(netZeroDrift(gcTrunk())).toEqual(["expected 1 numstat row, got 0 (file not edited)"]);
+    // Edit plus one extra line: added != deleted.
+    expect(netZeroDrift(`${gcNow()}extra line\n`).some((p) => p.startsWith("added "))).toBe(true);
+    // Edit minus its last line: added != deleted.
+    const lines = gcNow().split("\n");
+    const shorter = [...lines.slice(0, -2), lines[lines.length - 1]].join("\n");
+    expect(netZeroDrift(shorter).some((p) => p.includes("!= deleted"))).toBe(true);
   });
 });
 
