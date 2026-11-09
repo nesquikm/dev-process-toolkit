@@ -114,6 +114,9 @@ function tempCopy(name: string, body: string): string {
 
 const gcNow = (): string => readFileSync(join(REPO_ROOT, GATE_CHECK), "utf-8");
 const gcTrunk = (): string => atCommit(TRUNK, GATE_CHECK);
+/** The M_fd9a03 gate-check edit commit, reachable from main through the PR #133 merge. */
+const GATE_CHECK_EDIT = "7378f22c";
+const gcEdit = (): string => atCommit(GATE_CHECK_EDIT, GATE_CHECK);
 
 /** `heading` up to the next `## ` heading (exclusive), from its own line. */
 function sectionOf(body: string, heading: string): string {
@@ -229,14 +232,54 @@ describe("AC-STE-724.13 ## Commands names `reuse: on` and the front door; the pa
     expect((body.match(/STE-\d+/g) ?? []).length).toBe(87);
   });
 
-  test("AC-STE-724.13 `git diff --numstat main` on gate-check SKILL.md shows added equal to deleted, and the file was edited", () => {
-    const g = spawnSync("git", ["-C", REPO_ROOT, "diff", "--numstat", "main", "--", GATE_CHECK], { encoding: "utf-8" });
+  // The AC's subject is the milestone's own gate-check edit: "main" there
+  // was the trunk the milestone started from, and the edit is one commit.
+  // Diffing against the live `main` ref graded nothing once the milestone
+  // merged (red on every main checkout), and diffing the working tree would
+  // red the next milestone that edits the file. Both ends are pinned, so the
+  // leg means the same on any checkout whose history holds the edit.
+  /** Problems with `body` as a net-zero edit of TRUNK's gate-check SKILL.md; empty when it is one. */
+  function netZeroDrift(body: string): string[] {
+    const base = tempCopy("SKILL.trunk.md", gcTrunk());
+    const cur = tempCopy("SKILL.now.md", body);
+    const g = spawnSync("git", ["diff", "--no-index", "--numstat", base, cur], { encoding: "utf-8" });
+    // --no-index exits 1 when the files differ, 0 when identical.
+    if (g.status !== 0 && g.status !== 1) return [`git diff exited ${g.status}: ${g.stderr}`];
+    const rows = g.stdout.trim().split("\n").filter(Boolean);
+    if (rows.length !== 1) return [`expected 1 numstat row, got ${rows.length} (file not edited)`];
+    const [added, deleted] = rows[0]!.split("\t").map(Number);
+    const out: string[] = [];
+    if (!(added! > 0)) out.push(`added ${added} is not > 0`);
+    if (added !== deleted) out.push(`added ${added} != deleted ${deleted}`);
+    return out;
+  }
+
+  test("AC-STE-724.13 numstat of the milestone's gate-check edit (13fdf144..7378f22c) shows added equal to deleted, and the file was edited", () => {
+    // A rewritten history that drops the edit fails here, loudly, not as a numstat.
+    const anc = spawnSync("git", ["-C", REPO_ROOT, "merge-base", "--is-ancestor", GATE_CHECK_EDIT, "HEAD"], { encoding: "utf-8" });
+    expect(anc.status, `${GATE_CHECK_EDIT} is not an ancestor of HEAD: ${anc.stderr}`).toBe(0);
+    expect(netZeroDrift(gcEdit())).toEqual([]);
+    // The tracked instrument agrees: the pinned trunk against the pinned edit commit.
+    const g = spawnSync("git", ["-C", REPO_ROOT, "diff", "--numstat", TRUNK, GATE_CHECK_EDIT, "--", GATE_CHECK], { encoding: "utf-8" });
     expect(g.status).toBe(0);
     const row = g.stdout.trim().split("\n").filter(Boolean);
     expect(row.length).toBe(1);
     const [added, deleted] = row[0]!.split("\t");
     expect(Number(added)).toBeGreaterThan(0);
     expect(Number(added)).toBe(Number(deleted));
+  });
+
+  test("AC-STE-724.13 CONTROL: the numstat leg goes red when the edit is not in place", () => {
+    // Unedited (the trunk bytes): no row.
+    expect(netZeroDrift(gcTrunk())).toEqual(["expected 1 numstat row, got 0 (file not edited)"]);
+    // The edit itself passes, so the reds below are the mutations' doing.
+    expect(netZeroDrift(gcEdit())).toEqual([]);
+    // Edit plus one extra line: added != deleted.
+    expect(netZeroDrift(`${gcEdit()}extra line\n`).some((p) => p.startsWith("added "))).toBe(true);
+    // Edit minus its last line: added != deleted.
+    const lines = gcEdit().split("\n");
+    const shorter = [...lines.slice(0, -2), lines[lines.length - 1]].join("\n");
+    expect(netZeroDrift(shorter).some((p) => p.includes("!= deleted"))).toBe(true);
   });
 });
 
