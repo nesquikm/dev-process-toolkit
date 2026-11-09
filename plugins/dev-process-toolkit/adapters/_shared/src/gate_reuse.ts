@@ -83,9 +83,13 @@ export function hiddenIndexEntries(lsFilesV: string): string[] {
 /**
  * The flags every git call of the clean check runs with: no fsmonitor hook and
  * no untracked cache answers for the worktree, and no optional index lock is
- * taken (PR #133 review 2).
+ * taken (PR #133 review 2). The ctime, full-stat and mode checks are forced on,
+ * so a local `core.trustctime=false`, `core.checkStat=minimal` or
+ * `core.fileMode=false` cannot hide an edit (PR #133 review 3). On a
+ * filesystem without modes, fileMode=true reports every file changed: no key,
+ * which fails safe.
  */
-export const TRUSTED_GIT = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"] as const;
+export const TRUSTED_GIT = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.trustctime=true", "-c", "core.checkStat=default", "-c", "core.fileMode=true"] as const;
 
 /** `git <TRUSTED_GIT> -C root <args>`'s stdout; throws on any failure. */
 function trustedGit(root: string, args: readonly string[], stdin?: string): string {
@@ -98,9 +102,13 @@ function trustedGit(root: string, args: readonly string[], stdin?: string): stri
   return p.stdout.toString();
 }
 
-/** `git config --get` of `key`, or null when it is unset (exit 1). */
+/**
+ * `git config --get` of `key` as the repo configures it, or null when it is
+ * unset (exit 1). Never through TRUSTED_GIT: its `-c` overrides would answer
+ * for the very keys this reads.
+ */
 function configValue(root: string, key: string, type?: "bool"): string | null {
-  const p = Bun.spawnSync(["git", ...TRUSTED_GIT, "-C", root, "config", ...(type ? [`--type=${type}`] : []), "--get", key], {
+  const p = Bun.spawnSync(["git", "--no-optional-locks", "-C", root, "config", ...(type ? [`--type=${type}`] : []), "--get", key], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -370,9 +378,11 @@ const stepVouched = (s: VouchedSession, f: StoredFile): boolean =>
 
 /**
  * Whether a FAIL for vouched step `f`'s label came after it, vouched or not:
- * a stored step receipt for the same label on `key`, newer in the store, with
- * a non-zero exit or a decision other than pass; or a door call for the label
- * recorded `is_error: true` after the call that announced `f`.
+ * a stored step receipt for the same label, newer in the store, with a
+ * non-zero exit or a decision other than pass, stored on `key` or on a null
+ * key (a failing run that changed the tree, PR #133 review 3); or a door call
+ * for the label recorded `is_error: true` after the call that announced `f`.
+ * A fail on a different non-null key is another tree and does not count.
  */
 function failedSince(s: VouchedSession, f: StoredFile, key: ReuseKey): boolean {
   const label = f.record.evidence?.label;
@@ -381,7 +391,7 @@ function failedSince(s: VouchedSession, f: StoredFile, key: ReuseKey): boolean {
     (g) =>
       g.record.kind === GATE_STEP_KIND &&
       g.record.evidence?.label === label &&
-      deepEqual(g.record.evidence?.key, key) &&
+      (g.record.evidence?.key === null || deepEqual(g.record.evidence?.key, key)) &&
       (g.record.decision !== "pass" || g.record.evidence?.exit !== 0),
   );
   if (storedFail) return true;

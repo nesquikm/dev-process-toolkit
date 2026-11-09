@@ -810,6 +810,8 @@ Two more, added by STE-450 after both were hit in one FR. **Run the mutation aga
 - **Skip baseline** — `assertCapturable` captures a baseline only at HEAD with an empty `git status --porcelain`, untracked files included, so the stored result names exactly the bytes it was taken on.
 - **STE-724** — the gate-command reuse key recomputes a command's key from the live tree and reuses its stored pass only on a deep-equal match; anything else reruns. It is off by default. The command's output goes to a step log, and the front door prints one line naming the log, so a command cannot print evidence for itself; on a failure, read the log.
 
+Reuse protects against stale evidence in ordinary use. It is not a defence against an agent or user that deliberately hides edits or disguises failures. The honest residual stays named: git state set through the environment, line-ending-only edits that `eol` normalises away, an edit made and reverted within one run, and a child appending to the door's stdout by path, such as Claude Code's task output file on darwin, which vouches nothing and so fails safe (`docs/settings-reference.md`, `optimizations`).
+
 A reused result is a recomputed fact, not a remembered one, so it satisfies Pattern 12. It never stands in for evidence a guard asks for: the commit and pull request hooks still read the same legs.
 
 **Cross-refs**: Pattern 12 (Verification-Before-Completion), `adapters/_shared/src/skip_baseline.ts` (`assertCapturable`), `adapters/_shared/src/gate_reuse.ts` (the STE-724 front door), `docs/hooks-reference.md` (the "What counts as evidence" paragraph).

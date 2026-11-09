@@ -25,7 +25,7 @@
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { cwdToSlug } from "../adapters/_shared/src/find_current_session";
@@ -2062,5 +2062,194 @@ describe("AC-STE-724.8 (key after the run): a run that leaves the tree changed s
     git(b.root, "checkout", "--", "docs/readme.txt");
     expect(isClean(b.root)).toBe(true);
     expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+});
+
+// ===========================================================================
+// Pre-merge fix 3 (PR #133 review 3, R3-B1): a newer stored fail for the
+// label blocks reuse when its key is null (the failing run changed the tree)
+// or equal to the live key. A fail on a different non-null key is a different
+// tree and does not block.
+// ===========================================================================
+
+/** A door call recorded as a SUCCESS although the command failed: a pipe, or a backgrounded call. */
+function okShapedCall(id: string, command: string, content: string): string[] {
+  return bashCall(id, command, content, "");
+}
+
+type OkShape = "pipe" | "background";
+
+function okShapedFailRecord(shape: OkShape, id: string, b: Built, s2: CliRun): string[] {
+  return shape === "pipe"
+    ? okShapedCall(id, `${reuseCommand(b.root, LABEL, b.cmd)} 2>&1 | tail -5`, s2.stdout)
+    : okShapedCall(id, reuseCommand(b.root, LABEL, b.cmd), "Command running in background with ID: bx1. Output is being written to: /x/tasks/bx1.output");
+}
+
+/**
+ * S1 passes on key K. S2 (same label and command) FAILS: with `tree`
+ * "dirty" it appends to a tracked file (stored key null, reverted after);
+ * "clean" it leaves the tree alone (stored key K); "other-key" it fails on a
+ * later commit (key K2) that is then reset away. S2's call is recorded as a
+ * success, so no error-shaped call warns. The run's outcome claims test=pass.
+ */
+function passThenOkShapedFail(label: string, tree: "dirty" | "clean" | "other-key", shape: OkShape): Built {
+  const b = buildSession(label, {
+    command: (s) => `if [ -e ${s}.fail ]; then ${tree === "dirty" ? "echo junk >> docs/readme.txt;" : ""} exit 1; fi; touch ${s} && echo ok`,
+    outcome: "none",
+  });
+  if (tree === "other-key") {
+    writeFileSync(join(b.root, "docs", "later.txt"), "a later commit\n");
+    git(b.root, "add", "-A");
+    git(b.root, "commit", "-qm", "later");
+  }
+  writeFileSync(`${b.sentinel}.fail`, "");
+  const s2 = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+  rmSync(`${b.sentinel}.fail`);
+  rmSync(b.sentinel, { force: true });
+  expect(s2.exitCode).toBe(1);
+  if (tree === "dirty") git(b.root, "checkout", "--", "docs/readme.txt");
+  if (tree === "other-key") git(b.root, "reset", "-q", "--hard", "HEAD~1");
+  expect(isClean(b.root)).toBe(true);
+  const out = runCli(["outcome", "gate-check", b.root, "pass", "--step", `${LABEL}=pass`]);
+  expect(out.exitCode).toBe(0);
+  retranscribe(b, [
+    ...b.records.skill,
+    ...b.records.run,
+    ...b.records.step,
+    ...okShapedFailRecord(shape, "b4", b, s2),
+    ...bashCall("b5", outcomeCommand("gate-check", b.root, "pass", [`${LABEL}=pass`]), out.stdout, out.stderr),
+  ]);
+  return b;
+}
+
+describe("AC-STE-724.5 (newest step, null key): a newer stored fail on a null or equal key blocks reuse; a different key does not", () => {
+  for (const shape of ["pipe", "background"] as const) {
+    test(`AC-STE-724.5 (null-key fail, ${shape}): S1 pass, S2 fails and dirties a tracked file (stored key null), reverted, outcome pass: run reruns and verdict prints rerun`, () => {
+      const b = passThenOkShapedFail(`r3b1-dirty-${shape}`, "dirty", shape);
+      const steps = stepReceipts(b.root);
+      expect(steps.map((s) => [s.record.decision, s.record.evidence.key === null])).toEqual([
+        ["pass", false],
+        ["fail", true],
+      ]);
+      expect(spawnDoor(["verdict", b.root], { cfg: b.cfg, cwd: b.root }).stdout.trim()).toBe("rerun");
+      expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+    }, T);
+  }
+
+  test("AC-STE-724.5 (null-key fail): CONTROL — a clean-tree fail (stored on the live key) blocks reuse too", () => {
+    const b = passThenOkShapedFail("r3b1-clean", "clean", "pipe");
+    const steps = stepReceipts(b.root);
+    expect(steps[1]!.record.evidence.key).toEqual(steps[0]!.record.evidence.key);
+    expect(spawnDoor(["verdict", b.root], { cfg: b.cfg, cwd: b.root }).stdout.trim()).toBe("rerun");
+    expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.5 (null-key fail): CONTROL — a fail stored on a DIFFERENT non-null key (another commit) does not block reuse of the pass on the live key", () => {
+    const b = passThenOkShapedFail("r3b1-otherkey", "other-key", "pipe");
+    const steps = stepReceipts(b.root);
+    expect(steps[1]!.record.evidence.key).not.toBeNull();
+    expect(steps[1]!.record.evidence.key).not.toEqual(steps[0]!.record.evidence.key);
+    expectReused(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+});
+
+// ===========================================================================
+// Pre-merge fix 3 (PR #133 review 3, R3-B2): the clean check forces
+// core.trustctime=true, core.checkStat=default and core.fileMode=true, so a
+// local config cannot drop the ctime or mode check.
+// ===========================================================================
+
+/** Rewrite `path` with the same size, then restore its atime and mtime (as `cp -p` or `touch -r` would). */
+function sameSizeEditKeepingTimes(path: string): void {
+  const st = statSync(path);
+  const before = readFileSync(path, "utf-8");
+  writeFileSync(path, before.replace(/[a-z]/g, "Z"));
+  utimesSync(path, st.atime, st.mtime);
+  expect(readFileSync(path, "utf-8")).not.toBe(before);
+}
+
+describe("AC-STE-724.3 (hidden edit, stat config): trustctime, fileMode and checkStat cannot hide an edit from the clean check", () => {
+  test("AC-STE-724.3 (hidden edit, trustctime): core.trustctime=false plus a same-size, mtime-restored edit runs the command", () => {
+    const b = buildSession("r3b2-trustctime");
+    const f = join(b.root, "docs", "readme.txt");
+    git(b.root, "config", "core.trustctime", "false");
+    Bun.sleepSync(1200); // past racy-git: the index entry is trusted on stat alone
+    git(b.root, "update-index", "--really-refresh");
+    sameSizeEditKeepingTimes(f);
+    // CONTROL: plain git status really hides the edit.
+    expect(isClean(b.root)).toBe(true);
+    expect(spawnDoor(["verdict", b.root], { cfg: b.cfg, cwd: b.root }).stdout.trim()).not.toBe("clean");
+    expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.3 (hidden edit, fileMode): core.fileMode=false plus a chmod +x on a tracked file runs the command", () => {
+    const b = buildSession("r3b2-filemode");
+    git(b.root, "config", "core.fileMode", "false");
+    spawnSync("chmod", ["+x", join(b.root, "docs", "readme.txt")]);
+    // CONTROL: plain git status really hides the mode change.
+    expect(isClean(b.root)).toBe(true);
+    expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.3 (hidden edit, stat config): TRUSTED_GIT forces trustctime, checkStat and fileMode", async () => {
+    const m = await reuseModule();
+    const flags = (m.TRUSTED_GIT as readonly string[]).join(" ");
+    for (const f of ["-c core.trustctime=true", "-c core.checkStat=default", "-c core.fileMode=true"]) expect(flags).toContain(f);
+  }, T);
+
+  test("AC-STE-724.3 (hidden edit, stat config): CONTROL — a genuinely clean tree whose file was only touched (new ctime and mtime, same bytes) still reuses under the default config", () => {
+    const b = buildSession("r3b2-control");
+    const f = join(b.root, "docs", "readme.txt");
+    Bun.sleepSync(1100);
+    writeFileSync(f, readFileSync(f)); // same bytes, fresh stat data
+    expect(isClean(b.root)).toBe(true);
+    expectReused(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+});
+
+describe("AC-STE-724.18 mutation controls (review 3): each new check reds a named test", () => {
+  let plain: string | null = null;
+  const unmutated = (): string => (plain ??= reuseDoor(mutatedCopy("plain-r3", [])));
+
+  test("AC-STE-724.18 mutation: null-key fail clause — removing it turns 'AC-STE-724.5 (null-key fail, pipe)' red", () => {
+    const door = reuseDoor(
+      mutatedCopy("null-key-fail", [
+        ["gate_reuse.ts", /\(g\.record\.evidence\?\.key === null \|\| deepEqual\(g\.record\.evidence\?\.key, key\)\)/, "deepEqual(g.record.evidence?.key, key)"],
+      ]),
+    );
+    const b = passThenOkShapedFail("ac18-null-key", "dirty", "pipe");
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  for (const [flag, title] of [
+    ["core\\.trustctime=true", "AC-STE-724.3 (hidden edit, trustctime)"],
+    ["core\\.fileMode=true", "AC-STE-724.3 (hidden edit, fileMode)"],
+  ] as const)
+  test(`AC-STE-724.18 mutation: trusted-git flags — dropping ${flag.replace("\\", "")} turns '${title}' red`, () => {
+    const door = reuseDoor(mutatedCopy(`flag-${flag.slice(6, 11)}`, [["gate_reuse.ts", new RegExp(`, "-c", "${flag}"`), ""]]));
+    const b = buildSession(`ac18-${flag.slice(6, 11)}`);
+    const f = join(b.root, "docs", "readme.txt");
+    if (flag.startsWith("core\\.trustctime")) {
+      git(b.root, "config", "core.trustctime", "false");
+      Bun.sleepSync(1200);
+      git(b.root, "update-index", "--really-refresh");
+      sameSizeEditKeepingTimes(f);
+    } else {
+      git(b.root, "config", "core.fileMode", "false");
+      spawnSync("chmod", ["+x", f]);
+    }
+    expect(isClean(b.root)).toBe(true);
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: config read through the -c overrides — reading it via TRUSTED_GIT turns 'computeReuseKey is null under each hider' red", async () => {
+    const src = mutatedCopy("config-read", [["gate_reuse.ts", /\["git", "--no-optional-locks", "-C", root, "config",/, '["git", ...TRUSTED_GIT, "-C", root, "config",']]);
+    const m = (await import(join(src, "gate_reuse.ts"))) as AnyMod;
+    const root = reuseTree("ac18-config-read");
+    git(root, "config", "core.checkStat", "minimal");
+    expect((await reuseModule()).computeReuseKey(root, "true")).toBeNull();
+    expect(m.computeReuseKey(root, "true")).not.toBeNull();
   }, T);
 });
