@@ -2077,7 +2077,8 @@ describe("AC-STE-533.8 — the adoption grader is registered on a runtime path",
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(numbers).toEqual(Array.from({ length: 89 }, (_, i) => i + 1));
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(numbers).toEqual(Array.from({ length: 90 }, (_, i) => i + 1));
     const mine = registrations.filter((r) =>
       r.line.includes(`\`${ADOPTION_PROBE_ID}\``),
     );
@@ -2393,7 +2394,8 @@ const PROBE_COUNT_PINS: readonly (readonly [string, string])[] = [
 // Amended by AC-STE-673.6: the previous count is now 86 (probe #87 landed), so the staleness half stays live.
 // Amended by AC-STE-680.6: the previous count is now 87 (probe #88 landed), so the staleness half stays live.
 // Amended by AC-STE-693.6: probe count 88 -> 89.
-const STALE_PROBE_COUNT = 88;
+// Amended by AC-STE-723.7: probe count 89 -> 90.
+const STALE_PROBE_COUNT = 89;
 
 const fill = (template: string, n: number): string =>
   template.split("{N}").join(String(n));
@@ -2414,7 +2416,8 @@ describe("AC-STE-533.8 — the probe-count cascade moved as one", () => {
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(live).toBe(89);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(live).toBe(90);
     const readme = read(README);
     expect(readme).toContain(`${live} numbered \`/gate-check\` probes`);
     expect(readme).toMatch(new RegExp(`layers ${live} probes`));

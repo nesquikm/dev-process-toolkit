@@ -274,7 +274,8 @@ describe("AC-STE-393.6 — README probe-count pins move 68 → 69", () => {
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(readme()).toMatch(/\b89\b\s+numbered `\/gate-check` probes/);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(readme()).toMatch(/\b90\b\s+numbered `\/gate-check` probes/);
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
@@ -284,7 +285,8 @@ describe("AC-STE-393.6 — README probe-count pins move 68 → 69", () => {
   test("the /implement-invokes-/tdd aside counts 89 probes", () => {
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(readme()).toMatch(/layers 89 probes/);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(readme()).toMatch(/layers 90 probes/);
   });
 });
 

@@ -235,7 +235,8 @@ describe("AC-STE-612.8 — no probe id is added (no-regression pins)", () => {
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 89 }, (_, i) => i + 1));
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 90 }, (_, i) => i + 1));
   });
   test("(control) gate-check SKILL.md gains no STE token (87, measured at HEAD a1f0722c)", () => {
     expect(skill().match(STE_TOKEN_RE)?.length ?? 0).toBe(87);

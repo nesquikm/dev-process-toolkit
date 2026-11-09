@@ -118,7 +118,7 @@ The self-review loop has hard exit conditions that Stage C feeds into. For refer
 | Issues found on round 2, same issue types as round 1 | **STOP and escalate** — going in circles |
 | Issues found on round 2, different issue types | Fix, re-run gate check, escalate to user (diminishing returns) |
 
-After any fix, always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., `47 tests, 0 failures, 0 errors`). Never claim clean from memory of a previous run.
+After any fix, always re-run the full gate check before continuing. Read the actual output and report the numbers (e.g., `47 tests, 0 failures, 0 errors`). Never claim clean from memory of a previous run. A command the gate reports as `(reused)` counts as fresh: its key was recomputed on the spot, and its numbers are the stored run's. After any fix the tree differs, so the key differs and the command runs.
 
 ## Spec Deviation Check
 

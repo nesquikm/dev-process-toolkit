@@ -193,10 +193,35 @@ function unmarkedHunks(diff: string, marker: RegExp): string[] {
     .map((h) => h.split("\n")[0]!);
 }
 
+// A load-budget hunk raises ONE test timeout and adds one `// Load budget:`
+// comment, nothing else: no assertion, no prose, no other line can ride along.
+// The timeout sits in a test-call position, either a bare argument line
+// (`    60_000,`) or the closing `}, N);` of a `test(...)` call, the removed and
+// added lines take the same position, and the budget only grows from at least
+// 1 s (PR #133 review: any numeric-only line was admitted before).
+const TIMEOUT_ARG = /^[-+]\s*(\d[\d_]*),$/;
+const TIMEOUT_CLOSE = /^[-+]\s*\}, (\d[\d_]*)\);$/;
+function isLoadBudgetHunk(hunk: string): boolean {
+  const changed = hunk.split("\n").slice(1).filter((l) => l.startsWith("+") || l.startsWith("-"));
+  const comments = changed.filter((l) => /^\+\s*\/\/ Load budget: /.test(l));
+  const removed = changed.filter((l) => l.startsWith("-"));
+  const added = changed.filter((l) => l.startsWith("+") && !comments.includes(l));
+  if (comments.length !== 1 || removed.length !== 1 || added.length !== 1) return false;
+  for (const form of [TIMEOUT_ARG, TIMEOUT_CLOSE]) {
+    const before = form.exec(removed[0]!);
+    const after = form.exec(added[0]!);
+    if (before === null || after === null) continue;
+    const ms = (m: RegExpExecArray): number => Number(m[1]!.replace(/_/g, ""));
+    return ms(before) >= 1000 && ms(after) > ms(before);
+  }
+  return false;
+}
+
 function expectUneditedBeyondMarked(path: string, ref: string, marker: RegExp): void {
   const proc = spawnSync("git", ["diff", "-U0", ref, "--", path], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(proc.status, proc.stderr).toBe(0);
-  expect(unmarkedHunks(proc.stdout, marker), `${path} has unmarked edits against ${ref}`).toEqual([]);
+  const hunks = proc.stdout.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ ") && !isLoadBudgetHunk(h)).join("");
+  expect(unmarkedHunks(hunks, marker), `${path} has unmarked edits against ${ref}`).toEqual([]);
   const tracked = spawnSync("git", ["cat-file", "-e", `${ref}:./${path}`], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(tracked.status, `${path} is not tracked on ${ref}`).toBe(0);
 }
@@ -655,8 +680,9 @@ describe("structural — gate-check's probe rows stay where the pins expect them
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(lines.filter((l) => /^[0-9]+\. \*\*/.test(l)).length).toBe(89);
-    expect(lines.some((l) => /^90\. /.test(l))).toBe(false); // Amended by AC-STE-659.3: next-row tripwire #86 -> #87. Amended by AC-STE-673.6: #87 -> #88. Amended by AC-STE-680.6: #88 -> #89. Amended by AC-STE-693.6: #89 -> #90.
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(lines.filter((l) => /^[0-9]+\. \*\*/.test(l)).length).toBe(90);
+    expect(lines.some((l) => /^91\. /.test(l))).toBe(false); // Amended by AC-STE-659.3: next-row tripwire #86 -> #87. Amended by AC-STE-673.6: #87 -> #88. Amended by AC-STE-680.6: #88 -> #89. Amended by AC-STE-693.6: #89 -> #90. Amended by AC-STE-723.7: #90 -> #91.
   });
 
   test("milestone budget: git diff --numstat main on gate-check shows added == deleted", () => {
@@ -686,6 +712,25 @@ describe("structural — gate-check's probe rows stay where the pins expect them
     expect(unmarkedHunks(marked, STE685_MARKER)).toEqual([]);
     expect(unmarkedHunks(marked + unmarked, STE685_MARKER)).toEqual(["@@ -9 +9 @@"]);
     expect(unmarkedHunks(marked.replace("685.3", "999.9"), STE685_MARKER)).toEqual(["@@ -1 +1 @@"]);
+  });
+
+  test("MUTATION: a load-budget hunk is admitted only when it moves a timeout and nothing else", () => {
+    const budget = "@@ -608 +608,2 @@\n-    60_000,\n+    // Load budget: missed 60 s under load.\n+    180_000,\n";
+    expect(isLoadBudgetHunk(budget)).toBe(true);
+    expect(isLoadBudgetHunk(budget.replace("// Load budget:", "// Budget:"))).toBe(false);
+    expect(isLoadBudgetHunk(`${budget}+    expect(x).toBe(1);\n`)).toBe(false);
+    expect(isLoadBudgetHunk(budget.replace("-    60_000,\n", "-    expect(y).toBe(2);\n"))).toBe(false);
+    expect(isLoadBudgetHunk("@@ -1,0 +1 @@\n+    // Load budget: nothing moved.\n")).toBe(false);
+    // The test-call closing form is admitted too.
+    expect(isLoadBudgetHunk("@@ -9 +9,2 @@\n-  }, 5_000);\n+    // Load budget: slow under load.\n+  }, 30_000);\n")).toBe(true);
+    // PR #133 review: a numeric-only line that is not a raised test timeout is refused, each on its own.
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    22138\n+    // Load budget: x.\n+    0\n")).toBe(false);
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    22138,\n+    // Load budget: x.\n+    0,\n")).toBe(false);
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    50)\n+    // Load budget: x.\n+    5000)\n")).toBe(false);
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-  50);\n+    // Load budget: x.\n+  5000);\n")).toBe(false);
+    // A bare argument moved into the closing form, or a sub-second "budget", is refused.
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    5_000,\n+    // Load budget: x.\n+  }, 30_000);\n")).toBe(false);
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    50,\n+    // Load budget: x.\n+    5000,\n")).toBe(false);
   });
 
   test("tests/m120-ste-444-jira-binding-prose.test.ts is green", () => {

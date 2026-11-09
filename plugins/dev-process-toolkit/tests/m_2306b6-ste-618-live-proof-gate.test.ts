@@ -96,7 +96,15 @@ const RUN_DATE = "2026-09-21";
 // the STE-715 line-9 edit commit, which changed line 9 and nothing else: it
 // kept its v3.0.0 text and gained one sentence naming the outcome call. Same line
 // count; PERMITTED_LINES and its pin are unchanged.
-const KICKOFF = "c51843d8";
+// RE-BASED (operator pre-granted ruling R5, 2026-11-04, M_fd9a03 / AC-STE-723.9,
+// AC-STE-724.17, AC-STE-725.8), once for the milestone: the gate-check half moved
+// its base from c51843d8 to 7378f22c, the milestone's single gate-check edit
+// commit, which changed lines 177 (row 90, optimizations_reuse_only), 230 (the
+// joined probe #31 line that pays for it), 248 (#90 -> #91), 252 (the reuse
+// knob sentence), 265 (the `(reused)` clause), 268 (the `dpt-reuse:` fresh-run
+// sentence) and the two `## Rules` lines 336 and 337. Same line count;
+// PERMITTED_LINES and its pin are unchanged.
+const KICKOFF = "7378f22c";
 // RE-BASED (operator ruling 2026-10-12, M_1e0717 / STE-670): the ship-milestone
 // half of the freeze moved its base to 134fe2e6 (the v2.95.1 merge, parent of
 // the M_1e0717 spec commit), where lines 91 and 265 hold the same text as at

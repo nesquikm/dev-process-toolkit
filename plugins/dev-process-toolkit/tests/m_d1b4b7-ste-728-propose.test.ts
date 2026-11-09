@@ -85,7 +85,7 @@ describe("AC-STE-728.2 a row outside the closed shape makes the module throw on 
     const r = await loadWith([await rowLike("tracking.extra_fixture.enabled", true)]);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.mod.PROPOSABLE_SETTINGS.map((x: any) => x.key)).toContain("tracking.extra_fixture.enabled");
-    if (r.ok) expect(r.mod.PROPOSABLE_SETTINGS).toHaveLength(4);
+    if (r.ok) expect(r.mod.PROPOSABLE_SETTINGS).toHaveLength(5); // Amended by AC-STE-723.13: three rows -> four, so the control's table holds five.
   });
 
   const bad: [string, string, unknown][] = [

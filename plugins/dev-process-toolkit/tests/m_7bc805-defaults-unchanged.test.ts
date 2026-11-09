@@ -300,7 +300,11 @@ describe("AC-STE-717.13 hooks.json and modelled tool calls", () => {
   });
 
   // The AC-STE-715.15 modeller, re-run on the finished milestone.
-  const GUARDED = [{ module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" }];
+  const GUARDED = [
+    { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
+    // Amended by AC-STE-724.22 (M_fd9a03): the reuse front door is guarded by reuse: on.
+    { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },
+  ];
   const SWITCH_LINE_RE = /`([a-z_]+: on)`/g;
   const BUN_RUN_RE = /bun run\s+"?([^\s"`]+?\.ts)"?(?:[ \t]+([a-z][a-z0-9-]*)(?=[\s"`]|$))?/gm;
   const V300_CALLS: Record<string, readonly string[]> = {

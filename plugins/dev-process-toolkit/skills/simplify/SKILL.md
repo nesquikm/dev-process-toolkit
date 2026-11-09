@@ -19,7 +19,7 @@ Review recently changed files for code quality issues and fix them. This skill c
 
 3. **Fix issues** — Apply changes directly, keeping fixes minimal and focused
 
-4. **Verify** — Run gate check to ensure nothing broke. If no refactors are warranted (the diff is already minimal) and the no-op preconditions documented in [`## When this is a no-op`](#when-this-is-a-no-op) hold, the gate re-run is skipped — re-running an unchanged tree against a clean gate is wasted tokens. Consult the most recent `/implement` or `/gate-check` log for the active gate stamp.
+4. **Verify** — Run gate check to ensure nothing broke. If no refactors are warranted (the diff is already minimal) and the no-op preconditions documented in [`## When this is a no-op`](#when-this-is-a-no-op) hold, the gate re-run is skipped — re-running an unchanged tree against a clean gate is wasted tokens. Consult the most recent `/implement` or `/gate-check` log for the active gate stamp. When that `/gate-check` run's receipt call printed `reuse: on`, precondition 2 of [`## When this is a no-op`](#when-this-is-a-no-op) holds only when `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_reuse.ts" verdict "<root>"` prints `clean`; otherwise the log read decides, as today.
 
 5. **Closing summary — dirty-tree advisory (STE-216)** — At the end of every `/simplify` invocation (after Verify, before exit), capture `git status --porcelain` once. If the output is **non-empty** (any modified, added, deleted, or untracked file), emit two lines to stdout:
 
@@ -56,4 +56,4 @@ If `$ARGUMENTS` specifies a focus area, prioritize that:
 1. **Working tree is clean** — no diff vs. the prior `/simplify` entry, so there is nothing to simplify.
 2. **Prior `/gate-check` returned clean** — no failing gate to re-verify.
 
-Rationale: re-running an unchanged tree against an already-clean gate produces no signal change, so the gate re-run is skipped to save tokens. The skill emits a single line acknowledging the no-op (referencing this section by name — *"per `## When this is a no-op`, gate re-run is skipped"*) and exits. If either precondition fails — the tree has uncommitted changes, or the prior gate stamp is dirty — the carve-out does NOT apply and the full Verify step (3 → 4) runs as normal.
+Rationale: re-running an unchanged tree against an already-clean gate produces no signal change, so the gate re-run is skipped to save tokens. The skill emits a single line acknowledging the no-op (referencing this section by name — *"per `## When this is a no-op`, gate re-run is skipped"*) and exits. If either precondition fails — the tree has uncommitted changes, or the prior gate stamp is dirty (with the reuse knob on: or the verdict prints `rerun`) — the carve-out does NOT apply and the full Verify step (3 → 4) runs as normal.

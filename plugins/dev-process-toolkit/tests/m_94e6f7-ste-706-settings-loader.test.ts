@@ -998,6 +998,8 @@ const MAPPING: Record<string, Row> = {
   "close_out.upgrade_offer": { kind: "new", fr: "STE-712", note: "no legacy home" },
   // Amended by AC-STE-719.3 (M_d1b4b7): the retro offer switch is a new block with no legacy home.
   retro: { kind: "new", fr: "STE-719", note: "no legacy home" },
+  // Amended by AC-STE-723.8 (M_fd9a03): the reuse knob is a new key with no legacy home.
+  "optimizations.gate_commands": { kind: "new", fr: "STE-723", note: "no legacy home" },
   "release.files": { kind: "legacy", replaces: "## Release Files (parseReleaseFiles)" },
   "video.config": { kind: "legacy", replaces: ".dpt/video/config.yaml (parseVideoConfig)" },
   "video.style": { kind: "legacy", replaces: ".dpt/video/style.yaml (parseVideoStyle)" },
@@ -1165,7 +1167,9 @@ describe("AC-STE-706.12 mapping table", () => {
     for (const key of M().NEW_KEYS as string[]) {
       let cur: unknown = r.settings;
       for (const p of key.split(".")) cur = (cur as Record<string, unknown> | undefined)?.[p];
-      expect((cur as { enabled?: unknown } | undefined)?.enabled ?? false).toBe(false);
+      // Amended by AC-STE-723.8: an enum knob is off at run.
+      if (typeof cur === "string") expect({ key, cur }).toEqual({ key, cur: "run" });
+      else expect((cur as { enabled?: unknown } | undefined)?.enabled ?? false).toBe(false);
     }
   });
 });

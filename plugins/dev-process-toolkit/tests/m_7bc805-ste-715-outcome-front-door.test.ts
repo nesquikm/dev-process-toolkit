@@ -389,6 +389,7 @@ describe("AC-STE-715.13 switch off", () => {
   test("switch on: the receipt CLI prints exactly two lines, the announcement then `outcome: on`", () => {
     const root = makeTree("on-two-lines", "on");
     const { run, path } = mintRun(root);
+    // Amended by AC-STE-724.20: two lines -> three when reuse is on.
     expect(run.stdout).toBe(`dpt-receipt: ${path} sha256:${sha(readFileSync(path))}\noutcome: on\n`);
     expect(run.stderr).toBe("");
   }, T);
@@ -588,7 +589,9 @@ describe("AC-STE-715.9 the AC-STE-618.8 freeze is re-based once, onto the line-9
 
   test("KICKOFF names the edit commit, a RE-BASED comment names the ruling and line 9, PERMITTED_LINES is unchanged", () => {
     const src = readFileSync(FREEZE, "utf-8");
-    expect(editCommit().startsWith(kickoff())).toBe(true);
+    // Amended by AC-STE-723.9 (M_fd9a03): R5 re-based KICKOFF onto the milestone's gate-check edit commit, a descendant of the line-9 edit, so the base still holds it.
+    const holdsEdit = spawnSync("git", ["merge-base", "--is-ancestor", editCommit(), kickoff()], { cwd: REPO_ROOT });
+    expect(holdsEdit.status).toBe(0);
     const at = src.indexOf("RE-BASED (operator ruling 2026-11-04, M_7bc805 / STE-715)");
     expect(at).toBeGreaterThanOrEqual(0);
     expect(src.slice(at, at + 600)).toMatch(/line 9/);

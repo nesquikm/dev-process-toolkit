@@ -56,6 +56,8 @@ describe("AC-STE-728.1 PROPOSABLE_SETTINGS is the closed three-row table", () =>
       ["tracking.token_stats.enabled", true],
       ["tracking.tool_calls.enabled", true],
       ["tracking.gate_outcomes.enabled", true],
+      // Amended by AC-STE-723.13: three rows -> four.
+      ["optimizations.gate_commands", "reuse"],
     ]);
   });
 

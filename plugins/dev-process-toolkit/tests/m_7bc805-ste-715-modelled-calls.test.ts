@@ -50,6 +50,8 @@ interface GuardedTarget {
  */
 const GUARDED_TARGETS: readonly GuardedTarget[] = [
   { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
+  // Amended by AC-STE-724.22 (M_fd9a03): the reuse front door is guarded by reuse: on.
+  { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },
 ];
 
 const SWITCH_LINE_RE = /`([a-z_]+: on)`/g;
@@ -176,7 +178,11 @@ describe("AC-STE-715.15 modelled tool calls", () => {
   });
 
   test("GUARDED_TARGETS is the closed one-row table this milestone ships", () => {
-    expect(GUARDED_TARGETS).toEqual([{ module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" }]);
+    // Amended by AC-STE-724.22 (M_fd9a03): the reuse front door is guarded by reuse: on.
+    expect(GUARDED_TARGETS).toEqual([
+      { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
+      { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },
+    ]);
   });
 
   for (const skill of GATE_SKILLS) {

@@ -11,6 +11,9 @@
 // The full gate runs suites alongside each other, so a case that misses its
 // bound is measured once more, baseline included, and fails only when both
 // rounds miss. Every p95 of both rounds is printed.
+// Each round interleaves its 30 baseline spawns with the case's 30 spawns
+// (baseline, case, baseline, case, ...), so a load swing from another suite
+// lands on both sides of the comparison instead of on one of them.
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
@@ -45,10 +48,6 @@ function time(argv: string[], cwd: string, stdin: string, env: Record<string, st
   const dt = performance.now() - t0;
   if (p.exitCode !== 0) throw new Error(`${argv.join(" ")} exited ${p.exitCode}: ${p.stderr.toString()}`);
   return dt;
-}
-
-function sample(argv: string[], cwd: string, stdin: string, env: Record<string, string>): number[] {
-  return Array.from({ length: RUNS }, () => time(argv, cwd, stdin, env));
 }
 
 interface Case {
@@ -97,22 +96,27 @@ describe("AC-STE-716.10 capture latency", () => {
       { name: "flag on, Skill, 2,000 files", root: big, command: commandFor(big), stdin: stdinFor(big, { event: "pre", tool: "Skill", cwd: big, skill: "dev-process-toolkit:tdd" }), bound: () => 500 },
     ];
 
-    const baseline = (): number => p95(sample(["/bin/bash", join(noopDir, "noop.sh")], noopDir, "{}", env));
-    const measure = (c: Case): { p95: number; max: number } => {
-      const s = sample(["/bin/sh", "-c", c.command], c.root, c.stdin, { ...env, CLAUDE_PROJECT_DIR: c.root });
-      return { p95: p95(s), max: Math.max(...s) };
+    // One round: RUNS baseline spawns interleaved with RUNS case spawns.
+    const round = (c: Case): { base: number; p95: number; max: number } => {
+      const base: number[] = [];
+      const s: number[] = [];
+      for (let i = 0; i < RUNS; i++) {
+        base.push(time(["/bin/bash", join(noopDir, "noop.sh")], noopDir, "{}", env));
+        s.push(time(["/bin/sh", "-c", c.command], c.root, c.stdin, { ...env, CLAUDE_PROJECT_DIR: c.root }));
+      }
+      return { base: p95(base), p95: p95(s), max: Math.max(...s) };
     };
 
     const failures: string[] = [];
-    const base1 = baseline();
-    console.log(`[AC-STE-716.10] round 1 baseline p95 = ${base1.toFixed(1)} ms`);
     for (const c of cases) {
-      const r1 = measure(c);
+      const r1 = round(c);
+      const base1 = r1.base;
       const ok1 = r1.p95 <= c.bound(base1) && r1.max < 2000;
+      console.log(`[AC-STE-716.10] round 1 baseline p95 = ${base1.toFixed(1)} ms`);
       console.log(`[AC-STE-716.10] round 1 ${c.name}: p95 = ${r1.p95.toFixed(1)} ms, max = ${r1.max.toFixed(1)} ms, bound = ${c.bound(base1).toFixed(1)} ms ${ok1 ? "ok" : "MISS"}`);
       if (ok1) continue;
-      const base2 = baseline();
-      const r2 = measure(c);
+      const r2 = round(c);
+      const base2 = r2.base;
       const ok2 = r2.p95 <= c.bound(base2) && r2.max < 2000;
       console.log(`[AC-STE-716.10] round 2 baseline p95 = ${base2.toFixed(1)} ms`);
       console.log(`[AC-STE-716.10] round 2 ${c.name}: p95 = ${r2.p95.toFixed(1)} ms, max = ${r2.max.toFixed(1)} ms, bound = ${c.bound(base2).toFixed(1)} ms ${ok2 ? "ok" : "MISS"}`);

@@ -475,12 +475,14 @@ const liveProbeCount = (): number => probeRegistrationLines().length;
 // Amended by AC-STE-673.6: probe count 85 -> 86 (the previous count moves with the cascade).
 // Amended by AC-STE-680.6: probe count 86 -> 87 (the previous count moves with the cascade).
 // Amended by AC-STE-693.6: probe count 88 -> 89.
-const PREVIOUS_PROBE_COUNT = 88;
+// Amended by AC-STE-723.7: probe count 89 -> 90.
+const PREVIOUS_PROBE_COUNT = 89;
 /** The count after. */
 // Amended by AC-STE-673.6: probe count 86 -> 87.
 // Amended by AC-STE-680.6: probe count 87 -> 88.
 // Amended by AC-STE-693.6: probe count 88 -> 89.
-const EXPECTED_PROBE_COUNT = 89;
+// Amended by AC-STE-723.7: probe count 89 -> 90.
+const EXPECTED_PROBE_COUNT = 90;
 
 /**
  * Every surface pinning the probe count, as `[plugin-relative path or
@@ -654,10 +656,12 @@ describe("AC-STE-659.3 — registered as probe #86, every count pin moved with i
     const body = read(surfaceAbs("tests/m141-ste-546-surface-agreement.test.ts"));
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: the NEXT-row tripwire moves #89 -> #90.
-    expect(body).toContain(String.raw`/^90\. \*\*/m`);
+    // Amended by AC-STE-723.7: #90 -> #91.
+    expect(body).toContain(String.raw`/^91\. \*\*/m`);
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(body).not.toContain(String.raw`/^89\. \*\*/m`);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(body).not.toContain(String.raw`/^90\. \*\*/m`);
   });
 
   test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {

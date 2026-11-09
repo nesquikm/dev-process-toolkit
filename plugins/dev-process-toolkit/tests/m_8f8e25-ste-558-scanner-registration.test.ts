@@ -441,11 +441,13 @@ describe("AC-STE-558.3 — both scanners are numbered registrations", () => {
     const registrations = probeRegistrationLines();
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(liveProbeCount()).toBe(89);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(liveProbeCount()).toBe(90);
     expect(registrations.map((r) => r.number)).toEqual(
       // Amended by AC-STE-680.6: probe count 87 -> 88.
       // Amended by AC-STE-693.6: probe count 88 -> 89.
-      Array.from({ length: 89 }, (_, i) => i + 1),
+      // Amended by AC-STE-723.7: probe count 89 -> 90.
+      Array.from({ length: 90 }, (_, i) => i + 1),
     );
   });
 
@@ -602,13 +604,15 @@ describe("AC-STE-558.4 — each registration is an order a reader can carry out"
 // Amended by AC-STE-673.6: the previous count is now 86 (probe #87 landed), so the staleness half stays live.
 // Amended by AC-STE-680.6: the previous count is now 87 (probe #88 landed), so the staleness half stays live.
 // Amended by AC-STE-693.6: probe count 88 -> 89.
-const STALE_PROBE_COUNT = 88;
+// Amended by AC-STE-723.7: probe count 89 -> 90.
+const STALE_PROBE_COUNT = 89;
 /** The count after this FR registers both scanners. */
 // Amended by AC-STE-659.3: probe count 85 -> 86.
 // Amended by AC-STE-673.6: probe count 86 -> 87.
 // Amended by AC-STE-680.6: probe count 87 -> 88.
 // Amended by AC-STE-693.6: probe count 88 -> 89.
-const NEW_PROBE_COUNT = 89;
+// Amended by AC-STE-723.7: probe count 89 -> 90.
+const NEW_PROBE_COUNT = 90;
 
 /**
  * Every surface carrying the probe count, as `[plugin-relative-or-README path,

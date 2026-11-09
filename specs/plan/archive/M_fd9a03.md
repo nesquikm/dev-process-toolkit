@@ -1,11 +1,12 @@
 ---
 milestone: M_fd9a03
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-11-08T18:33:45Z
 kickoff_branch: null
 frozen_at: null
 migration: none
 codename: Proof of Work
+shipped_in: v3.3.0
 ---
 
 # Implementation Plan
@@ -46,41 +47,41 @@ codename: Proof of Work
 
 ### Tasks
 
-- [ ] Add `optimizations_config.ts` with the knob and value enums, the refused-name list, `readOptimizations`, `validateOptimizations` and the `knob` verb, read through the M_94e6f7 settings loader (AC-STE-723.1, .2, .3, .5, .6, .12)
+- [x] Add `optimizations_config.ts` with the knob and value enums, the refused-name list, `readOptimizations`, `validateOptimizations` and the `knob` verb, read through the M_94e6f7 settings loader (AC-STE-723.1, .2, .3, .5, .6, .12)
   verify: reader and verb return run for absent, empty and invalid sections, and for reuse with tracking.gate_outcomes off; one violation per offending key; source grep zero hits beside its control
-- [ ] Admit `optimizations` to the loader as a closed section (`TOP_KEYS` last, `settingsKeyOrder`, `NEW_KEYS`, defaults), its value unchecked by the loader; add the never-throwing `settingsSectionValue` export; document it in settings-reference; add its `new` mapping row and the enum case of the off-when-absent row (AC-STE-723.8)
+- [x] Admit `optimizations` to the loader as a closed section (`TOP_KEYS` last, `settingsKeyOrder`, `NEW_KEYS`, defaults), its value unchecked by the loader; add the never-throwing `settingsSectionValue` export; document it in settings-reference; add its `new` mapping row and the enum case of the off-when-absent row (AC-STE-723.8)
   verify: an unknown knob name refuses `optimizations` reads only, a bad value passes the loader, the planted-knob control still names only `orchestration.skip_gates`; settings-reference names `gate_commands`, `reuse` and `run`
-- [ ] Move the M_d1b4b7 defaults-unchanged `Remedy:` literal and `get optimizations` row that `TOP_KEYS` growth reddens, and append the archived AC-STE-722.12 clause (AC-STE-723.15)
+- [x] Move the M_d1b4b7 defaults-unchanged `Remedy:` literal and `get optimizations` row that `TOP_KEYS` growth reddens, and append the archived AC-STE-722.12 clause (AC-STE-723.15)
   verify: m_d1b4b7-defaults-unchanged green with only those two literals moved, each with an `Amended by AC-STE-723.15` comment; the archived STE-722 FR differs from its M_d1b4b7 merge bytes only by the AC-722.8 and AC-722.12 clauses
-- [ ] Add the probe module entry `runOptimizationsReuseOnlyProbe` and its fixtures (AC-STE-723.4)
+- [x] Add the probe module entry `runOptimizationsReuseOnlyProbe` and its fixtures (AC-STE-723.4)
   verify: positive fixture plus one negative per reason, requires-gate-outcomes included; shape and knob names decided from `settingsSectionValue`'s parsed value, so flow-style and `{}` sections pass, with lines from `settingsSectionKeys` or the section line; vacuous with zero notes on an unmanaged tree, a foreign settings file and no section
-- [ ] Add the reuse row to the STE-728 proposal table (AC-STE-723.13)
+- [x] Add the reuse row to the STE-728 proposal table (AC-STE-723.13)
   verify: propose prints the reuse line only with tracking.gate_outcomes on; the AC-STE-728.1 row pin moves from three to four with its Amended-by comment
-- [ ] Add `computeReuseKey` to `gate_reuse.ts`, composing the M_7bc805 `gateReuseKey` with a per-command hash and passing its stub options through (AC-STE-724.1, .2, .3)
+- [x] Add `computeReuseKey` to `gate_reuse.ts`, composing the M_7bc805 `gateReuseKey` with a per-command hash and passing its stub options through (AC-STE-724.1, .2, .3)
   verify: keys exactly `gate` and `command_sha256`; null on modified, staged, untracked, non-git and unborn HEAD; `gate` deep-equals the M_7bc805 run-receipt key
-- [ ] Add the `reuse: on` line to the `gate-check` receipt call, behind the outcome switch and a dynamic import, and append the archived AC-STE-715.13 clause (AC-STE-724.20)
+- [x] Add the `reuse: on` line to the `gate-check` receipt call, behind the outcome switch and a dynamic import, and append the archived AC-STE-715.13 clause (AC-STE-724.20)
   verify: one, two or three lines by switch and knob; no module load with the outcome switch off; the AC-STE-715.13 literal carries its Amended-by comment; the archived AC-STE-715.13 line differs only by its appended clause
-- [ ] Add the `run` verb and `announcesGateStep`: knob check first, then live key, announced same-session `gate-step` pass lookup with provenance, and a reuse line or a real run plus one receipt (AC-STE-724.4, .5, .6, .8, .9, .10, .14, .15, .16)
+- [x] Add the `run` verb and `announcesGateStep`: knob check first, then live key, announced same-session `gate-step` pass lookup with provenance, and a reuse line or a real run plus one receipt (AC-STE-724.4, .5, .6, .8, .9, .10, .14, .15, .16)
   verify: paired trip and no-trip fixtures, one per key part and one per refusal; each echo, chain and same-name forgery runs the command; knob off, or reuse with outcomes off, writes nothing; unset session id writes nothing
-- [ ] Prove the hooks read nothing new (AC-STE-724.11, .12)
+- [x] Prove the hooks read nothing new (AC-STE-724.11, .12)
   verify: `gateReceiptEvidence` misses on step-only sessions; `pre-commit-gate-check` wrapper exits 2; hook source grep zero hits beside its control
-- [ ] Add the `verdict` verb; add the `/simplify` branch, keyed on the consulted run's `reuse: on` line, after the kept gate-stamp sentence; amend AC-STE-196.2 before its anchor (AC-STE-725.1, .2, .3, .7)
+- [x] Add the `verdict` verb; add the `/simplify` branch, keyed on the consulted run's `reuse: on` line, after the kept gate-stamp sentence; amend AC-STE-196.2 before its anchor (AC-STE-725.1, .2, .3, .7)
   verify: clean and rerun fixtures with the knob on and off, forgery rows included; no receipt written; trunk simplify prose test green unchanged; no unconditional `gate_reuse.ts` mention
-- [ ] Add the reuse clause to `/implement` step i and `docs/implement-reference.md`; add the patterns.md entry and the hooks-reference sentence (AC-STE-725.4, .6)
+- [x] Add the reuse clause to `/implement` step i and `docs/implement-reference.md`; add the patterns.md entry and the hooks-reference sentence (AC-STE-725.4, .6)
   verify: needles per surface; "Never claim clean from memory" kept
-- [ ] Widen the AC-STE-722.8 frozen region of `tests/m_d1b4b7-ste-722-retro-offer.test.ts` to the step-i line and append the archived AC-STE-722.8 clause (AC-STE-725.12)
+- [x] Widen the AC-STE-722.8 frozen region of `tests/m_d1b4b7-ste-722-retro-offer.test.ts` to the step-i line and append the archived AC-STE-722.8 clause (AC-STE-725.12)
   verify: that test green on the M_fd9a03 tree with only its region widened and an `Amended by AC-STE-725.12` comment; a one-byte edit to the step-i trunk prefix in a temp copy reds it
-- [ ] Land every M4 gate-check SKILL.md edit in one commit, net zero: the probe line as row 90, the #31 line join that pays for it, line 248's #91, the knob sentence appended to line 252, the `(reused)` clause on the line 265 bullet, the two Rules lines and the Reporting fresh-run sentence; move every probe-count pin by one, the next-probe literals to #91, and add the `gate_reuse.ts run` conditional target with its archived AC-STE-708.13 clause in it (AC-STE-723.7, AC-STE-723.14, AC-STE-724.7, .13, .21, AC-STE-725.5)
+- [x] Land every M4 gate-check SKILL.md edit in one commit, net zero: the probe line as row 90, the #31 line join that pays for it, line 248's #91, the knob sentence appended to line 252, the `(reused)` clause on the line 265 bullet, the two Rules lines and the Reporting fresh-run sentence; move every probe-count pin by one, the next-probe literals to #91, and add the `gate_reuse.ts run` conditional target with its archived AC-STE-708.13 clause and the `gate_reuse.ts run` row of the M_7bc805 modeller's `GUARDED_TARGETS` in it (AC-STE-724.22, AC-STE-723.7, AC-STE-723.14, AC-STE-724.7, .13, .21, AC-STE-725.5)
   verify: probe #81 grades the line reachable; trunk Commands lines and Code Review byte-identical (line 252 as a prefix); Red Flags and Rationalization blocks byte-identical; the file measures 356 split-lines and 87 STE tokens; the eight exact 356 pins, the numstat in-place rule and the row-position control pass unedited; every file `grep -rl "probe count" tests/` lists is green; "AC-.13 gate-check" green
-- [ ] Under ruling R5, re-base KICKOFF to that edit commit as its own reviewed commit, listing every new permitted line (AC-STE-723.9, AC-STE-724.17, AC-STE-725.8)
+- [x] Under ruling R5, re-base KICKOFF to that edit commit as its own reviewed commit, listing every new permitted line (AC-STE-723.9, AC-STE-724.17, AC-STE-725.8)
   verify: freeze test green on the re-base commit; neighbour-line negative controls still fail `driftBeyond`
-- [ ] Add the milestone's defaults-unchanged test, add the `gate_reuse.ts run` row to the M_7bc805 modeller's `GUARDED_TARGETS`, and re-run that `/gate-check` modeller with every switch off and with the reuse receipt lines stubbed (AC-STE-725.11, AC-STE-725.13, AC-STE-724.22)
+- [x] Add the milestone's defaults-unchanged test and re-run the `/gate-check` modeller (its `GUARDED_TARGETS` row for `gate_reuse.ts run` lands in the gate-check edit commit, so no intermediate commit reds the M_7bc805 modellers) with every switch off and with the reuse receipt lines stubbed (AC-STE-725.11, AC-STE-725.13, AC-STE-724.22)
   verify: knob reads run, probe silent, verdict prints rerun, no gate-step receipt, receipt call and store equal v3.0.0; the probe summary differs only by its named vacuous count
-- [ ] Mutation controls for each rule (AC-STE-723.10, AC-STE-724.18, AC-STE-725.9)
+- [x] Mutation controls for each rule (AC-STE-723.10, AC-STE-724.18, AC-STE-725.9)
   verify: removing the knob, tree-clean, announcement, provenance, run-outcome, never-reusable and verdict checks each reds a named test
-- [ ] Run the full suite on the last commit (AC-STE-723.11, AC-STE-724.19, AC-STE-725.10)
+- [x] Run the full suite on the last commit (AC-STE-723.11, AC-STE-724.19, AC-STE-725.10)
   verify: `bun test` 0 fail; skip identities equal the trunk baseline by name
-- [ ] Full suite by name vs trunk before commit; every red caused by this milestone's own edits is either replaced by this milestone's tests or amended with an `Amended by AC-STE-<N>.<M>` marker naming it; list each in the archived FR notes. Zero unexplained reds.
+- [x] Full suite by name vs trunk before commit; every red caused by this milestone's own edits is either replaced by this milestone's tests or amended with an `Amended by AC-STE-<N>.<M>` marker naming it; list each in the archived FR notes. Zero unexplained reds.
   verify: the JUnit test names of `bun test` from `plugins/dev-process-toolkit` on the milestone's last commit, compared with the same run on trunk under the same bun, show no red outside that list; each listed test names its marker; the pins this plan already names are in the list; covers AC-STE-723.11, AC-STE-724.19 and AC-STE-725.10
 
 ### SKILL.md line budget
@@ -114,3 +115,15 @@ codename: Proof of Work
 - `bun test` from `plugins/dev-process-toolkit`: 0 fail, skip identities equal to the baseline
 - `/gate-check` clean, including the new probe on this repo's own settings file
 - Defaults unchanged: with no settings file, and with a migrated file holding only the moved keys, skill, hook and probe outputs equal v3.0.0, the M_94e6f7 merge commit (tests/m_fd9a03-defaults-unchanged.test.ts); no extra tool call by default. One named difference, accepted by operator ruling: the conformance-probes summary counts one more vacuous probe (STE-723). A second, on a CLI no skill calls by default: `project_settings.ts get optimizations` exits 0 with its `gate_commands: run` default where v3.0.0 refused, and the `get` refusal's section list gains `optimizations` last (AC-STE-725.11)
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| dev-process-toolkit:ship-milestone | claude-opus-5-5 | 22 | 6633 | 5117529 | 66041 |
+| design/exploration | claude-opus-5-5 | 1800 | 485136 | 308679875 | 1348020 |
+| total |  | 1822 | 491769 | 313797404 | 1414061 |
+
+<!-- token-stats:end -->

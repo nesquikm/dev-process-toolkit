@@ -282,10 +282,12 @@ describe("AC-STE-417.3 — gate-check SKILL.md registers probe #73", () => {
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(Math.max(...numbers)).toBe(89);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(Math.max(...numbers)).toBe(90);
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(numbers.length).toBe(89);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(numbers.length).toBe(90);
   });
 });
 
@@ -299,7 +301,8 @@ describe("AC-STE-417.3 — README probe-count pins move 72 → 73", () => {
   test("the Features bullet counts 89 numbered probes", () => {
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(readme()).toMatch(/\b89\b\s+numbered `\/gate-check` probes/);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(readme()).toMatch(/\b90\b\s+numbered `\/gate-check` probes/);
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
@@ -309,7 +312,8 @@ describe("AC-STE-417.3 — README probe-count pins move 72 → 73", () => {
   test("the /implement-invokes-/tdd aside counts 89 probes", () => {
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
-    expect(readme()).toMatch(/layers 89 probes/);
+    // Amended by AC-STE-723.7: probe count 89 -> 90.
+    expect(readme()).toMatch(/layers 90 probes/);
   });
 
   test("no stale `72 numbered` / `layers 72 probes` token survives in README", () => {
