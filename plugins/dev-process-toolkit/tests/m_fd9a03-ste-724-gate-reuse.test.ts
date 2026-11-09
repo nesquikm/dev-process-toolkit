@@ -1031,8 +1031,12 @@ describe("AC-STE-724.18 mutation controls: each check reds a named test", () => 
   }, T);
 
   test("AC-STE-724.18 mutation: tree-clean check — removing it lets a dirty tree's stored pass be reused", () => {
+    // Both reads of git status are the clean check: the key's own and the trusted re-read.
     const door = reuseDoor(
-      mutatedCopy("clean", [["gate_reuse.ts", /if \(gate\.head === null \|\| !gate\.clean\) return null;/, "if (gate.head === null) return null;"]]),
+      mutatedCopy("clean", [
+        ["gate_reuse.ts", /if \(gate\.head === null \|\| !gate\.clean\) return null;/, "if (gate.head === null) return null;"],
+        ["gate_reuse.ts", /if \(trustedGit\(root, \["status", [^\n]*\n/, ""],
+      ]),
     );
     // The stored pass is minted by the mutated copy on a tree dirty for the whole session.
     const b = buildSession("ac18-clean", { dirty: true, frontDoor: door });
@@ -1107,7 +1111,7 @@ describe("AC-STE-724.18 mutation controls: each check reds a named test", () => 
 
   test("AC-STE-724.18 mutation: index-flag check — removing it turns 'AC-STE-724.3 (hidden edit, skip-worktree)' red", () => {
     const door = reuseDoor(
-      mutatedCopy("index-flags", [["gate_reuse.ts", /if \(indexFlagsUnreadableOrSet\(projectRoot\)\) return null;/, ""]]),
+      mutatedCopy("index-flags", [["gate_reuse.ts", /if \(hiddenIndexEntries\(trustedGit\(root, \["ls-files", "-v"\]\)\)\.length > 0\) return true;/, ""]]),
     );
     const b = buildSession("ac18-index-flags");
     writeFileSync(join(b.root, "docs", "readme.txt"), "edited after the stored pass\n");
@@ -1118,6 +1122,7 @@ describe("AC-STE-724.18 mutation controls: each check reds a named test", () => 
   }, T);
 
   test("AC-STE-724.18 mutation: newest-step check — removing it turns 'AC-STE-724.5 (newest step): S1 pass, S2 fail' red", () => {
+    // The newest vouched step and the newer-fail check are one rule; removing both lets S1 shadow S2.
     const door = reuseDoor(
       mutatedCopy("newest", [
         [
@@ -1125,9 +1130,49 @@ describe("AC-STE-724.18 mutation controls: each check reds a named test", () => 
           /const f = newestStep\(session, label, key\);/,
           "const f = [...session.files].reverse().find((x) => x.record.evidence?.label === label && stepStands(session, x, key));",
         ],
+        ["gate_reuse.ts", /if \(failedSince\(s, f, liveKey\)\) return false;/, ""],
       ]),
     );
-    const b = passThenFailSession("ac18-newest");
+    const b = passThenFailSession("ac18-newest", "success");
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: newer-fail check — removing it turns 'S1 pass, S2 fail recorded in the REAL error shape' red", () => {
+    const door = reuseDoor(mutatedCopy("failed-since", [["gate_reuse.ts", /if \(failedSince\(s, f, liveKey\)\) return false;/, ""]]));
+    const b = passThenFailSession("ac18-failed-since", "error");
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: error-shaped door call capture — removing it turns 'a later error-shaped door call for the label with NO stored receipt' red", () => {
+    const door = reuseDoor(mutatedCopy("failed-calls", [["gate_reuse.ts", /if \(label !== null\) failedCalls\.push\(\{ label, line: at \}\);/, ""]]));
+    const b = passThenFailSession("ac18-failed-calls", "error");
+    rmSync(stepReceipts(b.root).find((x) => x.record.decision === "fail")!.path);
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: trusted-git flags — dropping core.fsmonitor=false turns 'AC-STE-724.3 (hidden edit, fsmonitor)' red", () => {
+    const door = reuseDoor(mutatedCopy("fsmonitor", [["gate_reuse.ts", /"-c", "core\.fsmonitor=false", /, ""]]));
+    const b = buildSession("ac18-fsmonitor");
+    lyingFsmonitor(b.root);
+    writeFileSync(join(b.root, "docs", "readme.txt"), "EDITED-WI");
+    expect(isClean(b.root)).toBe(true);
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: filter check — removing it turns 'AC-STE-724.3 (hidden edit, clean filter)' red", () => {
+    const door = reuseDoor(
+      mutatedCopy("filters", [["gate_reuse.ts", /return configuredFilters\(root, trustedGit\(root, \["ls-files", "-z"\]\)\)\.length > 0;/, "return false;"]]),
+    );
+    const b = buildSession("ac18-filters");
+    lyingCleanFilter(b.root, "docs/readme.txt");
+    const file = join(b.root, "docs", "readme.txt");
+    writeFileSync(file, readFileSync(file, "utf-8").replace(/[^\n]/g, "X"));
+    git(b.root, "update-index", "--refresh");
+    expect(isClean(b.root)).toBe(true);
     expect(pick(graded(b, unmutated()))).toEqual(RAN);
     expect(pick(graded(b, door))).toEqual(REUSED);
   }, T);
@@ -1751,11 +1796,38 @@ describe("AC-STE-724.3 (hidden edit): an index flag hiding an edit from git stat
 });
 
 /**
- * The B2 shape: in one run, step S1 of `test` passes, S2 of the same label
- * and key fails, then the run's one outcome claims `test=pass`. Every call is
- * announced in the session's transcript.
+ * A Bash call that exited non-zero, as Claude Code REALLY records it (PR #133
+ * review 2, measured on live transcripts): `is_error: true`, content
+ * `Exit code N\n…`, and `toolUseResult` a STRING `Error: Exit code N\n…`.
  */
-function passThenFailSession(label: string): Built {
+function errorBashCall(id: string, command: string, stdout: string, code: number): string[] {
+  const [use, result] = contentOnlyBashCall(id, command, stdout);
+  const record = JSON.parse(result as string);
+  record.message.content[0].is_error = true;
+  record.message.content[0].content = `Exit code ${code}\n${stdout}`;
+  record.toolUseResult = `Error: Exit code ${code}\n${stdout}`;
+  return [use as string, JSON.stringify(record)];
+}
+
+/**
+ * How S2's failing door call reaches the transcript: `error` is the REAL
+ * shape (is_error, string toolUseResult); `success` the pre-review-2 fixture
+ * shape that never occurs for a non-zero exit; `absent` no record at all, so
+ * S2's fail is in the store only, never vouched.
+ */
+type FailShape = "error" | "success" | "absent";
+
+function failRecord(shape: FailShape, id: string, command: string, run: CliRun): string[] {
+  if (shape === "absent") return [];
+  return shape === "error" ? errorBashCall(id, command, run.stdout, run.exitCode) : bashCall(id, command, run.stdout, run.stderr);
+}
+
+/**
+ * The B2 shape: in one run, step S1 of `test` passes, S2 of the same label
+ * and key fails, then the run's one outcome claims `test=pass`. S2's call is
+ * recorded in `shape` (the real error shape by default).
+ */
+function passThenFailSession(label: string, shape: FailShape = "error"): Built {
   const b = buildSession(label, {
     command: (s) => `if [ -e ${s}.fail ]; then exit 1; fi; touch ${s} && echo ok`,
     outcome: "none",
@@ -1770,7 +1842,7 @@ function passThenFailSession(label: string): Built {
   if (out.exitCode !== 0) throw new Error(`outcome CLI failed: ${out.stderr}`);
   const records = {
     ...b.records,
-    step: [...b.records.step, ...bashCall("b4", reuseCommand(b.root, LABEL, b.cmd), s2.stdout, s2.stderr)],
+    step: [...b.records.step, ...failRecord(shape, "b4", reuseCommand(b.root, LABEL, b.cmd), s2)],
     outcome: bashCall("b5", outcomeCommand("gate-check", b.root, "pass", [`${LABEL}=pass`]), out.stdout, out.stderr),
   };
   retranscribe(b, [...records.skill, ...records.run, ...records.step, ...records.outcome]);
@@ -1783,8 +1855,13 @@ function passThenFailSession(label: string): Built {
 // ===========================================================================
 
 describe("AC-STE-724.5 (newest step): a later fail on the same run, label and key is never shadowed by an earlier pass", () => {
-  test("AC-STE-724.5 (newest step): S1 pass, S2 fail, then the run's outcome claiming test=pass: run reruns and verdict prints rerun", () => {
-    const b = passThenFailSession("b2-newest");
+  for (const [shape, title] of [
+    ["success", "S1 pass, S2 fail, then the run's outcome claiming test=pass: run reruns and verdict prints rerun"],
+    ["error", "S1 pass, S2 fail recorded in the REAL error shape (is_error, string toolUseResult), outcome claiming test=pass: run reruns and verdict prints rerun"],
+    ["absent", "S1 pass, S2 fail with no vouch at all (stored, never announced), outcome claiming test=pass: run reruns and verdict prints rerun"],
+  ] as const)
+  test(`AC-STE-724.5 (newest step): ${title}`, () => {
+    const b = passThenFailSession(`b2-newest-${shape}`, shape);
     const steps = stepReceipts(b.root);
     expect(steps.map((s) => s.record.decision)).toEqual(["pass", "fail"]);
     // Both steps share the run and the key.
@@ -1810,8 +1887,9 @@ describe("AC-STE-724.5 (newest step): a later fail on the same run, label and ke
     expectRan(b, r);
   }, T);
 
-  test("AC-STE-724.5 (newest step): CONTROL — S1 fail then S2 pass on the same key reuses S2", () => {
-    const b = buildSession("b2-control", {
+  for (const shape of ["success", "error"] as const)
+  test(`AC-STE-724.5 (newest step): CONTROL — S1 fail then S2 pass on the same key reuses S2 (fail recorded in the ${shape} shape)`, () => {
+    const b = buildSession(`b2-control-${shape}`, {
       command: (s) => `if [ -e ${s}.fail ]; then exit 1; fi; touch ${s} && echo ok`,
       outcome: "none",
     });
@@ -1828,7 +1906,7 @@ describe("AC-STE-724.5 (newest step): a later fail on the same run, label and ke
       ...b.records.skill,
       ...b.records.run,
       ...b.records.step,
-      ...bashCall("b4", reuseCommand(b.root, LABEL, b.cmd), s2.stdout, s2.stderr),
+      ...failRecord(shape, "b4", reuseCommand(b.root, LABEL, b.cmd), s2),
       ...bashCall("b5", reuseCommand(b.root, LABEL, b.cmd), s3.stdout, s3.stderr),
       ...bashCall("b6", outcomeCommand("gate-check", b.root, "pass", [`${LABEL}=pass`]), out.stdout, out.stderr),
     ]);
@@ -1836,5 +1914,153 @@ describe("AC-STE-724.5 (newest step): a later fail on the same run, label and ke
     expectReused(b, r);
     const newest = stepReceipts(b.root).at(-1)!;
     expect(reuseLines(r.stdout)[0]).toContain(newest.path);
+  }, T);
+});
+
+// ===========================================================================
+// Pre-merge fix 2 (PR #133 review 2, R2-B1): a failed step counts without a
+// vouch. A non-zero exit is recorded `is_error: true` with a string
+// `toolUseResult`, so its step line vouches nothing; the stored fail receipt
+// and the error-shaped door call still refuse reuse. A forged fail can only
+// cause a rerun.
+// ===========================================================================
+
+describe("AC-STE-724.5 (failed step counts unvouched): a fail newer than the vouched pass refuses reuse", () => {
+  test("AC-STE-724.5 (failed step counts unvouched): a later error-shaped door call for the label with NO stored receipt refuses reuse", () => {
+    const b = passThenFailSession("r2b1-noreceipt", "error");
+    // The door died before writing (a killed door, say): only its error record remains.
+    const fail = stepReceipts(b.root).find((s) => s.record.decision === "fail")!;
+    rmSync(fail.path);
+    expect(stepReceipts(b.root).map((s) => s.record.decision)).toEqual(["pass"]);
+    const verdict = spawnDoor(["verdict", b.root], { cfg: b.cfg, cwd: b.root });
+    expect(verdict.stdout.trim()).toBe("rerun");
+    expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.5 (failed step counts unvouched): an error-shaped door call for ANOTHER label does not refuse this label's reuse", () => {
+    const b = buildSession("r2b1-otherlabel");
+    const lint = runReuse(b.root, "lint", "exit 1", { cfg: b.cfg });
+    expect(lint.exitCode).toBe(1);
+    retranscribe(b, [
+      ...b.records.skill,
+      ...b.records.run,
+      ...b.records.step,
+      ...errorBashCall("b7", reuseCommand(b.root, "lint", "exit 1"), lint.stdout, 1),
+      ...b.records.outcome,
+    ]);
+    expectReused(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.5 (failed step counts unvouched): an error-shaped door call BEFORE the vouched pass does not refuse it", () => {
+    const b = buildSession("r2b1-before");
+    retranscribe(b, [
+      ...b.records.skill,
+      ...b.records.run,
+      ...errorBashCall("b7", reuseCommand(b.root, LABEL, b.cmd), "", 1),
+      ...b.records.step,
+      ...b.records.outcome,
+    ]);
+    expectReused(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+});
+
+// ===========================================================================
+// Pre-merge fix 2 (PR #133 review 2, R2-HIGH): local git state that makes
+// `git status` lie never yields a key.
+// ===========================================================================
+
+function lyingFsmonitor(root: string): void {
+  const hook = join(root, ".git", "lying-fsmonitor.sh");
+  // Hook protocol v2: print a token, a NUL, then no changed paths.
+  writeFileSync(hook, "#!/bin/sh\nprintf 'tok\\0'\n");
+  spawnSync("chmod", ["+x", hook]);
+  git(root, "config", "core.fsmonitor", hook);
+  git(root, "config", "core.fsmonitorHookVersion", "2");
+  git(root, "status", "--porcelain"); // prime the index with the hook's token
+}
+
+/** A clean filter that hands git the committed bytes, whatever the worktree holds. */
+function lyingCleanFilter(root: string, path: string): void {
+  const committed = join(root, ".git", "committed-copy");
+  writeFileSync(committed, readFileSync(join(root, path)));
+  git(root, "config", "filter.liar.clean", `cat ${committed}`);
+  git(root, "config", "filter.liar.smudge", "cat");
+  writeFileSync(join(root, ".git", "info", "attributes"), `${path} filter=liar\n`);
+}
+
+describe("AC-STE-724.3 (hidden edit, git config): an fsmonitor hook or a clean filter hiding an edit makes the tree not clean", () => {
+  test("AC-STE-724.3 (hidden edit, fsmonitor): an edit hidden by a core.fsmonitor hook reporting no changes runs the command", () => {
+    const b = buildSession("r2h-fsmonitor");
+    lyingFsmonitor(b.root);
+    writeFileSync(join(b.root, "docs", "readme.txt"), "EDITED-WI");
+    // CONTROL: git status really hides the edit.
+    expect(isClean(b.root)).toBe(true);
+    expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.3 (hidden edit, clean filter): an edit hidden by a clean filter runs the command", () => {
+    const b = buildSession("r2h-filter");
+    lyingCleanFilter(b.root, "docs/readme.txt");
+    const file = join(b.root, "docs", "readme.txt");
+    // Same size: git compares content (through the filter) only when the size is unchanged.
+    writeFileSync(file, readFileSync(file, "utf-8").replace(/[^\n]/g, "X"));
+    git(b.root, "update-index", "--refresh");
+    // CONTROL: git status really hides the edit.
+    expect(isClean(b.root)).toBe(true);
+    expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.3 (hidden edit, git config): computeReuseKey is null under each hider, and not null once it is gone", async () => {
+    const m = await reuseModule();
+    const root = reuseTree("r2h-key-unit");
+    expect(m.computeReuseKey(root, "true")).not.toBeNull();
+    // A filter attribute whose driver is configured.
+    git(root, "config", "filter.liar.clean", "cat");
+    writeFileSync(join(root, ".git", "info", "attributes"), "docs/readme.txt filter=liar\n");
+    expect(m.computeReuseKey(root, "true")).toBeNull();
+    // A process filter alone is a filter too.
+    git(root, "config", "--unset", "filter.liar.clean");
+    git(root, "config", "filter.liar.process", "cat");
+    expect(m.computeReuseKey(root, "true")).toBeNull();
+    git(root, "config", "--remove-section", "filter.liar");
+    // An attribute naming no configured driver filters nothing.
+    expect(m.computeReuseKey(root, "true")).not.toBeNull();
+    writeFileSync(join(root, ".git", "info", "attributes"), "");
+    for (const [k, v] of [
+      ["core.ignoreStat", "true"],
+      ["core.checkStat", "minimal"],
+    ]) {
+      git(root, "config", k!, v!);
+      expect(m.computeReuseKey(root, "true")).toBeNull();
+      git(root, "config", "--unset", k!);
+      expect(m.computeReuseKey(root, "true")).not.toBeNull();
+    }
+  }, T);
+
+  test("AC-STE-724.3 (hidden edit, git config): status.showUntrackedFiles=no cannot hide an untracked file from the clean check", async () => {
+    const m = await reuseModule();
+    const root = reuseTree("r2h-status-flags");
+    git(root, "config", "status.showUntrackedFiles", "no");
+    writeFileSync(join(root, "untracked.txt"), "new\n");
+    expect(m.computeReuseKey(root, "true")).toBeNull();
+  }, T);
+});
+
+// ===========================================================================
+// Pre-merge fix 2 (PR #133 review 2, LOW): the key is recomputed after the
+// run; a tree the run left changed stores key: null, never reusable.
+// ===========================================================================
+
+describe("AC-STE-724.8 (key after the run): a run that leaves the tree changed stores key: null", () => {
+  test("AC-STE-724.8 (key after the run): a command editing a tracked file stores key null, and a revert before the next call still runs it", () => {
+    const b = buildSession("r2-keyafter", {
+      command: (s) => `touch ${s}; echo during-the-run >> docs/readme.txt; echo ok`,
+    });
+    const step = stepReceipts(b.root).at(-1)!;
+    expect(step.record.decision).toBe("pass");
+    expect(step.record.evidence.key).toBeNull();
+    git(b.root, "checkout", "--", "docs/readme.txt");
+    expect(isClean(b.root)).toBe(true);
+    expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
   }, T);
 });

@@ -60,8 +60,9 @@ export function computeReuseKey(
   }
   if (gate.head === null || !gate.clean) return null;
   // `git status` cannot see an edit behind a skip-worktree or assume-unchanged
-  // flag, so any flagged index entry, or an unreadable index, means no key.
-  if (indexFlagsUnreadableOrSet(projectRoot)) return null;
+  // flag, an fsmonitor hook, a clean filter or a stat shortcut, so the tree is
+  // re-read with each of those off, and any one of them set means no key.
+  if (statusHidersSet(projectRoot)) return null;
   const command_sha256 = `sha256:${createHash("sha256").update(commandText).digest("hex")}`;
   return { gate, command_sha256 };
 }
@@ -79,11 +80,66 @@ export function hiddenIndexEntries(lsFilesV: string): string[] {
     .map((l) => l.slice(2));
 }
 
-function indexFlagsUnreadableOrSet(root: string): boolean {
+/**
+ * The flags every git call of the clean check runs with: no fsmonitor hook and
+ * no untracked cache answers for the worktree, and no optional index lock is
+ * taken (PR #133 review 2).
+ */
+export const TRUSTED_GIT = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"] as const;
+
+/** `git <TRUSTED_GIT> -C root <args>`'s stdout; throws on any failure. */
+function trustedGit(root: string, args: readonly string[], stdin?: string): string {
+  const p = Bun.spawnSync(["git", ...TRUSTED_GIT, "-C", root, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: stdin === undefined ? "ignore" : Buffer.from(stdin),
+  });
+  if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")} exited ${p.exitCode}`);
+  return p.stdout.toString();
+}
+
+/** `git config --get` of `key`, or null when it is unset (exit 1). */
+function configValue(root: string, key: string, type?: "bool"): string | null {
+  const p = Bun.spawnSync(["git", ...TRUSTED_GIT, "-C", root, "config", ...(type ? [`--type=${type}`] : []), "--get", key], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (p.exitCode === 1) return null;
+  if (p.exitCode !== 0) throw new Error(`git config --get ${key} exited ${p.exitCode}`);
+  return p.stdout.toString().trim();
+}
+
+/**
+ * The filter drivers the `filter` attribute names on `paths` that have a
+ * `clean`, `smudge` or `process` command configured. An attribute naming no
+ * configured driver filters nothing, so it is not listed.
+ */
+function configuredFilters(root: string, paths: string): string[] {
+  if (paths === "") return [];
+  const fields = trustedGit(root, ["check-attr", "-z", "--stdin", "filter"], paths).split("\0");
+  const names = new Set<string>();
+  for (let i = 2; i < fields.length; i += 3) {
+    const v = fields[i]!;
+    if (v !== "" && v !== "unspecified" && v !== "unset" && v !== "set") names.add(v);
+  }
+  return [...names].filter((n) => ["clean", "smudge", "process"].some((k) => (configValue(root, `filter.${n}.${k}`) ?? "") !== ""));
+}
+
+/**
+ * Whether local git state could make `git status` call an edited tree clean:
+ * a dirty `git status` once fsmonitor and the untracked cache are off (with
+ * every untracked file and submodule shown), any index entry `git ls-files -v`
+ * tags other than `H`, `core.ignoreStat` true, `core.checkStat` minimal, or a
+ * configured clean, smudge or process filter on a tracked path. Any git
+ * failure reads as set. Fails safe.
+ */
+function statusHidersSet(root: string): boolean {
   try {
-    const p = Bun.spawnSync(["git", "-C", root, "ls-files", "-v"], { stdout: "pipe", stderr: "pipe" });
-    if (p.exitCode !== 0) return true;
-    return hiddenIndexEntries(p.stdout.toString()).length > 0;
+    if (trustedGit(root, ["status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=none"]).trim() !== "") return true;
+    if (hiddenIndexEntries(trustedGit(root, ["ls-files", "-v"])).length > 0) return true;
+    if (configValue(root, "core.ignoreStat", "bool") === "true") return true;
+    if ((configValue(root, "core.checkStat") ?? "").toLowerCase() === "minimal") return true;
+    return configuredFilters(root, trustedGit(root, ["ls-files", "-z"])).length > 0;
   } catch {
     return true;
   }
@@ -172,15 +228,26 @@ function storedFiles(root: string, sessionId: string): StoredFile[] {
 
 /** The transcript's announcements of each kind, each vouched by the call that printed it. */
 interface Announcements {
-  steps: Map<string, string>;
+  /** Step receipt path → its vouched token and the transcript line of the call that printed it. */
+  steps: Map<string, { token: string; line: number }>;
   outcomes: Map<string, string>;
   runs: Map<string, string>;
+  /** Run receipt path → the transcript line of the call that announced it. */
+  runLines: Map<string, number>;
+  /**
+   * The door calls recorded `is_error: true` (how Claude Code records a
+   * non-zero exit), each a FAIL for its label at its transcript line. No vouch
+   * is needed: a forged fail can only cause a rerun.
+   */
+  failedCalls: Array<{ label: string; line: number }>;
 }
 
 function vouchedAnnouncements(transcript: string): Announcements {
-  const steps = new Map<string, string>();
+  const steps = new Map<string, { token: string; line: number }>();
   const outcomes = new Map<string, string>();
   const runs = new Map<string, string>();
+  const runLines = new Map<string, number>();
+  const failedCalls: Array<{ label: string; line: number }> = [];
   let records: unknown[];
   try {
     records = readFileSync(transcript, "utf-8")
@@ -193,18 +260,23 @@ function vouchedAnnouncements(transcript: string): Announcements {
         }
       });
   } catch {
-    return { steps, outcomes, runs };
+    return { steps, outcomes, runs, runLines, failedCalls };
   }
   const commands = new Map<string, string>();
-  for (const { block, record } of firstCopies(records)) {
+  for (const { block, record, line: at } of firstCopies(records)) {
     if (block.type === "tool_use" && block.name === "Bash" && typeof block.id === "string") {
       const command = (block.input as { command?: unknown } | undefined)?.command;
       if (typeof command === "string") commands.set(block.id, command);
       continue;
     }
-    if (block.type !== "tool_result" || block.is_error === true || typeof block.tool_use_id !== "string") continue;
+    if (block.type !== "tool_result" || typeof block.tool_use_id !== "string") continue;
     const command = commands.get(block.tool_use_id);
     if (command === undefined) continue;
+    if (block.is_error === true) {
+      const label = failedDoorLabel(command);
+      if (label !== null) failedCalls.push({ label, line: at });
+      continue;
+    }
     const isStep = announcesGateStep(command);
     const isOutcome = !isStep && runsGateOutcome(command);
     const isRun = !isStep && !isOutcome && announcesGateReceipt(command);
@@ -220,21 +292,31 @@ function vouchedAnnouncements(transcript: string): Announcements {
     if (isStep) {
       const lines = text.split("\n").filter((l) => l.trim() !== "");
       const a = lines.length === 1 ? parseStepAnnouncement(lines[0]!.trim()) : null;
-      if (a !== null) steps.set(resolve(a.path), stepToken(a.digest, a.label, a.exit));
+      if (a !== null) steps.set(resolve(a.path), { token: stepToken(a.digest, a.label, a.exit), line: at });
       continue;
     }
     for (const raw of text.split("\n")) {
       const line = raw.trim();
       if (isRun) {
         const a = parseReceiptAnnouncement(line);
-        if (a !== null && a.digest !== null) runs.set(resolve(a.path), a.digest);
+        if (a !== null && a.digest !== null) {
+          runs.set(resolve(a.path), a.digest);
+          runLines.set(resolve(a.path), at);
+        }
       } else if (line.startsWith(GATE_OUTCOME_ANNOUNCEMENT_PREFIX)) {
         const a = parseReceiptAnnouncement(RECEIPT_ANNOUNCEMENT_PREFIX + line.slice(GATE_OUTCOME_ANNOUNCEMENT_PREFIX.length));
         if (a !== null && a.digest !== null) outcomes.set(resolve(a.path), a.digest);
       }
     }
   }
-  return { steps, outcomes, runs };
+  return { steps, outcomes, runs, runLines, failedCalls };
+}
+
+/** The label a front-door `run` call names (`run <root> <label> -- …`), or null for any other command. */
+function failedDoorLabel(command: string): string | null {
+  if (!announcesGateStep(command)) return null;
+  const label = bunInvocation(command)?.args[2];
+  return typeof label === "string" ? label : null;
 }
 
 /** The Bash result record's `toolUseResult.stdout`, or null when it is not a string. */
@@ -284,7 +366,28 @@ const vouched = (f: StoredFile, announced: Map<string, string>): boolean =>
 
 /** A step receipt is vouched by a step line naming its digest, its label and its exit. */
 const stepVouched = (s: VouchedSession, f: StoredFile): boolean =>
-  s.announced.steps.get(resolve(f.path)) === stepToken(receiptDigest(f.bytes), f.record.evidence?.label, f.record.evidence?.exit);
+  s.announced.steps.get(resolve(f.path))?.token === stepToken(receiptDigest(f.bytes), f.record.evidence?.label, f.record.evidence?.exit);
+
+/**
+ * Whether a FAIL for vouched step `f`'s label came after it, vouched or not:
+ * a stored step receipt for the same label on `key`, newer in the store, with
+ * a non-zero exit or a decision other than pass; or a door call for the label
+ * recorded `is_error: true` after the call that announced `f`.
+ */
+function failedSince(s: VouchedSession, f: StoredFile, key: ReuseKey): boolean {
+  const label = f.record.evidence?.label;
+  const newer = s.files.slice(s.files.indexOf(f) + 1);
+  const storedFail = newer.some(
+    (g) =>
+      g.record.kind === GATE_STEP_KIND &&
+      g.record.evidence?.label === label &&
+      deepEqual(g.record.evidence?.key, key) &&
+      (g.record.decision !== "pass" || g.record.evidence?.exit !== 0),
+  );
+  if (storedFail) return true;
+  const at = s.announced.steps.get(resolve(f.path))?.line ?? -1;
+  return s.announced.failedCalls.some((c) => c.label === label && c.line > at);
+}
 
 /** The session's vouched store, or the reason there is none. Reads `CLAUDE_CODE_SESSION_ID`; runs nothing. */
 function vouchedSession(realRoot: string): VouchedSession | string {
@@ -321,6 +424,7 @@ function stepStands(s: VouchedSession, f: StoredFile, liveKey: ReuseKey): boolea
   if (r.kind !== GATE_STEP_KIND || r.decision !== "pass") return false;
   if (r.evidence?.key === null || !deepEqual(r.evidence?.key, liveKey)) return false;
   if (!stepVouched(s, f)) return false;
+  if (failedSince(s, f, liveKey)) return false;
   return passedRunLabels(s, r.evidence?.run)?.has(r.evidence?.label) === true;
 }
 
@@ -385,6 +489,9 @@ export function gateRunClean(root: string): boolean {
     const runs = gateRunReceipts(session.files, realRoot).filter((f) => vouched(f, session.announced.runs));
     const latest = runs[runs.length - 1];
     if (latest === undefined) return false;
+    // A door call that failed after the run was announced, with or without a stored receipt, is never clean.
+    const runAt = session.announced.runLines.get(resolve(latest.path)) ?? -1;
+    if (session.announced.failedCalls.some((c) => c.line > runAt)) return false;
     const run = receiptDigest(latest.bytes);
     const ofRun = (r: Record<string, any>): boolean => r.evidence?.run === run;
     const recorded = session.files.filter((f) => f.record.kind === GATE_STEP_KIND && ofRun(f.record));
@@ -559,6 +666,10 @@ async function frontDoor(argv: readonly string[]): Promise<number> {
     closeSync(fd);
   }
   const summary = summarise(root, output);
+  // The pass was measured on the bytes the run ended on: a run that left the
+  // tree changed stores key: null, which is never reused.
+  const after = decision.key === null ? null : computeReuseKey(root, commandText);
+  const key = after !== null && deepEqual(after, decision.key) ? decision.key : null;
   const path = writeReceipt(root, {
     kind: GATE_STEP_KIND,
     adapter: null,
@@ -566,7 +677,7 @@ async function frontDoor(argv: readonly string[]): Promise<number> {
     subject: STEP_SUBJECT,
     decision: run.exit === 0 ? "pass" : "fail",
     evidence: {
-      key: decision.key,
+      key,
       label,
       exit: run.exit,
       summary,
