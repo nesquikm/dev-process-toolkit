@@ -281,9 +281,16 @@ function buildSession(
     frontDoor?: string;
     /** Leave an untracked file in the tree for the whole session. */
     dirty?: boolean;
+    /** Extra files (root-relative path → bytes) committed before the session starts. */
+    files?: Record<string, string>;
   } = {},
 ): Built {
   const root = reuseTree(label, o.knob ?? "reuse");
+  if (o.files !== undefined) {
+    for (const [rel, bytes] of Object.entries(o.files)) writeFileSync(join(root, rel), bytes);
+    git(root, "add", "-A");
+    git(root, "commit", "-qm", "extra files");
+  }
   if (o.dirty) writeFileSync(join(root, "untracked.txt"), "dirty for the whole session\n");
   const cfg = join(tempDir(`${label}-cfg`), "config");
   mkdirSync(join(cfg, "projects"), { recursive: true });
@@ -2251,5 +2258,174 @@ describe("AC-STE-724.18 mutation controls (review 3): each new check reds a name
     git(root, "config", "core.checkStat", "minimal");
     expect((await reuseModule()).computeReuseKey(root, "true")).toBeNull();
     expect(m.computeReuseKey(root, "true")).not.toBeNull();
+  }, T);
+});
+
+// ===========================================================================
+// PR #133 review 4. R4-B1: under git's macOS defaults (core.ignorecase=true,
+// core.precomposeunicode=true) a case-only or NFC→NFD rename done with plain
+// `mv` is invisible to `git status`. TRUSTED_GIT turns both off, so the clean
+// check sees the renamed name as untracked and the tree gets no key.
+// ===========================================================================
+
+/** Rename `from` to `to` in one `rename(2)`, as plain `mv` does. */
+function mvPlain(from: string, to: string): void {
+  const p = spawnSync("mv", [from, to]);
+  if (p.status !== 0) throw new Error(`mv failed: ${p.stderr}`);
+}
+
+describe("AC-STE-724.3 (hidden rename, default config): a case-only or NFD rename hidden by core.ignorecase / core.precomposeunicode makes the tree not clean", () => {
+  const NFC = "café.txt";
+  const NFD = "café.txt";
+
+  /** A session whose tree also carries a committed `docs/<NFC>` file. */
+  const nfcSession = (label: string): Built => buildSession(label, { files: { [`docs/${NFC}`]: "synthetic\n" } });
+
+  test("AC-STE-724.3 (hidden rename, case-only): a plain-mv case-only rename under core.ignorecase=true gives no key and runs", async () => {
+    const b = buildSession("r4b1-case");
+    git(b.root, "config", "core.ignorecase", "true"); // git's default on darwin and Windows
+    mvPlain(join(b.root, "docs", "readme.txt"), join(b.root, "docs", "README.txt"));
+    // CONTROL: on a case-insensitive filesystem plain git status really hides the rename.
+    if (existsSync(join(b.root, "docs", "readme.txt"))) expect(isClean(b.root)).toBe(true);
+    expect((await reuseModule()).computeReuseKey(b.root, b.cmd)).toBeNull();
+    expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.3 (hidden rename, NFD): a plain-mv NFC→NFD rename under core.precomposeunicode=true gives no key and runs", async () => {
+    const b = nfcSession("r4b1-nfd");
+    git(b.root, "config", "core.precomposeunicode", "true"); // git's default on darwin
+    mvPlain(join(b.root, "docs", NFC), join(b.root, "docs", NFD));
+    // CONTROL: where the filesystem keeps the NFD bytes and git precomposes them, plain git status hides the rename.
+    if (process.platform === "darwin" && readdirSync(join(b.root, "docs")).includes(NFD)) expect(isClean(b.root)).toBe(true);
+    expect((await reuseModule()).computeReuseKey(b.root, b.cmd)).toBeNull();
+    expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.3 (hidden rename): CONTROL — renaming back restores the committed names, keeps the key and reuses", async () => {
+    const b = nfcSession("r4b1-restore");
+    git(b.root, "config", "core.ignorecase", "true");
+    git(b.root, "config", "core.precomposeunicode", "true");
+    const m = await reuseModule();
+    const before = m.computeReuseKey(b.root, b.cmd);
+    expect(before).not.toBeNull();
+    mvPlain(join(b.root, "docs", "readme.txt"), join(b.root, "docs", "README.txt"));
+    mvPlain(join(b.root, "docs", NFC), join(b.root, "docs", NFD));
+    mvPlain(join(b.root, "docs", "README.txt"), join(b.root, "docs", "readme.txt"));
+    mvPlain(join(b.root, "docs", NFD), join(b.root, "docs", NFC));
+    expect(m.computeReuseKey(b.root, b.cmd)).toEqual(before);
+    expectReused(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.3 (hidden rename): TRUSTED_GIT forces core.ignorecase=false and core.precomposeunicode=false", async () => {
+    const flags = ((await reuseModule()).TRUSTED_GIT as readonly string[]).join(" ");
+    for (const f of ["-c core.ignorecase=false", "-c core.precomposeunicode=false"]) expect(flags).toContain(f);
+  }, T);
+});
+
+// ===========================================================================
+// PR #133 review 4, MEDIUM: Claude Code 2.1.319 writes an `api-request-blob`
+// record copying a tool_result, without `toolUseResult`, AHEAD of the real
+// `user` record. The vouching reads the copy that carries `toolUseResult`, and
+// never vouches from a blob copy.
+// ===========================================================================
+
+/** The `api-request-blob` copy Claude Code writes of a Bash result record (no toolUseResult). */
+function blobCopy(resultRecord: string): string {
+  const r = JSON.parse(resultRecord);
+  return JSON.stringify({ type: "api-request-blob", sessionId: SID, hash: "0".repeat(64), message: { role: "user", content: r.message.content } });
+}
+
+describe("AC-STE-724.5 (blob copy): an api-request-blob copy of a tool_result neither hides nor forges a vouch", () => {
+  test("AC-STE-724.5 (blob copy): a blob copy of the step result ahead of the real record still vouches, and the pass is reused", () => {
+    const b = buildSession("r4-blob-first");
+    const [use, result] = b.records.step as [string, string];
+    retranscribe(b, [...b.records.skill, ...b.records.run, use, blobCopy(result), result, ...b.records.outcome]);
+    expectReused(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.5 (blob copy): blob copies ahead of every real record (run, step, outcome) still vouch, and the pass is reused", () => {
+    const b = buildSession("r4-blob-all");
+    const withBlob = ([use, result]: string[]): string[] => [use!, blobCopy(result!), result!];
+    retranscribe(b, [...b.records.skill, ...withBlob(b.records.run), ...withBlob(b.records.step), ...withBlob(b.records.outcome)]);
+    expect(spawnDoor(["verdict", b.root], { cfg: b.cfg, cwd: b.root }).stdout.trim()).toBe("clean");
+    expectReused(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.5 (blob copy): a non-blob copy without toolUseResult ahead of the real record does not shadow it, and the pass is reused", () => {
+    const b = buildSession("r4-copy-prefer");
+    const [use, result] = b.records.step as [string, string];
+    const bare = JSON.parse(result);
+    delete bare.toolUseResult;
+    retranscribe(b, [...b.records.skill, ...b.records.run, use, JSON.stringify(bare), result, ...b.records.outcome]);
+    expectReused(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  const verdictOf = (b: Built): string => spawnDoor(["verdict", b.root], { cfg: b.cfg, cwd: b.root }).stdout.trim();
+
+  for (const part of ["run", "step", "outcome"] as const)
+  test(`AC-STE-724.5 (blob copy): a blob copy ALONE of the ${part} result vouches nothing: verdict is not clean${part === "run" ? "" : " and the command runs"}`, () => {
+    const b = buildSession(`r4-blob-alone-${part}`);
+    const alone = ([use, result]: string[]): string[] => [use!, blobCopy(result!)];
+    const r = b.records;
+    retranscribe(b, [
+      ...r.skill,
+      ...(part === "run" ? alone(r.run) : r.run),
+      ...(part === "step" ? alone(r.step) : r.step),
+      ...(part === "outcome" ? alone(r.outcome) : r.outcome),
+    ]);
+    expect(verdictOf(b)).not.toBe("clean");
+    // The front door's own decision reads the step and the outcome; the run receipt is read by the verdict.
+    if (part !== "run") expectRan(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+
+  test("AC-STE-724.5 (blob copy): CONTROL — the same transcript without any blob copy reads clean and is reused", () => {
+    const b = buildSession("r4-blob-control");
+    expect(verdictOf(b)).toBe("clean");
+    expectReused(b, runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg }));
+  }, T);
+});
+
+describe("AC-STE-724.18 mutation controls (review 4): each new check reds a named test", () => {
+  let plain: string | null = null;
+  const unmutated = (): string => (plain ??= reuseDoor(mutatedCopy("plain-r4", [])));
+
+  test("AC-STE-724.18 mutation: trusted-git flags — dropping core.ignorecase=false turns 'AC-STE-724.3 (hidden rename, case-only)' red", () => {
+    const door = reuseDoor(mutatedCopy("flag-ignorecase", [["gate_reuse.ts", /, "-c", "core\.ignorecase=false"/, ""]]));
+    const b = buildSession("ac18-r4-case");
+    git(b.root, "config", "core.ignorecase", "true");
+    mvPlain(join(b.root, "docs", "readme.txt"), join(b.root, "docs", "README.txt"));
+    if (!existsSync(join(b.root, "docs", "readme.txt"))) return; // a case-sensitive filesystem cannot hide the rename at all
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: trusted-git flags — dropping core.precomposeunicode=false turns 'AC-STE-724.3 (hidden rename, NFD)' red", () => {
+    const door = reuseDoor(mutatedCopy("flag-precompose", [["gate_reuse.ts", /, "-c", "core\.precomposeunicode=false"/, ""]]));
+    const b = buildSession("ac18-r4-nfd", { files: { "docs/caf\u00e9.txt": "synthetic\n" } });
+    git(b.root, "config", "core.precomposeunicode", "true");
+    mvPlain(join(b.root, "docs", "caf\u00e9.txt"), join(b.root, "docs", "cafe\u0301.txt"));
+    if (process.platform !== "darwin") return; // only darwin's git precomposes
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: blob skip — vouching from an api-request-blob copy turns 'a blob copy ALONE of the outcome result vouches nothing' red", () => {
+    const door = reuseDoor(mutatedCopy("blob-skip", [["gate_reuse.ts", /if \(record\.type === API_REQUEST_BLOB\) return;/, ""]]));
+    const b = buildSession("ac18-r4-blob");
+    const [use, result] = b.records.outcome as [string, string];
+    retranscribe(b, [...b.records.skill, ...b.records.run, ...b.records.step, use, blobCopy(result)]);
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: toolUseResult preference — keeping the first non-blob copy turns 'a non-blob copy without toolUseResult … does not shadow it' red", () => {
+    const door = reuseDoor(mutatedCopy("prefer-real", [["gate_reuse.ts", / \|\| \(carries && !earlierCarries\)/, ""]]));
+    const b = buildSession("ac18-r4-prefer");
+    const [use, result] = b.records.step as [string, string];
+    const bare = JSON.parse(result);
+    delete bare.toolUseResult;
+    retranscribe(b, [...b.records.skill, ...b.records.run, use, JSON.stringify(bare), result, ...b.records.outcome]);
+    expect(pick(graded(b, unmutated()))).toEqual(REUSED);
+    expect(pick(graded(b, door))).toEqual(RAN);
   }, T);
 });

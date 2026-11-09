@@ -87,9 +87,13 @@ export function hiddenIndexEntries(lsFilesV: string): string[] {
  * so a local `core.trustctime=false`, `core.checkStat=minimal` or
  * `core.fileMode=false` cannot hide an edit (PR #133 review 3). On a
  * filesystem without modes, fileMode=true reports every file changed: no key,
- * which fails safe.
+ * which fails safe. Case folding and Unicode precomposition are forced off, so
+ * the macOS defaults (`core.ignorecase=true`, `core.precomposeunicode=true`)
+ * cannot hide a case-only or NFC/NFD rename done with plain `mv` (PR #133
+ * review 4). A tree whose on-disk names differ from the index in case or
+ * normal form then never reuses, which fails safe.
  */
-export const TRUSTED_GIT = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.trustctime=true", "-c", "core.checkStat=default", "-c", "core.fileMode=true"] as const;
+export const TRUSTED_GIT = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.trustctime=true", "-c", "core.checkStat=default", "-c", "core.fileMode=true", "-c", "core.ignorecase=false", "-c", "core.precomposeunicode=false"] as const;
 
 /** `git <TRUSTED_GIT> -C root <args>`'s stdout; throws on any failure. */
 function trustedGit(root: string, args: readonly string[], stdin?: string): string {
@@ -271,7 +275,8 @@ function vouchedAnnouncements(transcript: string): Announcements {
     return { steps, outcomes, runs, runLines, failedCalls };
   }
   const commands = new Map<string, string>();
-  for (const { block, record, line: at } of firstCopies(records)) {
+  const real = realResults(records);
+  for (const { block, line: first } of firstCopies(records)) {
     if (block.type === "tool_use" && block.name === "Bash" && typeof block.id === "string") {
       const command = (block.input as { command?: unknown } | undefined)?.command;
       if (typeof command === "string") commands.set(block.id, command);
@@ -280,11 +285,18 @@ function vouchedAnnouncements(transcript: string): Announcements {
     if (block.type !== "tool_result" || typeof block.tool_use_id !== "string") continue;
     const command = commands.get(block.tool_use_id);
     if (command === undefined) continue;
-    if (block.is_error === true) {
+    // The copy that vouches is the real result record, never an
+    // `api-request-blob` copy of it (PR #133 review 4). A fail on any copy
+    // still counts as a fail.
+    const copy = real.get(block.tool_use_id);
+    const at = copy?.line ?? first;
+    if (block.is_error === true || copy?.block.is_error === true) {
       const label = failedDoorLabel(command);
       if (label !== null) failedCalls.push({ label, line: at });
       continue;
     }
+    if (copy === undefined) continue;
+    const { record } = copy;
     const isStep = announcesGateStep(command);
     const isOutcome = !isStep && runsGateOutcome(command);
     const isRun = !isStep && !isOutcome && announcesGateReceipt(command);
@@ -293,7 +305,7 @@ function vouchedAnnouncements(transcript: string): Announcements {
     // Code records the process's stderr inside it too, and the door sends the
     // gated command's output to its log, so the door's whole recorded output
     // is its one line (operator ruling 2026-11-09). No string stdout vouches nothing.
-    const text = isStep ? recordedStdout(record) : resultText(block.content);
+    const text = isStep ? recordedStdout(record) : resultText(copy.block.content);
     if (text === null) continue;
     // Any other non-empty line (a child writing to the door's streams, say)
     // and the call vouches for nothing (AC-STE-724.5).
@@ -318,6 +330,38 @@ function vouchedAnnouncements(transcript: string): Announcements {
     }
   }
   return { steps, outcomes, runs, runLines, failedCalls };
+}
+
+/** The record type Claude Code gives its request-body copies of earlier messages. */
+const API_REQUEST_BLOB = "api-request-blob";
+
+/**
+ * Each `tool_use_id`'s real result: the first `tool_result` block for it in a
+ * record that is not an `api-request-blob` copy, preferring a record that
+ * carries `toolUseResult`. Claude Code 2.1.319 writes the blob copy, which has
+ * no `toolUseResult`, AHEAD of the real record, so the first copy alone would
+ * leave the step unvouched (PR #133 review 4). An id whose only copies are
+ * blobs has no entry, and vouches nothing.
+ */
+function realResults(records: readonly unknown[]): Map<string, { block: Record<string, unknown>; record: unknown; line: number }> {
+  const out = new Map<string, { block: Record<string, unknown>; record: unknown; line: number }>();
+  records.forEach((raw, line) => {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return;
+    const record = raw as { type?: unknown; toolUseResult?: unknown; message?: { content?: unknown } };
+    if (record.type === API_REQUEST_BLOB) return;
+    const content = record.message?.content;
+    if (!Array.isArray(content)) return;
+    for (const b of content) {
+      if (b === null || typeof b !== "object" || Array.isArray(b)) continue;
+      const block = b as Record<string, unknown>;
+      if (block.type !== "tool_result" || typeof block.tool_use_id !== "string") continue;
+      const earlier = out.get(block.tool_use_id);
+      const carries = record.toolUseResult !== undefined;
+      const earlierCarries = (earlier?.record as { toolUseResult?: unknown } | undefined)?.toolUseResult !== undefined;
+      if (earlier === undefined || (carries && !earlierCarries)) out.set(block.tool_use_id, { block, record, line });
+    }
+  });
+  return out;
 }
 
 /** The label a front-door `run` call names (`run <root> <label> -- …`), or null for any other command. */
