@@ -808,7 +808,7 @@ Two more, added by STE-450 after both were hit in one FR. **Run the mutation aga
 
 - **STE-196 carve-out** — `/simplify` skips its gate re-run only when its edits were a no-op and the prior gate stamp is clean.
 - **Skip baseline** — `assertCapturable` captures a baseline only at HEAD with an empty `git status --porcelain`, untracked files included, so the stored result names exactly the bytes it was taken on.
-- **STE-724** — the gate-command reuse key recomputes a command's key from the live tree and reuses its stored pass only on a deep-equal match; anything else reruns. It is off by default.
+- **STE-724** — the gate-command reuse key recomputes a command's key from the live tree and reuses its stored pass only on a deep-equal match; anything else reruns. It is off by default. The command's output goes to a step log, and the front door prints one line naming the log, so a command cannot print evidence for itself; on a failure, read the log.
 
 A reused result is a recomputed fact, not a remembered one, so it satisfies Pattern 12. It never stands in for evidence a guard asks for: the commit and pull request hooks still read the same legs.
 

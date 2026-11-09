@@ -5,14 +5,14 @@
 // `gateReuseKey` unchanged; this module reads no toolchain, toolkit or settings
 // input of its own.
 
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import { firstCopies } from "../../../templates/hooks/_lib/session";
 import { detectGate } from "./capture_skip_baseline";
 import { deriveRunCounts } from "./deliver_stage_evidence";
-import { receiptsDir } from "./dpt_paths";
+import { gateStepLogsDir, receiptsDir } from "./dpt_paths";
 import { nfr10Message } from "./dpt_version";
 import { sessionTranscriptPath } from "./find_current_session";
 import { renderTotalsLine } from "./gate_capture";
@@ -30,7 +30,7 @@ import {
   type StoredReceipt,
 } from "./gate_receipt";
 import { loadProjectSection, gateOutcomesSwitchOn } from "./project_settings";
-import { NEVER_REUSABLE_STEPS, readOptimizations, validateOptimizations } from "./optimizations_config";
+import { isNeverReusable, readOptimizations, validateOptimizations } from "./optimizations_config";
 import { bunInvocation, realpathOr } from "./shell_invocations";
 import {
   announceReceipt,
@@ -59,8 +59,34 @@ export function computeReuseKey(
     return null;
   }
   if (gate.head === null || !gate.clean) return null;
+  // `git status` cannot see an edit behind a skip-worktree or assume-unchanged
+  // flag, so any flagged index entry, or an unreadable index, means no key.
+  if (indexFlagsUnreadableOrSet(projectRoot)) return null;
   const command_sha256 = `sha256:${createHash("sha256").update(commandText).digest("hex")}`;
   return { gate, command_sha256 };
+}
+
+/**
+ * The paths `git ls-files -v` tags with anything but `H` (a plain cached
+ * entry): `h` and every other lowercase tag (assume-unchanged), `S` and `s`
+ * (skip-worktree), and any other tag, unmerged `M` included. Fails safe.
+ */
+export function hiddenIndexEntries(lsFilesV: string): string[] {
+  return lsFilesV
+    .split("\n")
+    .filter((l) => l !== "")
+    .filter((l) => !l.startsWith("H "))
+    .map((l) => l.slice(2));
+}
+
+function indexFlagsUnreadableOrSet(root: string): boolean {
+  try {
+    const p = Bun.spawnSync(["git", "-C", root, "ls-files", "-v"], { stdout: "pipe", stderr: "pipe" });
+    if (p.exitCode !== 0) return true;
+    return hiddenIndexEntries(p.stdout.toString()).length > 0;
+  } catch {
+    return true;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +118,41 @@ export function announcesGateStep(command: string): boolean {
   const run = bunInvocation(command);
   return run !== null && run.module === OWN_FRONT_DOOR && run.args[0] === "run";
 }
+
+/** The prefix of the ONE line the door prints after running a gated command. */
+export const GATE_STEP_ANNOUNCEMENT_PREFIX = "dpt-gate-step: ";
+
+/** The hint every step line carries: the command's own output is in the log, never on the door's streams. */
+const READ_THE_LOG = "read the log on failure";
+
+const STEP_LINE = new RegExp(
+  `^${GATE_STEP_ANNOUNCEMENT_PREFIX}([a-z][a-z0-9_-]{0,39}) exit (\\d+) — (.*?), log (\\S.*?), ${READ_THE_LOG}, receipt (.+)$`,
+);
+
+/**
+ * `dpt-gate-step: <label> exit <N> — <summary>, log <log path>, read the log
+ * on failure, receipt <receipt path> sha256:<digest>`, the door's one line
+ * after a run. The summary is the stored one, flattened onto the line; text
+ * in it that mimics the grammar only breaks the parse, which vouches nothing.
+ */
+export function announceStep(label: string, exit: number, summary: string, log: string, receiptPath: string): string {
+  const receipt = announceReceipt(receiptPath).slice(RECEIPT_ANNOUNCEMENT_PREFIX.length);
+  return `${GATE_STEP_ANNOUNCEMENT_PREFIX}${label} exit ${exit} — ${oneLine(summary)}, log ${resolve(log)}, ${READ_THE_LOG}, receipt ${receipt}`;
+}
+
+/** Parse a step line; the receipt part is read by `parseReceiptAnnouncement`, never a second parser. */
+export function parseStepAnnouncement(
+  line: string,
+): { label: string; exit: number; summary: string; log: string; path: string; digest: string } | null {
+  const m = STEP_LINE.exec(line);
+  if (m === null) return null;
+  const a = parseReceiptAnnouncement(RECEIPT_ANNOUNCEMENT_PREFIX + m[5]!);
+  if (a === null || a.digest === null) return null;
+  return { label: m[1]!, exit: Number(m[2]), summary: m[3]!, log: m[4]!, path: a.path, digest: a.digest };
+}
+
+/** What a vouched step line binds a receipt file to: its digest, label and exit. */
+const stepToken = (digest: string, label: unknown, exit: unknown): string => `${digest} ${String(label)} ${String(exit)}`;
 
 export type ReuseDecision =
   | { reuse: true; receipt: string; summary: string; createdAt: string; key: ReuseKey }
@@ -148,21 +209,25 @@ function vouchedAnnouncements(transcript: string): Announcements {
     const isOutcome = !isStep && runsGateOutcome(command);
     const isRun = !isStep && !isOutcome && announcesGateReceipt(command);
     if (!isStep && !isOutcome && !isRun) continue;
-    // A step is vouched only by the door's own stdout: the recorded
-    // `toolUseResult.stdout`, never the concatenated content, which also
-    // carries the gated command's output. No string stdout vouches nothing.
+    // A step is vouched only by the recorded `toolUseResult.stdout`. Claude
+    // Code records the process's stderr inside it too, and the door sends the
+    // gated command's output to its log, so the door's whole recorded output
+    // is its one line (operator ruling 2026-11-09). No string stdout vouches nothing.
     const text = isStep ? recordedStdout(record) : resultText(block.content);
     if (text === null) continue;
-    // The door prints exactly one stdout line of its own, so a step call whose
-    // recorded stdout holds any other non-empty line vouches for nothing
-    // (AC-STE-724.5): the extra line may have come from a child writing to the
-    // door's stdout directly.
-    if (isStep && text.split("\n").filter((l) => l.trim() !== "").length !== 1) continue;
+    // Any other non-empty line (a child writing to the door's streams, say)
+    // and the call vouches for nothing (AC-STE-724.5).
+    if (isStep) {
+      const lines = text.split("\n").filter((l) => l.trim() !== "");
+      const a = lines.length === 1 ? parseStepAnnouncement(lines[0]!.trim()) : null;
+      if (a !== null) steps.set(resolve(a.path), stepToken(a.digest, a.label, a.exit));
+      continue;
+    }
     for (const raw of text.split("\n")) {
       const line = raw.trim();
-      if (isStep || isRun) {
+      if (isRun) {
         const a = parseReceiptAnnouncement(line);
-        if (a !== null && a.digest !== null) (isStep ? steps : runs).set(resolve(a.path), a.digest);
+        if (a !== null && a.digest !== null) runs.set(resolve(a.path), a.digest);
       } else if (line.startsWith(GATE_OUTCOME_ANNOUNCEMENT_PREFIX)) {
         const a = parseReceiptAnnouncement(RECEIPT_ANNOUNCEMENT_PREFIX + line.slice(GATE_OUTCOME_ANNOUNCEMENT_PREFIX.length));
         if (a !== null && a.digest !== null) outcomes.set(resolve(a.path), a.digest);
@@ -212,12 +277,14 @@ function knobOn(root: string): boolean {
 interface VouchedSession {
   files: StoredFile[];
   announced: Announcements;
-  /** The digests of the runs an announced `gate-outcome` pass with `key_stable: true` references. */
-  passedRuns: Set<unknown>;
 }
 
 const vouched = (f: StoredFile, announced: Map<string, string>): boolean =>
   announced.get(resolve(f.path)) === receiptDigest(f.bytes);
+
+/** A step receipt is vouched by a step line naming its digest, its label and its exit. */
+const stepVouched = (s: VouchedSession, f: StoredFile): boolean =>
+  s.announced.steps.get(resolve(f.path)) === stepToken(receiptDigest(f.bytes), f.record.evidence?.label, f.record.evidence?.exit);
 
 /** The session's vouched store, or the reason there is none. Reads `CLAUDE_CODE_SESSION_ID`; runs nothing. */
 function vouchedSession(realRoot: string): VouchedSession | string {
@@ -225,42 +292,49 @@ function vouchedSession(realRoot: string): VouchedSession | string {
   if (sessionId === undefined || sessionId === "") return "no-session";
   const transcript = sessionTranscriptPath(sessionId, process.cwd());
   if (transcript === null) return "no-transcript";
-  const announced = vouchedAnnouncements(transcript);
-  const files = storedFiles(realRoot, sessionId);
-  const passedRuns = new Set(
-    files
-      .filter(
-        (f) =>
-          f.record.kind === GATE_OUTCOME_KIND &&
-          f.record.decision === "pass" &&
-          f.record.evidence?.key_stable === true &&
-          vouched(f, announced.outcomes),
-      )
-      .map((f) => f.record.evidence?.run),
-  );
-  return { files, announced, passedRuns };
+  return { files: storedFiles(realRoot, sessionId), announced: vouchedAnnouncements(transcript) };
 }
 
 /**
- * The ONE decision both verbs share: the `gate-step` receipts `select` picks,
- * newest first, that are vouched passes on `liveKey` of a passed run.
+ * The step labels a run's LATEST vouched `gate-outcome` lists, when that
+ * outcome is a pass with `key_stable: true` listing every step as `pass`;
+ * else null. An earlier pass never rescues a later outcome (STE-725.2).
  */
-function reusableSteps(
-  s: VouchedSession,
-  select: (r: Record<string, any>) => boolean,
-  liveKey: (r: Record<string, any>) => ReuseKey,
-): StoredFile[] {
-  const { passedRuns, announced: { steps } } = s;
-  const out: StoredFile[] = [];
-  for (const f of [...s.files].reverse()) {
-    const r = f.record;
-    if (r.kind !== GATE_STEP_KIND || r.decision !== "pass" || !select(r)) continue;
-    if (r.evidence?.key === null || !deepEqual(r.evidence?.key, liveKey(r))) continue;
-    if (typeof r.evidence?.run !== "string" || !passedRuns.has(r.evidence.run)) continue;
-    if (!vouched(f, steps)) continue;
-    out.push(f);
-  }
-  return out;
+function passedRunLabels(s: VouchedSession, run: unknown): Set<string> | null {
+  if (typeof run !== "string") return null;
+  const outcome = s.files
+    .filter((f) => f.record.kind === GATE_OUTCOME_KIND && f.record.evidence?.run === run && vouched(f, s.announced.outcomes))
+    .pop();
+  if (outcome?.record.decision !== "pass" || outcome.record.evidence?.key_stable !== true) return null;
+  const listed: unknown = outcome.record.evidence?.steps;
+  if (!Array.isArray(listed) || listed.length === 0) return null;
+  if (!listed.every((x) => typeof x?.name === "string" && x.result === "pass")) return null;
+  return new Set(listed.map((x) => x.name as string));
+}
+
+/**
+ * The ONE decision both verbs share: whether stored step `f` is a vouched pass
+ * on `liveKey` whose run's latest vouched outcome passed and lists its label.
+ */
+function stepStands(s: VouchedSession, f: StoredFile, liveKey: ReuseKey): boolean {
+  const r = f.record;
+  if (r.kind !== GATE_STEP_KIND || r.decision !== "pass") return false;
+  if (r.evidence?.key === null || !deepEqual(r.evidence?.key, liveKey)) return false;
+  if (!stepVouched(s, f)) return false;
+  return passedRunLabels(s, r.evidence?.run)?.has(r.evidence?.label) === true;
+}
+
+/** The newest vouched `gate-step` receipt for `label` on `liveKey`, pass or fail. */
+function newestStep(s: VouchedSession, label: string, liveKey: ReuseKey): StoredFile | undefined {
+  return [...s.files]
+    .reverse()
+    .find(
+      (f) =>
+        f.record.kind === GATE_STEP_KIND &&
+        f.record.evidence?.label === label &&
+        deepEqual(f.record.evidence?.key, liveKey) &&
+        stepVouched(s, f),
+    );
 }
 
 /**
@@ -279,8 +353,9 @@ export async function decideReuse(
   if (key === null) return { reuse: false, reason: "no-key", key };
   const session = vouchedSession(realRoot);
   if (typeof session === "string") return { reuse: false, reason: session, key };
-  const f = reusableSteps(session, (r) => r.evidence?.label === label, () => key)[0];
-  if (f === undefined) return { reuse: false, reason: "no-stored-pass", key };
+  // The NEWEST vouched step for this label and key decides; a later fail is never shadowed by an earlier pass.
+  const f = newestStep(session, label, key);
+  if (f === undefined || !stepStands(session, f, key)) return { reuse: false, reason: "no-stored-pass", key };
   const r = f.record;
   return { reuse: true, receipt: f.path, summary: String(r.evidence.summary ?? ""), createdAt: String(r.createdAt), key };
 }
@@ -314,19 +389,14 @@ export function gateRunClean(root: string): boolean {
     const ofRun = (r: Record<string, any>): boolean => r.evidence?.run === run;
     const recorded = session.files.filter((f) => f.record.kind === GATE_STEP_KIND && ofRun(f.record));
     if (recorded.length === 0) return false;
-    const passes = reusableSteps(session, ofRun, (r) => ({ gate: live.gate, command_sha256: r.evidence?.key?.command_sha256 }));
-    if (passes.length !== recorded.length) return false;
-    // One account (STE-724): the run's vouched outcome names exactly the labels of its vouched step passes, each `pass`.
-    const outcome = session.files
-      .filter((f) => f.record.kind === GATE_OUTCOME_KIND && ofRun(f.record) && vouched(f, session.announced.outcomes))
-      .pop();
-    // STE-725.2: the LATEST vouched outcome alone decides; an earlier pass never rescues it.
-    if (outcome?.record.decision !== "pass" || outcome.record.evidence?.key_stable !== true) return false;
-    const listed: unknown = outcome.record.evidence?.steps;
-    if (!Array.isArray(listed) || listed.length === 0) return false;
-    if (!listed.every((s) => typeof s?.name === "string" && s.result === "pass")) return false;
-    const names = new Set(listed.map((s) => s.name as string));
-    const labels = new Set(passes.map((f) => f.record.evidence?.label));
+    const stands = recorded.filter((f) =>
+      stepStands(session, f, { gate: live.gate, command_sha256: f.record.evidence?.key?.command_sha256 }),
+    );
+    if (stands.length !== recorded.length) return false;
+    // One account (STE-724): the run's latest vouched outcome names exactly the labels of its vouched step passes.
+    const names = passedRunLabels(session, run);
+    if (names === null) return false;
+    const labels = new Set(stands.map((f) => f.record.evidence?.label));
     return names.size === labels.size && [...names].every((n) => labels.has(n));
   } catch {
     return false;
@@ -351,15 +421,20 @@ function summarise(root: string, output: string): string {
   return last.replace(/(?<![\w.~\/-])\/[^\s'"`()[\]{}<>:,;]*/g, "<path>").slice(0, 200);
 }
 
-/** How much of a run's output is kept for the summary: the tail, where the totals line sits. */
+/** How much of a run's log is read back for the summary: the tail, where the totals line sits. */
 const OUTPUT_TAIL_CHARS = 256 * 1024;
 
-async function runCommand(commandText: string, cwd: string): Promise<{ exit: number; output: string; ms: number }> {
+/**
+ * Run `commandText` through `sh -c` with stdin closed and BOTH its stdout and
+ * stderr on the file descriptor `out`: the step log, or the door's own stderr
+ * on a hand run that records nothing. The child holds no descriptor of the
+ * door's stdout.
+ */
+async function runCommand(commandText: string, cwd: string, out: number): Promise<{ exit: number; ms: number }> {
   const started = Date.now();
   // A group leader (`detached`), so a timeout reaches every child the shell
   // backgrounded, not just `sh` itself (AC-STE-724.14).
-  const proc = Bun.spawn(["sh", "-c", commandText], { cwd, stdout: "pipe", stderr: "pipe", stdin: "inherit", detached: true });
-  let output = "";
+  const proc = Bun.spawn(["sh", "-c", commandText], { cwd, stdout: out, stderr: out, stdin: "ignore", detached: true });
   let timedOut = false;
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
   let releaseOnTimeout: () => void = () => {};
@@ -372,34 +447,28 @@ async function runCommand(commandText: string, cwd: string): Promise<{ exit: num
       releaseOnTimeout();
     }, gateKillGraceMs());
   }, gateRunTimeoutMs());
-  const pump = async (stream: ReadableStream<Uint8Array>, sink: NodeJS.WriteStream): Promise<void> => {
-    const decoder = new TextDecoder();
-    for await (const chunk of stream) {
-      sink.write(chunk);
-      output += decoder.decode(chunk, { stream: true });
-      if (output.length > 2 * OUTPUT_TAIL_CHARS) output = output.slice(-OUTPUT_TAIL_CHARS);
-    }
-  };
   try {
-    // Everything the gated command prints goes to the door's stderr, so the
-    // door's stdout carries only the door's own lines (STE-724 self-forgery).
-    // A killed group's orphan may still hold a pipe: stop reading once the kill lands.
-    try {
-      await Promise.race([Promise.all([pump(proc.stdout, process.stderr), pump(proc.stderr, process.stderr)]), onTimeout]);
-    } catch (error) {
-      // A pump that rejects (e.g. EPIPE on the door's stderr) must not leave the group running.
-      signalGroup(proc.pid, "SIGKILL");
-      throw error;
-    }
     const code = await Promise.race([proc.exited, onTimeout.then(() => null)]);
     // A run past its bound, or one ended by a signal (no exit code), never reads as exit 0.
     const exit = timedOut ? 124 : code === null || proc.signalCode !== null ? 1 : code;
-    return { exit, output: output.slice(-OUTPUT_TAIL_CHARS), ms: Date.now() - started };
+    return { exit, ms: Date.now() - started };
   } finally {
     clearTimeout(timer);
     if (graceTimer !== undefined) clearTimeout(graceTimer);
   }
 }
+
+/** The last `OUTPUT_TAIL_CHARS` bytes of the log behind `fd`, decoded. */
+function logTail(fd: number): string {
+  const size = fstatSync(fd).size;
+  const length = Math.min(size, OUTPUT_TAIL_CHARS);
+  const buf = Buffer.alloc(length);
+  readSync(fd, buf, 0, length, size - length);
+  return buf.toString("utf-8");
+}
+
+/** The process's stderr descriptor, the sink of a hand run that records nothing. */
+const DOOR_STDERR = 2;
 
 async function frontDoor(argv: readonly string[]): Promise<number> {
   const [verb, rootArg, label, sep, ...rest] = argv;
@@ -440,7 +509,7 @@ async function frontDoor(argv: readonly string[]): Promise<number> {
     );
     return 1;
   }
-  if ((NEVER_REUSABLE_STEPS as readonly string[]).includes(label)) {
+  if (isNeverReusable(label)) {
     console.error(
       nfr10Message(
         `gate_reuse: "${label}" names a step that is never reusable, so nothing ran`,
@@ -454,13 +523,13 @@ async function frontDoor(argv: readonly string[]): Promise<number> {
   const root = realpathOr(rootArg);
   if (!knobOn(root)) {
     console.error("gate_reuse: optimizations.gate_commands is not reuse, so the command runs and no step receipt is written");
-    return (await runCommand(commandText, root)).exit;
+    return (await runCommand(commandText, root, DOOR_STDERR)).exit;
   }
   try {
     assertReceiptSession(root);
   } catch {
     console.error("gate_reuse: CLAUDE_CODE_SESSION_ID is unset, empty or not path-safe, so the command runs and no step receipt is written");
-    return (await runCommand(commandText, root)).exit;
+    return (await runCommand(commandText, root, DOOR_STDERR)).exit;
   }
   const sessionId = process.env.CLAUDE_CODE_SESSION_ID as string;
   const decision = await decideReuse(root, label, commandText);
@@ -468,7 +537,28 @@ async function frontDoor(argv: readonly string[]): Promise<number> {
     console.log(`dpt-reuse: ${label} — ${oneLine(decision.summary)} (stored run ${decision.createdAt}, exit 0, ${decision.receipt})`);
     return 0;
   }
-  const run = await runCommand(commandText, root);
+  // The gated command's stdout and stderr go to its step log, never to the
+  // door's streams, so the door's whole recorded output is its one line.
+  let log: string;
+  let fd: number;
+  try {
+    const dir = gateStepLogsDir(root, sessionId);
+    mkdirSync(dir, { recursive: true });
+    log = join(dir, `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(4).toString("hex")}-${label}.log`);
+    fd = openSync(log, "wx+", 0o600);
+  } catch (error) {
+    console.error(`gate_reuse: the step log could not be created, so the command runs and no step receipt is written: ${oneLine(String(error))}`);
+    return (await runCommand(commandText, root, DOOR_STDERR)).exit;
+  }
+  let run: { exit: number; ms: number };
+  let output: string;
+  try {
+    run = await runCommand(commandText, root, fd);
+    output = logTail(fd);
+  } finally {
+    closeSync(fd);
+  }
+  const summary = summarise(root, output);
   const path = writeReceipt(root, {
     kind: GATE_STEP_KIND,
     adapter: null,
@@ -479,12 +569,12 @@ async function frontDoor(argv: readonly string[]): Promise<number> {
       key: decision.key,
       label,
       exit: run.exit,
-      summary: summarise(root, run.output),
+      summary,
       duration_ms: run.ms,
       run: enclosingRun(root, sessionId),
     },
   });
-  console.log(announceReceipt(path));
+  console.log(announceStep(label, run.exit, summary, log, path));
   return run.exit;
 }
 

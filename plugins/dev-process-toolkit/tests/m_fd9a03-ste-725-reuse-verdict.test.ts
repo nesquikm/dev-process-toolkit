@@ -26,7 +26,7 @@ import { join } from "node:path";
 
 import { cwdToSlug } from "../adapters/_shared/src/find_current_session";
 import { gateReuseKey } from "../adapters/_shared/src/gate_reuse_key";
-import { announceReceipt, receiptDigest } from "../adapters/_shared/src/tracker_receipts";
+import { receiptDigest } from "../adapters/_shared/src/tracker_receipts";
 import { writeDptGitignore } from "../adapters/_shared/src/setup/dpt_gitignore";
 import {
   GATE_OUTCOMES_FALSE,
@@ -59,13 +59,24 @@ const GATE_REUSE = join(SRC, "gate_reuse.ts");
 const RECEIPT_PREFIX = "dpt-receipt: ";
 const OUTCOME_PREFIX = "dpt-gate-outcome: ";
 
+/** The ONE line the door prints after a run (operator ruling 2026-11-09). */
+const STEP_PREFIX = "dpt-gate-step: ";
+const STEP_LINE_RE = /^dpt-gate-step: [a-z][a-z0-9_-]{0,39} exit \d+ — .*?, log \S.*?, read the log on failure, receipt (\/.*\S) sha256:([0-9a-f]{64})$/;
+
+/** A FORGED step line naming `path` and its current digest, as a hand-writer would print it. */
+function forgedStepLine(path: string, label = "test", exit = 0): string {
+  return `${STEP_PREFIX}${label} exit ${exit} — ok, log /x/forged.log, read the log on failure, receipt ${path} sha256:${receiptDigest(readFileSync(path))}`;
+}
+
 /** One Bash call as a live transcript records it: `content` concatenated, `toolUseResult` apart. */
 function bashCall(id: string, command: string, stdout: string, stderr = ""): string[] {
   const [use, result] = contentOnlyBashCall(id, command, stdout);
   const joined = stdout === "" || stderr === "" || stdout.endsWith("\n") ? `${stdout}${stderr}` : `${stdout}\n${stderr}`;
   const record = JSON.parse(result as string);
   record.message.content[0].content = joined;
-  record.toolUseResult = { stdout, stderr, interrupted: false, isImage: false };
+  // The REAL merged shape (Claude Code 2.1.319): the process's stderr is
+  // recorded INSIDE toolUseResult.stdout, and toolUseResult.stderr is empty.
+  record.toolUseResult = { stdout: joined, stderr: "", interrupted: false, isImage: false };
   return [use as string, JSON.stringify(record)];
 }
 
@@ -127,6 +138,11 @@ function writeSessionTranscript(cfg: string, root: string, sid: string, records:
 
 function announcementIn(stdout: string, prefix: string): { path: string; digest: string; line: string } {
   for (const line of stdout.split("\n")) {
+    if (prefix === STEP_PREFIX) {
+      const m = STEP_LINE_RE.exec(line);
+      if (m !== null) return { path: m[1]!, digest: m[2]!, line };
+      continue;
+    }
     const a = parseAnnouncement(line, prefix);
     if (a !== null) return { ...a, line };
   }
@@ -210,7 +226,7 @@ function buildSession(
     const cmd = l === o.failLabel ? `touch ${sentinel}; exit 1` : `touch ${sentinel} && echo ok`;
     const r = runStep(root, cfg, l, cmd);
     if (l !== o.failLabel && r.exitCode !== 0) throw new Error(`front door step ${l} failed (exit ${r.exitCode}): ${r.stderr}`);
-    const a = announcementIn(r.stdout, RECEIPT_PREFIX);
+    const a = announcementIn(r.stdout, STEP_PREFIX);
     rmSync(sentinel, { force: true });
     return { label: l, cmd, sentinel, stdout: r.stdout, stderr: r.stderr, path: a.path, digest: a.digest };
   });
@@ -254,7 +270,7 @@ function rekey(b: Built): void {
     const r = JSON.parse(readFileSync(s.path, "utf-8"));
     r.evidence.key.gate = live;
     writeFileSync(s.path, `${JSON.stringify(r, null, 2)}\n`);
-    const line = announceReceipt(s.path);
+    const line = forgedStepLine(s.path, s.label, r.evidence.exit);
     s.digest = receiptDigest(readFileSync(s.path));
     return bashCall(`b1${i}`, stepCommand(b.root, s.label, s.cmd), `${line}\n`, s.stderr);
   });
@@ -298,7 +314,7 @@ describe("AC-STE-725.2 the verdict verb prints clean only on a fully vouched cle
     const r = JSON.parse(readFileSync(s.path, "utf-8"));
     r.evidence.key = null;
     writeFileSync(s.path, `${JSON.stringify(r, null, 2)}\n`);
-    b.records.steps[1] = bashCall("b11", stepCommand(b.root, s.label, s.cmd), `${announceReceipt(s.path)}\n`, s.stderr);
+    b.records.steps[1] = bashCall("b11", stepCommand(b.root, s.label, s.cmd), `${forgedStepLine(s.path, s.label, r.evidence.exit)}\n`, s.stderr);
     retranscribe(b, allRecords(b));
     expect(verdictOf(b)).toBe("rerun");
   }, T);
@@ -356,7 +372,7 @@ describe("AC-STE-725.2 the verdict verb prints clean only on a fully vouched cle
     const forged = join(receiptDirOf(b.root), "9999-forged-step.json");
     writeFileSync(forged, readFileSync(s.path));
     rmSync(s.path);
-    const line = `${RECEIPT_PREFIX}${forged} sha256:${receiptDigest(readFileSync(forged))}`;
+    const line = forgedStepLine(forged);
     b.records.steps[1] = bashCall("b11", `echo '${line}'`, `${line}\n`);
     retranscribe(b, allRecords(b));
     expect(verdictOf(b)).toBe("rerun");

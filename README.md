@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.3.0 — "Proof of Work"** (M_fd9a03, a gate that reuses only what it proves itself. One `optimizations.gate_commands` knob, off unless set and live only with gate outcomes on, lets `/gate-check` skip a deterministic command that already passed in this session on a key it recomputes on the spot; the code review and every probe still run, a new probe refuses any other knob, and no commit or pull request gate reads a reused step. With the knob off, the default, the toolkit behaves exactly as v3.2.0)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.3.0 — "Proof of Work"** (M_fd9a03, a gate that reuses only what it proves itself. One `optimizations.gate_commands` knob, off unless set and live only with gate outcomes on, lets `/gate-check` skip a deterministic command whose pass this session vouched for on a key it recomputes on the spot; the command's output lives in a step log, the code review and every probe still run, a new probe refuses any other knob, and no commit or pull request gate reads a reused step. With the knob off, the default, the toolkit behaves as v3.2.0 except that probe #90 adds one vacuous probe and `get optimizations` answers `run`)
 
 ## Core Philosophy
 

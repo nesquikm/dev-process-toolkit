@@ -34,6 +34,14 @@ export const NEVER_REUSABLE_STEPS = [
   "upgrade_staleness",
 ] as const;
 
+/**
+ * Whether `name` names a never-reusable step in any spelling: a hyphen reads
+ * as an underscore, so `code-review` is `code_review` (PR #133 review).
+ */
+export function isNeverReusable(name: string): boolean {
+  return (NEVER_REUSABLE_STEPS as readonly string[]).includes(name.replace(/-/g, "_"));
+}
+
 export type OptimizationKnob = (typeof OPTIMIZATION_KNOBS)[number];
 export type OptimizationValue = (typeof OPTIMIZATION_VALUES)[number];
 export type Optimizations = Record<OptimizationKnob, OptimizationValue>;
@@ -59,7 +67,7 @@ export function validateOptimizations(raw: unknown, gateOutcomesEnabled: boolean
   if (!isMap(raw)) return [{ reason: "not-a-mapping", key: null }];
   const out: OptimizationViolation[] = [];
   for (const [key, value] of Object.entries(raw)) {
-    if ((NEVER_REUSABLE_STEPS as readonly string[]).includes(key)) out.push({ reason: "never-reusable", key });
+    if (isNeverReusable(key)) out.push({ reason: "never-reusable", key });
     else if (!(OPTIMIZATION_KNOBS as readonly string[]).includes(key)) out.push({ reason: "unknown-knob", key });
     else if (!(OPTIMIZATION_VALUES as readonly unknown[]).includes(value)) out.push({ reason: "unknown-value", key });
     else if (value === "reuse" && !gateOutcomesEnabled) out.push({ reason: "requires-gate-outcomes", key });
@@ -148,7 +156,7 @@ function runFrontDoor(argv: string[]): number {
     return 2;
   }
   if (!(OPTIMIZATION_KNOBS as readonly string[]).includes(name)) {
-    const why = (NEVER_REUSABLE_STEPS as readonly string[]).includes(name)
+    const why = isNeverReusable(name)
       ? "is a step that is never reusable"
       : "is not an optimizations knob";
     process.stderr.write(

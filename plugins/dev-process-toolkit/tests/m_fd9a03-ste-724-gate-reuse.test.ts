@@ -25,7 +25,7 @@
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { cwdToSlug } from "../adapters/_shared/src/find_current_session";
@@ -73,6 +73,15 @@ const OTHER_SID = "m7bc805s715other";
 const REUSE_PREFIX = "dpt-reuse: ";
 const RECEIPT_PREFIX = "dpt-receipt: ";
 const OUTCOME_PREFIX = "dpt-gate-outcome: ";
+
+/** The ONE line the door prints after a run (operator ruling 2026-11-09). */
+const STEP_PREFIX = "dpt-gate-step: ";
+const STEP_LINE_RE = /^dpt-gate-step: [a-z][a-z0-9_-]{0,39} exit \d+ — .*?, log \S.*?, read the log on failure, receipt (\/.*\S) sha256:([0-9a-f]{64})$/;
+
+/** A FORGED step line naming `path` and its current digest, as a hand-writer would print it. */
+function forgedStepLine(path: string, label = "test", exit = 0): string {
+  return `${STEP_PREFIX}${label} exit ${exit} — ok, log /x/forged.log, read the log on failure, receipt ${path} sha256:${receiptDigest(readFileSync(path))}`;
+}
 const NFR10_SHAPE = /^.+\nRemedy: .+\nContext: .+/m;
 
 async function reuseModule(): Promise<AnyMod> {
@@ -92,7 +101,9 @@ function bashCall(id: string, command: string, stdout: string, stderr = ""): str
   const joined = stdout === "" || stderr === "" || stdout.endsWith("\n") ? `${stdout}${stderr}` : `${stdout}\n${stderr}`;
   const record = JSON.parse(result as string);
   record.message.content[0].content = joined;
-  record.toolUseResult = { stdout, stderr, interrupted: false, isImage: false };
+  // The REAL merged shape (Claude Code 2.1.319): the process's stderr is
+  // recorded INSIDE toolUseResult.stdout, and toolUseResult.stderr is empty.
+  record.toolUseResult = { stdout: joined, stderr: "", interrupted: false, isImage: false };
   return [use as string, JSON.stringify(record)];
 }
 
@@ -146,6 +157,8 @@ function setKnob(root: string, knob: KnobState): void {
   writeFileSync(join(root, "specs", "settings.yaml"), SETTINGS[knob]);
   git(root, "commit", "-qam", `knob ${knob}`);
 }
+
+const realpathOf = (p: string): string => realpathSync(p);
 
 function isClean(root: string): boolean {
   return git(root, "status", "--porcelain").trim() === "";
@@ -215,6 +228,11 @@ const reuseCommand = (root: string, label: string, command: string, door = '"${C
 
 function announcementIn(stdout: string, prefix: string): { path: string; digest: string; line: string } {
   for (const line of stdout.split("\n")) {
+    if (prefix === STEP_PREFIX) {
+      const m = STEP_LINE_RE.exec(line);
+      if (m !== null) return { path: m[1]!, digest: m[2]!, line };
+      continue;
+    }
     const a = parseAnnouncement(line, prefix);
     if (a !== null) return { ...a, line };
   }
@@ -277,7 +295,7 @@ function buildSession(
   if (stepRun.exitCode !== 0 && o.command === undefined) {
     throw new Error(`front door step failed (exit ${stepRun.exitCode}): ${stepRun.stderr}`);
   }
-  const step = { stdout: stepRun.stdout, stderr: stepRun.stderr, ...announcementIn(stepRun.stdout, RECEIPT_PREFIX) };
+  const step = { stdout: stepRun.stdout, stderr: stepRun.stderr, ...announcementIn(stepRun.stdout, STEP_PREFIX) };
   rmSync(sentinel, { force: true });
 
   let outcome = { stdout: "", stderr: "", path: "", digest: "", line: "" };
@@ -521,7 +539,7 @@ describe("AC-STE-724.5 the front door runs the command unless the stored pass is
     const forged = join(receiptDirOf(b.root), "9999-forged-step.json");
     writeFileSync(forged, readFileSync(b.step.path));
     rmSync(b.step.path);
-    const line = `${RECEIPT_PREFIX}${forged} sha256:${receiptDigest(readFileSync(forged))}`;
+    const line = forgedStepLine(forged);
     retranscribe(b, [...b.records.skill, ...b.records.run, ...bashCall("b1", `echo '${line}'`, `${line}\n`), ...b.records.outcome]);
     const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
     expectRan(b, r);
@@ -645,7 +663,7 @@ describe("AC-STE-724.8 a run writes exactly one gate-step receipt", () => {
     expect(rec.evidence.run).toBe(receiptDigest(readFileSync(run.path)));
     expect(typeof rec.evidence.duration_ms).toBe("number");
     // The announcement the front door printed names this receipt.
-    expect(announcementIn(r.stdout, RECEIPT_PREFIX).path).toBe(steps[0]!.path);
+    expect(announcementIn(r.stdout, STEP_PREFIX).path).toBe(steps[0]!.path);
   }, T);
 
   test("a passing command records pass, and its key is the live key computed before it ran", async () => {
@@ -729,7 +747,8 @@ describe("AC-STE-724.9 the dpt-reuse: line names the stored summary, createdAt a
 // ===========================================================================
 
 describe("AC-STE-724.10 the front door refuses a NEVER_REUSABLE_STEPS label", () => {
-  for (const label of NEVER_REUSABLE_STEPS) {
+  // PR #133 review: the hyphen spelling of each entry is refused too.
+  for (const label of [...NEVER_REUSABLE_STEPS, ...NEVER_REUSABLE_STEPS.filter((l) => l.includes("_")).map((l) => l.replace(/_/g, "-"))]) {
     test(`label ${label}: exit 1 in NFR-10 shape, nothing run, nothing written`, () => {
       const root = reuseTree(`ac10-${label.replace(/_/g, "-")}`);
       const sentinel = join(tempDir("ac10-s"), "sentinel");
@@ -1007,8 +1026,8 @@ describe("AC-STE-724.18 mutation controls: each check reds a named test", () => 
     const b = buildSession("ac18-knob");
     setKnob(b.root, "absent");
     expect(graded(b, unmutated())).toEqual({ ...RAN, wrote: 0 });
-    // Mutated: the knob reads on, so a step receipt is written with the knob absent.
-    expect(graded(b, door)).toEqual({ ...RAN, wrote: 1 });
+    // Mutated: the knob reads on, so a step receipt (and its step log) is written with the knob absent.
+    expect(graded(b, door)).toEqual({ ...RAN, wrote: 2 });
   }, T);
 
   test("AC-STE-724.18 mutation: tree-clean check — removing it lets a dirty tree's stored pass be reused", () => {
@@ -1023,7 +1042,7 @@ describe("AC-STE-724.18 mutation controls: each check reds a named test", () => 
   }, T);
 
   test("AC-STE-724.18 mutation: transcript-announcement check — removing it turns 'the step announcement absent from the transcript runs the command' red", () => {
-    const door = reuseDoor(mutatedCopy("ann", [["gate_reuse.ts", /\n\s*if \(!vouched\(f, steps\)\) continue;/, ""]]));
+    const door = reuseDoor(mutatedCopy("ann", [["gate_reuse.ts", /stepVouched\(s, f\)/g, "true"]]));
     const b = buildSession("ac18-ann");
     retranscribe(b, [...b.records.skill, ...b.records.run, ...b.records.outcome]);
     expect(pick(graded(b, unmutated()))).toEqual(RAN);
@@ -1062,7 +1081,7 @@ describe("AC-STE-724.18 mutation controls: each check reds a named test", () => 
   test("AC-STE-724.18 mutation: run outcome check (decision pass / key_stable) — removing it turns the outcome-fail and key_stable-false rows red", () => {
     const door = reuseDoor(
       mutatedCopy("outcome-pass", [
-        ["gate_reuse.ts", /f\.record\.decision === "pass" &&\s*f\.record\.evidence\?\.key_stable === true &&/, ""],
+        ["gate_reuse.ts", /if \(outcome\?\.record\.decision !== "pass" \|\| outcome\.record\.evidence\?\.key_stable !== true\) return null;/, "if (outcome === undefined) return null;"],
       ]),
     );
     for (const [name, o] of [
@@ -1078,10 +1097,37 @@ describe("AC-STE-724.18 mutation controls: each check reds a named test", () => 
   test("AC-STE-724.18 mutation: run outcome check (run reference) — removing it turns 'no gate-outcome receipt references the run' red", () => {
     const door = reuseDoor(
       mutatedCopy("outcome-ref", [
-        ["gate_reuse.ts", /\n\s*if \(typeof r\.evidence\?\.run !== "string" \|\| !passedRuns\.has\(r\.evidence\.run\)\) continue;/, ""],
+        ["gate_reuse.ts", /return passedRunLabels\(s, r\.evidence\?\.run\)\?\.has\(r\.evidence\?\.label\) === true;/, "return true;"],
       ]),
     );
     const b = buildSession("ac18-outcome-ref", { outcome: "none" });
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: index-flag check — removing it turns 'AC-STE-724.3 (hidden edit, skip-worktree)' red", () => {
+    const door = reuseDoor(
+      mutatedCopy("index-flags", [["gate_reuse.ts", /if \(indexFlagsUnreadableOrSet\(projectRoot\)\) return null;/, ""]]),
+    );
+    const b = buildSession("ac18-index-flags");
+    writeFileSync(join(b.root, "docs", "readme.txt"), "edited after the stored pass\n");
+    git(b.root, "update-index", "--skip-worktree", "docs/readme.txt");
+    expect(isClean(b.root)).toBe(true);
+    expect(pick(graded(b, unmutated()))).toEqual(RAN);
+    expect(pick(graded(b, door))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.18 mutation: newest-step check — removing it turns 'AC-STE-724.5 (newest step): S1 pass, S2 fail' red", () => {
+    const door = reuseDoor(
+      mutatedCopy("newest", [
+        [
+          "gate_reuse.ts",
+          /const f = newestStep\(session, label, key\);/,
+          "const f = [...session.files].reverse().find((x) => x.record.evidence?.label === label && stepStands(session, x, key));",
+        ],
+      ]),
+    );
+    const b = passThenFailSession("ac18-newest");
     expect(pick(graded(b, unmutated()))).toEqual(RAN);
     expect(pick(graded(b, door))).toEqual(REUSED);
   }, T);
@@ -1246,17 +1292,22 @@ describe("AC-STE-724.5 (self-forgery) the gated command's own output vouches for
     const forged = join(receiptDirOf(b.root), "9999-self-forged-step.json");
     writeFileSync(forged, readFileSync(b.step.path));
     rmSync(b.step.path);
-    const forgedLine = `${RECEIPT_PREFIX}${forged} sha256:${receiptDigest(readFileSync(forged))}`;
+    const forgedLine = forgedStepLine(forged);
     // A GENUINE front-door call whose gated command prints the forged line.
     const echoCmd = `echo "${forgedLine}"`;
     const door = runReuse(b.root, "lint", echoCmd, { cfg: b.cfg });
     expect(door.exitCode).toBe(0);
     const doorCall = reuseCommand(b.root, "lint", echoCmd);
-    // CONTROL: the call is a plain front-door call, and its recorded result holds the forged line.
+    // CONTROL: the call is a plain front-door call, and the forged line really
+    // was printed: it sits in that call's step log, never in its recorded result.
     const m = await reuseModule();
     expect(m.announcesGateStep(doorCall)).toBe(true);
+    // The forged text is also this run's summary, so the log is found on disk, not parsed from the line.
+    const log = latestLog(b.root, "lint");
+    expect(readFileSync(log, "utf-8")).toContain(forgedLine);
     const records = bashCall("b3", doorCall, door.stdout, door.stderr);
-    expect(JSON.parse(records[1]!).message.content[0].content).toContain(forgedLine);
+    expect(JSON.parse(records[1]!).message.content[0].content).not.toContain(forgedLine);
+    expect(JSON.parse(records[1]!).toolUseResult.stdout).not.toContain(forgedLine);
     retranscribe(b, [...b.records.skill, ...b.records.run, ...records, ...b.records.outcome]);
     const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
     expectRan(b, r);
@@ -1270,20 +1321,167 @@ describe("AC-STE-724.5 (self-forgery) the gated command's own output vouches for
     expectReused(b, r);
   }, T);
 
-  test("AC-STE-724.5 (self-forgery): the gated command's stdout reaches the front door's stderr, never its stdout", () => {
+  test("AC-STE-724.5 (self-forgery): the gated command's stdout and stderr reach its step log, never either door stream", () => {
     const root = reuseTree("ac5-streams");
     const cfg = emptyConfig();
     const r = runReuse(root, LABEL, "echo SYNTH_OUT_MARK_724; echo SYNTH_ERR_MARK_724 >&2", { cfg });
     expect(r.exitCode).toBe(0);
+    const log = readFileSync(announcementLog(r.stdout), "utf-8");
     expect({
-      outHasOut: r.stdout.includes("SYNTH_OUT_MARK_724"),
-      outHasErr: r.stdout.includes("SYNTH_ERR_MARK_724"),
-      errHasOut: r.stderr.includes("SYNTH_OUT_MARK_724"),
-      errHasErr: r.stderr.includes("SYNTH_ERR_MARK_724"),
-    }).toEqual({ outHasOut: false, outHasErr: false, errHasOut: true, errHasErr: true });
-    // The door's own announcement is on its stdout.
-    const ann = announcementIn(r.stdout, RECEIPT_PREFIX);
+      stdoutLines: r.stdout.split("\n").filter((l) => l.trim() !== "").length,
+      stderr: r.stderr,
+      logHasOut: log.includes("SYNTH_OUT_MARK_724"),
+      logHasErr: log.includes("SYNTH_ERR_MARK_724"),
+    }).toEqual({ stdoutLines: 1, stderr: "", logHasOut: true, logHasErr: true });
+    // The door's own line names its receipt, and the tree stays clean: the log is git-ignored.
+    const ann = announcementIn(r.stdout, STEP_PREFIX);
     expect(existsSync(ann.path)).toBe(true);
+    expect(isClean(root)).toBe(true);
+  }, T);
+});
+
+// ===========================================================================
+// Operator ruling 2026-11-09 (PR #133 review B3): the door prints ONE line and
+// the gated command's output lives in its step log.
+// ===========================================================================
+
+/** The newest step log for `label` in this session's log directory. */
+function latestLog(root: string, label: string): string {
+  const dir = join(root, ".dpt", "ledger", "gate-steps", SID);
+  const names = readdirSync(dir).filter((n) => n.endsWith(`-${label}.log`)).sort();
+  if (names.length === 0) throw new Error(`no ${label} log under ${dir}`);
+  return join(dir, names[names.length - 1]!);
+}
+
+/** The log path the door's one step line names. */
+function announcementLog(stdout: string): string {
+  const m = /^dpt-gate-step: \S+ exit \d+ — .*?, log (\S.*?), read the log on failure, receipt /m.exec(stdout);
+  if (m === null) throw new Error(`no step line in: ${stdout}`);
+  return m[1]!;
+}
+
+/** A bun-test-style run: a pass line on stdout, noise on stderr, then the totals block. Double quotes only: the transcript wraps the command in single quotes. */
+const NOISY = [
+  'echo "bun test v1.3.0 (synthetic)"',
+  'echo "tests/a.test.ts:" >&2',
+  'echo "(pass) a > one [0.10ms]" >&2',
+  'echo "(pass) a > two [0.20ms]" >&2',
+  'echo "" >&2',
+  'echo " 2 pass" >&2',
+  'echo " 0 fail" >&2',
+  'echo " 4 expect() calls" >&2',
+  'echo "Ran 2 tests across 1 file. [12.00ms]" >&2',
+].join("; ");
+
+describe("AC-STE-724.5 (log file): the door prints one line naming its log, its exit and the read-on-failure hint", () => {
+  test("AC-STE-724.5 (log file): a failing command's one line names the exit, a log under .dpt/ledger/gate-steps/<session>/ and read the log on failure", () => {
+    const root = reuseTree("b3-fail-line");
+    const r = runReuse(root, "lint", "echo SYNTH_FAIL_DETAIL; exit 4", { cfg: emptyConfig() });
+    expect(r.exitCode).toBe(4);
+    const lines = r.stdout.split("\n").filter((l) => l.trim() !== "");
+    expect(lines.length).toBe(1);
+    expect(r.stderr).toBe("");
+    expect(lines[0]!).toStartWith(`${STEP_PREFIX}lint exit 4 — SYNTH_FAIL_DETAIL, log `);
+    expect(lines[0]!).toContain(", read the log on failure, receipt ");
+    const log = announcementLog(r.stdout);
+    expect(log.startsWith(join(realpathOf(root), ".dpt", "ledger", "gate-steps", SID) + "/")).toBe(true);
+    expect(log).toEndWith("-lint.log");
+    expect(readFileSync(log, "utf-8")).toBe("SYNTH_FAIL_DETAIL\n");
+    expect(stepReceipts(root)[0]!.record.evidence.exit).toBe(4);
+  }, T);
+
+  test("AC-STE-724.5 (log file): a noisy bun-test-style command in a REAL-shape record (stderr inside toolUseResult.stdout) is vouched and reused", () => {
+    const b = buildSession("b3-noisy", { command: (s) => `touch ${s}; ${NOISY}` });
+    // The real shape: whatever the process wrote to either stream sits in toolUseResult.stdout.
+    const rec = JSON.parse(b.records.step[1]!);
+    expect(rec.toolUseResult.stderr).toBe("");
+    expect(rec.toolUseResult.stdout).toBe(`${b.step.stdout}${b.step.stderr}`);
+    expect(String(rec.toolUseResult.stdout).split("\n").filter((l: string) => l.trim() !== "")).toEqual([b.step.line]);
+    // The noise really ran: it is in the step log.
+    expect(readFileSync(announcementLog(b.step.stdout), "utf-8")).toContain("Ran 2 tests across 1 file.");
+    const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+    expectReused(b, r);
+  }, T);
+
+  test("AC-STE-724.5 (log file): CONTROL — the pre-ruling door's shape (output on stderr, merged into toolUseResult.stdout) vouches for nothing", () => {
+    const b = buildSession("b3-old-shape", { command: (s) => `touch ${s}; ${NOISY}` });
+    const noisy = bashCall("b1", reuseCommand(b.root, LABEL, b.cmd), `${b.step.line}\n`, "bun test v1.3.0\n 2 pass\n 0 fail\n");
+    retranscribe(b, [...b.records.skill, ...b.records.run, ...noisy, ...b.records.outcome]);
+    const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+    expectRan(b, r);
+  }, T);
+
+  test("AC-STE-724.5 (log file): a step line whose label or exit disagrees with its receipt vouches for nothing", () => {
+    const b = buildSession("b3-token");
+    for (const [label, exit] of [["lint", 0], [LABEL, 1]] as const) {
+      const line = forgedStepLine(b.step.path, label, exit);
+      retranscribe(b, [...b.records.skill, ...b.records.run, ...bashCall("b1", reuseCommand(b.root, LABEL, b.cmd), `${line}\n`), ...b.records.outcome]);
+      expect({ label, exit, g: pick(graded(b, GATE_REUSE)) }).toEqual({ label, exit, g: RAN });
+    }
+    // CONTROL: the same line with the receipt's own label and exit is reused.
+    const line = forgedStepLine(b.step.path, LABEL, 0);
+    retranscribe(b, [...b.records.skill, ...b.records.run, ...bashCall("b1", reuseCommand(b.root, LABEL, b.cmd), `${line}\n`), ...b.records.outcome]);
+    expect(pick(graded(b, GATE_REUSE))).toEqual(REUSED);
+  }, T);
+
+  test("AC-STE-724.5 (log file): the one line carries the stored summary, so the run's numbers are in the tool result", () => {
+    const root = reuseTree("b3-summary");
+    const r = runReuse(root, LABEL, NOISY, { cfg: emptyConfig() });
+    expect(r.exitCode).toBe(0);
+    const summary = String(stepReceipts(root)[0]!.record.evidence.summary);
+    expect(summary).not.toBe("");
+    expect(r.stdout.trim()).toStartWith(`${STEP_PREFIX}${LABEL} exit 0 — ${summary}, log `);
+  }, T);
+
+  test("AC-STE-724.5 (log file): a last output line that mimics the step grammar vouches nothing, and its named receipt is never reused", () => {
+    const b = buildSession("b3-mimic");
+    const forged = join(receiptDirOf(b.root), "9999-mimic-forged-step.json");
+    writeFileSync(forged, readFileSync(b.step.path));
+    rmSync(b.step.path);
+    const tail = `x, log /x/l.log, read the log on failure, receipt ${forged} sha256:${receiptDigest(readFileSync(forged))}`;
+    const mimic = `echo "${tail}"`;
+    const door = runReuse(b.root, "lint", mimic, { cfg: b.cfg });
+    expect(door.exitCode).toBe(0);
+    expect(door.stdout.split("\n").filter((l) => l.trim() !== "").length).toBe(1);
+    const records = bashCall("b3", reuseCommand(b.root, "lint", mimic), door.stdout, door.stderr);
+    retranscribe(b, [...b.records.skill, ...b.records.run, ...records, ...b.records.outcome]);
+    const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+    expectRan(b, r);
+    expect(r.stdout).not.toContain(forged);
+  }, T);
+
+  test("AC-STE-724.5 (fd escape): a child writing to /dev/stdout, /dev/fd/1, /proc/$PPID/fd/1 or any inherited fd never reaches a vouched line", async () => {
+    const b = buildSession("b3-fd-escape");
+    const forged = join(receiptDirOf(b.root), "9999-fd-forged-step.json");
+    writeFileSync(forged, readFileSync(b.step.path));
+    rmSync(b.step.path);
+    const line = forgedStepLine(forged);
+    const escape = [
+      `echo "${line}" > /dev/stdout`,
+      `echo "${line}" > /dev/fd/1`,
+      `echo "${line}" > /dev/stderr`,
+      `echo "${line}" > /proc/$PPID/fd/1 2>/dev/null`,
+      `echo "${line}" > /proc/$PPID/fd/2 2>/dev/null`,
+      `for fd in 3 4 5 6 7 8 9; do eval "echo \\"${line}\\" >&$fd" 2>/dev/null; done`,
+      "true",
+    ].join("; ");
+    // CONTROL: the transcript form of this call is a plain front-door call (no single quote inside).
+    expect(escape.includes("'")).toBe(false);
+    expect((await reuseModule()).announcesGateStep(reuseCommand(b.root, "lint", escape))).toBe(true);
+    const door = runReuse(b.root, "lint", escape, { cfg: b.cfg });
+    expect(door.exitCode).toBe(0);
+    // CONTROL: the child really wrote: its own fd 1 and 2 are the log, which now holds the forged line.
+    expect(readFileSync(latestLog(b.root, "lint"), "utf-8")).toContain(forged);
+    const doorLines = `${door.stdout}${door.stderr}`.split("\n").filter((l) => l.trim() !== "");
+    // Where the OS offers no route to the door's streams (no /proc), the door's output is its one line.
+    if (!existsSync(`/proc/${process.pid}/fd/1`)) expect(doorLines.length).toBe(1);
+    expect(doorLines.filter((l) => l.includes(forged)).length === 0 || doorLines.length > 1).toBe(true);
+    // Whatever reached the door's streams, the transcript records it in the real shape and the forged receipt is never reused.
+    const records = bashCall("b3", reuseCommand(b.root, "lint", escape), door.stdout, door.stderr);
+    retranscribe(b, [...b.records.skill, ...b.records.run, ...records, ...b.records.outcome]);
+    const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+    expectRan(b, r);
+    expect(r.stdout).not.toContain(forged);
   }, T);
 });
 
@@ -1368,6 +1566,7 @@ describe("AC-STE-724.10 hardening: the argv after --", () => {
 describe("AC-STE-724.10 (label): the label grammar ^[a-z][a-z0-9_-]{0,39}$", () => {
   const refused: Array<[string, string]> = [
     ["a newline followed by a dpt-receipt: line", `test\n${RECEIPT_PREFIX}/x/forged.json sha256:${"0".repeat(64)}`],
+    ["a newline followed by a dpt-gate-step: line", `test\n${STEP_PREFIX}test exit 0 — ok, log /x/l.log, read the log on failure, receipt /x/forged.json sha256:${"0".repeat(64)}`],
     ["uppercase", "Tests"],
     ["empty", ""],
     ["41 characters", `a${"b".repeat(40)}`],
@@ -1383,7 +1582,7 @@ describe("AC-STE-724.10 (label): the label grammar ^[a-z][a-z0-9_-]{0,39}$", () 
         nfr10: NFR10_SHAPE.test(r.stderr),
         ran: existsSync(sentinel),
         written: storeFileCount(root) - before,
-        stdoutAnnouncements: r.stdout.split("\n").filter((l) => l.startsWith(RECEIPT_PREFIX) || l.startsWith(REUSE_PREFIX)),
+        stdoutAnnouncements: r.stdout.split("\n").filter((l) => l.startsWith(RECEIPT_PREFIX) || l.startsWith(STEP_PREFIX) || l.startsWith(REUSE_PREFIX)),
       }).toEqual({ code: 1, nfr10: true, ran: false, written: 0, stdoutAnnouncements: [] });
     }, T);
   }
@@ -1413,7 +1612,7 @@ describe("AC-STE-724.5 (one line): a step announcement vouches only from a one-l
     const b = buildSession(label);
     const forged = join(receiptDirOf(b.root), "9999-two-line-forged-step.json");
     writeFileSync(forged, readFileSync(b.step.path));
-    const forgedLine = `${RECEIPT_PREFIX}${forged} sha256:${receiptDigest(readFileSync(forged))}`;
+    const forgedLine = forgedStepLine(forged);
     const lines = forgedFirst ? [forgedLine, b.step.line] : [b.step.line, forgedLine];
     const stdout = `${lines.join("\n")}\n`;
     const step = bashCall("b1", reuseCommand(b.root, LABEL, b.cmd), stdout, b.step.stderr);
@@ -1495,5 +1694,147 @@ describe("AC-STE-724.14 (pump error): a closed stderr leaves no gated child behi
       }
     }
     expect({ gatedChildAliveAfterDoorExit: alive }).toEqual({ gatedChildAliveAfterDoorExit: false });
+  }, T);
+});
+
+// ===========================================================================
+// Pre-merge fix (PR #133 review B1): a tracked-file edit hidden from
+// `git status` by an index flag never yields a key.
+// ===========================================================================
+
+describe("AC-STE-724.3 (hidden edit): an index flag hiding an edit from git status makes the tree not clean", () => {
+  for (const [name, flag, editFirst] of [
+    ["skip-worktree", "--skip-worktree", true],
+    ["assume-unchanged", "--assume-unchanged", false],
+  ] as const) {
+    test(`AC-STE-724.3 (hidden edit, ${name}): an edited committed file flagged ${flag} runs the command`, () => {
+      const b = buildSession(`b1-${name}`);
+      const file = join(b.root, "docs", "readme.txt");
+      if (editFirst) writeFileSync(file, "edited after the stored pass\n");
+      git(b.root, "update-index", flag, "docs/readme.txt");
+      if (!editFirst) writeFileSync(file, "edited after the stored pass\n");
+      // CONTROL: git status really hides the edit.
+      expect(isClean(b.root)).toBe(true);
+      const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+      expectRan(b, r);
+    }, T);
+  }
+
+  test("AC-STE-724.3 (hidden edit): computeReuseKey is null with any skip-worktree or assume-unchanged entry, edited or not", async () => {
+    const m = await reuseModule();
+    const root = reuseTree("b1-key-unit");
+    expect(m.computeReuseKey(root, "true")).not.toBeNull();
+    git(root, "update-index", "--skip-worktree", "docs/readme.txt");
+    expect(m.computeReuseKey(root, "true")).toBeNull();
+    git(root, "update-index", "--no-skip-worktree", "docs/readme.txt");
+    expect(m.computeReuseKey(root, "true")).not.toBeNull();
+    git(root, "update-index", "--assume-unchanged", "docs/readme.txt");
+    expect(m.computeReuseKey(root, "true")).toBeNull();
+  }, T);
+
+  test("AC-STE-724.3 (hidden edit): hiddenIndexEntries flags h, S, s and every lowercase tag, never H", async () => {
+    const m = await reuseModule();
+    expect(m.hiddenIndexEntries("H docs/a.txt\nH b.txt\n")).toEqual([]);
+    expect(m.hiddenIndexEntries("H a\nh docs/readme.txt\nS c\ns d\nm e\nr f\nc g\nk h2\n")).toEqual([
+      "docs/readme.txt",
+      "c",
+      "d",
+      "e",
+      "f",
+      "g",
+      "h2",
+    ]);
+    // Any tag other than H fails safe, unmerged M included.
+    expect(m.hiddenIndexEntries("M u\n")).toEqual(["u"]);
+    expect(m.hiddenIndexEntries("")).toEqual([]);
+  });
+});
+
+/**
+ * The B2 shape: in one run, step S1 of `test` passes, S2 of the same label
+ * and key fails, then the run's one outcome claims `test=pass`. Every call is
+ * announced in the session's transcript.
+ */
+function passThenFailSession(label: string): Built {
+  const b = buildSession(label, {
+    command: (s) => `if [ -e ${s}.fail ]; then exit 1; fi; touch ${s} && echo ok`,
+    outcome: "none",
+  });
+  const failFlag = `${b.sentinel}.fail`;
+  writeFileSync(failFlag, "");
+  const s2 = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+  rmSync(failFlag);
+  rmSync(b.sentinel, { force: true });
+  if (s2.exitCode !== 1) throw new Error(`S2 did not fail: exit ${s2.exitCode}`);
+  const out = runCli(["outcome", "gate-check", b.root, "pass", "--step", `${LABEL}=pass`]);
+  if (out.exitCode !== 0) throw new Error(`outcome CLI failed: ${out.stderr}`);
+  const records = {
+    ...b.records,
+    step: [...b.records.step, ...bashCall("b4", reuseCommand(b.root, LABEL, b.cmd), s2.stdout, s2.stderr)],
+    outcome: bashCall("b5", outcomeCommand("gate-check", b.root, "pass", [`${LABEL}=pass`]), out.stdout, out.stderr),
+  };
+  retranscribe(b, [...records.skill, ...records.run, ...records.step, ...records.outcome]);
+  return { ...b, records };
+}
+
+// ===========================================================================
+// Pre-merge fix (PR #133 review B2): the newest vouched step for a label and
+// key decides, and it must itself be a pass.
+// ===========================================================================
+
+describe("AC-STE-724.5 (newest step): a later fail on the same run, label and key is never shadowed by an earlier pass", () => {
+  test("AC-STE-724.5 (newest step): S1 pass, S2 fail, then the run's outcome claiming test=pass: run reruns and verdict prints rerun", () => {
+    const b = passThenFailSession("b2-newest");
+    const steps = stepReceipts(b.root);
+    expect(steps.map((s) => s.record.decision)).toEqual(["pass", "fail"]);
+    // Both steps share the run and the key.
+    expect(steps[1]!.record.evidence.run).toBe(steps[0]!.record.evidence.run);
+    expect(steps[1]!.record.evidence.key).toEqual(steps[0]!.record.evidence.key);
+    const verdict = spawnDoor(["verdict", b.root], { cfg: b.cfg, cwd: b.root });
+    expect(verdict.stdout.trim()).toBe("rerun");
+    const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+    expectRan(b, r);
+  }, T);
+
+  test("AC-STE-724.5 (newest step): an outcome that does not list the step's label as pass vouches for nothing", () => {
+    const b = buildSession("b2-unlisted", { outcome: "none" });
+    const out = runCli(["outcome", "gate-check", b.root, "pass", "--step", "lint=pass"]);
+    expect(out.exitCode).toBe(0);
+    retranscribe(b, [
+      ...b.records.skill,
+      ...b.records.run,
+      ...b.records.step,
+      ...bashCall("b5", outcomeCommand("gate-check", b.root, "pass", ["lint=pass"]), out.stdout, out.stderr),
+    ]);
+    const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+    expectRan(b, r);
+  }, T);
+
+  test("AC-STE-724.5 (newest step): CONTROL — S1 fail then S2 pass on the same key reuses S2", () => {
+    const b = buildSession("b2-control", {
+      command: (s) => `if [ -e ${s}.fail ]; then exit 1; fi; touch ${s} && echo ok`,
+      outcome: "none",
+    });
+    // b.records.step is S1 (pass). Make a fail, then a pass, newest last.
+    const failFlag = `${b.sentinel}.fail`;
+    writeFileSync(failFlag, "");
+    const s2 = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+    rmSync(failFlag);
+    const s3 = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+    rmSync(b.sentinel, { force: true });
+    expect([s2.exitCode, s3.exitCode]).toEqual([1, 0]);
+    const out = runCli(["outcome", "gate-check", b.root, "pass", "--step", `${LABEL}=pass`]);
+    retranscribe(b, [
+      ...b.records.skill,
+      ...b.records.run,
+      ...b.records.step,
+      ...bashCall("b4", reuseCommand(b.root, LABEL, b.cmd), s2.stdout, s2.stderr),
+      ...bashCall("b5", reuseCommand(b.root, LABEL, b.cmd), s3.stdout, s3.stderr),
+      ...bashCall("b6", outcomeCommand("gate-check", b.root, "pass", [`${LABEL}=pass`]), out.stdout, out.stderr),
+    ]);
+    const r = runReuse(b.root, LABEL, b.cmd, { cfg: b.cfg });
+    expectReused(b, r);
+    const newest = stepReceipts(b.root).at(-1)!;
+    expect(reuseLines(r.stdout)[0]).toContain(newest.path);
   }, T);
 });

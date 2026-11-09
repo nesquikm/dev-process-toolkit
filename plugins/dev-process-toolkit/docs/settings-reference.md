@@ -137,6 +137,7 @@ The key set is closed: exactly the one knob `gate_commands`. Any other key under
 
 - `run` (the default): `/gate-check` runs the project's deterministic gate commands (typecheck, lint, test, build) exactly as it always has. An absent key or an absent section reads `run`.
 - `reuse`: `/gate-check` may reuse a stored deterministic pass proved on identical input instead of running the command again. It takes effect only when `tracking.gate_outcomes.enabled` is `true`; nothing turns that key on implicitly, and without it the knob reads `run`. No value skips a command, lowers a severity or changes what a run checks.
+- With `reuse`, the front door sends each command's stdout and stderr to a step log under `.dpt/ledger/gate-steps/<session>/`, which is git-ignored, and prints exactly one line itself: `dpt-gate-step: <label> exit <N> — <summary>, log <path>, read the log on failure, receipt <path> sha256:<digest>`. On a failure, read the log it names. A reused command prints one `dpt-reuse:` line instead.
 - The loader checks the knob name only. The value is graded by `/gate-check` probe `optimizations_reuse_only`, which refuses any value other than `reuse` or `run`.
 - Residual (STE-724): git-ignored paths such as a local `.env`, dependency directories such as `node_modules`, generated and build output, and runtimes other than Bun are outside the key; a change there can make a reused pass one a fresh run would not produce. The same-session limit bounds that residual, it is not closed.
 

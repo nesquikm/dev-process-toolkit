@@ -189,6 +189,22 @@ describe("AC-STE-723.3 validateOptimizations: one violation per offending key", 
     });
   }
 
+  // PR #133 review: a hyphen spelling of a never-reusable step is refused by name too.
+  for (const name of NEVER.filter((n) => n.includes("_")).map((n) => n.replace(/_/g, "-"))) {
+    test(`never-reusable for the hyphen spelling ${name}`, async () => {
+      const { validateOptimizations, isNeverReusable } = await O();
+      expect(isNeverReusable(name)).toBe(true);
+      expect(reasons(validateOptimizations({ [name]: "reuse" }, true))).toEqual(["never-reusable"]);
+    });
+  }
+
+  test("CONTROL: the knob name and an unrelated hyphenated name are not never-reusable", async () => {
+    const { isNeverReusable } = await O();
+    expect(isNeverReusable("gate_commands")).toBe(false);
+    expect(isNeverReusable("gate-commands")).toBe(false);
+    expect(isNeverReusable("type-check")).toBe(false);
+  });
+
   for (const value of [true, "skip", "off", false, 1, null]) {
     test(`unknown-value for gate_commands: ${JSON.stringify(value)}`, async () => {
       expect(reasons((await O()).validateOptimizations({ gate_commands: value }, true))).toEqual(["unknown-value"]);

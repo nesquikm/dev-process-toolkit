@@ -193,13 +193,28 @@ function unmarkedHunks(diff: string, marker: RegExp): string[] {
     .map((h) => h.split("\n")[0]!);
 }
 
-// A load-budget hunk changes a test's numeric timeout and adds one `// Load budget:`
+// A load-budget hunk raises ONE test timeout and adds one `// Load budget:`
 // comment, nothing else: no assertion, no prose, no other line can ride along.
+// The timeout sits in a test-call position, either a bare argument line
+// (`    60_000,`) or the closing `}, N);` of a `test(...)` call, the removed and
+// added lines take the same position, and the budget only grows from at least
+// 1 s (PR #133 review: any numeric-only line was admitted before).
+const TIMEOUT_ARG = /^[-+]\s*(\d[\d_]*),$/;
+const TIMEOUT_CLOSE = /^[-+]\s*\}, (\d[\d_]*)\);$/;
 function isLoadBudgetHunk(hunk: string): boolean {
   const changed = hunk.split("\n").slice(1).filter((l) => l.startsWith("+") || l.startsWith("-"));
-  const numeric = /^[-+]\s*(?:\}, )?\d[\d_]*\)?;?,?\s*$/;
   const comments = changed.filter((l) => /^\+\s*\/\/ Load budget: /.test(l));
-  return comments.length === 1 && changed.every((l) => numeric.test(l) || comments.includes(l)) && changed.some((l) => l.startsWith("-"));
+  const removed = changed.filter((l) => l.startsWith("-"));
+  const added = changed.filter((l) => l.startsWith("+") && !comments.includes(l));
+  if (comments.length !== 1 || removed.length !== 1 || added.length !== 1) return false;
+  for (const form of [TIMEOUT_ARG, TIMEOUT_CLOSE]) {
+    const before = form.exec(removed[0]!);
+    const after = form.exec(added[0]!);
+    if (before === null || after === null) continue;
+    const ms = (m: RegExpExecArray): number => Number(m[1]!.replace(/_/g, ""));
+    return ms(before) >= 1000 && ms(after) > ms(before);
+  }
+  return false;
 }
 
 function expectUneditedBeyondMarked(path: string, ref: string, marker: RegExp): void {
@@ -706,6 +721,16 @@ describe("structural — gate-check's probe rows stay where the pins expect them
     expect(isLoadBudgetHunk(`${budget}+    expect(x).toBe(1);\n`)).toBe(false);
     expect(isLoadBudgetHunk(budget.replace("-    60_000,\n", "-    expect(y).toBe(2);\n"))).toBe(false);
     expect(isLoadBudgetHunk("@@ -1,0 +1 @@\n+    // Load budget: nothing moved.\n")).toBe(false);
+    // The test-call closing form is admitted too.
+    expect(isLoadBudgetHunk("@@ -9 +9,2 @@\n-  }, 5_000);\n+    // Load budget: slow under load.\n+  }, 30_000);\n")).toBe(true);
+    // PR #133 review: a numeric-only line that is not a raised test timeout is refused, each on its own.
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    22138\n+    // Load budget: x.\n+    0\n")).toBe(false);
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    22138,\n+    // Load budget: x.\n+    0,\n")).toBe(false);
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    50)\n+    // Load budget: x.\n+    5000)\n")).toBe(false);
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-  50);\n+    // Load budget: x.\n+  5000);\n")).toBe(false);
+    // A bare argument moved into the closing form, or a sub-second "budget", is refused.
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    5_000,\n+    // Load budget: x.\n+  }, 30_000);\n")).toBe(false);
+    expect(isLoadBudgetHunk("@@ -3 +3,2 @@\n-    50,\n+    // Load budget: x.\n+    5000,\n")).toBe(false);
   });
 
   test("tests/m120-ste-444-jira-binding-prose.test.ts is green", () => {

@@ -177,6 +177,19 @@ export function toolCallTimelinePath(projectRoot: string, sessionId: string): st
 }
 
 /**
+ * Gate-step logs: `<projectRoot>/.dpt/ledger/gate-steps/<sessionId>` (STE-724).
+ *
+ * The only composer of the directory the reuse front door writes each gated
+ * command's stdout and stderr to. Under `ledger/`, so the `.dpt/.gitignore`
+ * rule set already ignores it and a log never dirties the reuse key. Throws on
+ * a path-unsafe session id rather than composing an escaping path.
+ */
+export function gateStepLogsDir(projectRoot: string, sessionId: string): string {
+  assertPathSafeSessionId(sessionId);
+  return join(dptRoot(projectRoot), "ledger", "gate-steps", sessionId);
+}
+
+/**
  * /retro reports: `<projectRoot>/.dpt/ledger/retro` (STE-719).
  *
  * The only composer of the report directory. Under `ledger/`, so the
