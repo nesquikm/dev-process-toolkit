@@ -1,7 +1,7 @@
 ---
 milestone: M_b2fdc0
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-11-10T16:30:35Z
 kickoff_branch: null
 frozen_at: null
 migration: none
@@ -74,5 +74,5 @@ codename: House Rules
   verify: one test per fix
 - [x] Read a subfolder TypeScript project and warn on Rust in the signature extractor (STE-737)
   verify: nested, root and Cargo fixtures
-- [ ] One full serial suite run for the whole milestone, then /gate-check (all FRs)
+- [x] One full serial suite run for the whole milestone, then /gate-check (all FRs)
   verify: 0 fail; skip identities equal the trunk baseline by name
