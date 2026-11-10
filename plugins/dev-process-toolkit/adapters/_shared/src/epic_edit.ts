@@ -116,7 +116,7 @@ export function editEpic(args: EpicEditArgs): string {
 
   // (c) the plan's index and working-tree copies both equal HEAD for its path.
   const planFile = join(projectRoot, rel);
-  const headEqual = equalsHead(projectRoot, rel, planBody);
+  const headEqual = equalsHead(projectRoot, rel);
   const diskFrontmatter = headEqual && existsSync(planFile) ? parseFrontmatter(readFileSync(planFile, "utf-8")) : null;
   if (diskFrontmatter === null || JSON.stringify(diskFrontmatter) !== JSON.stringify(indexFrontmatter)) {
     throw new EpicEditRefusal(

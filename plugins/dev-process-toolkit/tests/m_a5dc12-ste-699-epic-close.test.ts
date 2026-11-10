@@ -939,6 +939,111 @@ describe("AC-STE-699.2 [M1] — the plan is read from HEAD: a plan that is only 
   });
 });
 
+// ===========================================================================
+// AC-STE-699.2 [N1] / [N2] — v3.4.0 fix round 2: git compares the plan with
+// HEAD (so a clean CRLF checkout is HEAD), and epic_close holds only the plan's
+// FRONTMATTER to HEAD — a body-only edit after the release commit (a ticked
+// checkbox) closes as it did in v3.3.0.
+// ===========================================================================
+
+describe("AC-STE-699.2 [N1] — a clean CRLF checkout of the shipped plan closes the Epic", () => {
+  const REL = `specs/plan/archive/${MILESTONE}.md`;
+  const gitOut = (root: string, ...args: string[]): string => {
+    const p = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+    return p.exitCode === 0 ? p.stdout.toString() : "";
+  };
+  /** Re-check-out BE's plan under `mode`, so the working tree holds CRLF while `git status` stays clean. */
+  const crlfCheckout = (w: World, mode: "autocrlf" | "attributes"): void => {
+    if (mode === "autocrlf") git(w.be, "config", "core.autocrlf", "true");
+    else {
+      writeFileSync(join(w.be, ".gitattributes"), "*.md text eol=crlf\n");
+      git(w.be, "add", "--", ".gitattributes");
+      git(w.be, "commit", "-q", "-m", "fixture: markdown checks out with CRLF");
+    }
+    rmSync(w.planFile);
+    git(w.be, "checkout", "--", REL);
+  };
+
+  for (const mode of ["autocrlf", "attributes"] as const) {
+    const how = mode === "autocrlf" ? "`core.autocrlf=true`" : "`.gitattributes` `*.md text eol=crlf`";
+    test(`AC-STE-699.2 [N1] PERMIT — ${how}: the plan re-checked-out with CRLF, \`git status --porcelain\` empty → closes, one receipt`, () => {
+      const w = makeWorld();
+      crlfCheckout(w, mode);
+      expect(readFileSync(w.planFile, "utf-8"), "fixture: the working tree holds CRLF").toContain("\r\n");
+      expect(gitOut(w.be, "show", `HEAD:${REL}`), "fixture: HEAD's blob holds LF").not.toContain("\r\n");
+      expect(gitOut(w.be, "status", "--porcelain").trim(), "fixture: the checkout is clean").toBe("");
+      expectClosed(closeEpic(w, DONE_CHILDREN()), w);
+    });
+
+    test(`AC-STE-699.2 [N1] TWIN — ${how}: HEAD unstamped, the stamp v${VERSION} only \`git add\`-ed (CRLF on disk) → refused, no receipt`, () => {
+      const w = makeWorld();
+      writePlan(w.be, "archive", MILESTONE, { [BE_NAME]: ".", [FE_NAME]: `../${FE_NAME}` }, { shippedIn: null });
+      commitAll(w.be, "fixture: the committed plan is unstamped");
+      crlfCheckout(w, mode);
+      writePlan(w.be, "archive", MILESTONE, { [BE_NAME]: ".", [FE_NAME]: `../${FE_NAME}` }, { shippedIn: `v${VERSION}` });
+      writeFileSync(w.planFile, readFileSync(w.planFile, "utf-8").replace(/\r?\n/g, "\r\n"));
+      git(w.be, "add", "--", REL);
+      expect(gitOut(w.be, "show", `HEAD:${REL}`), "fixture: HEAD is unstamped").toContain("shipped_in: null");
+      expect(gitOut(w.be, "show", `:${REL}`), "fixture: the index is stamped").toContain(`shipped_in: v${VERSION}`);
+      expectRefused(closeEpic(w, DONE_CHILDREN()), w, new RegExp(MILESTONE));
+    });
+  }
+});
+
+describe("AC-STE-699.2 [N2] — epic_close holds the plan's frontmatter, not its body, to HEAD (no stricter than v3.3.0)", () => {
+  const SPANS = (): Record<string, string> => ({ [BE_NAME]: ".", [FE_NAME]: `../${FE_NAME}` });
+  const REL = `specs/plan/archive/${MILESTONE}.md`;
+  const gitOut = (root: string, ...args: string[]): string => {
+    const p = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+    return p.exitCode === 0 ? p.stdout.toString() : "";
+  };
+  /** BE's shipped plan with an unticked task committed; returns the committed text. */
+  const withTask = (w: World): string => {
+    writeFileSync(w.planFile, `${readFileSync(w.planFile, "utf-8")}- [ ] Close the Epic.\n`);
+    commitAll(w.be, "fixture: the plan lists one task");
+    return readFileSync(w.planFile, "utf-8");
+  };
+  const frontmatterOf = (text: string): string => text.split("---")[1] ?? "";
+
+  test("AC-STE-699.2 [N2] PERMIT — the task checkbox ticked in the working tree only (frontmatter = HEAD) → closes, one receipt", () => {
+    const w = makeWorld();
+    const committed = withTask(w);
+    writeFileSync(w.planFile, committed.replace("- [ ] Close the Epic.", "- [x] Close the Epic."));
+    expect(gitOut(w.be, "diff", "--name-only", "HEAD", "--", REL).trim(), "fixture: the body differs from HEAD").toBe(REL);
+    expect(frontmatterOf(readFileSync(w.planFile, "utf-8")), "fixture: the frontmatter equals HEAD's").toBe(frontmatterOf(gitOut(w.be, "show", `HEAD:${REL}`)));
+    expectClosed(closeEpic(w, DONE_CHILDREN()), w);
+  });
+
+  test("AC-STE-699.2 [N2] PERMIT — the ticked checkbox staged (index = working tree, body ≠ HEAD, frontmatter = HEAD) → closes, one receipt", () => {
+    const w = makeWorld();
+    const committed = withTask(w);
+    writeFileSync(w.planFile, committed.replace("- [ ] Close the Epic.", "- [x] Close the Epic."));
+    git(w.be, "add", "--", REL);
+    expect(gitOut(w.be, "diff", "--name-only", "--cached", "--", REL).trim(), "fixture: the index differs from HEAD").toBe(REL);
+    expectClosed(closeEpic(w, DONE_CHILDREN()), w);
+  });
+
+  test("AC-STE-699.2 [N2] TWIN — the same ticked body, plus `shipped_in: v1.1.0` only staged (a CHANGELOG release, HEAD says v1.2.0) → refused, no receipt", () => {
+    const w = makeWorld();
+    withTask(w);
+    writePlan(w.be, "archive", MILESTONE, SPANS(), { shippedIn: "v1.1.0" });
+    writeFileSync(w.planFile, `${readFileSync(w.planFile, "utf-8")}- [x] Close the Epic.\n`);
+    git(w.be, "add", "--", REL);
+    expect(gitOut(w.be, "show", `HEAD:${REL}`), "fixture: HEAD is stamped v1.2.0").toContain(`shipped_in: v${VERSION}`);
+    expect(gitOut(w.be, "show", `:${REL}`), "fixture: the index is stamped v1.1.0").toContain("shipped_in: v1.1.0");
+    expect(readFileSync(join(w.be, "CHANGELOG.md"), "utf-8"), "fixture: v1.1.0 is a CHANGELOG release").toContain("## [1.1.0]");
+    expectRefused(closeEpic(w, DONE_CHILDREN()), w, new RegExp(MILESTONE), /HEAD/);
+  });
+
+  test("AC-STE-699.2 [N2] TWIN — the frontmatter differs from HEAD in the working tree only (an extra key; body untouched) → refused, no receipt", () => {
+    const w = makeWorld();
+    writePlan(w.be, "archive", MILESTONE, SPANS(), { shippedIn: `v${VERSION}`, extra: { note: "uncommitted" } });
+    expect(gitOut(w.be, "diff", "--name-only", "--cached", "--", REL).trim(), "fixture: the index equals HEAD").toBe("");
+    expect(gitOut(w.be, "diff", "--name-only", "--", REL).trim(), "fixture: the working tree differs").toBe(REL);
+    expectRefused(closeEpic(w, DONE_CHILDREN()), w, new RegExp(MILESTONE), /HEAD/);
+  });
+});
+
 describe("AC-STE-699.2(d) [security] S7 — every listed child must name THIS Epic as its parent", () => {
   const withParent = (row: Record<string, unknown>, parent: string | null): Record<string, unknown> => {
     const fields = { ...(row.fields as Record<string, unknown>) };

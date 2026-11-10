@@ -71,16 +71,39 @@ export function headBlob(root: string, rel: string): string | null {
 }
 
 /**
- * Do the working tree and the index both hold exactly `headBody` (HEAD's blob)
- * for `rel`? The working-tree bytes are compared with `headBody`, and the index
- * with the working tree (`git diff --quiet -- <rel>`); any git failure is "no".
- * Shared with epic_edit.ts.
+ * Do the working tree and the index both match HEAD for `rel`, as git compares
+ * them (`git diff --quiet HEAD -- <rel>` and `git diff --cached --quiet HEAD --
+ * <rel>`)? Git applies the checkout's eol and autocrlf rules, so a clean CRLF
+ * checkout matches; the bytes are never compared here. A missing working-tree
+ * copy or any git failure is "no". Shared with epic_edit.ts.
  */
-export function equalsHead(root: string, rel: string, headBody: string): boolean {
+export function equalsHead(root: string, rel: string): boolean {
+  if (!existsSync(join(root, rel))) return false;
+  const quiet = (extra: string[]) =>
+    Bun.spawnSync(["git", "-C", root, "diff", "--no-ext-diff", "--no-textconv", "--quiet", ...extra, "HEAD", "--", rel], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
+  return quiet([]) && quiet(["--cached"]);
+}
+
+/**
+ * Does the plan's parsed frontmatter in the index and in the working tree equal
+ * HEAD's? epic_close holds only the frontmatter to HEAD (a body-only edit, such
+ * as a ticked checkbox, is not refused, as in v3.3.0), and parsing makes the
+ * comparison independent of line endings. A missing copy or one with no
+ * frontmatter is "no".
+ */
+function frontmatterEqualsHead(root: string, rel: string, headBody: string): boolean {
   const file = join(root, rel);
-  if (!existsSync(file) || readFileSync(file, "utf-8") !== headBody) return false;
-  const p = Bun.spawnSync(["git", "-C", root, "diff", "--no-ext-diff", "--no-textconv", "--quiet", "--", rel], { stdout: "pipe", stderr: "pipe" });
-  return p.exitCode === 0;
+  const indexBody = indexBlob(root, rel);
+  if (!existsSync(file) || indexBody === null) return false;
+  const parse = (body: string) => {
+    try {
+      return JSON.stringify(parseFrontmatter(body));
+    } catch {
+      return null;
+    }
+  };
+  const head = parse(headBody);
+  return head !== null && parse(indexBody) === head && parse(readFileSync(file, "utf-8")) === head;
 }
 
 /** Read the --children listing file as JSON, or refuse naming it. */
@@ -118,8 +141,8 @@ export async function closeEpic(args: EpicCloseArgs): Promise<string> {
   }
   // (b) reads the plan from HEAD, never the index alone or the working-tree
   // copy: an uncommitted (or only staged) stamp must not satisfy the check, and
-  // the coherence probe below reads the disk, so the index and the working tree
-  // must both equal HEAD for the plan's path.
+  // the coherence probe below reads the disk, so the plan's frontmatter in the
+  // index and the working tree must both equal HEAD's (the body may differ).
   const planBody = headBlob(projectRoot, rel);
   if (planBody === null) {
     throw new EpicCloseRefusal(
@@ -130,14 +153,14 @@ export async function closeEpic(args: EpicCloseArgs): Promise<string> {
   }
   const headFrontmatter = parseFrontmatter(planBody);
   const shippedIn = headFrontmatter.shipped_in;
-  if (!equalsHead(projectRoot, rel, planBody)) {
+  if (!frontmatterEqualsHead(projectRoot, rel, planBody)) {
     const planFile = join(projectRoot, rel);
     const diskShippedIn = existsSync(planFile) ? parseFrontmatter(readFileSync(planFile, "utf-8")).shipped_in : undefined;
     const indexBody = indexBlob(projectRoot, rel);
     const indexShippedIn = indexBody === null ? undefined : parseFrontmatter(indexBody).shipped_in;
     throw new EpicCloseRefusal(
-      `${milestone}'s plan ${rel} in the index or the working tree differs from HEAD (HEAD shipped_in=${String(shippedIn ?? "<absent>")}, index shipped_in=${String(indexShippedIn ?? "<absent>")}, working tree shipped_in=${String(diskShippedIn ?? "<absent>")}); shipped_in is read from HEAD only`,
-      `commit or discard the change to ${rel} so the index and the working tree both equal HEAD, then run the close again`,
+      `${milestone}'s plan ${rel} frontmatter in the index or the working tree differs from HEAD (HEAD shipped_in=${String(shippedIn ?? "<absent>")}, index shipped_in=${String(indexShippedIn ?? "<absent>")}, working tree shipped_in=${String(diskShippedIn ?? "<absent>")}); shipped_in is read from HEAD only`,
+      `commit or discard the change to ${rel}'s frontmatter so the index and the working tree both match HEAD, then run the close again`,
       `${context}, plan=${rel}`,
     );
   }

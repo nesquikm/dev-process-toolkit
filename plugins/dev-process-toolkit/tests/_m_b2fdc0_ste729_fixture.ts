@@ -140,6 +140,13 @@ export interface WorldOpts {
    * index and the working tree agree with each other and not with HEAD (`index`).
    */
   bodyDrift?: "worktree" | "index";
+  /**
+   * CRLF (v3.4.0 fix round 2, N1): after the commit the plan is re-checked-out
+   * so the working tree holds CRLF while `git status` stays clean — through
+   * `core.autocrlf=true` (`autocrlf`), or a committed `.gitattributes` holding
+   * `*.md text eol=crlf` (`attributes`). HEAD's blob keeps LF.
+   */
+  crlf?: "autocrlf" | "attributes";
 }
 
 export interface World {
@@ -225,6 +232,17 @@ export function makeWorld(o: WorldOpts = {}): World {
   }
   if (o.driftWorkingTree) {
     writeFileSync(planFile, planText(o.planMilestone ?? MILESTONE, status === "active" ? "archived" : "active", origin));
+  }
+  if (o.crlf) {
+    if (o.crlf === "autocrlf") git(root, "config", "core.autocrlf", "true");
+    else {
+      writeFileSync(join(root, ".gitattributes"), "*.md text eol=crlf\n");
+      git(root, "add", "--", ".gitattributes");
+      git(root, "commit", "-q", "-m", "fixture: markdown checks out with CRLF", "--", ".gitattributes");
+    }
+    rmSync(planFile);
+    git(root, "checkout", "--", planRel);
+    if (!readFileSync(planFile, "utf-8").includes("\r\n")) throw new Error(`fixture: the ${o.crlf} checkout must hold CRLF`);
   }
   return { root, scratch: tempDir("scratch"), planRel, planFile };
 }

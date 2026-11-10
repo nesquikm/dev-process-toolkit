@@ -135,7 +135,7 @@ describe("AC-STE-729.1 — epic_edit.ts ships and is a subcommand-less receipt-w
 });
 
 // ===========================================================================
-// AC-STE-729.2 — the four checks, each with its twin
+// AC-STE-729.2 — the five checks, each with its twin
 // ===========================================================================
 
 describe("AC-STE-729.2 / AC-STE-729.12 — all five checks (a)-(e) hold → default=forbidden, the Edit/Skip options and one announced `epic-edit` receipt", () => {
@@ -343,6 +343,64 @@ describe("AC-STE-729.2 / AC-STE-729.12 [M1] — a plan that is only staged, or d
     const w = makeWorld({ archived: true });
     const r = runEpicEdit(PLUGIN_ROOT, w);
     expect(epicEditPermitProblem(r, w), show(r)).toBeNull();
+  });
+});
+
+// ===========================================================================
+// AC-STE-729.2 (c) [N1] — a clean CRLF checkout equals HEAD (v3.4.0 fix round
+// 2): git applies its eol rules, so `core.autocrlf=true` or a `.gitattributes`
+// `eol=crlf` working tree with `git status` clean is the committed plan.
+// ===========================================================================
+
+describe("AC-STE-729.2 / AC-STE-729.12 [N1] — a clean CRLF checkout of the committed, minted plan is permitted; CRLF drift is still refused", () => {
+  for (const mode of ["autocrlf", "attributes"] as const) {
+    const how = mode === "autocrlf" ? "`core.autocrlf=true`" : "`.gitattributes` `*.md text eol=crlf`";
+    test(`[N1] PERMIT — ${how}: the plan re-checked-out with CRLF, \`git status --porcelain\` empty → exit 0, one epic-edit receipt`, () => {
+      const w = makeWorld({ crlf: mode });
+      expect(readFileSync(w.planFile, "utf-8"), "fixture: the working tree holds CRLF").toContain("\r\n");
+      expect(gitOut(w.root, "show", `HEAD:${w.planRel}`), "fixture: HEAD's blob holds LF").not.toContain("\r\n");
+      expect(gitOut(w.root, "status", "--porcelain").trim(), "fixture: the checkout is clean").toBe("");
+      const r = runEpicEdit(PLUGIN_ROOT, w);
+      expect(epicEditPermitProblem(r, w), show(r)).toBeNull();
+    });
+
+    test(`[N1] PERMIT — ${how}, the plan at specs/plan/archive/<M>.md`, () => {
+      const w = makeWorld({ crlf: mode, archived: true });
+      expect(gitOut(w.root, "status", "--porcelain").trim(), "fixture: the checkout is clean").toBe("");
+      const r = runEpicEdit(PLUGIN_ROOT, w);
+      expect(epicEditPermitProblem(r, w), show(r)).toBeNull();
+    });
+
+    test(`[N1] TWIN — ${how}: a CRLF body line added in the working tree only → refused, NFR-10, non-zero, no receipt`, () => {
+      const w = makeWorld({ crlf: mode });
+      writeFileSync(w.planFile, `${readFileSync(w.planFile, "utf-8")}An uncommitted body line.\r\n`);
+      expect(gitOut(w.root, "diff", "--name-only", "HEAD", "--", w.planRel).trim(), "fixture: the path differs from HEAD").toBe(w.planRel);
+      const r = runEpicEdit(PLUGIN_ROOT, w);
+      expect(epicEditRefusalProblem(r, w, [new RegExp(MILESTONE), /HEAD|commit/i]), show(r)).toBeNull();
+    });
+
+    test(`[N1] TWIN — ${how}: HEAD says \`container_origin: joined\`, \`minted\` is only staged → refused, NFR-10, non-zero, no receipt`, () => {
+      const w = makeWorld({ crlf: mode, containerOrigin: "joined", stagedOrigin: "minted" });
+      expect(gitOut(w.root, "show", `HEAD:${w.planRel}`), "fixture: HEAD carries joined").toMatch(/^container_origin: joined$/m);
+      expect(gitOut(w.root, "show", `:${w.planRel}`), "fixture: the index carries minted").toMatch(/^container_origin: minted$/m);
+      const r = runEpicEdit(PLUGIN_ROOT, w);
+      expect(epicEditRefusalProblem(r, w, [new RegExp(MILESTONE)]), show(r)).toBeNull();
+    });
+  }
+});
+
+// ===========================================================================
+// N3 — docs/hooks-reference.md names the residual of the HEAD check
+// ===========================================================================
+
+describe("AC-STE-729.12 [N3] — docs/hooks-reference.md says `minted` in HEAD can come from any local commit, so the `Edit <KEY>` answer is the real guard", () => {
+  test("one sentence of hooks-reference.md names `minted`, a local commit, and the `Edit <KEY>` answer", () => {
+    const doc = readFileSync(join(PLUGIN_ROOT, "docs", "hooks-reference.md"), "utf-8");
+    const sentences = doc.split(/(?<=[.!?])\s+(?=[A-Z`*(])/);
+    const hit = sentences.find((s) => /minted/.test(s) && /local commit/i.test(s) && s.includes("Edit <KEY>"));
+    expect(hit ?? null, "no sentence names minted, a local commit and Edit <KEY>").not.toBeNull();
+    expect(hit!, "the sentence says the spec-only carve-out lets the commit through").toMatch(/spec-only/i);
+    expect(hit!, "the sentence calls the operator's answer the guard").toMatch(/guard/i);
   });
 });
 
