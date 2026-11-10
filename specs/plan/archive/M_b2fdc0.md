@@ -6,6 +6,7 @@ kickoff_branch: null
 frozen_at: null
 migration: none
 codename: House Rules
+shipped_in: v3.4.0
 ---
 
 # Implementation Plan
@@ -76,3 +77,21 @@ codename: House Rules
   verify: nested, root and Cargo fixtures
 - [x] One full serial suite run for the whole milestone, then /gate-check (all FRs)
   verify: 0 fail; skip identities equal the trunk baseline by name
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| dev-process-toolkit:gate-check | claude-opus-5-5 | 220 | 100700 | 65205620 | 675453 |
+| dev-process-toolkit:implement | claude-opus-5-5 | 72 | 22807 | 10256157 | 280170 |
+| dev-process-toolkit:ship-milestone | claude-opus-5-5 | 62 | 19016 | 20131244 | 85215 |
+| dev-process-toolkit:spec-archive | claude-opus-5-5 | 38 | 11652 | 11079392 | 43795 |
+| dev-process-toolkit:spec-write | claude-opus-5-5 | 432 | 227033 | 53297124 | 832771 |
+| dev-process-toolkit:tdd | claude-opus-5-5 | 298 | 162590 | 60719895 | 543454 |
+| (main-loop) | claude-opus-5-5 | 1100 | 315192 | 189971694 | 931452 |
+| design/exploration | claude-opus-5-5 | 128 | 27523 | 6514887 | 113397 |
+| total |  | 2350 | 886513 | 417176013 | 3505707 |
+
+<!-- token-stats:end -->
