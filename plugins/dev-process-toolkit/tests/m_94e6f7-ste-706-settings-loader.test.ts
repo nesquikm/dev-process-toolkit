@@ -984,6 +984,8 @@ const MAPPING: Record<string, Row> = {
   "verification.verify_mode": { kind: "legacy", replaces: "## Verification verify_mode: (readVerificationConfig)" },
   "verification.run_cmd": { kind: "legacy", replaces: "## Verification run_cmd: (readVerificationConfig)" },
   "verification.e2e_cmd": { kind: "legacy", replaces: "## Verification e2e_cmd: (readVerificationConfig)" },
+  // Amended by AC-STE-730.1 (M_b2fdc0): the declared test-command list is a new key with no legacy home.
+  "verification.test_commands": { kind: "new", fr: "STE-730", note: "no legacy home" },
   "docs.user_facing_mode": { kind: "legacy", replaces: "## Docs user_facing_mode: (readDocsConfig)" },
   "docs.packages_mode": { kind: "legacy", replaces: "## Docs packages_mode: (readDocsConfig)" },
   "docs.changelog_ci_owned": { kind: "legacy", replaces: "## Docs changelog_ci_owned: (readDocsConfig)" },

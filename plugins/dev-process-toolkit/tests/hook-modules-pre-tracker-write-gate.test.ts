@@ -1547,12 +1547,14 @@ describe("AC-STE-607.7 — RECEIPT_ANNOUNCING_MODULES", () => {
     const { RECEIPT_ANNOUNCING_MODULES } = await hookModule();
     // Amended by AC-STE-611.3: the attach front door is appended after it.
     // Amended by AC-STE-699.1: the Epic close is appended after that.
+    // Amended by AC-STE-729.1: the Epic edit is appended after the Epic close, last.
     expect([...RECEIPT_ANNOUNCING_MODULES].sort()).toEqual(
-      [CONSENT, DECIDE, CONFIRM, "resolve_milestone_identity.ts", "attach_project_milestone.ts", "epic_close.ts"].sort(),
+      [CONSENT, DECIDE, CONFIRM, "resolve_milestone_identity.ts", "attach_project_milestone.ts", "epic_close.ts", "epic_edit.ts"].sort(),
     );
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 3]).toBe("resolve_milestone_identity.ts");
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 2]).toBe("attach_project_milestone.ts");
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe("epic_close.ts");
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 4]).toBe("resolve_milestone_identity.ts");
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 3]).toBe("attach_project_milestone.ts");
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 2]).toBe("epic_close.ts");
+    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe("epic_edit.ts");
   });
 });
 
@@ -3906,9 +3908,13 @@ describe("AC-STE-611.3 — the hook announces the attach front door's receipts",
   test("attach_project_milestone.ts is APPENDED to RECEIPT_ANNOUNCING_MODULES", async () => {
     const { RECEIPT_ANNOUNCING_MODULES } = await hookModule();
     // Amended by AC-STE-699.1: epic_close.ts is appended after it.
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 2]).toBe(ATTACH);
-    expect(RECEIPT_ANNOUNCING_MODULES[RECEIPT_ANNOUNCING_MODULES.length - 1]).toBe("epic_close.ts");
+    // Amended by AC-STE-729.1: epic_edit.ts is appended after epic_close.ts, so the
+    // pin grades ATTACH's position against the modules appended after it, not a raw
+    // length offset that breaks on every append.
+    const at = RECEIPT_ANNOUNCING_MODULES.indexOf(ATTACH);
+    expect(RECEIPT_ANNOUNCING_MODULES.slice(at)).toEqual([ATTACH, "epic_close.ts", "epic_edit.ts"]);
     expect(RECEIPT_ANNOUNCING_MODULES.slice(0, 4)).toEqual([DECIDE, CONSENT, CONFIRM, RESOLVE]);
+    expect(at).toBe(4);
   });
 });
 
@@ -5998,7 +6004,17 @@ describe("AC-STE-649.8 .. .11 — the ownership refusal routes through `ticket_o
       expectRefusal(r, "GK-101");
       const remedy = lineOf(r, "Remedy: ");
       expect(remedy, read).toContain(DECIDE_OWNERSHIP_SHAPE);
-      expect(remedy.indexOf(DECIDE_OWNERSHIP_SHAPE), `${read}: decide is the first command`).toBe(remedy.indexOf('bun run "'));
+      // Amended by AC-STE-729.7: the remedy leads with the fetch; the decide→confirm
+      // clause is unchanged and is the LAST route, with decide its first command.
+      expect(remedy.startsWith("Remedy: fetch the ticket in this session"), `${read}: the fetch leads`).toBe(true);
+      const decideAt = remedy.indexOf(DECIDE_OWNERSHIP_SHAPE);
+      const clauseAt = remedy.lastIndexOf("Otherwise, first run ");
+      expect(clauseAt, `${read}: the decide→confirm clause is present`).toBeGreaterThan(-1);
+      expect(decideAt, `${read}: decide is the clause's first command`).toBe(remedy.indexOf('bun run "', clauseAt));
+      expect(remedy.indexOf(`${CONFIRM}" confirm <projectRoot>`, decideAt), `${read}: confirm follows decide`).toBeGreaterThan(decideAt);
+      for (const earlier of ["epic_edit.ts", "epic_close.ts"]) {
+        expect({ read, earlier, before: remedy.lastIndexOf(earlier) > -1 && remedy.lastIndexOf(earlier) < clauseAt }).toEqual({ read, earlier, before: true });
+      }
       // CONTROL — acceptedShape() would insert the receipt subcommand.
       expect(r.stderr, read).not.toContain(`${CONFIRM}" confirm decide`);
     }

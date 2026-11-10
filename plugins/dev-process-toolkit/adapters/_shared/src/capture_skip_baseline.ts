@@ -26,6 +26,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { declaredTestCommands, namedDeclaredCommands, runDeclaredTestCommands } from "./declared_test_commands";
 import { runGateNamingSkips } from "./gate_identity_run";
 import { assertCapturable, captureSkipBaseline, resolveTrunkSha, type CaptureResult } from "./skip_baseline";
 import { skipNamesSource } from "./skip_identities";
@@ -106,6 +107,24 @@ export function runCapture(projectRoot: string): CaptureRun {
   // Refuse an off-trunk HEAD or a dirty tree BEFORE the gate runs (AC-STE-662.1):
   // the same check `captureSkipBaseline` repeats after it, never a second copy.
   assertCapturable(projectRoot, sha);
+
+  // STE-730: a declared `verification.test_commands` list replaces the table —
+  // every entry runs, in order, and the table's command never does.
+  const declared = declaredTestCommands(projectRoot);
+  if (declared !== null) {
+    const summed = runDeclaredTestCommands(projectRoot, declared);
+    const named = namedDeclaredCommands(summed);
+    return {
+      branch,
+      sha,
+      stack: declared[0]!.stack,
+      gate: summed.commands.join(", "),
+      skipped: summed.skip,
+      result: captureSkipBaseline(projectRoot, sha, summed.skip, {
+        namesSource: `declared test commands ${named} — count-only, no machine-readable skip report`,
+      }),
+    };
+  }
 
   const gate = detectGate(projectRoot);
   if (gate === null) {

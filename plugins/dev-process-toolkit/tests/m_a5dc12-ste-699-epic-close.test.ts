@@ -660,6 +660,18 @@ describe("AC-STE-699.6 — without the receipt, a transition on an unowned Epic 
     const remedy = remedyOf(r);
     expect(remedy).toContain(EPIC_CLOSE);
     expect(remedy).toMatch(/--children/);
+    // Amended by AC-STE-729.7: the remedy now leads with the fetch, and the
+    // `<ticket.json>` confirm route follows the epic_close.ts route (it is last).
+    expect(remedy.startsWith("Remedy: fetch the ticket in this session"), remedy).toBe(true);
+    const confirm = remedy.indexOf('ticket_ownership.ts" confirm <projectRoot> <KEY> <ticket.json>');
+    expect(confirm).toBeGreaterThan(remedy.indexOf(EPIC_CLOSE));
+  });
+
+  // Amended by AC-STE-729.7: an Epic's description or summary routes to epic_edit.ts and the `Edit <KEY>` answer.
+  test("the remedy names epic_edit.ts and the `Edit <KEY>` answer for an Epic's description or summary", () => {
+    const remedy = remedyOf(r);
+    expect(remedy).toContain("epic_edit.ts");
+    expect(remedy).toContain('"Edit <KEY>"');
   });
 
   test("no sentence of the remedy that speaks of an Epic or a container verdict tells the agent the owning repository can make the write", () => {

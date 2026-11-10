@@ -34,6 +34,7 @@ import { cwdToSlug } from "./find_current_session";
 
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
+import { TOOLKIT_LABELS } from "./container_ownership";
 import { exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets, type OwnershipRoute } from "./join_consent_ownership";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
 import { listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
@@ -2068,6 +2069,7 @@ export const RECEIPT_WRITERS: Readonly<Record<string, { module: string; subcomma
   import: { module: "container_ownership.ts", subcommand: "consent" },
   "attach-target": { module: "attach_project_milestone.ts", subcommand: null },
   "epic-close": { module: "epic_close.ts", subcommand: null },
+  "epic-edit": { module: "epic_edit.ts", subcommand: null },
   repoint: { module: "repoint_tracker_binding.ts", subcommand: null },
 };
 
@@ -2217,6 +2219,22 @@ function sameContainer(a: { project: string; title: string }, b: { project: stri
   return normalizeMilestoneTitle(a.title) === normalizeMilestoneTitle(b.title) && sameName(a.project, b.project);
 }
 
+/** STE-729 AC.3 — the only top-level keys an Epic edit may carry (no `update` block). Twin: `EPIC_EDIT_INPUT_KEYS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const EPIC_EDIT_INPUT_KEYS: ReadonlySet<string> = new Set(["cloudId", "issueIdOrKey", "fields", "contentFormat", "responseContentFormat"]);
+/** STE-729 AC.3 — the only fields an Epic edit may change. Twin: `EPIC_EDIT_FIELDS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const EPIC_EDIT_FIELDS: ReadonlySet<string> = new Set(["description", "summary"]);
+/** STE-729 AC.3 — the envelope keys only, and `fields` holds description and/or summary and nothing else. Twin: `isTextOnlyEdit` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+function isTextOnlyEdit(input: unknown): boolean {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) return false;
+  if (Object.keys(input).some((k) => !EPIC_EDIT_INPUT_KEYS.has(k))) return false;
+  const fields = (input as { fields?: unknown }).fields;
+  if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return false;
+  const names = Object.keys(fields);
+  return names.length > 0 && names.every((k) => EPIC_EDIT_FIELDS.has(k));
+}
+/** STE-729 AC.5 — the get-ticket read tool of each tracker. Twin: `GET_TICKET_TOOLS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const GET_TICKET_TOOLS: Readonly<Record<"jira" | "linear", string>> = { jira: "getJiraIssue", linear: "get_issue" };
+
 /** A 4xx status the tracker answered with — 408 excluded. Twin: `TRACKER_4XX` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
 const TRACKER_4XX = /\b(?:error|status(?:\s+code)?|http)\b[:\s]*4(?!08)\d\d\b/i;
 /** Words that make any answer ambiguous. Twin: `MAY_HAVE_RUN` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
@@ -2334,6 +2352,24 @@ function consentedPerQuestion(c: ToolCall, label: string, names: (question: stri
 function consentVerdict(c: ToolCall, label: string, names: (question: string) => boolean): boolean | null {
   const questions = (c.input as { questions?: unknown }).questions;
   return perQuestionConsent(questions, label, names, (question) => answerTo(c.result.text, question));
+}
+
+/**
+ * STE-729 AC.3 — the recorded answers of `c` to the questions whose text
+ * names the subject (`names`); a question without a recorded answer is left out.
+ * Twin: `namedAnswers` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ */
+function namedAnswers(c: ToolCall, names: (question: string) => boolean): string[] {
+  const questions = (c.input as { questions?: unknown }).questions;
+  if (!Array.isArray(questions)) return [];
+  const out: string[] = [];
+  for (const q of questions) {
+    const question = (q as { question?: unknown } | null)?.question;
+    if (typeof question !== "string" || !names(question)) continue;
+    const a = answerTo(c.result.text, question);
+    if (a !== null) out.push(a);
+  }
+  return out;
 }
 
 /**
@@ -2808,9 +2844,10 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           // a joined Epic carrying any other field key is not a read-merge.
           const envelope = bareTool(c.name) === "editJiraIssue" ? labelsEnvelope(c.input) : null;
           /** HOW the session owns `k` (STE-650 AC.2), or null when it does not. */
-          const routeOf = (k: string): OwnershipRoute | null => {
+          const routeOf = (k: string): OwnershipRoute | "fetched-ticket" | null => {
             if (created.has(k)) return "created";
             if ([...roots].some((r) => b.repos[r].frBindings.some((f) => f.key.toUpperCase() === k))) return "fr-binding";
+            if (fetchedOwned(k)) return "fetched-ticket";
             for (const a of before) {
               const reuse = receiptOf(a, "reuse");
               if (reuse && str(reuse.evidence.key).toUpperCase() === k) return "reuse-receipt";
@@ -2821,6 +2858,28 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
             }
             return null;
           };
+          /**
+           * STE-729 AC.5/AC.6 — the NEWEST non-error get-ticket answer on `k`
+           * before this write, in its own chain, reads as `k` and decides
+           * `owned` for this session's repository — or `unowned` with an
+           * `Adopt <k>` answer. A container, another project, or a sibling
+           * repository's label is refused (`decideTicketOwnership`).
+           * Twin: `fetchedOwned` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+           */
+          function fetchedOwned(k: string): boolean {
+            let newest: TrackerItem | null | undefined;
+            for (const p of s.calls.slice(0, i)) {
+              if (p.sidechain !== c.sidechain || !p.name.startsWith("mcp__") || bareTool(p.name) !== GET_TICKET_TOOLS[tracker]) continue;
+              if (p.result.isError || !subjectKeys(p).includes(k)) continue;
+              newest = p.result.items?.length === 1 ? p.result.items[0]! : null;
+            }
+            if (!newest || (newest.absent?.length ?? 0) > 0 || newest.key.toUpperCase() !== k || itemClass(newest) === "container") return false;
+            const project = tracker === "jira" ? k.slice(0, k.lastIndexOf("-")) : b.run.container;
+            if (newest.container === "" || !sameName(newest.container, project)) return false;
+            if (newest.labels.includes(b.roots[s.root].tag)) return true;
+            if (newest.labels.some((l) => !l.startsWith("milestone-") && !TOOLKIT_LABELS.has(l))) return false;
+            return answeredBefore(s, i, `Adopt ${k}`);
+          }
           const writtenLabels = stringList(((c.input.fields ?? {}) as Record<string, unknown>).labels);
           /**
            * STE-650 AC.4 — the read-merge: every label the join listed plus the
@@ -2870,7 +2929,39 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
               const r = receiptOf(a, "epic-close");
               return r !== null && r.subject.toUpperCase() === k;
             });
-          const permitted = (k: string): boolean => owned(k) || epicClosed(k);
+          /**
+           * STE-729 AC.3/AC.4 — the Epic edit: a description/summary-only
+           * `editJiraIssue` on `k` after an `epic-edit` receipt for `k`
+           * announced by its writer, and an AskUserQuestion after that
+           * announcement, in this write's chain, answered exactly `Edit <k>`
+           * and not withdrawn since (the latest answer decides; a question
+           * naming `k` answered anything else withdraws, whatever it offered).
+           * Twin: `epicEdited` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+           */
+          const epicEdited = (k: string): boolean =>
+            tracker === "jira" &&
+            bareTool(c.name) === "editJiraIssue" &&
+            isTextOnlyEdit(c.input) &&
+            before.some((a) => {
+              const r = receiptOf(a, "epic-edit");
+              if (r === null || r.subject.toUpperCase() !== k) return false;
+              const names = (t: string): boolean => namesKey(t, k);
+              let latest = false;
+              let withdrawn = false;
+              for (let j = a.index + 1; j < i; j++) {
+                const q = s.calls[j]!;
+                if (q.name !== "AskUserQuestion" || q.result.isError || q.sidechain !== c.sidechain) continue;
+                const verdict = consentVerdict(q, `Edit ${k}`, names);
+                if (verdict !== null) latest = verdict;
+                // The latest ask answering a question naming `k` decides
+                // withdrawal: any answer but `Edit <k>` withdraws.
+                const answers = namedAnswers(q, names);
+                if (answers.length > 0) withdrawn = answers.some((x) => x !== `Edit ${k}`);
+              }
+              if (withdrawn) return false;
+              return latest;
+            });
+          const permitted = (k: string): boolean => owned(k) || epicClosed(k) || epicEdited(k);
           const ok = isLinkTool(c) && !linkNeedsEverySide(c.input) ? keys.some(permitted) : keys.every(permitted);
           if (!ok) why = `write on ${keys.join(", ")} follows no receipt, creation or FR binding in this session that makes the key its repository's`;
         }

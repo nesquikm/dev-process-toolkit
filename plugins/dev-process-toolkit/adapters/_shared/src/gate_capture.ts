@@ -35,6 +35,7 @@
 import { resolve } from "node:path";
 
 import { detectGate } from "./capture_skip_baseline";
+import { declaredTestCommands, namedDeclaredCommands, runDeclaredTestCommands } from "./declared_test_commands";
 import { retroSwitchOn, upgradeOfferSwitchOn } from "./project_settings";
 import { deriveRunCounts, type CapturedRun } from "./deliver_stage_evidence";
 import { runGateNamingSkips } from "./gate_identity_run";
@@ -159,8 +160,32 @@ export function captureGateRunNamingFailures(
 // so both halves recognise the same stacks.
 if (import.meta.main) {
   const projectRoot = resolve(process.argv[2] ?? process.cwd());
-  const gate = detectGate(projectRoot);
-  if (gate === null) {
+  // STE-730: a declared `verification.test_commands` list replaces the table —
+  // every entry runs, in order, and the table's command never does.
+  let declared: ReturnType<typeof declaredTestCommands> = null;
+  let refusal: Error | null = null;
+  try {
+    declared = declaredTestCommands(projectRoot);
+  } catch (error) {
+    refusal = error as Error;
+  }
+  const gate = declared === null && refusal === null ? detectGate(projectRoot) : null;
+  if (refusal !== null) {
+    console.error(`gate_capture: ${refusal.message}`);
+    process.exitCode = 1;
+  } else if (declared !== null) {
+    try {
+      const summed = runDeclaredTestCommands(projectRoot, declared);
+      console.log(`gate_capture: pass ${summed.pass}, fail ${summed.fail}, skip ${summed.skip}`);
+      const named = namedDeclaredCommands(summed);
+      console.log(`gate_capture: declared test commands ${named} name no skips — count-only, no machine-readable report`);
+      if (retroSwitchOn(projectRoot)) console.log("retro: on");
+      if (upgradeOfferSwitchOn(projectRoot)) console.log("upgrade_offer: on");
+    } catch (error) {
+      console.error(`gate_capture: ${(error as Error).message}`);
+      process.exitCode = 1;
+    }
+  } else if (gate === null) {
     console.error(`gate_capture: no test runner detected in ${projectRoot}`);
     process.exitCode = 1;
   } else {

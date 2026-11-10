@@ -33,7 +33,7 @@ import {
   receiptDigest,
 } from "../../../../adapters/_shared/src/tracker_receipts.ts";
 import { normalizeTitleForCompare } from "../../../../adapters/_shared/src/create_idempotency_probe.ts";
-import { readTrackedBindings } from "../../../../adapters/_shared/src/ticket_ownership.ts";
+import { decideTicketOwnership, readTrackedBindings } from "../../../../adapters/_shared/src/ticket_ownership.ts";
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
 import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
@@ -211,6 +211,7 @@ export const RECEIPT_WRITING_SUBCOMMANDS: Readonly<Record<string, string | null>
   "resolve_milestone_identity.ts": null,
   "attach_project_milestone.ts": null,
   "epic_close.ts": null,
+  "epic_edit.ts": null,
 };
 
 export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = Object.keys(RECEIPT_WRITING_SUBCOMMANDS);
@@ -222,8 +223,8 @@ export const RECEIPT_ANNOUNCING_MODULES: readonly string[] = Object.keys(RECEIPT
  * optionally followed by exactly `--sibling <path>` (STE-610 AC-STE-610.4), and
  * the attach front door's exact
  * `<projectRoot> <jira|linear> <project> <planFile> <listingFile>` (STE-611),
- * and the Epic close's exact `<projectRoot> <EPIC-KEY> --children <listing>`
- * (STE-699).
+ * the Epic close's exact `<projectRoot> <EPIC-KEY> --children <listing>`
+ * (STE-699), and the Epic edit's exact `<projectRoot> <EPIC-KEY>` (STE-729).
  */
 const NO_SUBCOMMAND_ARGV: Readonly<Record<string, (args: string[]) => boolean>> = {
   "resolve_milestone_identity.ts": (a) =>
@@ -232,6 +233,7 @@ const NO_SUBCOMMAND_ARGV: Readonly<Record<string, (args: string[]) => boolean>> 
     (a[4] === "--title" || a[4] === "--join-key"),
   "attach_project_milestone.ts": (a) => a.length === 5 && (a[1] === "jira" || a[1] === "linear"),
   "epic_close.ts": (a) => a.length === 4 && a[2] === "--children",
+  "epic_edit.ts": (a) => a.length === 2,
 };
 
 /**
@@ -1773,10 +1775,63 @@ function trackedIds(ctx: OwnershipContext, root: string): Set<string> {
   return ids;
 }
 
-/** §4 — does `root` own `key`: tracked FR binding, created this session, or an announced receipt. */
+/** STE-729 AC.5 — the get-ticket read tool of each adapter (any server spelling). Twin: `GET_TICKET_TOOLS` in adapters/_shared/src/shared_tracker_live_grader.ts */
+const GET_TICKET_TOOLS: Readonly<Record<WorkspaceAdapterKey, string>> = { jira: "getJiraIssue", linear: "get_issue" };
+
+/** The get-ticket call a transcript tool_use block made for `adapter`, or null. */
+function getTicketCallIn(b: ContentBlock, adapter: WorkspaceAdapterKey): TrackerCall | null {
+  if (b.type !== "tool_use" || typeof b.name !== "string" || !b.name.startsWith("mcp__")) return null;
+  const tool = GET_TICKET_TOOLS[adapter];
+  if (!b.name.endsWith(`__${tool}`) || b.name.length <= `mcp____${tool}`.length) return null;
+  const input = b.input && typeof b.input === "object" ? (b.input as Record<string, unknown>) : {};
+  return { tool, adapter, input };
+}
+
+/**
+ * STE-729 AC.5 — the NEWEST non-error tool_result of a get-ticket call on
+ * `key` in this session reads as `key`, and `decideTicketOwnership` on that
+ * answer in `root` says `owned` — or `unowned` with an `Adopt <key>` answer.
+ * Twin: `fetchedOwned` in adapters/_shared/src/shared_tracker_live_grader.ts
+ */
+function fetchedOwned(ctx: OwnershipContext, root: string, key: string): boolean {
+  const fetches = new Set<string>();
+  let newest: string | null = null;
+  for (const p of ctx.parsed) {
+    if (!p) continue;
+    for (const b of p.blocks) {
+      if (b.type === "tool_use") {
+        const c = getTicketCallIn(b, ctx.adapter);
+        if (c && typeof b.id === "string" && subjectKeys(c).includes(key)) fetches.add(b.id);
+      } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+        if (b.is_error === true || !fetches.has(b.tool_use_id)) continue;
+        newest = resultText(b.content).trim();
+      }
+    }
+  }
+  if (newest === null) return false;
+  let answer: unknown;
+  try {
+    answer = JSON.parse(newest);
+  } catch {
+    return false;
+  }
+  const read = readTrackerItem(ctx.adapter, answer);
+  if (!read.ok || trackerItemKey(ctx.adapter, read.item) !== key) return false;
+  let verdict: string;
+  try {
+    verdict = decideTicketOwnership({ projectRoot: root, ticket: answer }).verdict;
+  } catch {
+    return false;
+  }
+  if (verdict === "owned") return true;
+  return verdict === "unowned" && consentedBefore(ctx.parsed, key, "Adopt", ctx.parsed.length);
+}
+
+/** §4 — does `root` own `key`: tracked FR binding, created this session, an owned fetch, or an announced receipt. */
 function owns(ctx: OwnershipContext, root: string, key: string): boolean {
   if (trackedIds(ctx, root).has(key)) return true;
   if (ctx.created.has(key)) return true;
+  if (fetchedOwned(ctx, root, key)) return true;
   for (const a of ctx.announcements) {
     if (a.root !== root || !a.intact) continue;
     const r = readSessionReceipt(a.receiptPath, ctx.sessionId, ctx.adapter);
@@ -1816,6 +1871,94 @@ function epicClosed(call: TrackerCall, ctx: OwnershipContext, root: string, key:
     if (r && r.kind === "epic-close" && typeof r.subject === "string" && r.subject.toUpperCase() === key) return true;
   }
   return false;
+}
+
+/** STE-729 — the Epic edit: the ONE module whose `epic-edit` receipt permits a description/summary edit. */
+const EPIC_EDIT_MODULE = "epic_edit.ts";
+
+/** STE-729 AC.3 — the only top-level keys an Epic edit may carry (no `update` block). */
+const EPIC_EDIT_INPUT_KEYS: ReadonlySet<string> = new Set(["cloudId", "issueIdOrKey", "fields", "contentFormat", "responseContentFormat"]);
+
+/** STE-729 AC.3 — the only fields an Epic edit may change. */
+const EPIC_EDIT_FIELDS: ReadonlySet<string> = new Set(["description", "summary"]);
+
+/** STE-729 AC.3 — the input carries only the envelope keys, and `fields` holds description and/or summary and nothing else. */
+function isTextOnlyEdit(input: unknown): boolean {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) return false;
+  if (Object.keys(input).some((k) => !EPIC_EDIT_INPUT_KEYS.has(k))) return false;
+  const fields = (input as { fields?: unknown }).fields;
+  if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return false;
+  const names = Object.keys(fields);
+  return names.length > 0 && names.every((k) => EPIC_EDIT_FIELDS.has(k));
+}
+
+/**
+ * STE-729 AC.3 — an `editJiraIssue` on `key` changing only its description
+ * and/or summary, after an intact `epic-edit` receipt for `key` in `root`
+ * announced by a run of `epic_edit.ts` itself, and an AskUserQuestion answered
+ * exactly `Edit <key>` after that announcement and not withdrawn since: the
+ * latest answered ask that puts `key` decides, and ANY later question naming
+ * `key` answered other than `Edit <key>` withdraws it — even one that never
+ * offered the label (the join-consent `answeredAfter` rule stays unchanged).
+ * Twin: `epicEdited` in adapters/_shared/src/shared_tracker_live_grader.ts
+ */
+function epicEdited(call: TrackerCall, ctx: OwnershipContext, root: string, key: string): boolean {
+  if (call.adapter !== "jira" || call.tool !== "editJiraIssue") return false;
+  if (!isTextOnlyEdit(call.input)) return false;
+  const label = `Edit ${key}`;
+  for (const a of ctx.announcements) {
+    if (a.module !== EPIC_EDIT_MODULE || a.root !== root || !a.intact) continue;
+    const r = readSessionReceipt(a.receiptPath, ctx.sessionId, ctx.adapter);
+    if (!r || r.kind !== "epic-edit" || typeof r.subject !== "string" || r.subject.toUpperCase() !== key) continue;
+    if (editWithdrawnAfter(ctx.parsed, a.line, key, label)) continue;
+    if (answeredAfter(ctx.parsed, { line: a.line, act: "join", key, title: null }, label)) return true;
+  }
+  return false;
+}
+
+/**
+ * STE-729 AC.3 — true when the latest answered AskUserQuestion after line
+ * `from` holding a question that names `key` answered one such question with
+ * anything but `label` — a later, different answer withdraws the edit consent
+ * whatever that question offered. `answeredAfter` then decides the rest.
+ * Twin: the `withdrawn` arm of `epicEdited` in adapters/_shared/src/shared_tracker_live_grader.ts
+ */
+function editWithdrawnAfter(parsed: Array<ParsedLine | null>, from: number, key: string, label: string): boolean {
+  const names = (q: string): boolean => namesKey(q, key);
+  const asks = new Map<string, unknown>();
+  let withdrawn = false;
+  for (let idx = from + 1; idx < parsed.length; idx++) {
+    const p = parsed[idx];
+    if (!p) continue;
+    for (const b of p.blocks) {
+      if (b.type === "tool_use" && b.name === "AskUserQuestion" && typeof b.id === "string") {
+        asks.set(b.id, (b.input as { questions?: unknown } | undefined)?.questions);
+      } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+        if (b.is_error === true || !asks.has(b.tool_use_id)) continue;
+        // An ask whose questions naming `key` carry no recorded answer changes nothing.
+        const answers = namedAnswers(asks.get(b.tool_use_id), names, (q) => answerTo(p, b, q));
+        if (answers.length > 0) withdrawn = answers.some((x) => x !== label);
+      }
+    }
+  }
+  return withdrawn;
+}
+
+/**
+ * STE-729 AC.3 — the recorded answers to the questions whose text names the
+ * subject (`names`); a question without a recorded answer is left out.
+ * Twin: `namedAnswers` in adapters/_shared/src/shared_tracker_live_grader.ts
+ */
+function namedAnswers(questions: unknown, names: (question: string) => boolean, answer: (question: string) => string | null): string[] {
+  if (!Array.isArray(questions)) return [];
+  const out: string[] = [];
+  for (const q of questions) {
+    const question = (q as { question?: unknown } | null)?.question;
+    if (typeof question !== "string" || !names(question)) continue;
+    const a = answer(question);
+    if (a !== null) out.push(a);
+  }
+  return out;
 }
 
 function gateTicket(
@@ -1871,7 +2014,7 @@ function gateTicket(
     tracked: new Map(),
   };
   const ownedKey = (k: { key: string; targets: DeclaredTarget[] }) =>
-    k.targets.length === 0 || k.targets.some((t) => owns(ctx, t.root, k.key) || epicClosed(call, ctx, t.root, k.key));
+    k.targets.length === 0 || k.targets.some((t) => owns(ctx, t.root, k.key) || epicClosed(call, ctx, t.root, k.key) || epicEdited(call, ctx, t.root, k.key));
   const isLink = isLinkTool(call.tool);
   const bound = inScope.filter((k) => k.targets.length > 0);
   const unowned = inScope.filter((k) => !ownedKey(k));
@@ -1895,14 +2038,18 @@ function gateTicket(
   const lag = stale === null ? "" : ` (The transcript read did not yet hold this call's own tool_use ${stale.id}; it was graded as the last call of its turn.)`;
   return refuse(
     `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${lag}${note}`,
-    // STE-649 AC.8 — `decide` writes no receipt, so its shape is spelled
-    // literally: acceptedShape() would print `confirm decide`.
-    // STE-649 AC.10 — `--adopt` is conditional, never an unconditional `[--adopt]`.
-    `first run ${DECIDE_OWNERSHIP_SHAPE} to read the ticket's ownership verdict, then run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} (only when decide's verdict is unowned and the operator answered "Adopt <KEY>" — a typed answer counts when it names the key and says yes — append \`--adopt\`; or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry. ` +
+    // STE-729 AC.7 — the order: the fetch leads, the Epic routes (epic_edit.ts
+    // for a description or summary, epic_close.ts for a close) follow, and the
+    // `<ticket.json>` confirm route comes last.
+    `fetch the ticket in this session (Jira \`getJiraIssue\`, Linear \`get_issue\`) so its answer shows the ownership verdict, then retry. ` +
       // STE-649 AC.9 — the verdicts no receipt can clear, and their routes.
       // STE-699 AC.6 — an Epic's route is epic_close.ts, never "the owning repository".
       `A foreign-repo verdict (the ticket carries another repository's tag) is refused by both confirm and consent, and on Linear confirm also refuses another project's ticket in the same team: make that write from the owning repository, or relabel the ticket to this repository first. ` +
-      `A container verdict (the ticket is an Epic) is refused by both confirm and consent too: to close a shipped milestone's Epic, save its children listing and run ${acceptedShape("epic_close.ts", "<projectRoot> <EPIC-KEY> --children <listing>")} ${PLAIN_RULE}, then retry.`,
+      `A container verdict (the ticket is an Epic) is refused by both confirm and consent too: to change only an Epic's description or summary, run ${acceptedShape("epic_edit.ts", "<projectRoot> <EPIC-KEY>")} ${PLAIN_RULE}, have the operator answer "Edit <KEY>", then retry; to close a shipped milestone's Epic, save its children listing and run ${acceptedShape("epic_close.ts", "<projectRoot> <EPIC-KEY> --children <listing>")} ${PLAIN_RULE}, then retry. ` +
+      // STE-649 AC.8 — `decide` writes no receipt, so its shape is spelled
+      // literally: acceptedShape() would print `confirm decide`.
+      // STE-649 AC.10 — `--adopt` is conditional, never an unconditional `[--adopt]`.
+      `Otherwise, first run ${DECIDE_OWNERSHIP_SHAPE} to read the ticket's ownership verdict, then run ${acceptedShape("ticket_ownership.ts", "<projectRoot> <KEY> <ticket.json>")} (only when decide's verdict is unowned and the operator answered "Adopt <KEY>" — a typed answer counts when it names the key and says yes — append \`--adopt\`; or, after an answered import question, ${acceptedShape("container_ownership.ts", "<projectRoot> <KEY> <page.json>...")}) in ${targetRoots} for ${named.join(", ")} ${PLAIN_RULE}, then retry.`,
   );
 }
 

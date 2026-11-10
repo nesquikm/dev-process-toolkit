@@ -238,10 +238,13 @@ export function runGateNamingSkips(
   stack: string,
   command: readonly string[],
   timeoutMs: number = gateRunTimeoutMs(),
+  options: { readonly countOnly?: boolean } = {},
 ): GateRunObservation {
   const reportDir = mkdtempSync(join(tmpdir(), "dpt-gate-report-"));
   const reportPath = join(reportDir, "junit.xml");
-  const identityCommand = skipIdentityCommand(stack, reportPath);
+  // STE-730: a `countOnly` run executes `command` exactly as given — no report
+  // flag is substituted — so the run says nothing about identities.
+  const identityCommand = options.countOnly === true ? null : skipIdentityCommand(stack, reportPath);
 
   try {
     // ONE spawn, one options object. The branch is over WHAT is run — the

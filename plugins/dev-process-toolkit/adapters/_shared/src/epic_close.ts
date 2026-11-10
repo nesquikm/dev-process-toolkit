@@ -48,14 +48,14 @@ export class EpicCloseRefusal extends Error {
 
 const USAGE = "bun run epic_close.ts <projectRoot> <EPIC-KEY> --children <listing>";
 
-/** Is `rel` tracked by the git index of `root`? */
-function tracked(root: string, rel: string): boolean {
+/** Is `rel` tracked by the git index of `root`? Shared with epic_edit.ts. */
+export function tracked(root: string, rel: string): boolean {
   const p = Bun.spawnSync(["git", "-C", root, "ls-files", "--", rel], { stdout: "pipe", stderr: "pipe" });
   return p.exitCode === 0 && p.stdout.toString().split("\n").some((l) => l.trim() === rel);
 }
 
-/** The blob the git index of `root` holds for `rel`, or null when it cannot be read. */
-function indexBlob(root: string, rel: string): string | null {
+/** The blob the git index of `root` holds for `rel`, or null when it cannot be read. Shared with epic_edit.ts. */
+export function indexBlob(root: string, rel: string): string | null {
   const p = Bun.spawnSync(["git", "-C", root, "show", `:${rel}`], { stdout: "pipe", stderr: "pipe" });
   return p.exitCode === 0 ? p.stdout.toString() : null;
 }
