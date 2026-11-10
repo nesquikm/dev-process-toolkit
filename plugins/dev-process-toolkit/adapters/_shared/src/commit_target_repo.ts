@@ -291,7 +291,7 @@ interface CommitWrite {
 // (`-a`, `--amend`, `--fixup`, `-i`/`-o`, a pathspec, a bundled `-am`, an
 // option this list does not name) makes the commit not plain.
 const PLAIN_COMMIT_FLAGS = new Set([
-  "-s", "--signoff", "--no-signoff", "-n", "--no-verify", "--verify", "-q", "--quiet",
+  "-s", "--signoff", "--no-signoff", "--verify", "-q", "--quiet",
   "-v", "--verbose", "-e", "--edit", "--no-edit", "--allow-empty-message",
   "-S", "--gpg-sign", "--no-gpg-sign", "--status", "--no-status",
 ]);

@@ -81,7 +81,7 @@ const ROWS: Row[] = [
     id: "head",
     guard: "relay: R.evidence.head equals HEAD, which equals the remote branch head",
     family: "pr",
-    file: "templates/hooks/_lib/hooks/pre-pr-spec-review.ts",
+    file: "adapters/_shared/src/pr_relay.ts",
     find: // One span: both halves of the equality (R.evidence.head = HEAD, HEAD = the remote head), everything between kept byte-for-byte.
     `    if (head === null) return false;
     const realRoot = real(root);
@@ -153,7 +153,7 @@ const ROWS: Row[] = [
     id: "digest",
     guard: "relay: the announced digest equals R's current bytes",
     family: "pr",
-    file: "templates/hooks/_lib/hooks/pre-pr-spec-review.ts",
+    file: "adapters/_shared/src/pr_relay.ts",
     find: "real(a.path) === path && a.digest === digest",
     replace: "real(a.path) === path",
     kills: [
@@ -191,7 +191,7 @@ const ROWS: Row[] = [
     id: "projects-root",
     guard: "relay: S's transcript stays inside the projects root",
     family: "pr",
-    file: "templates/hooks/_lib/hooks/pre-pr-spec-review.ts",
+    file: "adapters/_shared/src/pr_relay.ts",
     find: "if (real(transcript) !== transcript || dirname(dirname(transcript)) !== projects) continue;",
     replace: "if (dirname(dirname(transcript)) !== projects) continue;",
     kills: [
