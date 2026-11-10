@@ -35,6 +35,7 @@
 import { resolve } from "node:path";
 
 import { detectGate } from "./capture_skip_baseline";
+import { tableGateRefusal } from "./stack_layout";
 import { declaredTestCommands, namedDeclaredCommands, runDeclaredTestCommands } from "./declared_test_commands";
 import { retroSwitchOn, upgradeOfferSwitchOn } from "./project_settings";
 import { deriveRunCounts, type CapturedRun } from "./deliver_stage_evidence";
@@ -186,7 +187,8 @@ if (import.meta.main) {
       process.exitCode = 1;
     }
   } else if (gate === null) {
-    console.error(`gate_capture: no test runner detected in ${projectRoot}`);
+    const tableRefusal = tableGateRefusal(projectRoot);
+    console.error(`gate_capture: ${tableRefusal ?? `no test runner detected in ${projectRoot}`}`);
     process.exitCode = 1;
   } else {
     const { captured, failingNames, killedOnBoundMs } = captureGateRunNamingFailures(

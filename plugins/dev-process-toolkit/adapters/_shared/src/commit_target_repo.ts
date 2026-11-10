@@ -115,6 +115,13 @@ export interface CommitTarget {
    */
   fromIndex: boolean;
   /**
+   * AC-STE-733.1 — true when EVERY commit the command writes is a plain
+   * `git commit`: only message/sign-off style options, and no `-a`, no
+   * `--amend`, no pathspec, no option this reader does not know. A guard that
+   * grades the staged set alone may speak for these and for nothing else.
+   */
+  plainCommit: boolean;
+  /**
    * Non-null when the command writes no commit but runs a history-changing git
    * subcommand the gates do not cover (`pull`, `rebase`, `stash`, writing
    * `notes`) — a notice naming it, so the gap is never silent (AC-STE-601.9).
@@ -160,6 +167,8 @@ interface CommitOccurrence {
   subcommand: string | null;
   /** Whether that commit is built from the staged set. */
   fromIndex: boolean;
+  /** Whether it is a plain `git commit` (AC-STE-733.1). */
+  plain: boolean;
 }
 
 /** Global options that take the next word as their value. */
@@ -274,6 +283,44 @@ function subcommandRow<T>(table: Readonly<Record<string, T>>, subcommand: string
 interface CommitWrite {
   subcommand: string;
   fromIndex: boolean;
+  plain: boolean;
+}
+
+// AC-STE-733.1 — the `git commit` options that change only the message, the
+// signature or the hooks run, never WHICH content is committed. Anything else
+// (`-a`, `--amend`, `--fixup`, `-i`/`-o`, a pathspec, a bundled `-am`, an
+// option this list does not name) makes the commit not plain.
+const PLAIN_COMMIT_FLAGS = new Set([
+  "-s", "--signoff", "--no-signoff", "-n", "--no-verify", "--verify", "-q", "--quiet",
+  "-v", "--verbose", "-e", "--edit", "--no-edit", "--allow-empty-message",
+  "-S", "--gpg-sign", "--no-gpg-sign", "--status", "--no-status",
+]);
+const PLAIN_COMMIT_VALUE_OPTS = new Set([
+  "-m", "--message", "-F", "--file", "-C", "--reuse-message", "-c", "--reedit-message",
+  "--author", "--date", "--cleanup", "-t", "--template", "--trailer",
+]);
+
+/** True when `git commit <args>` commits exactly the staged set, nothing more. */
+function isPlainCommitArgs(args: readonly string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string;
+    if (PLAIN_COMMIT_FLAGS.has(a)) continue;
+    if (PLAIN_COMMIT_VALUE_OPTS.has(a)) {
+      if (i + 1 >= args.length) return false;
+      i++;
+      continue;
+    }
+    if (a.startsWith("--")) {
+      const name = a.split("=")[0] as string;
+      if (a.includes("=") && (PLAIN_COMMIT_VALUE_OPTS.has(name) || name === "--gpg-sign")) continue;
+      return false;
+    }
+    // A short value option with its value attached (`-mfoo`, `-Skeyid`).
+    if (a.length > 2 && a.startsWith("-") && (PLAIN_COMMIT_VALUE_OPTS.has(a.slice(0, 2)) || a.startsWith("-S"))) continue;
+    // `--`, a pathspec, a bundled or unknown short option.
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -286,7 +333,7 @@ function commitSubcommandOf(subcommand: string | null, args: readonly string[]):
   const names = optionNames(args);
   if (names.some((n) => row.excludes.includes(n))) return null;
   const fromIndex = row.fromIndex === "always" || names.some((n) => row.fromIndex.includes(n));
-  return { subcommand, fromIndex };
+  return { subcommand, fromIndex, plain: subcommand === "commit" && isPlainCommitArgs(args) };
 }
 
 interface GitInvocation {
@@ -571,6 +618,7 @@ const NO_COMMIT: CommitTarget = {
   candidateRoots: [],
   subcommand: null,
   fromIndex: false,
+  plainCommit: false,
   advisory: null,
 };
 
@@ -630,7 +678,7 @@ function collectOccurrences(
   };
   /** A commit whose subcommand could not be read, standing unplaced behind `word`. */
   const unreadCommit = (shape: CommitOccurrence["shape"], word: string): void => {
-    occurrences.push({ shape, dir: null, word, subcommand: null, fromIndex: false });
+    occurrences.push({ shape, dir: null, word, subcommand: null, fromIndex: false, plain: false });
   };
 
   for (const invocation of invocations) {
@@ -677,10 +725,17 @@ function collectOccurrences(
         continue;
       }
       const first = nested.occurrences[0] as CommitOccurrence;
-      writes = { subcommand: first.subcommand ?? "commit", fromIndex: first.fromIndex };
+      writes = { subcommand: first.subcommand ?? "commit", fromIndex: first.fromIndex, plain: false };
     } else {
       git = alias.git;
       writes = commitSubcommandOf(git.subcommand, git.args);
+      // AC-STE-733.1 — plain also means ALONE: the command runs nothing but this
+      // one commit, with no environment binding (`GIT_INDEX_FILE=`, ...). A
+      // sibling `git add`, a write, or an alternate index changes what the
+      // commit holds after the hook has read the staged set.
+      if (writes !== null && writes.plain && (depth > 0 || invocations.length !== 1 || invocation.assignments.length > 0)) {
+        writes = { ...writes, plain: false };
+      }
     }
     if (writes === null) {
       advisory ??= advisoryOf(git.subcommand, git.args);
@@ -789,6 +844,7 @@ function verdict(
     candidateRoots,
     subcommand: first.subcommand,
     fromIndex: first.fromIndex,
+    plainCommit: occurrences.every((o) => o.plain),
     advisory: null,
   });
 

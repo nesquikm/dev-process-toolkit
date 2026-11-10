@@ -364,7 +364,7 @@ export class LocalProvider implements Provider, IdentityMinter {
     // The throw is the signal; the rollback only stops the wreckage.
     try {
       await $`git add -- ${lockPath}`.cwd(this.repoRoot).quiet();
-      await $`git commit -q -m ${subject} -m ${`branch: ${branch}`}`.cwd(this.repoRoot).quiet();
+      await $`git commit -q --only -m ${subject} -m ${`branch: ${branch}`} -- ${lockPath}`.cwd(this.repoRoot).quiet();
     } catch (err) {
       // AC-STE-461.7 — the rollback REPORTS rather than throws, and what it
       // reports is appended to the rejection instead of replacing it. A cleanup
@@ -539,7 +539,7 @@ export class LocalProvider implements Provider, IdentityMinter {
     // not convert the loud failure into a silent one.
     try {
       await $`git rm -q -- ${lockPath}`.cwd(this.repoRoot).quiet();
-      await $`git commit -q -m ${subject}`.cwd(this.repoRoot).quiet();
+      await $`git commit -q -m ${subject} --only -- ${lockPath}`.cwd(this.repoRoot).quiet();
     } catch (err) {
       const failures = await this.rollbackLockRemoval([lockPath]);
       throw new Error(
@@ -633,7 +633,7 @@ export class LocalProvider implements Provider, IdentityMinter {
       for (const lockPath of lockPaths) {
         await $`git rm -q -- ${lockPath}`.cwd(this.repoRoot).quiet();
       }
-      await $`git commit -q -m ${subject}`.cwd(this.repoRoot).quiet();
+      await $`git commit -q -m ${subject} --only -- ${lockPaths}`.cwd(this.repoRoot).quiet();
     } catch (err) {
       const failures = await this.rollbackLockRemoval(lockPaths);
       throw new Error(

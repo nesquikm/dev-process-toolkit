@@ -218,8 +218,35 @@ describe("AC-STE-700.4 — pre-commit-gate-check passes an archive-only staged s
 
 // ------------------------------------------------------------ AC-STE-700.6 (commit)
 
+// Amended by AC-STE-733.1: a staged set whose every path satisfies `isSpecPath`
+// now commits with no gate-check evidence (the spec-only pass), so only the
+// twin that stages a path outside SPEC_PATTERNS is still refused by the commit
+// gate. The other twins are no longer archive-only, and are still refused by
+// the pull request gate below; at the commit gate they now pass as spec-only.
+const SPEC_ONLY_TWINS = new Set([
+  "an edit to an active FR",
+  "an archive rename with a body edit outside the allowed set",
+  "a file added under an archive folder with no matching delete",
+  "a deletion",
+  "a disallowed specs/requirements.md edit",
+  "a move git reports as a delete plus an add (AC-STE-700.7)",
+]);
+
 describe("AC-STE-700.6 — pre-commit-gate-check refuses every forbid twin through the .sh wrapper", () => {
   for (const [name, twin] of Object.entries(TWINS)) {
+    if (SPEC_ONLY_TWINS.has(name)) {
+      test(
+        `Amended by AC-STE-733.1 — PERMIT (spec-only pass) — ${name}`,
+        async () => {
+          const repo = makeArchiveRepo(join(tmpRoot, "commit-twin"));
+          twin(repo);
+          const r = await runCommitGate(repo);
+          expect({ code: r.exitCode, refusing: r.stderr.includes("Refusing:") }).toEqual({ code: 0, refusing: false });
+        },
+        T,
+      );
+      continue;
+    }
     test(
       `FORBID — ${name}`,
       async () => {
@@ -230,6 +257,12 @@ describe("AC-STE-700.6 — pre-commit-gate-check refuses every forbid twin throu
       T,
     );
   }
+
+  test("Amended by AC-STE-733.1 — every twin but the one staging a path outside specs/ is spec-only", () => {
+    expect(Object.keys(TWINS).filter((n) => !SPEC_ONLY_TWINS.has(n))).toEqual([
+      "archive rename staged beside a path outside specs/",
+    ]);
+  });
 });
 
 // ------------------------------------------------------------ AC-STE-700.5

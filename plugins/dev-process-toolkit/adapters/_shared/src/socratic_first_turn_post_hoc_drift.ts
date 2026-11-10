@@ -3,7 +3,8 @@
 //
 // Scans the latest commit on the active branch. When the commit subject
 // matches the canonical /spec-write commit-shape patterns
-// (`chore(specs): write FR <tracker-id>` OR
+// (`chore(specs): write FR <tracker-id>`, its plural
+// `chore(specs): write FRs <tracker-ids>` for a multi-FR commit, OR
 // `docs(specs): edit cross-cutting specs`) AND the body contains NEITHER
 // an audit-row marker (`spec_write_draft_default_applied` /
 // `spec_write_commit_default_applied` / `spec_write_commit_operator_approved`)
@@ -58,7 +59,7 @@ export interface PostHocDriftReport {
  * revert that quotes the original) does not falsely activate.
  */
 const SUBJECT_PATTERNS: ReadonlyArray<RegExp> = [
-  /^chore\(specs\): write FR\b/,
+  /^chore\(specs\): write FRs?\b/,
   /^docs\(specs\): edit cross-cutting specs\b/,
 ];
 

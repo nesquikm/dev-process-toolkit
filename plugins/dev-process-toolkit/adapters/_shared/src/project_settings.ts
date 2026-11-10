@@ -271,7 +271,7 @@ const RELEASE_ENTRY_KEYS = ["path", "kind", "field", "pattern", "replace", "opti
  */
 const OPTIMIZATION_KEYS = ["gate_commands"];
 /** STE-730 — the stacks a `verification.test_commands` entry may name (each picks a count parser). */
-export const TEST_COMMAND_STACKS = ["bun", "pytest", "flutter"] as const;
+export const TEST_COMMAND_STACKS = ["bun", "pytest", "flutter", "vitest", "cargo", "playwright"] as const;
 const TEST_COMMAND_ENTRY_KEYS = ["stack", "command"];
 
 /** The moved CLAUDE.md headings (stub slot excluded) and the keys that make each a second home. */
@@ -473,7 +473,12 @@ const SECTION_VALIDATORS: Record<SectionKey, (v: unknown) => void> = {
     const ver = requireMap(v, "verification");
     closeKeys(ver, "verification", settingsKeyOrder("verification"));
     for (const k of VERIFICATION_KEYS) if (k !== "verify_mode") checkString(ver, "verification", k);
-    checkEnum(ver, "verification", "verify_mode", VERIFY_MODES);
+    if ("verify_mode" in ver && !VERIFY_MODES.includes(ver.verify_mode as string)) {
+      throw shapeError(
+        at("verification", "verify_mode"),
+        `must be one of ${VERIFY_MODES.join(" | ")}; use \`blocking\` for a check that blocks the commit`,
+      );
+    }
     validateTestCommands(ver);
   },
   docs: (v) => {

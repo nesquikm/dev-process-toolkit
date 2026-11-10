@@ -402,3 +402,16 @@ export function isStagedArchiveOnly(root: string): boolean {
 export function isWorkingTreeClean(root: string): boolean {
   return gitOut(root, ["diff", "--quiet", "--no-ext-diff"]) !== null;
 }
+
+/**
+ * AC-STE-733.1 — true when the checkout's staged set is non-empty and every
+ * staged path satisfies `isSpecPath`. Rename detection is turned OFF, so a move
+ * reports both its sides and a file moved out of `src/` cannot hide behind its
+ * spec-shaped destination. A git failure reads as "not spec-only".
+ */
+export function isStagedSpecOnly(root: string): boolean {
+  const raw = gitOut(root, ["diff", "--cached", "--no-renames", "--name-only", "-z"]);
+  if (raw === null) return false;
+  const paths = raw.split("\0").filter((p) => p !== "");
+  return paths.length > 0 && paths.every(isSpecPath);
+}

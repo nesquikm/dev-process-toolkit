@@ -56,6 +56,8 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173
 - If it returns `200`, proceed.
 - If not, start the server (run in background), wait a few seconds, then re-check.
 
+If the browser helper refuses a loopback or private address (such as `localhost`, `127.0.0.1` or `192.168.x.x`), reach the dev server another way: use a non-loopback address the helper accepts (for example a tunnel URL), or drive the page through the Chrome browser tools instead.
+
 ### 2. Ask a duck to verify the page
 
 Use `ask_duck` to have a duck open the page in Chrome and verify it visually. The duck should NOT run shell commands — it should only use its Chrome/browser MCP tools.

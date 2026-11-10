@@ -145,6 +145,12 @@ The tracker-less scan walks each remote tip with `ls-tree` because git has no co
 
 Tracker-less races (two devs committing locks on separate branches without fetching first) are detectable at merge-time — the colliding `.dpt/locks/` paths conflict — but not preventable. This is documented as a deliberate trade-off.
 
+## A bug found after ship, before merge
+
+Once a milestone ships, its FRs and plan are archived, but the branch may not have merged yet. A bug found in that window gets its own milestone: run `/spec-write --bug` on the same branch to open a new milestone, implement it, and ship it as the next patch release.
+
+Archived FRs and plans stay frozen. Do not reopen them, and do not write a new FR into `specs/frs/archive/` — writing there skips every check on active FRs, so the fix would ship with no gate looking at it.
+
 ## Test fixtures
 
 - `tests/fixtures/projects/mode-none-*` — fixture spec trees consumed by the live Schema L probe via `tests/scripts/verify-regression.test.ts`. The pre-M18 v2-minimal fixture and Schema M script-mode probe were removed in M39.

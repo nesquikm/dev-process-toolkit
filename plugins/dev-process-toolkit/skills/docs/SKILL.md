@@ -143,6 +143,8 @@ Regenerates the entire canonical `docs/` tree from sources of truth. Bypasses th
    <!-- WARNING: This reference was generated without mechanical signature extraction for this stack. Signatures may be imprecise. Review carefully before publishing. -->
    ```
 
+   Then, under the banner, write each entry of `ground.warnings` as its own HTML comment line (`<!-- <warning> -->`), in order, so a reader sees why the extractor fell back (for example, a Rust project that no extractor covers).
+
 6. **Full-tree diff + approval.** Compute a unified diff across every file in `docs/` (old vs. newly rendered). Print `=== Proposed diff (N files, M lines) ===`, body, `=== Apply? [y/N] ===`.
 
 7. **On approval.** Write every target file. Delete all `docs/.pending/*.md` + `*.signatures.json` fragments (superseded by the full regeneration). Print `docs-run: written (--full) — <n> file(s) from <n-active> active + <n-archived> archived spec(s)` and exit `0`. The counts are the ones step 3 gathered, so a run that regenerated from a thin corpus says so on its own last line.

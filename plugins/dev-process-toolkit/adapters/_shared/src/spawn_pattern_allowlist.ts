@@ -16,10 +16,12 @@
 // were classifier-denied headless and grandchildren died as 0-byte
 // transcripts. Probe shape mirrors `conformance_loop_bypass_removed.ts`.
 //
-// Vacuous when a surface's file is absent (toolkit-consumer repos ship
-// neither). Fail-closed when a surface exists but the pattern's
-// presence cannot be verified (malformed settings JSON; SKILL.md
-// without a settings-writing heredoc). The scaffold check is scoped to
+// Scoped to the scaffold: `.claude/settings.json` is graded only when
+// `.claude/skills/smoke-test/SKILL.md` exists at the project root; without
+// it the report is vacuous, with a note naming the missing scaffold (a repo
+// that spawns no children owes no spawn pattern). Fail-closed when a
+// surface exists but the pattern's presence cannot be verified (malformed
+// settings JSON; SKILL.md without a settings-writing heredoc). The scaffold check is scoped to
 // the heredoc body itself — prose mentions of the pattern elsewhere in
 // the SKILL.md do not satisfy it. The real scaffold fence is indented
 // inside a numbered list item, so the scan is line-based rather than
@@ -40,7 +42,11 @@ export interface SpawnPatternAllowlistViolation {
 
 export interface SpawnPatternAllowlistReport {
   violations: SpawnPatternAllowlistViolation[];
+  vacuous: boolean;
+  notes: string[];
 }
+
+const SMOKE_TEST_SCAFFOLD_REL = ".claude/skills/smoke-test/SKILL.md";
 
 const PROBE_NAME = "spawn_pattern_allowlist";
 
@@ -196,12 +202,20 @@ function scanSmokeTestScaffold(
 export async function runSpawnPatternAllowlistProbe(
   projectRoot: string,
 ): Promise<SpawnPatternAllowlistReport> {
+  const scaffoldPath = join(projectRoot, SMOKE_TEST_SCAFFOLD_REL);
+  if (!existsSync(scaffoldPath)) {
+    return {
+      violations: [],
+      vacuous: true,
+      notes: [
+        `${SMOKE_TEST_SCAFFOLD_REL} is absent — this repository spawns no ` +
+          `children, so .claude/settings.json is not graded`,
+      ],
+    };
+  }
   const violations: SpawnPatternAllowlistViolation[] = [
     ...scanSettings(join(projectRoot, ".claude", "settings.json"), projectRoot),
-    ...scanSmokeTestScaffold(
-      join(projectRoot, ".claude", "skills", "smoke-test", "SKILL.md"),
-      projectRoot,
-    ),
+    ...scanSmokeTestScaffold(scaffoldPath, projectRoot),
   ];
-  return { violations };
+  return { violations, vacuous: false, notes: [] };
 }

@@ -939,6 +939,30 @@ export function findSkillToolUse(
 }
 
 /**
+ * STE-733 AC.3 — the receipt announcements ANOTHER session's transcript vouches
+ * for: each one a front-door run's result (per `target.announcesReceipts`)
+ * that a standing `skill` Skill call precedes in transcript order.
+ *
+ * The same reader the in-session gate uses (`scanSkillCalls`), pointed at the
+ * owner's transcript, so the trust path is one path: an echo, a Read or a typed
+ * line announces nothing, and a Skill call written after the announcement
+ * vouches for nothing before it. `null` when the transcript cannot be read —
+ * a refusal for the relay, never the in-session fail-open.
+ *
+ * The digest is NOT checked here: the caller holds the receipt bytes.
+ */
+export function relayedAnnouncements(
+  skill: string,
+  transcriptPath: string,
+  target: EvidenceTarget,
+): ReceiptAnnouncement[] | null {
+  const scan = scanSkillCalls(skill, { transcript_path: transcriptPath } as HookPayload, target);
+  if (scan.windows === null) return null;
+  const firstCall = Math.min(...scan.windows.map((w) => w.startLine).filter((l) => l >= 0));
+  return scan.announcements.filter((a) => a.line > firstCall);
+}
+
+/**
  * STE-650 — how long the command gates (gate-check, spec-review and, since
  * STE-655, the tdd commit gate) wait for a pending receipt run's
  * tool_result to reach the transcript. The tracker gate's
@@ -1047,7 +1071,11 @@ export function requireSkillToolUse(
   hook: string,
   payload: HookPayload,
   target?: EvidenceTarget,
+  remedyNote?: string,
 ): { found: boolean } {
+  // STE-733 AC.5 — a caller-supplied route appended to every graded refusal's
+  // remedy (never to the lag refusal, whose remedy is to retry unchanged).
+  const withNote = (how: string): string => (remedyNote ? `${how} ${remedyNote}` : how);
   const first = scanSkillCalls(skill, payload, target);
   if (first.found) {
     // STE-614 AC.5 — the repository-scoped leg, demanded IN ADDITION to the
@@ -1082,7 +1110,7 @@ export function requireSkillToolUse(
       emitReceiptLagRefusal(miss, skill, hook);
       return { found: false };
     }
-    emitNFR10("Refusing", miss.why, miss.how, skill, hook);
+    emitNFR10("Refusing", miss.why, withNote(miss.how), skill, hook);
     return { found: false };
   }
   emitNFR10(
@@ -1091,9 +1119,11 @@ export function requireSkillToolUse(
       ? `every ${skill} Skill tool_use in this session ended in an error or a ` +
           `denial, so none of them is evidence that the skill ran.`
       : `required ${skill} Skill tool_use not found in current session.`,
-    first.denied
-      ? `run /${skill} again and let it finish before retrying this action.`
-      : `run /${skill} before retrying this action.`,
+    withNote(
+      first.denied
+        ? `run /${skill} again and let it finish before retrying this action.`
+        : `run /${skill} before retrying this action.`,
+    ),
     skill,
     hook,
   );

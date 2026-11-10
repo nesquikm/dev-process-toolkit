@@ -526,7 +526,7 @@ export function parseVerificationSection(claudeMdPath: string): ParsedVerificati
           throw new MalformedVerificationConfigError(
             key!,
             value,
-            'expected one of lowercase "advisory" | "blocking" | "manual"',
+            'expected one of lowercase "advisory" | "blocking" | "manual"; use "blocking" for a check that blocks the commit',
           );
         }
         result.verifyMode = value as VerifyMode;

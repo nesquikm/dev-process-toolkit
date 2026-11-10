@@ -36,7 +36,7 @@ export type TestCountParseResult =
   | { ok: true; count: TestCount }
   | { ok: false; reason: string };
 
-export type Stack = "bun" | "pytest" | "flutter" | "unknown";
+export type Stack = "bun" | "pytest" | "flutter" | "vitest" | "cargo" | "playwright" | "unknown";
 
 // STE-323: Bun emits per-file `N pass` / `N fail` counters BEFORE the summary
 // block in multi-file runs, so a `.exec()` first-match captures the first
@@ -132,14 +132,113 @@ function parseFlutter(output: string): TestCountParseResult {
   return { ok: true, count: { total: pass + fail, failures: fail, errors: 0, skipped } };
 }
 
+// STE-732: the three non-bun stacks below share pytest's `total` meaning —
+// pass + fail, skips reported alongside and never folded in — so
+// `deriveRunCounts`'s `total - fail` recovers the pass counter.
+
+// Vitest prints `Test Files` (file counts) and `Tests` (test counts); only the
+// latter is the run's count. Anchored on the line's own label at line start.
+// STE-732: the three new parsers read FORCE_COLOR output too — Vitest dims the
+// padded label so its line starts with ESC, Cargo colours the `ok` / `FAILED`
+// word, Playwright wraps the whole footer line. SGR sequences are stripped
+// before matching; bun / pytest / flutter keep reading raw output as v3.3.0 did.
+const SGR_RE = /\x1b\[[0-9;]*m/g;
+const stripSgr = (output: string): string => output.replace(SGR_RE, "");
+
+function parseVitest(raw: string): TestCountParseResult {
+  const output = stripSgr(raw);
+  const lines = Array.from(output.matchAll(/^\s*Tests\s+(.+)$/gm));
+  if (lines.length === 0) {
+    return { ok: false, reason: "could not determine test count — Vitest output lacks the `Tests` summary line" };
+  }
+  const line = lines[lines.length - 1][1];
+  const n = (word: string): number => Number(new RegExp(`(\\d+)\\s+${word}\\b`).exec(line)?.[1] ?? 0);
+  const passed = n("passed");
+  const failed = n("failed");
+  const skipped = n("skipped") + n("todo");
+  // Unhandled errors (`Errors  N errors` under `Tests`) fail the run even when
+  // every test passed; `total` folds them in as pytest's does.
+  const errors = lastCountedMatch(output, /^\s*Errors\s+(\d+)\s+errors?\b/gm) ?? 0;
+  return { ok: true, count: { total: passed + failed + errors, failures: failed, errors, skipped } };
+}
+
+// Cargo prints one `test result:` line per test binary (and one for doc-tests);
+// the run's count is their sum.
+function parseCargo(raw: string): TestCountParseResult {
+  const output = stripSgr(raw);
+  const results = Array.from(
+    output.matchAll(/^test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored;/gm),
+  );
+  if (results.length === 0) {
+    return { ok: false, reason: "could not determine test count — Cargo output has no `test result:` line" };
+  }
+  let passed = 0;
+  let failed = 0;
+  let ignored = 0;
+  for (const r of results) {
+    passed += Number(r[1]);
+    failed += Number(r[2]);
+    ignored += Number(r[3]);
+  }
+  return { ok: true, count: { total: passed + failed, failures: failed, errors: 0, skipped: ignored } };
+}
+
+// Playwright's footer is one `N <outcome>` line per outcome; a flaky test
+// passed on retry and counts as passed. Anchored on the whole footer line so a
+// test title containing `9 passed` cannot be read as a counter.
+function parsePlaywright(raw: string): TestCountParseResult {
+  const output = stripSgr(raw);
+  const footer = (word: string): number | undefined =>
+    lastCountedMatch(output, new RegExp(`^\\s*(\\d+) ${word}(?: \\([^)]*\\))?\\s*$`, "gm"));
+  const passed = footer("passed");
+  const failed = footer("failed");
+  const flaky = footer("flaky");
+  const skipped = footer("skipped");
+  if (passed === undefined && failed === undefined && flaky === undefined && skipped === undefined) {
+    return { ok: false, reason: "could not determine test count — Playwright output lacks the summary footer" };
+  }
+  const pass = (passed ?? 0) + (flaky ?? 0);
+  const fail = failed ?? 0;
+  return { ok: true, count: { total: pass + fail, failures: fail, errors: 0, skipped: skipped ?? 0 } };
+}
+
+// STE-732 AC-STE-732.4: the bun and pytest counters are loose enough to read a
+// Vitest `Test Files  2 passed` or a Cargo `2 passed;` as a run, so a mislabelled
+// stack refuses instead, naming the runner whose summary the output carries.
+// Only the runner's whole summary shape counts — a Vitest `Test Files` line
+// followed by its `Tests` line, a Cargo `test result:` line with its
+// `N failed; N ignored;` tail — so a bun / pytest test that merely prints one
+// such line keeps its v3.3.0 count. Detection reads through colour.
+function detectForeignRunner(raw: string): "vitest" | "cargo" | undefined {
+  const output = stripSgr(raw);
+  if (/^\s*Test Files\s+\d+\s+\w+.*$[\s\S]*?^\s*Tests\s+\d+\s+\w+/m.test(output)) return "vitest";
+  if (/^test result: \w+\. \d+ passed; \d+ failed; \d+ ignored;/m.test(output)) return "cargo";
+  return undefined;
+}
+
+function refuseForeign(output: string, stack: "bun" | "pytest"): TestCountParseResult | undefined {
+  const runner = detectForeignRunner(output);
+  if (runner === undefined) return undefined;
+  return {
+    ok: false,
+    reason: `could not determine test count — the output declared as ${stack} carries a ${runner} summary; declare stack \`${runner}\` for this command`,
+  };
+}
+
 export function parseTestOutput(output: string, stack: Stack): TestCountParseResult {
   switch (stack) {
     case "bun":
-      return parseBun(output);
+      return refuseForeign(output, "bun") ?? parseBun(output);
     case "pytest":
-      return parsePytest(output);
+      return refuseForeign(output, "pytest") ?? parsePytest(output);
     case "flutter":
       return parseFlutter(output);
+    case "vitest":
+      return parseVitest(output);
+    case "cargo":
+      return parseCargo(output);
+    case "playwright":
+      return parsePlaywright(output);
     case "unknown":
     default:
       return { ok: false, reason: "unknown stack — cannot parse test output" };
@@ -169,7 +268,7 @@ export function renderClosingLine(count: ClosingLineCount): string {
 // exactly the ordered-and-unreachable shape that made C5 a finding: zero
 // `import.meta.main` occurrences, against three in each altitude scanner.
 //
-// Usage — `<stack>` is one of bun | pytest | flutter | unknown:
+// Usage — `<stack>` is one of bun | pytest | flutter | vitest | cargo | playwright | unknown:
 //
 //     bun run test_count_parser.ts <stack> [path-to-captured-output]
 //

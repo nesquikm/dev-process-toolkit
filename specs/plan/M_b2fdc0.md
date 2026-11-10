@@ -16,7 +16,9 @@ codename: House Rules
 
 **Prerequisites:** v3.3.0 merged (main e9d6c655).
 
-**Release target:** v3.4.0, a minor after v3.3.0: one Fixed FR and one Added FR. Verify against CHANGELOG.md before shipping.
+**Release target:** v3.4.0, a minor after v3.3.0: STE-730 is Added; the other eight FRs are Fixed or Changed. Verify against CHANGELOG.md before shipping.
+
+**Addendum (2026-11-10).** A second field report adds STE-731 to STE-737: operator scope "All but 4 and 5" of its triage. The pull-request relay reads the owning session's transcript; the Rust API page gets a named warning, not a rustdoc extractor.
 
 **Operator rulings (2026-11-10).** Both reports ship as one milestone with one full test run. Epic writes widen to description and summary only, behind an exact consent answer; this reverses the STE-699 no-consent ruling for those two fields. Ownership comes from the session transcript, never from an agent-written file. Declared commands live in the settings file; absent means today's behaviour.
 
@@ -28,6 +30,13 @@ codename: House Rules
 |----|-------|---------|
 | STE-729 | The planning repository can edit its Epic's text with consent, and a fetched ticket proves ownership | linear:`STE-729` |
 | STE-730 | The test capture runs the commands a project declares | linear:`STE-730` |
+| STE-731 | Lock commits carry only the lock | linear:`STE-731` |
+| STE-732 | The test capture reads Vitest, Cargo and Playwright counts, and refuses another runner's output | linear:`STE-732` |
+| STE-733 | A spec-only commit needs no gate run, and a worker's spec review vouches for the pull request its owner opens | linear:`STE-733` |
+| STE-734 | A bug found after ship and before merge has a named route | linear:`STE-734` |
+| STE-735 | The spawn allow-list probe grades only repositories that spawn children | linear:`STE-735` |
+| STE-736 | Archived plans keep working links, and three messages say what they mean | linear:`STE-736` |
+| STE-737 | API signature extraction finds a TypeScript project in a subfolder and names an unsupported Rust stack | linear:`STE-737` |
 
 ### Tasks
 
@@ -50,4 +59,20 @@ codename: House Rules
 - [x] Add the capture mutation controls (AC-STE-730.8, .9)
   verify: each removed rule reds a named test
 - [x] One full serial suite run from the worktree against trunk e9d6c655, then /gate-check (AC-STE-730.10)
+  verify: 0 fail; skip identities equal the trunk baseline by name
+- [x] Limit the three lock commits to their lock paths, add the `lock.ts` front door, and release after the archive commit in /spec-archive (STE-731)
+  verify: foreign staged file twins, the archive-order pin and the pathspec mutation rows
+- [x] Add the vitest, cargo and playwright parsers, the Cargo default, the Vitest refusal and the mislabel refusal (STE-732)
+  verify: recorded-output fixtures, fake runners on PATH, unchanged bun/pytest/flutter fixtures
+- [x] Add the spec-only commit carve-out and the owner-transcript pull-request relay (STE-733)
+  verify: one twin per condition through the shipped wrappers, mutation rows per rule
+- [x] Document the after-ship bug route and point probe #27's remedy at it (STE-734)
+  verify: remedy and layout pins
+- [x] Scope probe #62 to the smoke-test scaffold (STE-735)
+  verify: with and without scaffold twins
+- [x] Fix archived-plan link depth, the verify_mode message, probe #45's plural subject and the visual-check note (STE-736)
+  verify: one test per fix
+- [x] Read a subfolder TypeScript project and warn on Rust in the signature extractor (STE-737)
+  verify: nested, root and Cargo fixtures
+- [ ] One full serial suite run for the whole milestone, then /gate-check (all FRs)
   verify: 0 fail; skip identities equal the trunk baseline by name
