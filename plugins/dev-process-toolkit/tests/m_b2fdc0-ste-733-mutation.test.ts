@@ -2,7 +2,9 @@
 //
 // Removing the spec-path rule, the HEAD equality, the digest check, the
 // front-door rule, the Skill-call rule or the projects-root confinement must
-// turn at least one NAMED leg red.
+// turn at least one NAMED leg red. The v3.4.0 review (fix round 1) adds two
+// rows: the commit's global `-c` / `--config-env` rule (L2) and the relay's
+// staged-change check (I2).
 //
 // Each row copies the plugin's adapters/ and templates/ (real files) plus its
 // manifest to a temporary directory, applies ONE sited mutation with
@@ -37,7 +39,7 @@ setDefaultTimeout(900_000);
 const ALL_LEGS = new Map<string, Leg>([...commitLegs(), ...relayLegs()].map((l) => [l.name, l]));
 
 interface Row {
-  id: "spec-path" | "head" | "digest" | "front-door" | "skill-call" | "projects-root";
+  id: "spec-path" | "head" | "digest" | "front-door" | "skill-call" | "projects-root" | "plain-config" | "relay-staged";
   guard: string;
   family: "commit" | "pr";
   /** Relative to the plugin root; null until sited. */
@@ -57,6 +59,9 @@ const CATEGORY: Readonly<Record<Row["id"], RegExp>> = {
   "front-door": /^pr TWIN \(front door\)/,
   "skill-call": /^pr TWIN \(skill call\)/,
   "projects-root": /^pr TWIN \(projects root\)/,
+  // Review L2 / I2 (v3.4.0 fix round 1).
+  "plain-config": /^commit TWIN \(plain\) — `git (-c|--config-env)/,
+  "relay-staged": /^pr TWIN \(clean tree\) — a staged/,
 };
 
 /**
@@ -198,6 +203,27 @@ const ROWS: Row[] = [
       "pr TWIN (projects root) — S's slug directory is a symlink out of the projects root",
       "pr TWIN (projects root) — S's transcript file is a symlink out of the projects root",
     ],
+  },
+  {
+    id: "plain-config",
+    guard: "pre-commit-gate-check: a commit carrying a global `-c` or `--config-env` is not plain",
+    family: "commit",
+    file: "adapters/_shared/src/commit_target_repo.ts",
+    find: "if (writes !== null && writes.plain && carriesGlobalConfig(git.globals)) writes = { ...writes, plain: false };",
+    replace: "",
+    kills: [
+      "commit TWIN (plain) — `git -c core.hooksPath=<dir> commit` points the commit at another hooks directory",
+      "commit TWIN (plain) — `git -c core.worktree=<dir> commit` points the commit at another work tree",
+    ],
+  },
+  {
+    id: "relay-staged",
+    guard: "relay: the index matches HEAD — a staged, uncommitted change refuses",
+    family: "pr",
+    file: "adapters/_shared/src/pr_relay.ts",
+    find: 'if (Bun.spawnSync(["git", "-C", root, "diff", "--cached", "--quiet", "--no-ext-diff"]).exitCode !== 0) return false;',
+    replace: "",
+    kills: ["pr TWIN (clean tree) — a staged, uncommitted change to a tracked file"],
   },
 ];
 

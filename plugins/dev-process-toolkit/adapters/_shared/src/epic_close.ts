@@ -60,6 +60,29 @@ export function indexBlob(root: string, rel: string): string | null {
   return p.exitCode === 0 ? p.stdout.toString() : null;
 }
 
+/**
+ * The blob HEAD holds for `rel`, or null when HEAD has none (no commit, or the
+ * path is in no commit). The plan is read from here, never from the index
+ * alone: a plan that is only `git add`-ed is in no commit. Shared with epic_edit.ts.
+ */
+export function headBlob(root: string, rel: string): string | null {
+  const p = Bun.spawnSync(["git", "-C", root, "show", `HEAD:${rel}`], { stdout: "pipe", stderr: "pipe" });
+  return p.exitCode === 0 ? p.stdout.toString() : null;
+}
+
+/**
+ * Do the working tree and the index both hold exactly `headBody` (HEAD's blob)
+ * for `rel`? The working-tree bytes are compared with `headBody`, and the index
+ * with the working tree (`git diff --quiet -- <rel>`); any git failure is "no".
+ * Shared with epic_edit.ts.
+ */
+export function equalsHead(root: string, rel: string, headBody: string): boolean {
+  const file = join(root, rel);
+  if (!existsSync(file) || readFileSync(file, "utf-8") !== headBody) return false;
+  const p = Bun.spawnSync(["git", "-C", root, "diff", "--no-ext-diff", "--no-textconv", "--quiet", "--", rel], { stdout: "pipe", stderr: "pipe" });
+  return p.exitCode === 0;
+}
+
 /** Read the --children listing file as JSON, or refuse naming it. */
 function readListing(path: string, context: string): unknown {
   const remedy = "save the Epic's children as the tracker returns them (one page, or the JSON array of every page in order) and pass the file as --children <listing>";
@@ -93,26 +116,28 @@ export async function closeEpic(args: EpicCloseArgs): Promise<string> {
       context,
     );
   }
-  // (b) reads the plan the index tracks, never the working-tree copy: an
-  // uncommitted stamp must not satisfy the check, and the coherence probe below
-  // reads the disk, so the two must agree on the plan's frontmatter.
-  const planBody = indexBlob(projectRoot, rel);
+  // (b) reads the plan from HEAD, never the index alone or the working-tree
+  // copy: an uncommitted (or only staged) stamp must not satisfy the check, and
+  // the coherence probe below reads the disk, so the index and the working tree
+  // must both equal HEAD for the plan's path.
+  const planBody = headBlob(projectRoot, rel);
   if (planBody === null) {
     throw new EpicCloseRefusal(
-      `${milestone}'s plan ${rel} cannot be read from the git index of ${projectRoot}`,
+      `${milestone}'s plan ${rel} is in no commit: HEAD of ${projectRoot} holds no ${rel} (it is only staged)`,
       `commit ${rel} and run the close again`,
       `${context}, plan=${rel}`,
     );
   }
-  const indexFrontmatter = parseFrontmatter(planBody);
-  const shippedIn = indexFrontmatter.shipped_in;
-  const planFile = join(projectRoot, rel);
-  const diskBody = existsSync(planFile) ? readFileSync(planFile, "utf-8") : null;
-  const diskFrontmatter = diskBody === null ? null : parseFrontmatter(diskBody);
-  if (diskFrontmatter === null || JSON.stringify(diskFrontmatter) !== JSON.stringify(indexFrontmatter)) {
+  const headFrontmatter = parseFrontmatter(planBody);
+  const shippedIn = headFrontmatter.shipped_in;
+  if (!equalsHead(projectRoot, rel, planBody)) {
+    const planFile = join(projectRoot, rel);
+    const diskShippedIn = existsSync(planFile) ? parseFrontmatter(readFileSync(planFile, "utf-8")).shipped_in : undefined;
+    const indexBody = indexBlob(projectRoot, rel);
+    const indexShippedIn = indexBody === null ? undefined : parseFrontmatter(indexBody).shipped_in;
     throw new EpicCloseRefusal(
-      `${milestone}'s plan ${rel} differs between the git index and the working tree (index shipped_in=${String(shippedIn ?? "<absent>")}, working tree shipped_in=${String(diskFrontmatter?.shipped_in ?? "<absent>")}); shipped_in is read from the index only`,
-      `commit or discard the working-tree change to ${rel} so the index and the working tree agree, then run the close again`,
+      `${milestone}'s plan ${rel} in the index or the working tree differs from HEAD (HEAD shipped_in=${String(shippedIn ?? "<absent>")}, index shipped_in=${String(indexShippedIn ?? "<absent>")}, working tree shipped_in=${String(diskShippedIn ?? "<absent>")}); shipped_in is read from HEAD only`,
+      `commit or discard the change to ${rel} so the index and the working tree both equal HEAD, then run the close again`,
       `${context}, plan=${rel}`,
     );
   }

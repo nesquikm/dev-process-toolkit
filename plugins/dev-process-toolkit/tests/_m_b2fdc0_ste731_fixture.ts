@@ -14,7 +14,7 @@
 // The provider CLASS is a parameter (`ctor`) so the mutation battery can drive
 // the very same legs against a mutated copy of local_provider.ts.
 
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -245,3 +245,107 @@ export function installRejectingPreCommit(root: string): void {
   writeFileSync(join(hooks, "pre-commit"), "#!/bin/sh\necho 'ste731 fixture: pre-commit refuses' >&2\nexit 1\n");
   chmodSync(join(hooks, "pre-commit"), 0o755);
 }
+
+// ------------------------------------------------------------ L3 — exact-branch legs
+//
+// v3.4.0 review L3: a lock belongs to a branch only when its `branch:` line IS
+// that branch. A held lock compared by substring (`includes("branch: feat/a")`)
+// reads `feat/a-2` (or `feat/abc`) as ours, and a remote ref compared by suffix
+// (`endsWith("/feat/a")`) reads `origin/x/feat/a` as ours. Each leg returns null
+// when the exact rule holds, else why not, so the mutation battery can drive the
+// same legs against a mutated copy of local_provider.ts.
+
+export const EXACT_ID = "fr_01JZZZZZZZZZZZZZZZZZEXCT1";
+export const CLAIM_BRANCH = "feat/a";
+
+function lockBody(id: string, branch: string): string {
+  return `ulid: ${id}\nbranch: ${branch}\nclaimed_at: 2026-01-01T00:00:00Z\nclaimer: fixture@example.invalid\n`;
+}
+
+async function bareRepo(ctor: ProviderCtor, label: string): Promise<string> {
+  return makeRepo(ctor, "claim", label);
+}
+
+/** A local lock already held by `holder`; claim it for `claimer`. */
+export async function claimAgainstLocal(ctor: ProviderCtor, holder: string, claimer: string, label: string): Promise<{ kind: string; branch?: string | null }> {
+  const root = await bareRepo(ctor, label);
+  mkdirSync(join(root, ".dpt", "locks"), { recursive: true });
+  writeFileSync(join(root, ".dpt", "locks", EXACT_ID), lockBody(EXACT_ID, holder));
+  const p = new ctor({ repoRoot: root, skipFetch: true, gitUserEmail: "fixture@example.invalid" });
+  return (await p.claimLock(EXACT_ID, claimer)) as { kind: string; branch?: string | null };
+}
+
+/**
+ * A lock pushed ONLY on `origin/<remoteBranch>` (a local bare remote; the local
+ * branch is deleted and the working tree is back on main with no lock file);
+ * claim it for `claimer`.
+ */
+export async function claimAgainstRemote(ctor: ProviderCtor, remoteBranch: string, claimer: string, label: string): Promise<{ kind: string; branch?: string | null }> {
+  const root = await bareRepo(ctor, label);
+  const remote = join(tempDir(`${label}-remote`), "origin.git");
+  git(root, "init", "--bare", "--quiet", remote);
+  git(root, "remote", "add", "origin", remote);
+  git(root, "checkout", "--quiet", "-b", remoteBranch);
+  mkdirSync(join(root, ".dpt", "locks"), { recursive: true });
+  writeFileSync(join(root, ".dpt", "locks", EXACT_ID), lockBody(EXACT_ID, remoteBranch));
+  git(root, "add", "--", lockRel(EXACT_ID));
+  git(root, "commit", "--quiet", "-m", "chore(locks): claim lock for fixture");
+  git(root, "push", "--quiet", "origin", remoteBranch);
+  git(root, "checkout", "--quiet", BRANCH);
+  git(root, "branch", "--quiet", "-D", remoteBranch);
+  if (existsSync(join(root, lockRel(EXACT_ID)))) throw new Error(`fixture: lock leaked onto ${BRANCH}`);
+  if (git(root, "for-each-ref", "--format=%(refname:short)", `refs/remotes/origin/${remoteBranch}`) !== `origin/${remoteBranch}`) {
+    throw new Error(`fixture: origin/${remoteBranch} remote-tracking ref missing`);
+  }
+  const p = new ctor({ repoRoot: root, skipFetch: true, gitUserEmail: "fixture@example.invalid" });
+  return (await p.claimLock(EXACT_ID, claimer)) as { kind: string; branch?: string | null };
+}
+
+function want(got: { kind: string; branch?: string | null }, kind: string, branch?: string): string | null {
+  if (got.kind !== kind) return `kind ${got.kind} !== ${kind} (${JSON.stringify(got)})`;
+  if (branch !== undefined && got.branch !== branch) return `branch ${String(got.branch)} !== ${branch}`;
+  return null;
+}
+
+export interface ExactLeg {
+  name: string;
+  /** true: the exact branch — must hold on a mutant too (a control). */
+  permit: boolean;
+  check: (ctor: ProviderCtor) => Promise<string | null>;
+}
+
+export const EXACT_LEGS: readonly ExactLeg[] = [
+  {
+    name: "local: a lock held by feat/a-2 is taken-elsewhere for feat/a",
+    permit: false,
+    check: async (c) => want(await claimAgainstLocal(c, "feat/a-2", CLAIM_BRANCH, "exact-local-suffix"), "taken-elsewhere", "feat/a-2"),
+  },
+  {
+    name: "local: a lock held by feat/a is taken-elsewhere for feat",
+    permit: false,
+    check: async (c) => want(await claimAgainstLocal(c, CLAIM_BRANCH, "feat", "exact-local-prefix"), "taken-elsewhere", CLAIM_BRANCH),
+  },
+  {
+    name: "local: a lock held by feat/a is already-ours for feat/a",
+    permit: true,
+    check: async (c) => want(await claimAgainstLocal(c, CLAIM_BRANCH, CLAIM_BRANCH, "exact-local-same"), "already-ours", CLAIM_BRANCH),
+  },
+  {
+    name: "remote: a lock on origin/x/feat/a is taken-elsewhere for feat/a",
+    permit: false,
+    check: async (c) => want(await claimAgainstRemote(c, "x/feat/a", CLAIM_BRANCH, "exact-remote-nested"), "taken-elsewhere", "origin/x/feat/a"),
+  },
+  {
+    name: "remote: a lock on origin/feat/a-2 is taken-elsewhere for feat/a",
+    permit: false,
+    check: async (c) => want(await claimAgainstRemote(c, "feat/a-2", CLAIM_BRANCH, "exact-remote-suffix"), "taken-elsewhere", "origin/feat/a-2"),
+  },
+  {
+    name: "remote: a lock on origin/feat/a is not taken for feat/a",
+    permit: true,
+    check: async (c) => {
+      const got = await claimAgainstRemote(c, CLAIM_BRANCH, CLAIM_BRANCH, "exact-remote-same");
+      return got.kind === "taken-elsewhere" ? `origin/feat/a read as taken-elsewhere for feat/a (${JSON.stringify(got)})` : null;
+    },
+  },
+];

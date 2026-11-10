@@ -34,7 +34,16 @@ import { LEGS, LEG_BY_NAME, PLUGIN_ROOT, cleanupTemps, tempDir } from "./_m_b2fd
 
 setDefaultTimeout(600_000);
 
-type Rule = "vitest-summary-line" | "cargo-summary-line" | "playwright-summary-line" | "mislabel-refusal" | "vitest-table-refusal";
+type Rule =
+  | "vitest-summary-line"
+  | "cargo-summary-line"
+  | "playwright-summary-line"
+  | "mislabel-refusal"
+  | "vitest-table-refusal"
+  // fix round 1 (AC-STE-732.2 amended 2026-11-10)
+  | "vitest-failed-test-files"
+  | "cargo-crashed-binary"
+  | "playwright-interrupted-did-not-run";
 
 interface Row {
   rule: Rule;
@@ -54,6 +63,9 @@ const CATEGORY: Readonly<Record<Rule, RegExp>> = {
   "playwright-summary-line": /^PARSER playwright /,
   "mislabel-refusal": /^MISLABEL /,
   "vitest-table-refusal": /^TABLE vitest /,
+  "vitest-failed-test-files": /^PARSER vitest /,
+  "cargo-crashed-binary": /^PARSER cargo /,
+  "playwright-interrupted-did-not-run": /^PARSER playwright /,
 };
 
 /**
@@ -101,6 +113,47 @@ const ROWS: Row[] = [
     find: "      if (entry.marker === \"package.json\" && packageJsonListsVitest(projectRoot)) return null;\n",
     replace: "\n",
     kills: ["TABLE vitest gate — devDependencies vitest: gate_capture refuses naming verification.test_commands, bun never runs"],
+  },
+  // ---- fix round 1 (operator ruling 2026-11-10): unsited until the fix ships
+  {
+    rule: "vitest-failed-test-files",
+    guard: "`N failed` on the Vitest `Test Files` line (N > 0) folds into the failures",
+    file: "adapters/_shared/src/test_count_parser.ts",
+    find: "  const failed = Math.max(n(\"failed\"), failedFiles);\n",
+    replace: "  const failed = n(\"failed\");\n",
+    kills: ["PARSER vitest FAILED FILES — `Test Files  1 failed` folds into failures → 3 / 1 / 0"],
+  },
+  {
+    rule: "cargo-crashed-binary",
+    guard: "Cargo output carrying `error: test failed` never reads green",
+    file: "adapters/_shared/src/test_count_parser.ts",
+    find: "const CARGO_TEST_FAILED_RE = /^error: test failed\\b/m;\n",
+    replace: "const CARGO_TEST_FAILED_RE = /(?!)/;\n",
+    kills: ["PARSER cargo CRASH — `error: test failed` alone never reads green"],
+  },
+  {
+    rule: "cargo-crashed-binary",
+    guard: "Cargo output carrying `process didn't exit successfully` never reads green",
+    file: "adapters/_shared/src/test_count_parser.ts",
+    find: "const CARGO_PROCESS_FAILED_RE = /process didn't exit successfully/;\n",
+    replace: "const CARGO_PROCESS_FAILED_RE = /(?!)/;\n",
+    kills: ["PARSER cargo CRASH — `process didn't exit successfully` alone never reads green"],
+  },
+  {
+    rule: "playwright-interrupted-did-not-run",
+    guard: "Playwright's `N interrupted` footer line counts as failures",
+    file: "adapters/_shared/src/test_count_parser.ts",
+    find: "  const interrupted = footer(\"interrupted\");\n",
+    replace: "  const interrupted = undefined;\n",
+    kills: ["PARSER playwright INTERRUPTED — `1 interrupted` alone → 2 / 1 / 0"],
+  },
+  {
+    rule: "playwright-interrupted-did-not-run",
+    guard: "Playwright's `N did not run` footer line counts as failures",
+    file: "adapters/_shared/src/test_count_parser.ts",
+    find: "  const didNotRun = footer(\"did not run\");\n",
+    replace: "  const didNotRun = undefined;\n",
+    kills: ["PARSER playwright DID NOT RUN — `4 did not run` alone → 2 / 4 / 0"],
   },
 ];
 

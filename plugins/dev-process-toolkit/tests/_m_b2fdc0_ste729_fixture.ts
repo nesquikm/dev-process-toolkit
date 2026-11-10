@@ -123,6 +123,23 @@ export interface WorldOpts {
   containerOrigin?: string | null;
   /** The repo tag this repository declares (default demo-be). */
   tag?: string;
+  /**
+   * HEAD (v3.4.0 fix round 1, M1): after the commit, rewrite the plan with this
+   * `container_origin:` and `git add` it only — HEAD keeps `containerOrigin`,
+   * the index and the working tree agree on the new value.
+   */
+  stagedOrigin?: string;
+  /**
+   * HEAD (M1): no plan in any commit — the minted plan for M_PROJ_500 is
+   * written after the commit and only `git add`-ed (index = working tree).
+   */
+  stagedOnlyPlan?: boolean;
+  /**
+   * HEAD (M1): the committed plan's frontmatter is untouched, but its body
+   * differs from HEAD — in the working tree only (`worktree`), or staged so the
+   * index and the working tree agree with each other and not with HEAD (`index`).
+   */
+  bodyDrift?: "worktree" | "index";
 }
 
 export interface World {
@@ -185,10 +202,22 @@ export function makeWorld(o: WorldOpts = {}): World {
   mkdirSync(join(root, "specs", "frs"), { recursive: true });
   const status = o.archived ? "archived" : "active";
   const origin = o.containerOrigin === undefined ? "minted" : o.containerOrigin;
-  if (!o.noPlan) writeFileSync(planFile, planText(o.planMilestone ?? MILESTONE, status, origin));
+  if (!o.noPlan && !o.stagedOnlyPlan) writeFileSync(planFile, planText(o.planMilestone ?? MILESTONE, status, origin));
   if (o.boundFr) writeFileSync(join(root, "specs", "frs", `${o.boundFr}.md`), frText(o.boundFr, o.linear ? "linear" : "jira"));
   git(root, "init", "-q", "-b", "main");
   commitAll(root, "fixture");
+  if (o.stagedOnlyPlan) {
+    writeFileSync(planFile, planText(o.planMilestone ?? MILESTONE, status, "minted"));
+    git(root, "add", "--", planRel);
+  }
+  if (o.stagedOrigin !== undefined) {
+    writeFileSync(planFile, planText(o.planMilestone ?? MILESTONE, status, o.stagedOrigin));
+    git(root, "add", "--", planRel);
+  }
+  if (o.bodyDrift) {
+    writeFileSync(planFile, `${planText(o.planMilestone ?? MILESTONE, status, origin)}An uncommitted body line.\n`);
+    if (o.bodyDrift === "index") git(root, "add", "--", planRel);
+  }
   if (o.untrackedPlan) {
     git(root, "rm", "-q", "--cached", "--", planRel);
     git(root, "commit", "-q", "-m", "fixture: untrack the plan");

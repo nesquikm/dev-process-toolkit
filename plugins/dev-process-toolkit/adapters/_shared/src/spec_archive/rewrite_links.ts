@@ -78,6 +78,9 @@ function repairedTarget(planDir: string, repoRoot: string, target: string): stri
   return null;
 }
 
+// Call-site contract: the caller must move the FR (and the plan) into its
+// archive folder BEFORE calling. A link that still resolves is left alone, so a
+// rewrite run before the `git mv` leaves the plan's FR links unrewritten.
 function rewriteArchivedPlan(absPath: string, repoRoot: string, frId: string, before: string, after: string): boolean {
   if (!existsSync(absPath)) return false;
   const content = readFileSync(absPath, "utf-8");
@@ -152,6 +155,9 @@ function rewriteChangelog(absPath: string, before: string, after: string): boole
   return true;
 }
 
+// Call-site contract: move each FR and the plan into their archive folders
+// (`git mv`) BEFORE calling this. Archived-plan links that still resolve are
+// left alone, so calling it first leaves those links pointing at moved files.
 export function rewriteArchiveLinks(repoRoot: string, frId: string): RewriteResult {
   const before = `frs/${frId}.md`;
   const after = `frs/archive/${frId}.md`;

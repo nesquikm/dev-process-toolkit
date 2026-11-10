@@ -10,15 +10,18 @@
 // accepts exactly the argv above.
 //
 // Five checks run in order, and the first that fails refuses: (a) the git
-// index tracks the milestone's plan, live or archived; (b) that indexed plan
-// carries `milestone: <M>`; (c) its index and working-tree frontmatter agree;
-// (d) the binding is Jira mode; (e) the indexed plan carries
-// `container_origin: minted` — this repository minted the Epic.
+// index tracks the milestone's plan, live or archived; (b) that plan, read from
+// HEAD, carries `milestone: <M>`; (c) its index and working-tree copies both
+// equal HEAD; (d) the binding is Jira mode; (e) HEAD's plan carries
+// `container_origin: minted` — this repository minted the Epic. The plan is
+// never read from the index alone: a plan that is only `git add`-ed is in no
+// commit and proves nothing (v3.4.0 fix round 1, M1).
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { adapterOf } from "./container_ownership";
-import { indexBlob, tracked } from "./epic_close";
+// The plan body is HEAD's blob (M1): `headBlob` reads HEAD, never the index.
+import { equalsHead, headBlob, tracked } from "./epic_close";
 import { parseFrontmatter } from "./frontmatter";
 import { milestoneIdFromEpicKey } from "./milestone_token";
 import { announceReceipt, oneLine, writeReceipt, type ReceiptInput } from "./tracker_receipts";
@@ -93,27 +96,32 @@ export function editEpic(args: EpicEditArgs): string {
   }
   const planContext = `${context}, plan=${rel}`;
 
-  // (b) the plan, read from the index, carries `milestone: <M>`.
-  const planBody = indexBlob(projectRoot, rel);
+  // (b) the plan, read from HEAD, carries `milestone: <M>`.
+  const planBody = headBlob(projectRoot, rel);
   if (planBody === null) {
-    throw new EpicEditRefusal(`${milestone}'s plan ${rel} cannot be read from the git index of ${projectRoot}`, `commit ${rel} and run the edit again`, planContext);
+    throw new EpicEditRefusal(
+      `${milestone}'s plan ${rel} is in no commit: HEAD of ${projectRoot} holds no ${rel} (it is only staged)`,
+      `commit ${rel} and run the edit again`,
+      planContext,
+    );
   }
   const indexFrontmatter = parseFrontmatter(planBody);
   if (indexFrontmatter.milestone !== milestone) {
     throw new EpicEditRefusal(
-      `${milestone}'s plan ${rel} in the git index carries milestone: ${String(indexFrontmatter.milestone ?? "<absent>")}, not milestone: ${milestone}`,
+      `${milestone}'s plan ${rel} in HEAD carries milestone: ${String(indexFrontmatter.milestone ?? "<absent>")}, not milestone: ${milestone}`,
       `edit ${epicKey} only from the repository whose committed plan ${rel} carries milestone: ${milestone}`,
       `${planContext}, plan_milestone=${String(indexFrontmatter.milestone ?? "<absent>")}`,
     );
   }
 
-  // (c) the plan's index and working-tree frontmatter agree.
+  // (c) the plan's index and working-tree copies both equal HEAD for its path.
   const planFile = join(projectRoot, rel);
-  const diskFrontmatter = existsSync(planFile) ? parseFrontmatter(readFileSync(planFile, "utf-8")) : null;
+  const headEqual = equalsHead(projectRoot, rel, planBody);
+  const diskFrontmatter = headEqual && existsSync(planFile) ? parseFrontmatter(readFileSync(planFile, "utf-8")) : null;
   if (diskFrontmatter === null || JSON.stringify(diskFrontmatter) !== JSON.stringify(indexFrontmatter)) {
     throw new EpicEditRefusal(
-      `${milestone}'s plan ${rel} frontmatter differs between the git index and the working tree`,
-      `commit or discard the working-tree change to ${rel} so the index and the working tree agree, then run the edit again`,
+      `${milestone}'s plan ${rel} in the git index or the working tree differs from HEAD`,
+      `commit or discard the change to ${rel} so the index and the working tree both equal HEAD, then run the edit again`,
       planContext,
     );
   }
@@ -133,12 +141,12 @@ export function editEpic(args: EpicEditArgs): string {
     );
   }
 
-  // (e) the indexed plan was minted by this repository (AC-STE-729.12).
+  // (e) HEAD's plan was minted by this repository (AC-STE-729.12).
   const origin = indexFrontmatter.container_origin;
   if (origin !== "minted") {
     const shown = origin === undefined || origin === null ? "<absent>" : String(origin);
     throw new EpicEditRefusal(
-      `${milestone}'s plan ${rel} in the git index carries container_origin: ${shown}, not container_origin: minted; an Epic is edited only from the repository that minted it`,
+      `${milestone}'s plan ${rel} in HEAD carries container_origin: ${shown}, not container_origin: minted; an Epic is edited only from the repository that minted it`,
       `a person may add container_origin: minted to ${rel} only when this repository minted ${milestone}'s Epic, in a reviewed commit, then run the edit again`,
       `${planContext}, container_origin=${shown}`,
     );

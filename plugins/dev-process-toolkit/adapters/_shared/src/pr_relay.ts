@@ -39,13 +39,15 @@ function real(path: string): string | null {
  *     symlink (its realpath is its own spelling, so nothing escapes the root);
  *   - that transcript holds a spec-review Skill call followed by a front-door
  *     run's result announcing R's path with a digest equal to R's bytes now;
- *   - the tracked working tree is clean.
+ *   - the tracked working tree is clean, and the index matches HEAD.
  * Never throws: any failure to read is a `false`.
  */
 export function relayPermits(root: string, selfSession: string, selfTranscript: string): boolean {
   const subject = "dev-process-toolkit:spec-review";
   try {
     if (!isWorkingTreeClean(root)) return false;
+    // The index must match HEAD too: a staged, uncommitted change is not what was reviewed.
+    if (Bun.spawnSync(["git", "-C", root, "diff", "--cached", "--quiet", "--no-ext-diff"]).exitCode !== 0) return false;
     const head = headOf(root);
     if (head === null) return false;
     const realRoot = real(root);

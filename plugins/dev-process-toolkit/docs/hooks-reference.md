@@ -148,9 +148,9 @@ One opt-in hook is again registered install-side, in project-local settings and 
   - R's `evidence.head` equals the checkout's HEAD, which equals the remote branch head — the review graded exactly the commit the request opens;
   - S's transcript is the file `<S>.jsonl` one directory level below the projects root that holds this session's transcript, reached through no symlink out of that projects root; a missing or unreadable transcript refuses;
   - that transcript holds a `Skill` tool_use of `dev-process-toolkit:spec-review`, followed by the result of a `gate_receipt.ts` front-door run announcing R's path with a digest equal to R's current bytes — an announcement carried by an echo, a Read or a typed line is no evidence, and neither is one whose digest differs or a receipt rewritten after it was announced;
-  - the tracked working tree is clean.
+  - the tracked working tree is clean, and nothing is staged: the index matches HEAD.
 
-  The residual this route accepts: a transcript inside the projects root is trusted as the record of the session it names, so any process able to write a file there can plant a transcript that vouches like a real one — the relay trusts the projects root, not whoever wrote into it.
+  The residual this route accepts: a transcript inside the projects root is trusted as the record of the session it names, so any process able to write a file there can plant a transcript that vouches like a real one — the relay trusts the projects root, not whoever wrote into it. That writer includes the opening agent itself: the opening agent can plant the evidence in its own projects root, so the relay is the same trust class as v3.3.0, which already trusted the session's own transcript.
 
   A refusal whose target checkout holds another session's spec-review receipt names this route in its `Remedy:` line, after the plain one; with no such receipt the remedy is unchanged.
 - **Override pattern:** Disable the plugin or copy-and-override — snapshot-copy the seeded script into `~/.claude/hooks/pre-pr-spec-review.sh`, edit (e.g., scope to specific repos or skip on docs-only branches), and register the local absolute path in the operator's `~/.claude/settings.json`.

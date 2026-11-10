@@ -154,7 +154,13 @@ function parseVitest(raw: string): TestCountParseResult {
   const line = lines[lines.length - 1][1];
   const n = (word: string): number => Number(new RegExp(`(\\d+)\\s+${word}\\b`).exec(line)?.[1] ?? 0);
   const passed = n("passed");
-  const failed = n("failed");
+  // A test file that throws on import fails under `Test Files` yet adds nothing
+  // to `Tests`, so a `Tests` line alone reads green. Every file failing on its
+  // own tests already counts at least one failed test, so the larger of the two
+  // counters is folded in — a mixed run is not counted twice.
+  const fileLines = Array.from(output.matchAll(/^\s*Test Files\s+(.+)$/gm));
+  const failedFiles = fileLines.length === 0 ? 0 : Number(/(\d+)\s+failed\b/.exec(fileLines[fileLines.length - 1][1])?.[1] ?? 0);
+  const failed = Math.max(n("failed"), failedFiles);
   const skipped = n("skipped") + n("todo");
   // Unhandled errors (`Errors  N errors` under `Tests`) fail the run even when
   // every test passed; `total` folds them in as pytest's does.
@@ -164,6 +170,8 @@ function parseVitest(raw: string): TestCountParseResult {
 
 // Cargo prints one `test result:` line per test binary (and one for doc-tests);
 // the run's count is their sum.
+const CARGO_TEST_FAILED_RE = /^error: test failed\b/m;
+const CARGO_PROCESS_FAILED_RE = /process didn't exit successfully/;
 function parseCargo(raw: string): TestCountParseResult {
   const output = stripSgr(raw);
   const results = Array.from(
@@ -180,7 +188,13 @@ function parseCargo(raw: string): TestCountParseResult {
     failed += Number(r[2]);
     ignored += Number(r[3]);
   }
-  return { ok: true, count: { total: passed + failed, failures: failed, errors: 0, skipped: ignored } };
+  // A binary that crashes (stack overflow, SIGABRT) prints no `test result:`
+  // line, so the other binaries' lines sum to fail 0. Cargo still reports the
+  // run as failed; either signature line makes the run carry one error.
+  const testFailed = CARGO_TEST_FAILED_RE.test(output);
+  const processFailed = CARGO_PROCESS_FAILED_RE.test(output);
+  const errors = failed === 0 && (testFailed || processFailed) ? 1 : 0;
+  return { ok: true, count: { total: passed + failed + errors, failures: failed, errors, skipped: ignored } };
 }
 
 // Playwright's footer is one `N <outcome>` line per outcome; a flaky test
@@ -194,11 +208,16 @@ function parsePlaywright(raw: string): TestCountParseResult {
   const failed = footer("failed");
   const flaky = footer("flaky");
   const skipped = footer("skipped");
-  if (passed === undefined && failed === undefined && flaky === undefined && skipped === undefined) {
+  // A global timeout stops the run: the test it stopped is `interrupted`, the
+  // ones it never started `did not run`. Both are failures.
+  const interrupted = footer("interrupted");
+  const didNotRun = footer("did not run");
+  const counters = [passed, failed, flaky, skipped, interrupted, didNotRun];
+  if (counters.every((c) => c === undefined)) {
     return { ok: false, reason: "could not determine test count — Playwright output lacks the summary footer" };
   }
   const pass = (passed ?? 0) + (flaky ?? 0);
-  const fail = failed ?? 0;
+  const fail = (failed ?? 0) + (interrupted ?? 0) + (didNotRun ?? 0);
   return { ok: true, count: { total: pass + fail, failures: fail, errors: 0, skipped: skipped ?? 0 } };
 }
 

@@ -310,8 +310,10 @@ export class LocalProvider implements Provider, IdentityMinter {
         // per the best-effort-by-design contract (AC-46.6).
       }
     }
-    const remoteBranch = await this.findRemoteBranchWithLock(id);
-    if (remoteBranch !== null && remoteBranch !== branch && !remoteBranch.endsWith(`/${branch}`)) {
+    // L3 — the scan skips only `<remote>/<branch>` EXACTLY, so any ref it
+    // returns is a foreign holder (never a suffix match like origin/x/feat/a).
+    const remoteBranch = await this.findRemoteBranchWithLock(id, branch);
+    if (remoteBranch !== null) {
       return {
         kind: "taken-elsewhere",
         branch: remoteBranch,
@@ -321,7 +323,9 @@ export class LocalProvider implements Provider, IdentityMinter {
 
     if (existsSync(lockPath)) {
       const existing = readFileSync(lockPath, "utf-8");
-      if (existing.includes(`branch: ${branch}`)) {
+      // L3 — parse the branch: line and compare it whole; a substring test
+      // would read a lock held by feat/a-2 as already-ours for feat/a.
+      if (extractBranch(existing) === branch) {
         return { kind: "already-ours", branch, message: `Lock already held on ${branch}` };
       }
       return {
@@ -485,8 +489,9 @@ export class LocalProvider implements Provider, IdentityMinter {
   }
 
   /**
-   * Returns the first remote branch (e.g., "origin/feat/other") that
-   * contains the lock for <ulid>, or null if none do.
+   * Returns the first remote branch (e.g., "origin/feat/other") other than
+   * `<remote>/<claimedBranch>` that contains the lock for <ulid>, or null if
+   * none do.
    * Implementation: `git ls-tree -r <branch> -- <locksDir>/<ulid>` per remote
    * branch. `git branch -r --contains <path>` is not a valid git command
    * (contains takes a commit, not a path), so we walk tips instead.
@@ -508,12 +513,17 @@ export class LocalProvider implements Provider, IdentityMinter {
    * `ls-tree`d at all, so the constraint is inherent to tracked-lock semantics
    * rather than incidental to this line.
    */
-  private async findRemoteBranchWithLock(id: string): Promise<string | null> {
+  private async findRemoteBranchWithLock(id: string, claimedBranch: string): Promise<string | null> {
     const refs = await this.safeGit("for-each-ref", "--format=%(refname:short)", "refs/remotes/");
     if (refs.length === 0) return null;
     const pathspec = join(relative(this.repoRoot, this.locksDir), id);
+    // L3 — the claimer's own ref is `<remote>/<claimedBranch>` for a configured
+    // remote, matched whole; a ref merely ENDING in `/<claimedBranch>` is foreign.
+    const remotes = (await this.safeGit("remote")).split("\n").map((s) => s.trim()).filter(Boolean);
+    const ownRefs = new Set(remotes.map((r) => `${r}/${claimedBranch}`));
     for (const branch of refs.split("\n").map((s) => s.trim()).filter(Boolean)) {
       if (branch.endsWith("/HEAD")) continue;
+      if (ownRefs.has(branch)) continue;
       const out = await this.safeGit("ls-tree", "-r", "--name-only", branch, "--", pathspec);
       if (out.length > 0) return branch;
     }

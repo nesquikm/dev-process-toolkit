@@ -125,6 +125,15 @@ describe("AC-STE-733.5 — the refusal names the relay route; the reference docu
     );
     expect(residual.length).toBeGreaterThan(0);
   });
+
+  test("§ pre-pr-spec-review says plainly that the opening agent itself can plant the evidence, the same trust class as v3.3.0 (review I1)", () => {
+    const s = section("pre-pr-spec-review");
+    const sentences = s.split(/(?<=[.!?])\s+/);
+    expect({
+      openerPlants: sentences.some((x) => /\bopening (session|agent)\b/i.test(x) && /\bplant(s|ed|ing)?\b/i.test(x)),
+      sameAsV330: sentences.some((x) => x.includes("v3.3.0") && /\bsame\b/i.test(x) && /\btrust\b/i.test(x)),
+    }).toEqual({ openerPlants: true, sameAsV330: true });
+  });
 });
 
 // Review finding (ordering): the relay's one network call — `git ls-remote`,

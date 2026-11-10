@@ -291,6 +291,8 @@ export interface RelayOpts {
   store?: "owner" | "third" | "outside-store" | "other-checkout";
   /** An unstaged edit to a tracked file. */
   dirty?: boolean;
+  /** A STAGED (not committed) edit to a tracked file: the working tree matches the index, the index does not match HEAD. */
+  staged?: boolean;
 }
 
 export interface RelayWorld {
@@ -339,6 +341,10 @@ export function makeRelayWorld(o: RelayOpts = {}): RelayWorld {
     git(repo, "push", "-q", "origin", "feature/x");
   }
   if (o.dirty) writeAt(repo, "src/app.ts", "export const app = -1;\n");
+  if (o.staged) {
+    writeAt(repo, "src/app.ts", "export const app = -2;\n");
+    git(repo, "add", "src/app.ts");
+  }
 
   // --- transcripts
   const projects = join(root, "projects");
@@ -539,6 +545,12 @@ export function commitLegs(): Leg[] {
     c("commit TWIN (plain) — the command writes a code file, stages it, then commits", "refuse", () => makeSpecOnlyWorld(), `echo 'export const late = 1;' > src/new.ts && git add -A && git commit -m "docs(specs): reword"`),
     c("commit TWIN (plain) — the command rewrites a tracked code file, `git add -u`, then commits", "refuse", () => makeSpecOnlyWorld(), `echo 'export const app = 7;' > src/app.ts && git add -u && git commit -m "docs(specs): reword"`),
     c("commit TWIN (plain) — `GIT_INDEX_FILE=<alt> git commit` over an index holding a code path", "refuse", () => makeSpecOnlyWorld(), (w) => `GIT_INDEX_FILE=${altIndexWithCode(w)} git commit -m "docs(specs): reword"`),
+    // Review L2: a global `-c` / `--config-env` lets the commit command itself
+    // repoint git (a hooks directory whose pre-commit restages code after the
+    // pass read the index, another work tree), so it is never plain.
+    c("commit TWIN (plain) — `git -c core.hooksPath=<dir> commit` points the commit at another hooks directory", "refuse", () => makeSpecOnlyWorld(), (w) => `git -c core.hooksPath=${join(dirname(w.repo), "hooks")} commit -m "docs(specs): reword"`),
+    c("commit TWIN (plain) — `git -c core.worktree=<dir> commit` points the commit at another work tree", "refuse", () => makeSpecOnlyWorld(), (w) => `git -c core.worktree=${dirname(w.repo)} commit -m "docs(specs): reword"`),
+    c("commit TWIN (plain) — `git --config-env=core.hooksPath=VAR commit` sets a config key from the environment", "refuse", () => makeSpecOnlyWorld(), 'git --config-env=core.hooksPath=DPT_FX_HOOKS commit -m "docs(specs): reword"'),
     leg("commit TWIN (one checkout) — the same spec-only commit in two checkouts at once", "commit", "refuse", (root) => {
       const parent = tempDir("two");
       const a = makeSpecOnlyWorld({}, join(parent, "a"));
@@ -584,6 +596,7 @@ export function relayLegs(): Leg[] {
     r("pr TWIN (digest) — R was rewritten after it was announced", "refuse", { digest: "rewritten" }),
     // The tracked working tree is clean.
     r("pr TWIN (clean tree) — an unstaged edit to a tracked file", "refuse", { dirty: true }),
+    r("pr TWIN (clean tree) — a staged, uncommitted change to a tracked file", "refuse", { staged: true }),
   ];
 }
 

@@ -30,6 +30,7 @@ import { join } from "node:path";
 
 import { mutateInRegion } from "./_sited-mutation";
 import {
+  EXACT_LEGS,
   METHODS,
   PLUGIN_ROOT,
   SHAPES,
@@ -142,6 +143,81 @@ describe("AC-STE-731.7 — removing one commit's path limit turns a named leg re
         const before = await LEG.get(k)!.check(pristine);
         if (before !== null) throw new Error(`row ${row.id}: "${k}" fails on the UNMUTATED copy:\n${before}`);
         const after = await LEG.get(k)!.check(mutant);
+        if (after === null) throw new Error(`row ${row.id} NOT KILLED: "${k}" still holds on the mutant`);
+      }
+    });
+  }
+});
+
+// ------------------------------------------------------------ L3 — the exact-branch rule
+//
+// Reintroducing a loose branch comparison in claimLock — the held lock read by
+// substring, or the remote ref read by suffix — must turn a named exact-branch
+// leg red while the row's exact-branch control still passes on the mutant.
+
+const EXACT = new Map(EXACT_LEGS.map((l) => [l.name, l]));
+
+interface ExactRow {
+  id: string;
+  guard: string;
+  /** The exact anchor in local_provider.ts (occurs exactly once); null until sited. */
+  find: string | null;
+  replace: string | null;
+  control: string;
+  kills: string[];
+}
+
+/** IMPLEMENTER: site `find` / `replace` for every row. Do not change `id`, `control` or `kills`. */
+const EXACT_ROWS: ExactRow[] = [
+  {
+    id: "exact-local",
+    guard: "a held lock is already-ours only when its branch: line IS the claimed branch",
+    find: "if (extractBranch(existing) === branch) {",
+    replace: "if (existing.includes(`branch: ${branch}`)) {",
+    control: "local: a lock held by feat/a is already-ours for feat/a",
+    kills: ["local: a lock held by feat/a-2 is taken-elsewhere for feat/a"],
+  },
+  {
+    id: "exact-remote",
+    guard: "a remote lock is ours only on <remote>/<the claimed branch> exactly",
+    find: "if (ownRefs.has(branch)) continue;",
+    replace: "if (branch.endsWith(`/${claimedBranch}`)) continue;",
+    control: "remote: a lock on origin/feat/a is not taken for feat/a",
+    kills: ["remote: a lock on origin/x/feat/a is taken-elsewhere for feat/a"],
+  },
+];
+
+describe("L3 — loosening the exact-branch rule turns a named leg red", () => {
+  test("the battery's shape: every named leg exists; controls permit, kills do not", () => {
+    for (const r of EXACT_ROWS) {
+      expect({ row: r.id, control: EXACT.get(r.control)?.permit }).toEqual({ row: r.id, control: true });
+      for (const k of r.kills) expect({ row: r.id, leg: k, permit: EXACT.get(k)?.permit }).toEqual({ row: r.id, leg: k, permit: false });
+    }
+  });
+
+  test("CONTROL — the unmutated copy passes every exact-branch leg", async () => {
+    const failures: string[] = [];
+    for (const l of EXACT_LEGS) {
+      const p = await l.check(pristine);
+      if (p !== null) failures.push(`${l.name}: ${p}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  for (const row of EXACT_ROWS) {
+    test(`${row.id} — ${row.guard}`, async () => {
+      if (row.find === null || row.replace === null) {
+        throw new Error(`row ${row.id} is not sited: set find/replace against the shipped ${PROVIDER_REL} (one exact anchor that loosens only this comparison)`);
+      }
+      const find = row.find;
+      const replace = row.replace;
+      const mutant = await providerFrom(`row-${row.id}`, (doc) => mutateInRegion(doc, 0, doc.length, find, replace, { label: `${row.id} in ${PROVIDER_REL}` }));
+      const control = await EXACT.get(row.control)!.check(mutant);
+      if (control !== null) throw new Error(`row ${row.id}: the mutant broke its control "${row.control}" (a load error or an over-wide mutation, not a kill):\n${control}`);
+      for (const k of row.kills) {
+        const before = await EXACT.get(k)!.check(pristine);
+        if (before !== null) throw new Error(`row ${row.id}: "${k}" fails on the UNMUTATED copy:\n${before}`);
+        const after = await EXACT.get(k)!.check(mutant);
         if (after === null) throw new Error(`row ${row.id} NOT KILLED: "${k}" still holds on the mutant`);
       }
     });

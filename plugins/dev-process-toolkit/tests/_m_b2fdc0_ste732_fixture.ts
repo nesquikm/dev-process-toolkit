@@ -441,6 +441,144 @@ export const VITEST_UNHANDLED_ERRORS: readonly string[] = [
   "",
 ];
 
+// ------------------------------------------------------------------ fix round 1 (operator ruling 2026-11-10, AC-STE-732.2 amended)
+//
+// Three runs that exit non-zero yet carried a green count at v3.4.0:
+//   H1 — a Cargo binary crashes (stack overflow / SIGABRT) and prints no
+//        `test result:` line; the other binaries' lines sum to fail 0.
+//   M2 — a Vitest test file throws on import: it fails under `Test Files` but
+//        adds nothing to `Tests`.
+//   L1 — Playwright's global timeout: `interrupted` and `did not run` lines.
+// Each comes with a green twin that must keep its exact counts.
+
+/** H1: the first binary passes 2; the second crashes before printing a `test result:` line. */
+export const CARGO_CRASH: readonly string[] = [
+  "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s",
+  "     Running unittests src/lib.rs (target/debug/deps/demo-0a1b2c3d4e5f6a7b)",
+  "",
+  "running 2 tests",
+  "test tests::adds ... ok",
+  "test tests::subtracts ... ok",
+  "",
+  "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+  "",
+  "     Running tests/it.rs (target/debug/deps/it-3c4d5e6f7a8b9c0d)",
+  "",
+  "running 1 test",
+  "",
+  "thread 'recurses' has overflowed its stack",
+  "fatal runtime error: stack overflow",
+  "error: test failed, to rerun pass `--test it`",
+  "",
+  "Caused by:",
+  "  process didn't exit successfully: `/work/demo/target/debug/deps/it-3c4d5e6f7a8b9c0d` (signal: 6, SIGABRT: process abort signal)",
+];
+/** CARGO_CRASH carrying only the `error: test failed` signature line. */
+export const CARGO_CRASH_ERROR_LINE_ONLY: readonly string[] = CARGO_CRASH.filter((l) => !/process didn't exit successfully|^Caused by:/.test(l));
+/** CARGO_CRASH carrying only the `process didn't exit successfully` signature line. */
+export const CARGO_CRASH_PROCESS_LINE_ONLY: readonly string[] = CARGO_CRASH.filter((l) => !/^error: test failed/.test(l));
+/** CARGO_CRASH with `--color always`: cargo paints `error` red and bold. */
+export const CARGO_CRASH_ANSI: readonly string[] = CARGO_CRASH.map((l) =>
+  l.startsWith("error: test failed")
+    ? `${E}[1m${E}[31merror${E}[0m${E}[1m: test failed, to rerun pass \`--test it\`${E}[0m`
+    : l.startsWith("test result: ok.")
+      ? l.replace("test result: ok.", `test result: ${E}[32mok${E}[0m.`)
+      : l,
+);
+/** The green twin: the second binary completes and prints its line → 3 / 0 / 0. */
+export const CARGO_CRASH_TWIN_GREEN: readonly string[] = [
+  ...CARGO_CRASH.slice(0, CARGO_CRASH.indexOf("running 1 test") + 1),
+  "test recurses ... ok",
+  "",
+  "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+  "",
+];
+
+/** M2: src/b.test.ts throws on import — `Test Files  1 failed | 1 passed (2)`, `Tests  3 passed (3)`. */
+export const VITEST_FAILED_FILE: readonly string[] = [
+  "",
+  " RUN  v2.1.8 /work/demo",
+  "",
+  " ✓ src/a.test.ts (3 tests) 4ms",
+  " ❯ src/b.test.ts (0 test)",
+  "",
+  "⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯",
+  "",
+  " FAIL  src/b.test.ts [ src/b.test.ts ]",
+  "Error: Cannot find module './missing' imported from /work/demo/src/b.test.ts",
+  " ❯ src/b.test.ts:1:1",
+  "",
+  " Test Files  1 failed | 1 passed (2)",
+  "      Tests  3 passed (3)",
+  "   Start at  12:00:00",
+  "   Duration  380ms",
+  "",
+];
+/** VITEST_FAILED_FILE with FORCE_COLOR=1 on the two summary lines. */
+export const VITEST_FAILED_FILE_ANSI: readonly string[] = VITEST_FAILED_FILE.map((l) =>
+  l === " Test Files  1 failed | 1 passed (2)"
+    ? `${E}[2m Test Files ${E}[22m ${E}[1m${E}[31m1 failed${E}[39m${E}[22m${E}[2m | ${E}[22m${E}[1m${E}[32m1 passed${E}[39m${E}[22m${E}[90m (2)${E}[39m`
+    : l === "      Tests  3 passed (3)"
+      ? `${E}[2m      Tests ${E}[22m ${E}[1m${E}[32m3 passed${E}[39m${E}[22m${E}[90m (3)${E}[39m`
+      : l,
+);
+/** The green twin: every file loaded → `Test Files  2 passed (2)` → 3 / 0 / 0. */
+export const VITEST_FAILED_FILE_TWIN_GREEN: readonly string[] = [
+  "",
+  " RUN  v2.1.8 /work/demo",
+  "",
+  " ✓ src/a.test.ts (3 tests) 4ms",
+  " ✓ src/b.test.ts (0 test)",
+  "",
+  " Test Files  2 passed (2)",
+  "      Tests  3 passed (3)",
+  "   Start at  12:00:00",
+  "   Duration  380ms",
+  "",
+];
+
+/** L1: a global-timeout run — 1 interrupted, 4 did not run, 2 passed → pass 2, fail 5. */
+export const PLAYWRIGHT_INTERRUPTED: readonly string[] = [
+  "",
+  "Running 7 tests using 1 worker",
+  "",
+  "  ✓  1 [chromium] › tests/home.spec.ts:3:5 › shows the title (410ms)",
+  "  ✓  2 [chromium] › tests/home.spec.ts:9:5 › shows the footer (300ms)",
+  "  ✘  3 [chromium] › tests/slow.spec.ts:3:5 › waits for the report (59.3s)",
+  "",
+  "Timed out waiting 60s for the test suite to run",
+  "",
+  "  1 interrupted",
+  "    [chromium] › tests/slow.spec.ts:3:5 › waits for the report ───────────────",
+  "  4 did not run",
+  "  2 passed (1.0m)",
+];
+/** PLAYWRIGHT_INTERRUPTED without the `did not run` line → pass 2, fail 1. */
+export const PLAYWRIGHT_INTERRUPTED_ONLY: readonly string[] = PLAYWRIGHT_INTERRUPTED.filter((l) => l !== "  4 did not run");
+/** PLAYWRIGHT_INTERRUPTED without the `interrupted` line (and its title) → pass 2, fail 4. */
+export const PLAYWRIGHT_DID_NOT_RUN_ONLY: readonly string[] = PLAYWRIGHT_INTERRUPTED.filter(
+  (l) => l !== "  1 interrupted" && !l.includes("waits for the report ───"),
+);
+/** PLAYWRIGHT_INTERRUPTED with FORCE_COLOR=1: each footer line wrapped whole. */
+export const PLAYWRIGHT_INTERRUPTED_ANSI: readonly string[] = PLAYWRIGHT_INTERRUPTED.map((l) =>
+  l === "  1 interrupted"
+    ? `${E}[31m  1 interrupted${E}[39m`
+    : l === "  4 did not run"
+      ? `${E}[2m  4 did not run${E}[22m`
+      : l === "  2 passed (1.0m)"
+        ? `${E}[32m  2 passed${E}[39m${E}[2m (1.0m)${E}[22m`
+        : l,
+);
+
+export const EXPECTED_FIX1 = {
+  CARGO_CRASH_TWIN_GREEN: { pass: 3, fail: 0, skip: 0 },
+  VITEST_FAILED_FILE: { pass: 3, fail: 1, skip: 0 },
+  VITEST_FAILED_FILE_TWIN_GREEN: { pass: 3, fail: 0, skip: 0 },
+  PLAYWRIGHT_INTERRUPTED: { pass: 2, fail: 5, skip: 0 },
+  PLAYWRIGHT_INTERRUPTED_ONLY: { pass: 2, fail: 1, skip: 0 },
+  PLAYWRIGHT_DID_NOT_RUN_ONLY: { pass: 2, fail: 4, skip: 0 },
+} as const;
+
 // ------------------------------------------------------------------ bun / pytest runs that merely print a foreign-looking line
 //
 // Phase 3 review: a test fixture (or a test's own stdout) can print a line that
@@ -550,6 +688,21 @@ function countLeg(name: string, stack: string, lines: readonly string[], expecte
     check: async (src) => {
       const d = await derive(src);
       return eq(`deriveRunCounts(${stack})`, d({ output: text(lines), stack }), { ok: true, ...expected });
+    },
+  };
+}
+
+/** Holds when the run never reads green: the parse refuses (with a reason), or deriveRunCounts gives fail > 0. */
+function notGreenLeg(name: string, stack: string, lines: readonly string[]): Leg {
+  return {
+    name,
+    permit: false,
+    check: async (src) => {
+      const d = await derive(src);
+      const r = d({ output: text(lines), stack });
+      if (r?.ok === false) return typeof r.reason === "string" && r.reason.length > 0 ? null : `deriveRunCounts(${stack}) refused without a reason: ${JSON.stringify(r)}`;
+      if (r?.ok === true && typeof r.fail === "number" && r.fail > 0) return null;
+      return `deriveRunCounts(${stack}) read a crashed / failed run as green: ${JSON.stringify(r)}`;
     },
   };
 }
@@ -757,6 +910,20 @@ export const LEGS: Leg[] = [
       ]);
     },
   },
+
+  // ---- fix round 1 (AC-STE-732.2 amended 2026-11-10): crashed, failed-to-load and interrupted runs never read green
+  notGreenLeg("PARSER cargo CRASH — a binary that crashed after another passed never reads green", "cargo", CARGO_CRASH),
+  notGreenLeg("PARSER cargo CRASH — `error: test failed` alone never reads green", "cargo", CARGO_CRASH_ERROR_LINE_ONLY),
+  notGreenLeg("PARSER cargo CRASH — `process didn't exit successfully` alone never reads green", "cargo", CARGO_CRASH_PROCESS_LINE_ONLY),
+  notGreenLeg("ANSI cargo CRASH — a coloured crash never reads green", "cargo", CARGO_CRASH_ANSI),
+  countLeg("PARSER cargo COUNT — the crash's green twin (second binary completes) → 3 / 0 / 0", "cargo", CARGO_CRASH_TWIN_GREEN, EXPECTED_FIX1.CARGO_CRASH_TWIN_GREEN),
+  countLeg("PARSER vitest FAILED FILES — `Test Files  1 failed` folds into failures → 3 / 1 / 0", "vitest", VITEST_FAILED_FILE, EXPECTED_FIX1.VITEST_FAILED_FILE),
+  countLeg("ANSI vitest FAILED FILES — coloured `Test Files  1 failed` folds into failures → 3 / 1 / 0", "vitest", VITEST_FAILED_FILE_ANSI, EXPECTED_FIX1.VITEST_FAILED_FILE),
+  countLeg("PARSER vitest COUNT — the failed-file run's green twin (`Test Files  2 passed`) → 3 / 0 / 0", "vitest", VITEST_FAILED_FILE_TWIN_GREEN, EXPECTED_FIX1.VITEST_FAILED_FILE_TWIN_GREEN),
+  countLeg("PARSER playwright INTERRUPTED — 1 interrupted + 4 did not run count as failures → 2 / 5 / 0", "playwright", PLAYWRIGHT_INTERRUPTED, EXPECTED_FIX1.PLAYWRIGHT_INTERRUPTED),
+  countLeg("PARSER playwright INTERRUPTED — `1 interrupted` alone → 2 / 1 / 0", "playwright", PLAYWRIGHT_INTERRUPTED_ONLY, EXPECTED_FIX1.PLAYWRIGHT_INTERRUPTED_ONLY),
+  countLeg("PARSER playwright DID NOT RUN — `4 did not run` alone → 2 / 4 / 0", "playwright", PLAYWRIGHT_DID_NOT_RUN_ONLY, EXPECTED_FIX1.PLAYWRIGHT_DID_NOT_RUN_ONLY),
+  countLeg("ANSI playwright INTERRUPTED — coloured interrupted / did-not-run footer → 2 / 5 / 0", "playwright", PLAYWRIGHT_INTERRUPTED_ANSI, EXPECTED_FIX1.PLAYWRIGHT_INTERRUPTED),
 
   // ---- the Vitest table refusal
   {

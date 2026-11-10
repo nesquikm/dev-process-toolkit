@@ -902,6 +902,43 @@ describe("AC-STE-699.2(b) [security] S6 — shipped_in is read from the git INDE
   });
 });
 
+describe("AC-STE-699.2 [M1] — the plan is read from HEAD: a plan that is only staged never closes the Epic (v3.4.0 fix round 1)", () => {
+  const SPANS = (): Record<string, string> => ({ [BE_NAME]: ".", [FE_NAME]: `../${FE_NAME}` });
+  const REL = `specs/plan/archive/${MILESTONE}.md`;
+  /** stdout of a git probe, or "" when git fails. */
+  const gitOut = (root: string, ...args: string[]): string => {
+    const p = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+    return p.exitCode === 0 ? p.stdout.toString() : "";
+  };
+
+  test("AC-STE-699.2 [M1] TWIN — no plan in HEAD; the shipped plan is only `git add`-ed (index = working tree) → refused, no receipt", () => {
+    const w = makeWorld({ untrackedPlan: true });
+    git(w.be, "add", "--", REL);
+    expect(gitOut(w.be, "ls-tree", "--name-only", "HEAD", "--", REL).trim(), "fixture: HEAD has no plan").toBe("");
+    expect(gitOut(w.be, "ls-files", "--", REL).trim(), "fixture: the index tracks the staged plan").toBe(REL);
+    expect(gitOut(w.be, "diff", "--name-only", "--", REL).trim(), "fixture: the working tree equals the index").toBe("");
+    expectRefused(closeEpic(w, DONE_CHILDREN()), w, new RegExp(MILESTONE));
+  });
+
+  test("AC-STE-699.2 [M1] TWIN — HEAD's plan is unstamped; the stamp v1.2.0 is only `git add`-ed (index = working tree) → refused, no receipt", () => {
+    const w = makeWorld();
+    writePlan(w.be, "archive", MILESTONE, SPANS(), { shippedIn: null });
+    commitAll(w.be, "fixture: the committed plan is unstamped");
+    writePlan(w.be, "archive", MILESTONE, SPANS(), { shippedIn: `v${VERSION}` });
+    git(w.be, "add", "--", REL);
+    expect(gitOut(w.be, "show", `HEAD:${REL}`), "fixture: HEAD is unstamped").toContain("shipped_in: null");
+    expect(gitOut(w.be, "show", `:${REL}`), "fixture: the index is stamped").toContain(`shipped_in: v${VERSION}`);
+    expect(readFileSync(w.planFile, "utf-8"), "fixture: the working tree is stamped").toContain(`shipped_in: v${VERSION}`);
+    expectRefused(closeEpic(w, DONE_CHILDREN()), w, new RegExp(MILESTONE));
+  });
+
+  test("AC-STE-699.2 [M1] PERMIT CONTROL — the committed, clean plan (HEAD = index = working tree) still closes, one receipt", () => {
+    const w = makeWorld();
+    expect(gitOut(w.be, "status", "--porcelain", "--", REL).trim(), "fixture: the plan is clean against HEAD").toBe("");
+    expectClosed(closeEpic(w, DONE_CHILDREN()), w);
+  });
+});
+
 describe("AC-STE-699.2(d) [security] S7 — every listed child must name THIS Epic as its parent", () => {
   const withParent = (row: Record<string, unknown>, parent: string | null): Record<string, unknown> => {
     const fields = { ...(row.fields as Record<string, unknown>) };

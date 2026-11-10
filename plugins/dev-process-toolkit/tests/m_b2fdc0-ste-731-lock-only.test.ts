@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import {
   BRANCH,
+  EXACT_LEGS,
   LOCK_ID,
   METHODS,
   PLUGIN_ROOT,
@@ -321,3 +322,70 @@ describe("AC-STE-731.5 — /spec-archive orders branch gate, then the archive co
   });
 });
 
+
+// ------------------------------------------------------------ L3 — exact branch
+
+describe("L3 — a lock is ours only on the exact branch (local lock file and remote ref)", () => {
+  for (const leg of EXACT_LEGS) {
+    test(leg.name, async () => {
+      expect({ leg: leg.name, problem: await leg.check(REAL_CTOR) }).toEqual({ leg: leg.name, problem: null });
+    });
+  }
+});
+
+// ------------------------------------------------------------ AC .5 twin — /implement
+
+const IMPLEMENT_REF = join(PLUGIN_ROOT, "docs", "implement-reference.md");
+const IMPLEMENT_SKILL = join(PLUGIN_ROOT, "skills", "implement", "SKILL.md");
+
+function between(doc: string, start: string, end: string, where: string): string {
+  const a = doc.indexOf(start);
+  const b = a < 0 ? -1 : doc.indexOf(end, a + start.length);
+  if (a < 0 || b < 0) throw new Error(`section ${start} .. ${end} not found in ${where}`);
+  return doc.slice(a, b);
+}
+
+const COMMIT = /single (atomic )?commit|commit atomically|atomic commit|archive commit/i;
+const RELEASE = /releaseLock/;
+/** A sentence that names releaseLock without executing it: a refusal, a skip, a plan, or a preview listing. */
+const NOT_EXEC = /\b(do not|don't|never|skip|plan one)\b|diff preview|list every/i;
+
+/** Offset of the first archive-commit mention, and of every releaseLock the procedure actually executes. */
+function implementOrder(text: string): { commit: number; releases: { at: number; sentence: string }[] } {
+  const releases: { at: number; sentence: string }[] = [];
+  let at = 0;
+  for (const sentence of text.split(/(?<=\.)\s+|\n+/)) {
+    const start = text.indexOf(sentence, at);
+    at = start + sentence.length;
+    if (!RELEASE.test(sentence) || NOT_EXEC.test(sentence)) continue;
+    releases.push({ at: start + sentence.search(RELEASE), sentence: sentence.trim() });
+  }
+  return { commit: text.search(COMMIT), releases };
+}
+
+function expectCommitBeforeEveryRelease(where: string, text: string): void {
+  const o = implementOrder(text);
+  expect({ where, commitFound: o.commit >= 0, releaseFound: o.releases.length > 0 }).toEqual({ where, commitFound: true, releaseFound: true });
+  const early = o.releases.filter((r) => r.at < o.commit).map((r) => r.sentence);
+  expect({ where, releasedBeforeTheArchiveCommit: early }).toEqual({ where, releasedBeforeTheArchiveCommit: [] });
+  // No executed release rides inside the commit sentence either (e.g. "execute … releaseLock calls and commit atomically").
+  const inCommit = o.releases.filter((r) => COMMIT.test(r.sentence) && !/\bafter\b/i.test(r.sentence)).map((r) => r.sentence);
+  expect({ where, releasedInsideTheArchiveCommit: inCommit }).toEqual({ where, releasedInsideTheArchiveCommit: [] });
+}
+
+describe("AC-STE-731.5 twin — /implement Milestone Archival: the single archive commit, then each releaseLock", () => {
+  const ref = readFileSync(IMPLEMENT_REF, "utf-8");
+  const skill = readFileSync(IMPLEMENT_SKILL, "utf-8");
+
+  test("docs/implement-reference.md § Milestone Archival Procedure (lettered sub-steps): no lock released before the archive commit", () => {
+    expectCommitBeforeEveryRelease("implement-reference § Milestone Archival Procedure", between(ref, "## Milestone Archival Procedure", "\n## ", "implement-reference.md"));
+  });
+
+  test("docs/implement-reference.md § Phase 4 Milestone Archival — full procedure detail: no lock released before the archive commit", () => {
+    expectCommitBeforeEveryRelease("implement-reference § Phase 4 Milestone Archival", between(ref, "## Phase 4 Milestone Archival — full procedure detail", "\n## ", "implement-reference.md"));
+  });
+
+  test("skills/implement/SKILL.md § Milestone Archival Procedure summary: no lock released before the archive commit", () => {
+    expectCommitBeforeEveryRelease("implement SKILL § Procedure summary", between(skill, "**Procedure summary.**", "#### Post-Archive Drift Check", "skills/implement/SKILL.md"));
+  });
+});

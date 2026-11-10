@@ -96,6 +96,11 @@ const MODULE_LEGS: Leg[] = [
   moduleLeg("TWIN (e) — the plan carries no container_origin", { containerOrigin: null }, EPIC, false),
   moduleLeg("TWIN (e) — the plan carries container_origin: joined", { containerOrigin: "joined" }, EPIC, false),
   moduleLeg("TWIN (e) — the plan carries container_origin: maybe", { containerOrigin: "maybe" }, EPIC, false),
+  // v3.4.0 fix round 1, M1: the plan is read from HEAD, and HEAD = index = working tree for that path.
+  moduleLeg("TWIN (head) — the plan is only staged, in no commit", { stagedOnlyPlan: true }, EPIC, false),
+  moduleLeg("TWIN (head) — container_origin: minted is only staged (HEAD says joined)", { containerOrigin: "joined", stagedOrigin: "minted" }, EPIC, false),
+  moduleLeg("TWIN (head) — the working tree differs from HEAD (body only)", { bodyDrift: "worktree" }, EPIC, false),
+  moduleLeg("TWIN (head) — the index differs from HEAD (staged body edit)", { bodyDrift: "index" }, EPIC, false),
 ];
 
 const GATE_LEGS: Leg[] = [...epicEditLegs(), ...fetchedTicketLegs()].map((l) => ({
@@ -145,6 +150,8 @@ const CATEGORY: Readonly<Record<string, RegExp>> = {
   "check-c": /^module TWIN \(c\)/,
   "check-d": /^module TWIN \(d\)/,
   "check-e": /^module TWIN \(e\)/,
+  "head-read": /^module TWIN \(head\)/,
+  "head-equal": /^module TWIN \(head\)/,
   field: /^(gate|grader) TWIN \((fields|input)\)/,
   consent: /^(gate|grader) TWIN \(consent\)/,
   "tool-name": /^(gate|grader) TWIN \(tool name\)/,
@@ -160,11 +167,13 @@ const EPIC_EDIT_FILE = moduleRel("epic_edit.ts");
  * every row. Do not change `id`, `side` or remove a row.
  */
 const ROWS: Row[] = [
-  { id: "check-a", guard: "epic_edit.ts (a): the git index tracks the plan", side: "module", file: EPIC_EDIT_FILE, find: "  const rel = candidates.find((c) => tracked(projectRoot, c));\n  if (rel === undefined) {\n    throw new EpicEditRefusal(\n      `${milestone} (from ${epicKey}) has no plan tracked by the git index of ${projectRoot} — neither ${candidates.join(\" nor \")} is tracked`,\n      `edit ${epicKey} only from the repository that planned ${milestone}, with its plan committed`,\n      context,\n    );\n  }\n  const planContext = `${context}, plan=${rel}`;\n\n  // (b) the plan, read from the index, carries `milestone: <M>`.\n  const planBody = indexBlob(projectRoot, rel);", replace: "  const rel = candidates.find((c) => existsSync(join(projectRoot, c)));\n  if (rel === undefined) {\n    throw new EpicEditRefusal(\n      `${milestone} (from ${epicKey}) has no plan tracked by the git index of ${projectRoot} — neither ${candidates.join(\" nor \")} is tracked`,\n      `edit ${epicKey} only from the repository that planned ${milestone}, with its plan committed`,\n      context,\n    );\n  }\n  const planContext = `${context}, plan=${rel}`;\n\n  // (b) the plan, read from the index, carries `milestone: <M>`.\n  const planBody = indexBlob(projectRoot, rel) ?? readFileSync(join(projectRoot, rel), \"utf-8\");", kills: ["module TWIN (a) — the plan is not tracked"] },
+  { id: "check-a", guard: "epic_edit.ts (a): the git index tracks the plan", side: "module", file: EPIC_EDIT_FILE, find: "  const rel = candidates.find((c) => tracked(projectRoot, c));\n  if (rel === undefined) {\n    throw new EpicEditRefusal(\n      `${milestone} (from ${epicKey}) has no plan tracked by the git index of ${projectRoot} — neither ${candidates.join(\" nor \")} is tracked`,\n      `edit ${epicKey} only from the repository that planned ${milestone}, with its plan committed`,\n      context,\n    );\n  }\n  const planContext = `${context}, plan=${rel}`;\n\n  // (b) the plan, read from HEAD, carries `milestone: <M>`.\n  const planBody = headBlob(projectRoot, rel);", replace: "  const rel = candidates.find((c) => existsSync(join(projectRoot, c)));\n  if (rel === undefined) {\n    throw new EpicEditRefusal(\n      `${milestone} (from ${epicKey}) has no plan tracked by the git index of ${projectRoot} — neither ${candidates.join(\" nor \")} is tracked`,\n      `edit ${epicKey} only from the repository that planned ${milestone}, with its plan committed`,\n      context,\n    );\n  }\n  const planContext = `${context}, plan=${rel}`;\n\n  // (b) the plan, read from HEAD, carries `milestone: <M>`.\n  const planBody = headBlob(projectRoot, rel) ?? readFileSync(join(projectRoot, rel), \"utf-8\");", kills: ["module TWIN (a) — the plan is not tracked"] },
   { id: "check-b", guard: "epic_edit.ts (b): the indexed plan carries milestone: <M>", side: "module", file: EPIC_EDIT_FILE, find: "if (indexFrontmatter.milestone !== milestone) {", replace: "if (false) {", kills: ["module TWIN (b) — the indexed plan carries another milestone"] },
   { id: "check-c", guard: "epic_edit.ts (c): index and working-tree frontmatter agree", side: "module", file: EPIC_EDIT_FILE, find: "if (diskFrontmatter === null || JSON.stringify(diskFrontmatter) !== JSON.stringify(indexFrontmatter)) {", replace: "if (false) {", kills: ["module TWIN (c) — the working-tree frontmatter differs from the index"] },
   { id: "check-d", guard: "epic_edit.ts (d): the binding is Jira mode", side: "module", file: EPIC_EDIT_FILE, find: "if (mode !== \"jira\") {", replace: "if (false) {", kills: ["module TWIN (d) — the binding is Linear"] },
   { id: "check-e", guard: "epic_edit.ts (e): the indexed plan carries container_origin: minted (AC-STE-729.12)", side: "module", file: EPIC_EDIT_FILE, find: "if (origin !== \"minted\") {", replace: "if (false) {", kills: ["module TWIN (e) — the plan carries no container_origin", "module TWIN (e) — the plan carries container_origin: joined"] },
+  { id: "head-read", guard: "epic_edit.ts (M1): the plan is read from HEAD (git show HEAD:<rel> / git ls-tree HEAD), never the index alone", side: "module", file: EPIC_EDIT_FILE, find: "import { equalsHead, headBlob, tracked } from \"./epic_close\";", replace: "import { equalsHead, indexBlob as headBlob, tracked } from \"./epic_close\";", kills: ["module TWIN (head) — the plan is only staged, in no commit", "module TWIN (head) — container_origin: minted is only staged (HEAD says joined)"] },
+  { id: "head-equal", guard: "epic_edit.ts (M1): the index and the working tree both equal HEAD for the plan's path", side: "module", file: EPIC_EDIT_FILE, find: "const headEqual = equalsHead(projectRoot, rel, planBody);", replace: "const headEqual = true;", kills: ["module TWIN (head) — the working tree differs from HEAD (body only)", "module TWIN (head) — the index differs from HEAD (staged body edit)"] },
   { id: "field", guard: "hook: the Epic edit carries description/summary only", side: "hook", file: hookModuleRel, find: "  if (!isTextOnlyEdit(call.input)) return false;\n", replace: "", kills: ["gate TWIN (fields) — fields also carries labels"] },
   { id: "consent", guard: "hook: the `Edit <KEY>` AskUserQuestion answer after the announcement", side: "hook", file: hookModuleRel, find: "if (answeredAfter(ctx.parsed, { line: a.line, act: \"join\", key, title: null }, label)) return true;", replace: "return true;", kills: ["gate TWIN (consent) — no AskUserQuestion answer after the receipt"] },
   { id: "tool-name", guard: "hook: only a get-ticket tool_result proves ownership", side: "hook", file: hookModuleRel, find: "if (b.is_error === true || !fetches.has(b.tool_use_id)) continue;", replace: "if (b.is_error === true || !(fetches.has(b.tool_use_id) || resultText(b.content).trim().startsWith(\"{\"))) continue;", kills: ["gate TWIN (tool name) — the same answer echoed by Bash → refused"] },
@@ -181,6 +190,8 @@ const REQUIRED: ReadonlyArray<[string, Side]> = [
   ["check-c", "module"],
   ["check-d", "module"],
   ["check-e", "module"],
+  ["head-read", "module"],
+  ["head-equal", "module"],
   ...(["field", "consent", "tool-name", "verdict"] as const).flatMap((g) => [
     [g, "hook"] as [string, Side],
     [g, "grader"] as [string, Side],

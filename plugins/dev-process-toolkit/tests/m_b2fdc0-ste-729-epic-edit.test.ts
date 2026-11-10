@@ -138,7 +138,7 @@ describe("AC-STE-729.1 — epic_edit.ts ships and is a subcommand-less receipt-w
 // AC-STE-729.2 — the four checks, each with its twin
 // ===========================================================================
 
-describe("AC-STE-729.2 — all four checks hold → default=forbidden, the Edit/Skip options and one announced `epic-edit` receipt", () => {
+describe("AC-STE-729.2 / AC-STE-729.12 — all five checks (a)-(e) hold → default=forbidden, the Edit/Skip options and one announced `epic-edit` receipt", () => {
   test("PERMIT — tracked live plan carrying milestone M_PROJ_500, index = working tree, Jira binding → exit 0, one receipt (kind epic-edit, subject PROJ-500)", () => {
     const w = makeWorld();
     const r = runEpicEdit(PLUGIN_ROOT, w);
@@ -280,6 +280,69 @@ describe("AC-STE-729.2 / AC-STE-729.12 — each failing check refuses in the NFR
   test("CONTROL — each twin differs from the permit world in its one fact (the permit world passes every check)", () => {
     const w = makeWorld();
     expect(epicEditPermitProblem(runEpicEdit(PLUGIN_ROOT, w), w)).toBeNull();
+  });
+});
+
+// ===========================================================================
+// AC-STE-729.2 (a)-(c) / AC-STE-729.12 — the plan is read from HEAD, and the
+// index and working tree must both equal HEAD for that path (v3.4.0 fix
+// round 1, M1): a `git add` alone never makes a repository the Epic's owner.
+// ===========================================================================
+
+/** `git -C <root> <args>` → stdout, or "" when git fails (a fixture probe, never an assertion on its own). */
+function gitOut(root: string, ...args: string[]): string {
+  const p = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+  return p.exitCode === 0 ? p.stdout.toString() : "";
+}
+
+describe("AC-STE-729.2 / AC-STE-729.12 [M1] — a plan that is only staged, or differs from HEAD, is refused", () => {
+  test("[M1] TWIN (1) — plan committed `container_origin: joined`, then edited to `minted` and only `git add`-ed (HEAD still joined) → refused, NFR-10, non-zero, no receipt", () => {
+    const w = makeWorld({ containerOrigin: "joined", stagedOrigin: "minted" });
+    expect(gitOut(w.root, "show", `HEAD:${w.planRel}`), "fixture: HEAD carries joined").toMatch(/^container_origin: joined$/m);
+    expect(gitOut(w.root, "show", `:${w.planRel}`), "fixture: the index carries minted").toMatch(/^container_origin: minted$/m);
+    expect(readFileSync(w.planFile, "utf-8"), "fixture: the working tree carries minted").toMatch(/^container_origin: minted$/m);
+    const r = runEpicEdit(PLUGIN_ROOT, w);
+    expect(epicEditRefusalProblem(r, w, [new RegExp(MILESTONE)]), show(r)).toBeNull();
+  });
+
+  test("[M1] TWIN (2) — no plan in any commit; a new specs/plan/M_PROJ_500.md with milestone + `container_origin: minted` is staged → refused, NFR-10, non-zero, no receipt", () => {
+    const w = makeWorld({ stagedOnlyPlan: true });
+    expect(gitOut(w.root, "ls-tree", "--name-only", "HEAD", "--", w.planRel).trim(), "fixture: HEAD has no plan").toBe("");
+    expect(gitOut(w.root, "ls-files", "--", w.planRel).trim(), "fixture: the index tracks the staged plan").toBe(w.planRel);
+    expect(gitOut(w.root, "show", `:${w.planRel}`), "fixture: the staged plan is minted").toMatch(/^container_origin: minted$/m);
+    const r = runEpicEdit(PLUGIN_ROOT, w);
+    expect(epicEditRefusalProblem(r, w, [new RegExp(MILESTONE)]), show(r)).toBeNull();
+  });
+
+  test("[M1] TWIN (3) — plan committed minted, the working tree differs from HEAD for that path (body only, frontmatter unchanged) → refused, NFR-10, non-zero, no receipt", () => {
+    const w = makeWorld({ bodyDrift: "worktree" });
+    expect(gitOut(w.root, "show", `HEAD:${w.planRel}`), "fixture: HEAD is minted").toMatch(/^container_origin: minted$/m);
+    expect(gitOut(w.root, "diff", "--name-only", "HEAD", "--", w.planRel).trim(), "fixture: the path differs from HEAD").toBe(w.planRel);
+    expect(gitOut(w.root, "diff", "--name-only", "--cached", "--", w.planRel).trim(), "fixture: the index still equals HEAD").toBe("");
+    const r = runEpicEdit(PLUGIN_ROOT, w);
+    expect(epicEditRefusalProblem(r, w, [new RegExp(MILESTONE), /HEAD|commit/i]), show(r)).toBeNull();
+  });
+
+  test("[M1] TWIN (3) — plan committed minted, the index differs from HEAD for that path (a staged body edit; index = working tree) → refused, NFR-10, non-zero, no receipt", () => {
+    const w = makeWorld({ bodyDrift: "index" });
+    expect(gitOut(w.root, "diff", "--name-only", "--cached", "--", w.planRel).trim(), "fixture: the index differs from HEAD").toBe(w.planRel);
+    expect(gitOut(w.root, "diff", "--name-only", "--", w.planRel).trim(), "fixture: the working tree equals the index").toBe("");
+    const r = runEpicEdit(PLUGIN_ROOT, w);
+    expect(epicEditRefusalProblem(r, w, [new RegExp(MILESTONE), /HEAD|commit/i]), show(r)).toBeNull();
+  });
+
+  test("[M1] PERMIT (4) — the committed, clean, minted plan still passes (HEAD = index = working tree)", () => {
+    const w = makeWorld();
+    expect(gitOut(w.root, "status", "--porcelain", "--", w.planRel).trim(), "fixture: the plan is clean against HEAD").toBe("");
+    expect(gitOut(w.root, "show", `HEAD:${w.planRel}`), "fixture: HEAD is minted").toMatch(/^container_origin: minted$/m);
+    const r = runEpicEdit(PLUGIN_ROOT, w);
+    expect(epicEditPermitProblem(r, w), show(r)).toBeNull();
+  });
+
+  test("[M1] PERMIT (4) — the committed, clean, minted plan at specs/plan/archive/<M>.md still passes", () => {
+    const w = makeWorld({ archived: true });
+    const r = runEpicEdit(PLUGIN_ROOT, w);
+    expect(epicEditPermitProblem(r, w), show(r)).toBeNull();
   });
 });
 

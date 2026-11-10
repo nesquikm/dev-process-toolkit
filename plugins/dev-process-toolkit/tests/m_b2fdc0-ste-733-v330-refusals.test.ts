@@ -64,7 +64,14 @@ describe("AC-STE-733.8 — every refusal outside the carve-outs, at v3.3.0 and n
       writes: plain.some((n) => /writes a code file/.test(n)),
       rewritesTracked: plain.some((n) => /rewrites a tracked code file/.test(n)),
       altIndex: plain.some((n) => n.includes("GIT_INDEX_FILE")),
-    }).toEqual({ stages: true, writes: true, rewritesTracked: true, altIndex: true });
+      configHooksPath: plain.some((n) => n.includes("git -c core.hooksPath=")),
+      configWorktree: plain.some((n) => n.includes("git -c core.worktree=")),
+      configEnv: plain.some((n) => n.includes("--config-env=")),
+    }).toEqual({ stages: true, writes: true, rewritesTracked: true, altIndex: true, configHooksPath: true, configWorktree: true, configEnv: true });
+  });
+
+  test("the staged relay twin is measured here", () => {
+    expect(REFUSALS.some((l) => l.name === "pr TWIN (clean tree) — a staged, uncommitted change to a tracked file")).toBe(true);
   });
 
   test("each refused at v3.3.0 AND refused at HEAD", async () => {

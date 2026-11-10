@@ -20,18 +20,26 @@ import { join } from "node:path";
 
 import {
   CARGO_COMPILE_ERROR,
+  CARGO_CRASH,
+  CARGO_CRASH_ERROR_LINE_ONLY,
+  CARGO_CRASH_PROCESS_LINE_ONLY,
   CARGO_GREEN,
   CARGO_MIXED,
   EXPECTED,
+  EXPECTED_FIX1,
   FOREIGN_LOOKING_RUNS,
   LEGACY_ANSI_CORPUS,
   LEGACY_ANSI_EXPECTED,
   LEGACY_CORPUS,
+  PLAYWRIGHT_DID_NOT_RUN_ONLY,
   PLAYWRIGHT_GREEN,
+  PLAYWRIGHT_INTERRUPTED,
+  PLAYWRIGHT_INTERRUPTED_ONLY,
   PLAYWRIGHT_MIXED,
   PLAYWRIGHT_NO_TESTS,
   PLUGIN_ROOT,
   SHIPPED_SRC,
+  VITEST_FAILED_FILE,
   VITEST_GREEN,
   VITEST_MIXED,
   VITEST_NO_TESTS_LINE,
@@ -307,4 +315,70 @@ describe("AC-STE-732.2 / .3 — a Vitest run with unhandled errors is not a gree
     expect(r.ok).toBe(true);
     expect(r.fail).toBeGreaterThan(0);
   });
+});
+
+// ===========================================================================
+// Fix round 1 — operator ruling 2026-11-10 amends AC-STE-732.2: a crashed Cargo
+// binary, a Vitest file that failed to load, and an interrupted Playwright run
+// never read green (review items H1, M2, L1)
+// ===========================================================================
+
+describe("AC-STE-732.2 (amended) — a Cargo run whose binary crashed never reads green (H1)", () => {
+  test("binary 1 `test result: ok. 2 passed`, binary 2 stack-overflows (SIGABRT) → refused or fail > 0", () =>
+    leg("PARSER cargo CRASH — a binary that crashed after another passed never reads green"));
+  test("the `error: test failed, to rerun pass` line alone suffices", () => leg("PARSER cargo CRASH — `error: test failed` alone never reads green"));
+  test("the `process didn't exit successfully` line alone suffices", () => leg("PARSER cargo CRASH — `process didn't exit successfully` alone never reads green"));
+  test("coloured (`--color always`) crash output never reads green either", () => leg("ANSI cargo CRASH — a coloured crash never reads green"));
+  test("each crash variant: deriveRunCounts is never { ok: true, fail: 0 }", () => {
+    for (const [label, lines] of [
+      ["both lines", CARGO_CRASH],
+      ["error line only", CARGO_CRASH_ERROR_LINE_ONLY],
+      ["process line only", CARGO_CRASH_PROCESS_LINE_ONLY],
+    ] as const) {
+      const r = D.deriveRunCounts({ output: out(lines), stack: "cargo" });
+      expect({ label, green: r.ok === true && r.fail === 0 }).toEqual({ label, green: false });
+    }
+  });
+  test("the twin whose second binary completes still reads green, exactly 3 / 0 / 0", () =>
+    leg("PARSER cargo COUNT — the crash's green twin (second binary completes) → 3 / 0 / 0"));
+  test("a three-binary run that already counted its failure keeps exactly 6 / 1 / 1 (the signature line adds nothing)", () => {
+    expect(D.deriveRunCounts({ output: out(CARGO_MIXED), stack: "cargo" })).toEqual({ ok: true, ...EXPECTED.CARGO_MIXED });
+  });
+});
+
+describe("AC-STE-732.2 (amended) — a Vitest run with a failed test file never reads green (M2)", () => {
+  test("`Test Files  1 failed | 1 passed (2)` + `Tests  3 passed (3)` → 3 / 1 / 0", () =>
+    leg("PARSER vitest FAILED FILES — `Test Files  1 failed` folds into failures → 3 / 1 / 0"));
+  test("parseTestOutput folds the failed file into failures or errors (≥ 1), counts still from `Tests`", () => {
+    const r = P.parseTestOutput(out(VITEST_FAILED_FILE), "vitest");
+    expect(r.ok).toBe(true);
+    expect(r.count.failures + r.count.errors).toBeGreaterThanOrEqual(1);
+    expect(r.count.skipped).toBe(0);
+    expect(D.deriveRunCounts({ output: out(VITEST_FAILED_FILE), stack: "vitest" })).toEqual({ ok: true, ...EXPECTED_FIX1.VITEST_FAILED_FILE });
+  });
+  test("coloured failed-file run → 3 / 1 / 0", () => leg("ANSI vitest FAILED FILES — coloured `Test Files  1 failed` folds into failures → 3 / 1 / 0"));
+  test("the same output with `Test Files  2 passed (2)` still reads 3 / 0 / 0", () =>
+    leg("PARSER vitest COUNT — the failed-file run's green twin (`Test Files  2 passed`) → 3 / 0 / 0"));
+});
+
+describe("AC-STE-732.2 (amended) — interrupted and did-not-run Playwright tests count as failures (L1)", () => {
+  test("1 interrupted, 4 did not run, 2 passed → pass 2, fail 5, skip 0", () =>
+    leg("PARSER playwright INTERRUPTED — 1 interrupted + 4 did not run count as failures → 2 / 5 / 0"));
+  test("parseTestOutput's own counters: failures + errors = 5", () => {
+    const r = P.parseTestOutput(out(PLAYWRIGHT_INTERRUPTED), "playwright");
+    expect(r.ok).toBe(true);
+    expect(r.count.failures + r.count.errors).toBe(5);
+  });
+  test("`1 interrupted` alone → fail 1", () => leg("PARSER playwright INTERRUPTED — `1 interrupted` alone → 2 / 1 / 0"));
+  test("`4 did not run` alone → fail 4", () => leg("PARSER playwright DID NOT RUN — `4 did not run` alone → 2 / 4 / 0"));
+  test("each line alone yields fail > 0", () => {
+    for (const [label, lines] of [
+      ["interrupted only", PLAYWRIGHT_INTERRUPTED_ONLY],
+      ["did not run only", PLAYWRIGHT_DID_NOT_RUN_ONLY],
+    ] as const) {
+      const r = D.deriveRunCounts({ output: out(lines), stack: "playwright" });
+      expect({ label, ok: r.ok, failPositive: r.fail > 0 }).toEqual({ label, ok: true, failPositive: true });
+    }
+  });
+  test("coloured footer → 2 / 5 / 0", () => leg("ANSI playwright INTERRUPTED — coloured interrupted / did-not-run footer → 2 / 5 / 0"));
 });

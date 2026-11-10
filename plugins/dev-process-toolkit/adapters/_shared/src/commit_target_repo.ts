@@ -300,6 +300,11 @@ const PLAIN_COMMIT_VALUE_OPTS = new Set([
   "--author", "--date", "--cleanup", "-t", "--template", "--trailer",
 ]);
 
+/** True when the global options set a configuration key (`-c`, `--config-env`). */
+function carriesGlobalConfig(globals: readonly string[]): boolean {
+  return globals.some((g) => g === "-c" || g === "--config-env" || g.startsWith("--config-env="));
+}
+
 /** True when `git commit <args>` commits exactly the staged set, nothing more. */
 function isPlainCommitArgs(args: readonly string[]): boolean {
   for (let i = 0; i < args.length; i++) {
@@ -736,6 +741,9 @@ function collectOccurrences(
       if (writes !== null && writes.plain && (depth > 0 || invocations.length !== 1 || invocation.assignments.length > 0)) {
         writes = { ...writes, plain: false };
       }
+      // AC-STE-733.1 — a global `-c key=value` or `--config-env` reconfigures the
+      // commit itself (another hooks directory, another work tree), so it is not plain.
+      if (writes !== null && writes.plain && carriesGlobalConfig(git.globals)) writes = { ...writes, plain: false };
     }
     if (writes === null) {
       advisory ??= advisoryOf(git.subcommand, git.args);
