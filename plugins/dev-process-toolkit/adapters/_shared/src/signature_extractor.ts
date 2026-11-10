@@ -103,14 +103,20 @@ export function extractSignatures(
     warnings.push(
       "signature extraction for this stack uses regex fallback; manual review of generated reference docs is strongly advised.",
     );
+    const cargo = findCargoToml(projectRoot);
+    if (cargo) {
+      warnings.push(
+        `Rust project detected (${cargo}); no signature extractor covers Rust, so no signatures were extracted.`,
+      );
+    }
     return { strategy: "regex-fallback", modules: [], warnings };
   }
 
   let strategy: Strategy = "regex-fallback";
   let modules: ModuleSignatures[] = [];
 
-  if (stacks.ts) {
-    const ts = runTsChain(projectRoot, options);
+  for (const tsRoot of stacks.tsRoots) {
+    const ts = runTsChain(projectRoot, tsRoot, options);
     if (strategy === "regex-fallback") strategy = ts.strategy;
     modules = modules.concat(ts.modules);
     warnings.push(...ts.warnings);
@@ -145,13 +151,17 @@ export function extractSignatures(
 
 interface DetectedStacks {
   ts: boolean;
+  /** Directories whose tsconfig.json is read: the root, else immediate subfolders in name order (AC-STE-737.1). */
+  tsRoots: string[];
   dart: boolean;
   python: boolean;
 }
 
 function detectStacks(projectRoot: string): DetectedStacks {
+  const tsRoots = detectTsRoots(projectRoot);
   return {
-    ts: existsSync(join(projectRoot, "tsconfig.json")),
+    ts: tsRoots.length > 0,
+    tsRoots,
     dart: existsSync(join(projectRoot, "pubspec.yaml")),
     python:
       existsSync(join(projectRoot, "pyproject.toml")) ||
@@ -160,17 +170,68 @@ function detectStacks(projectRoot: string): DetectedStacks {
   };
 }
 
+/**
+ * AC-STE-737.1: a root tsconfig.json wins; without one, every immediate
+ * subfolder holding a tsconfig.json is read, in name order, skipping
+ * node_modules and dot-directories.
+ */
+function detectTsRoots(projectRoot: string): string[] {
+  if (existsSync(join(projectRoot, "tsconfig.json"))) return [projectRoot];
+  const roots: string[] = [];
+  for (const name of immediateSubfolders(projectRoot)) {
+    const dir = join(projectRoot, name);
+    if (existsSync(join(dir, "tsconfig.json"))) roots.push(dir);
+  }
+  return roots;
+}
+
+/**
+ * AC-STE-737.2: a Cargo.toml at the root, else in an immediate subfolder
+ * (name order, skipping node_modules and dot-directories). Returns its
+ * root-relative path, or null.
+ */
+function findCargoToml(projectRoot: string): string | null {
+  if (existsSync(join(projectRoot, "Cargo.toml"))) return "Cargo.toml";
+  for (const name of immediateSubfolders(projectRoot)) {
+    if (existsSync(join(projectRoot, name, "Cargo.toml"))) return `${name}/Cargo.toml`;
+  }
+  return null;
+}
+
+/**
+ * The one-level walk shared by AC-STE-737.1 and AC-STE-737.2: names of the
+ * immediate subfolders of `projectRoot`, in name order, skipping
+ * node_modules and dot-directories. An unreadable root yields none.
+ */
+function immediateSubfolders(projectRoot: string): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(projectRoot);
+  } catch {
+    return [];
+  }
+  return entries.sort().filter((name) => {
+    if (name === "node_modules" || name.startsWith(".")) return false;
+    try {
+      return statSync(join(projectRoot, name)).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
+
 function runTsChain(
   projectRoot: string,
+  tsRoot: string,
   options: ExtractOptions,
 ): { strategy: "typedoc" | "ts-morph"; modules: ModuleSignatures[]; warnings: string[] } {
-  const tsConfig = join(projectRoot, "tsconfig.json");
+  const tsConfig = join(tsRoot, "tsconfig.json");
   const modules = extractViaTsMorph(projectRoot, tsConfig);
   let strategy: "typedoc" | "ts-morph" = "ts-morph";
   const warnings: string[] = [];
-  const typedocBinary = resolveTypedocBinary(projectRoot, options);
+  const typedocBinary = resolveTypedocBinary(tsRoot, options);
   if (typedocBinary) {
-    const typedocResult = runTypedoc(typedocBinary, projectRoot, options.typedocTimeoutMs);
+    const typedocResult = runTypedoc(typedocBinary, tsRoot, options.typedocTimeoutMs);
     if (typedocResult.ok) {
       strategy = "typedoc";
       const disagreement = crossCheckNames(typedocResult.names, modules);

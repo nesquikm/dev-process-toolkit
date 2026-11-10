@@ -23,6 +23,7 @@
 
 import {
   emitNFR10,
+  findSkillToolUse,
   harnessAbsent,
   oneLine,
   parseHookPayload,
@@ -37,7 +38,11 @@ import {
   checkoutRootOf,
   gateEvidenceTarget,
 } from "../../../../adapters/_shared/src/gate_receipt.ts";
-import { isBranchArchiveOnly, isRemoteHeadEqualToHead } from "../../../../adapters/_shared/src/archive_only_change.ts";
+import {
+  isBranchArchiveOnly,
+  isRemoteHeadEqualToHead,
+} from "../../../../adapters/_shared/src/archive_only_change.ts";
+import { anotherSessionHoldsReceipt, relayPermits } from "../../../../adapters/_shared/src/pr_relay.ts";
 
 // The Skill this gate demands and the gate's own registered name are spelled
 // out at every use, as both commit gates spell theirs. `tests/_blocking_gates.ts`
@@ -57,6 +62,12 @@ function remind(sentence: string, remedy: string): never {
   );
   process.exit(1);
 }
+
+const RELAY_REMEDY =
+  "Or, if another session ran the review, relay it: that worker session's transcript must hold its " +
+  "/dev-process-toolkit:spec-review Skill call followed by the gate_receipt.ts front-door run announcing " +
+  "its spec-review receipt, whose digest still matches and whose evidence.head equals HEAD and the " +
+  "pushed remote head, on a clean working tree.";
 
 const stdin = await Bun.stdin.text();
 const payload = parseHookPayload(stdin);
@@ -113,6 +124,16 @@ if (!target.unplaced && !target.headNamed && target.repoRoots.length === 1 &&
   isRemoteHeadEqualToHead(target.repoRoots[0]!)) {
   process.exit(0);
 }
+// STE-733 AC.3 — the relay, asked only when this session holds no spec-review
+// evidence of its own, and only for a request placed in exactly one checkout
+// opening its checked-out branch.
+if (
+  !findSkillToolUse("dev-process-toolkit:spec-review", payload).found &&
+  !target.unplaced && !target.headNamed && target.repoRoots.length === 1 &&
+  relayPermits(target.repoRoots[0]!, payload.session_id, payload.transcript_path)
+) {
+  process.exit(0);
+}
 // STE-614 AC.9 — WHERE this request is opened from, described for the one rule
 // to grade. Which roots that becomes, and which count as vouching peers, is
 // decided ONCE, beside the rule, rather than assembled again in each hook.
@@ -126,6 +147,10 @@ const { found } = requireSkillToolUse(
     candidateRoots: target.candidateRoots,
     sessionRoot: checkoutRootOf(payload.cwd ?? process.cwd()),
   }),
+  !target.unplaced && target.repoRoots.length === 1 &&
+    anotherSessionHoldsReceipt(target.repoRoots[0]!, payload.session_id)
+    ? RELAY_REMEDY
+    : undefined,
 );
 if (!found) {
   process.exit(2);

@@ -60,7 +60,7 @@ function parseFrontmatter(rawContent: string): ParsedFrontmatter {
 function buildMessage(reason: string, file: string, kind: "collision" | "orphan" | "malformed"): string {
   const remedy = {
     collision:
-      "Active FR points at an archived M<N>.md. Either the FR was drafted with a stale milestone number (run /spec-write with a fresh number — see specs/plan/M*.md + CHANGELOG for the next free) or the milestone was archived prematurely. Resolve by editing the FR's frontmatter `milestone:` to a live number, or unarchive the plan file if the milestone is still active.",
+      "Active FR points at an archived M<N>.md. If the milestone shipped and a bug turned up before merge, open a new milestone with /spec-write --bug on the same branch, implement it, and ship it as the next patch release; never write into specs/frs/archive/. Otherwise, either the FR was drafted with a stale milestone number (run /spec-write with a fresh number — see specs/plan/M*.md + CHANGELOG for the next free) or the milestone was archived prematurely. Resolve by editing the FR's frontmatter `milestone:` to a live number, or unarchive the plan file if the milestone is still active.",
     orphan:
       "Active FR's `milestone:` points at no plan file (active or archived). Either create specs/plan/<value>.md or fix the frontmatter. Or, if the milestone spans repositories, its plan lives in a sibling repository: list this repository under `spans_repos` in the sibling's plan. This probe does not read `spans_repos` yet, so the row clears only once this repository carries its own plan for the milestone.",
     malformed:

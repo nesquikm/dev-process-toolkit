@@ -41,7 +41,7 @@ export const SETTINGS_FILE = "specs/settings.yaml";
 const MODE_DEFAULTED = new WeakSet<object>();
 
 /** Dotted paths of the keys with no v2.101.4 reader (the AC-STE-706.12 `new` rows). */
-export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes", "tracking.tool_calls", "retro", "optimizations.gate_commands"];
+export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes", "tracking.tool_calls", "retro", "optimizations.gate_commands", "verification.test_commands"];
 
 export type SettingsSource = "settings" | "legacy" | "none" | "both";
 
@@ -270,6 +270,9 @@ const RELEASE_ENTRY_KEYS = ["path", "kind", "field", "pattern", "replace", "opti
  * module, so the list stays local here rather than closing an import cycle.
  */
 const OPTIMIZATION_KEYS = ["gate_commands"];
+/** STE-730 — the stacks a `verification.test_commands` entry may name (each picks a count parser). */
+export const TEST_COMMAND_STACKS = ["bun", "pytest", "flutter", "vitest", "cargo", "playwright"] as const;
+const TEST_COMMAND_ENTRY_KEYS = ["stack", "command"];
 
 /** The moved CLAUDE.md headings (stub slot excluded) and the keys that make each a second home. */
 // A function, not a const: the legacy module's key sets may still be
@@ -297,7 +300,10 @@ export function settingsKeyOrder(path: string): readonly string[] {
     "task_tracking.linear": BINDING_KEYS,
     "task_tracking.jira": BINDING_KEYS,
     "task_tracking.status_vocabulary": STATUS_VOCABULARY_KEYS,
-    verification: VERIFICATION_KEYS,
+    // STE-730: `test_commands` has no legacy home — the `## Verification` heading stays closed to
+    // VERIFICATION_KEYS, so it never supplies the key. Spread here, not at module load (import cycle).
+    verification: [...VERIFICATION_KEYS, "test_commands"],
+    "verification.test_commands[]": TEST_COMMAND_ENTRY_KEYS,
     docs: DOCS_KEYS,
     orchestration: ORCHESTRATION_KEYS,
     tracking: ["token_stats", "gate_outcomes", "tool_calls"],
@@ -414,6 +420,28 @@ function validateRelease(v: unknown): void {
   });
 }
 
+/** STE-730 — `verification.test_commands`: a non-empty list of `{ stack, command }` entries. */
+function validateTestCommands(ver: Record<string, unknown>): void {
+  if (!("test_commands" in ver)) return;
+  const list = ver.test_commands;
+  const listPath = "verification.test_commands";
+  if (!Array.isArray(list) || list.length === 0) {
+    throw shapeError(listPath, "must be a non-empty list of `{ stack, command }` entries");
+  }
+  list.forEach((entry, i) => {
+    const path = `${listPath}[${i}]`;
+    const e = requireMap(entry, path);
+    closeKeys(e, path, settingsKeyOrder("verification.test_commands[]"));
+    if (!("stack" in e)) throw shapeError(at(path, "stack"), "is required");
+    checkEnum(e, path, "stack", TEST_COMMAND_STACKS);
+    if (!("command" in e)) throw shapeError(at(path, "command"), "is required");
+    const cmd = e.command;
+    if (!Array.isArray(cmd) || cmd.length === 0 || cmd.some((w) => typeof w !== "string" || w === "")) {
+      throw shapeError(at(path, "command"), "must be a non-empty list of non-empty strings");
+    }
+  });
+}
+
 /** The header every read checks: schema version, the version floor, the closed top level (AC-STE-706.2). */
 function validateHeader(parsed: Record<string, unknown>): void {
   if (!("schema_version" in parsed)) throw shapeError("schema_version", "is required (set `schema_version: 1`)");
@@ -445,7 +473,13 @@ const SECTION_VALIDATORS: Record<SectionKey, (v: unknown) => void> = {
     const ver = requireMap(v, "verification");
     closeKeys(ver, "verification", settingsKeyOrder("verification"));
     for (const k of VERIFICATION_KEYS) if (k !== "verify_mode") checkString(ver, "verification", k);
-    checkEnum(ver, "verification", "verify_mode", VERIFY_MODES);
+    if ("verify_mode" in ver && !VERIFY_MODES.includes(ver.verify_mode as string)) {
+      throw shapeError(
+        at("verification", "verify_mode"),
+        `must be one of ${VERIFY_MODES.join(" | ")}; use \`blocking\` for a check that blocks the commit`,
+      );
+    }
+    validateTestCommands(ver);
   },
   docs: (v) => {
     const docs = requireMap(v, "docs");

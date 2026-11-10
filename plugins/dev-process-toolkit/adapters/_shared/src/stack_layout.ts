@@ -20,7 +20,7 @@
 // place a path is matched, so emptying an entry's `layout` is a falsifiable
 // mutation that flips exactly that stack's recognition off (AC-STE-547.6).
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import type { Stack } from "./test_count_parser";
@@ -131,6 +131,21 @@ export const STACK_LAYOUTS: ReadonlyArray<StackLayoutEntry> = [
       sourceExtensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
       testDirs: ["__tests__/", "tests/"],
       testGlobs: ["**/*.test.*", "**/*.spec.*"],
+    },
+  },
+  {
+    // STE-732: AFTER `package.json`, so a repository carrying both keeps its bun
+    // gate, and a Vitest package.json beside a Cargo.toml still refuses rather
+    // than running cargo. Unit tests live beside the code in `src/`;
+    // integration tests in `tests/`.
+    marker: "Cargo.toml",
+    id: "cargo",
+    gate: { stack: "cargo", command: ["cargo", "test"] },
+    layout: {
+      sourceDirs: ["src/"],
+      sourceExtensions: [".rs"],
+      testDirs: ["tests/"],
+      testGlobs: [],
     },
   },
   {
@@ -245,6 +260,38 @@ export function buildLayoutPredicates(
   };
 
   return { isSource, isTest };
+}
+
+/**
+ * True when `projectRoot`'s own `package.json` lists `vitest` in `dependencies`
+ * or `devDependencies` (STE-732). Such a project gets NO table gate: the table's
+ * `bun test` would run the wrong runner, so the front doors refuse instead.
+ */
+export function packageJsonListsVitest(projectRoot: string): boolean {
+  const path = join(projectRoot, "package.json");
+  if (!existsSync(path)) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    return ["dependencies", "devDependencies"].some((key) => {
+      const deps = pkg[key];
+      return typeof deps === "object" && deps !== null && Object.hasOwn(deps, "vitest");
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The NFR-10 refusal both capture front doors print when the table has no gate
+ * for `projectRoot` because its `package.json` lists vitest, else null.
+ */
+export function tableGateRefusal(projectRoot: string): string | null {
+  if (!packageJsonListsVitest(projectRoot)) return null;
+  return (
+    `${projectRoot} lists vitest in package.json, and the marker table has no vitest gate; refusing to run \`bun test\` in its place.\n` +
+    `Remedy: declare the command under verification.test_commands in specs/settings.yaml, e.g. { stack: vitest, command: [npx, vitest, run] }.\n` +
+    `Context: ${join(projectRoot, "package.json")} lists vitest in dependencies or devDependencies`
+  );
 }
 
 /** The first entry whose marker file exists directly in `projectRoot`, else null. */

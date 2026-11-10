@@ -131,13 +131,48 @@ describe("AC-STE-723.14 net-zero placement on the gate-check edit commit", () =>
     expect(unchanged).toEqual([]);
   });
 
-  test("AC-STE-723.14 lines 1-176 keep their trunk bytes, and 178-229 are trunk's 177-228 one line down", () => {
+  // Amended by AC-STE-735.3 (operator ruling 2026-11-10): line 149 is probe #62
+  // spawn_pattern_allowlist's entry, rewritten in place to state the scaffold
+  // scope. It is the only line of 1-176 admitted to differ, and only as that entry.
+  const REWRITTEN_IN_PLACE_BY_735 = 149;
+  const PROBE_62_HEAD = /^62\. \*\*`spawn_pattern_allowlist`\*\*/;
+
+  /** Lines 1-176 vs trunk (149 admitted only as the probe #62 entry naming the scaffold scope), then 178-229 vs trunk's 177-228. */
+  function headDrift(t: readonly string[], c: readonly string[]): number[] {
+    const bad: number[] = [];
+    for (let n = 1; n <= 176; n++) {
+      if (c[n - 1] === t[n - 1]) continue;
+      const i = n - 1;
+      const admitted =
+        n === REWRITTEN_IN_PLACE_BY_735 &&
+        PROBE_62_HEAD.test(t[i]!) &&
+        PROBE_62_HEAD.test(c[i]!) &&
+        c[i]!.includes("Scoped to the scaffold:");
+      if (!admitted) bad.push(n);
+    }
+    for (let n = 178; n <= 229; n++) if (c[n - 1] !== t[n - 2]) bad.push(n);
+    return bad;
+  }
+
+  test("AC-STE-723.14 + AC-STE-735.3 lines 1-176 keep their trunk bytes (149 rewritten in place as probe #62's entry), and 178-229 are trunk's 177-228 one line down", () => {
+    expect(headDrift(trunk().split("\n"), now().split("\n"))).toEqual([]);
+  });
+
+  test("CONTROL (AC-STE-735.3): a changed 148 or 150 is reported, and 149 is reported when it stops naming the scaffold scope", () => {
     const t = trunk().split("\n");
     const c = now().split("\n");
-    const bad: number[] = [];
-    for (let n = 1; n <= 176; n++) if (c[n - 1] !== t[n - 1]) bad.push(n);
-    for (let n = 178; n <= 229; n++) if (c[n - 1] !== t[n - 2]) bad.push(n);
-    expect(bad).toEqual([]);
+    const n148 = [...c];
+    n148[147] = `${n148[147]}x`;
+    expect(headDrift(t, n148)).toEqual([148]);
+    const n150 = [...c];
+    n150[149] = `${n150[149]}x`;
+    expect(headDrift(t, n150)).toEqual([150]);
+    const unscoped = [...c];
+    unscoped[148] = `${t[148]} (edited)`;
+    expect(headDrift(t, unscoped)).toEqual([149]);
+    const moved = [...c];
+    moved[148] = `63. Scoped to the scaffold: ${c[148]}`;
+    expect(headDrift(t, moved)).toEqual([149]);
   });
 
   test("CONTROL: a one-byte edit on an unrewritten line from 231 on is reported", () => {

@@ -113,11 +113,69 @@ const PERMITTED_WORDING_DELTAS: ReadonlyArray<{ id: string; from: string; to: st
   { id: "AC-STE-699.6", from: STE_699_FROM, to: STE_699_TO },
 ];
 
-/** The pre-change stderr with every permitted wording delta applied. */
-function applyPermittedDeltas(stderr: string): string {
+// Amended by AC-STE-729.7 (M_b2fdc0, operator ruling 2026-11-10): the
+// ownership refusal's remedy is REORDERED — it leads with "fetch the ticket in
+// this session, then retry", names epic_edit.ts and the `Edit <KEY>` answer,
+// keeps epic_close.ts, and moves the `<ticket.json>` confirm route last. A
+// reorder carries the refusal's per-fixture parts (target roots, keys) to a
+// new place, so no fixed from/to string can express it. This ONE structural
+// delta replaces the pre-change ownership Remedy: line with the current one
+// only when the current one keeps every pre-change route clause VERBATIM (the
+// decide/confirm clause with its roots and keys, the foreign-repo sentence,
+// the epic_close.ts shape with the plain rule) and orders them as AC.7 says.
+// Every other line of every fixture must still be byte-identical.
+const STE_729_OLD_REMEDY_LEAD =
+  'Remedy: first run bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts" decide <projectRoot> <ticket.json> to read';
+const STE_729_FETCH_LEAD = "Remedy: fetch the ticket in this session";
+const STE_729_FOREIGN_SENTENCE =
+  "A foreign-repo verdict (the ticket carries another repository's tag) is refused by both confirm and consent, and on Linear confirm also refuses another project's ticket in the same team: make that write from the owning repository, or relabel the ticket to this repository first.";
+const STE_729_EPIC_CLOSE_ROUTE =
+  'run bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/epic_close.ts" <projectRoot> <EPIC-KEY> --children <listing> ' + STE_699_PLAIN_RULE;
+const STE_729_DELTA_ID = "AC-STE-729.7";
+
+/**
+ * Why `now` is not the AC-STE-729.7 reorder of the pre-change ownership
+ * remedy `then` (both whole `Remedy:` lines), or null when it is.
+ */
+function ste729ReorderProblem(then: string, now: string): string | null {
+  const start = then.indexOf("run bun run ");
+  const end = then.indexOf(", then retry.", start);
+  if (start < 0 || end < 0) return "the pre-change remedy has no decide/confirm clause";
+  const confirmClause = then.slice(start, end + ", then retry.".length);
+  if (!now.startsWith(STE_729_FETCH_LEAD)) return `the remedy does not lead with "${STE_729_FETCH_LEAD}"`;
+  const at = now.indexOf(confirmClause);
+  if (at < 0) return "the decide/confirm clause (with its roots and keys) is not kept verbatim";
+  if (!now.includes(STE_729_FOREIGN_SENTENCE)) return "the foreign-repo sentence is not kept verbatim";
+  const close = now.indexOf(STE_729_EPIC_CLOSE_ROUTE);
+  if (close < 0) return "the epic_close.ts route is not kept verbatim";
+  const edit = now.indexOf("epic_edit.ts");
+  if (edit < 0 || !now.includes('"Edit <KEY>"')) return 'epic_edit.ts and the "Edit <KEY>" answer are not named';
+  if (!(at > close && at > edit)) return "the confirm route is not last";
+  if (now.slice(at + confirmClause.length).includes("bun run ")) return "a route follows the confirm route";
+  return null;
+}
+
+/**
+ * The pre-change stderr with every permitted wording delta applied; with
+ * `now`, also the one structural AC-STE-729.7 reorder (see above).
+ * Amended by AC-STE-729.7: the `now` parameter.
+ */
+function applyPermittedDeltas(stderr: string, now?: string): string {
   let out = stderr;
   for (const d of PERMITTED_WORDING_DELTAS) out = out.split(d.from).join(d.to);
-  return out;
+  if (now === undefined) return out;
+  const nowLines = now.split("\n");
+  return out
+    .split("\n")
+    .map((line, i) => {
+      if (!line.startsWith(STE_729_OLD_REMEDY_LEAD)) return line;
+      const candidate = nowLines[i] ?? "";
+      // The reorder is REQUIRED, not merely tolerated: a remedy still in the
+      // pre-change order (or a malformed reorder) never matches.
+      const problem = ste729ReorderProblem(line, candidate);
+      return problem === null ? candidate : `${line} <<AC-STE-729.7 reorder missing: ${problem}>>`;
+    })
+    .join("\n");
 }
 
 const VAR = "CLAUDE_PLUGIN_OPTION_TRACKER_WRITE_GATE";
@@ -650,14 +708,17 @@ describe("AC-STE-693.4 — absent, empty or enforce is byte-identical to the pre
           const now = runs[i]!;
           const then = BASELINE.get(f.name)!;
           for (const d of PERMITTED_WORDING_DELTAS) if (then.stderr.includes(d.from)) exercised.add(d.id);
-          const want = applyPermittedDeltas(then.stderr);
+          // Amended by AC-STE-729.7: the structural reorder is exercised and graded against `now`.
+          if (then.stderr.includes(STE_729_OLD_REMEDY_LEAD)) exercised.add(STE_729_DELTA_ID);
+          const want = applyPermittedDeltas(then.stderr, now.stderr);
           if (now.exitCode !== then.exitCode || now.stderr !== want || now.stdout !== then.stdout) {
             throw new Error(
               `"${f.name}" with the variable ${label} drifted from the pre-change hook (after the permitted deltas):\n${show("now", now)}\n${show("pre-change", then)}`,
             );
           }
         });
-        expect([...exercised].sort()).toEqual(PERMITTED_WORDING_DELTAS.map((d) => d.id).sort());
+        // Amended by AC-STE-729.7: the structural delta is a named, exercised delta too.
+        expect([...exercised].sort()).toEqual([...PERMITTED_WORDING_DELTAS.map((d) => d.id), STE_729_DELTA_ID].sort());
         return;
       }
       FIXTURES.forEach((f, i) => {
@@ -996,8 +1057,9 @@ describe("AC-STE-693.5 (amended) — a project settings env block naming the var
       ]);
       all.forEach((f, i) => {
         const pre = pres[i]!;
-        const want: Run = { exitCode: pre.exitCode, stdout: pre.stdout, stderr: applyPermittedDeltas(pre.stderr) };
         const absent = absents[i]!;
+        // Amended by AC-STE-729.7: the structural reorder is graded against the absent run.
+        const want: Run = { exitCode: pre.exitCode, stdout: pre.stdout, stderr: applyPermittedDeltas(pre.stderr, absent.stderr) };
         if (absent.exitCode !== want.exitCode || absent.stdout !== want.stdout || absent.stderr !== want.stderr) {
           throw new Error(
             `"${f.name}" (.claude/${file} env names the variable) with the variable absent drifted from the pre-change hook (after the permitted deltas):\n${show("now", absent)}\n${show("pre-change", want)}`,

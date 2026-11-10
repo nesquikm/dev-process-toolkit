@@ -13,7 +13,7 @@
 // all share the same suffix).
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 export interface RewriteResult {
   filesChanged: string[];
@@ -42,6 +42,97 @@ function rewriteFile(absPath: string, before: string, after: string): boolean {
   return true;
 }
 
+// STE-736 AC-STE-736.1: an archived plan sits one folder deeper than an active
+// one, so its relative FR links need one more `../`. Each relative Markdown
+// link target naming this FR that does not resolve from the plan's own folder
+// is recomputed to point at the archived FR file; a target that resolves today
+// is left alone. Bare (non-link) mentions keep the plain string replace.
+// AC-STE-736.2: the same repair covers any OTHER FR link in the plan that is
+// already broken (the v3.3.0 shape `../frs/archive/<id>.md` written before the
+// plan moved), pointed at whichever FR file exists today.
+const LINK_TARGET_RE = /\]\(([^)\s]+)\)/g;
+const ANY_FR_TARGET_RE = /(?:^|\/)frs\/(?:archive\/)?([^/]+)\.md$/;
+
+/** A POSIX-separated link from `fromDir` to `toPath`, as Markdown wants it. */
+function linkFrom(fromDir: string, toPath: string): string {
+  return relative(fromDir, toPath).split("\\").join("/");
+}
+
+function archivedFrPath(repoRoot: string, id: string): string {
+  return join(repoRoot, "specs", "frs", "archive", `${id}.md`);
+}
+
+/** Split a link target into its path and its `?query` / `#fragment` suffix. */
+function splitSuffix(target: string): [string, string] {
+  const i = target.search(/[?#]/);
+  return i < 0 ? [target, ""] : [target.slice(0, i), target.slice(i)];
+}
+
+function repairedTarget(planDir: string, repoRoot: string, target: string): string | null {
+  const [path, suffix] = splitSuffix(target);
+  const m = ANY_FR_TARGET_RE.exec(path);
+  if (!m) return null;
+  for (const candidate of [archivedFrPath(repoRoot, m[1]!), join(repoRoot, "specs", "frs", `${m[1]}.md`)]) {
+    if (existsSync(candidate)) return linkFrom(planDir, candidate) + suffix;
+  }
+  return null;
+}
+
+// Call-site contract: the caller must move the FR (and the plan) into its
+// archive folder BEFORE calling. A link that still resolves is left alone, so a
+// rewrite run before the `git mv` leaves the plan's FR links unrewritten.
+function rewriteArchivedPlan(absPath: string, repoRoot: string, frId: string, before: string, after: string): boolean {
+  if (!existsSync(absPath)) return false;
+  const content = readFileSync(absPath, "utf-8");
+  const planDir = dirname(absPath);
+  const archivedFr = archivedFrPath(repoRoot, frId);
+  const targetRe = new RegExp(`(^|/)frs/(archive/)?${frId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.md$`);
+  let next = "";
+  let last = 0;
+  for (const m of content.matchAll(LINK_TARGET_RE)) {
+    const target = m[1]!;
+    const start = m.index! + 2;
+    next += content.slice(last, start).split(before).join(after);
+    last = start + target.length;
+    const [targetPath, suffix] = splitSuffix(target);
+    const relativeLink = !/^[a-z]+:/i.test(target) && !target.startsWith("/");
+    if (!relativeLink || targetPath === "" || existsSync(resolve(planDir, targetPath))) {
+      next += target;
+    } else if (targetRe.test(targetPath)) {
+      next += linkFrom(planDir, archivedFr) + suffix;
+    } else {
+      next += repairedTarget(planDir, repoRoot, target) ?? target;
+    }
+  }
+  next += content.slice(last).split(before).join(after);
+  if (next === content) return false;
+  writeFileSync(absPath, next);
+  return true;
+}
+
+/**
+ * STE-736 AC-STE-736.1 (plan-only archival): after a plan's `git mv` into
+ * specs/plan/archive/ with no FR archived in the run, repair every relative FR
+ * link in the moved plan that no longer resolves from its new folder. Links
+ * that resolve today are left byte-for-byte alone. `planPath` is relative to
+ * `repoRoot`.
+ */
+export function repairArchivedPlanLinks(repoRoot: string, planPath: string): RewriteResult {
+  const abs = join(repoRoot, planPath);
+  if (!existsSync(abs)) return { filesChanged: [] };
+  const content = readFileSync(abs, "utf-8");
+  const dir = dirname(abs);
+  const next = content.replace(LINK_TARGET_RE, (whole, t: string) => {
+    const p = splitSuffix(t)[0];
+    if (/^[a-z]+:/i.test(t) || t.startsWith("/") || p === "" || existsSync(resolve(dir, p))) return whole;
+    const fixed = repairedTarget(dir, repoRoot, t);
+    return fixed === null ? whole : `](${fixed})`;
+  });
+  if (next === content) return { filesChanged: [] };
+  writeFileSync(abs, next);
+  return { filesChanged: [planPath] };
+}
+
 function rewriteChangelog(absPath: string, before: string, after: string): boolean {
   if (!existsSync(absPath)) return false;
   const content = readFileSync(absPath, "utf-8");
@@ -64,6 +155,9 @@ function rewriteChangelog(absPath: string, before: string, after: string): boole
   return true;
 }
 
+// Call-site contract: move each FR and the plan into their archive folders
+// (`git mv`) BEFORE calling this. Archived-plan links that still resolve are
+// left alone, so calling it first leaves those links pointing at moved files.
 export function rewriteArchiveLinks(repoRoot: string, frId: string): RewriteResult {
   const before = `frs/${frId}.md`;
   const after = `frs/archive/${frId}.md`;
@@ -80,7 +174,7 @@ export function rewriteArchiveLinks(repoRoot: string, frId: string): RewriteResu
     }
   }
   for (const planPath of listPlans(repoRoot, /* archive */ true)) {
-    if (rewriteFile(planPath, before, after)) {
+    if (rewriteArchivedPlan(planPath, repoRoot, frId, before, after)) {
       filesChanged.push(planPath.slice(repoRoot.length + 1));
     }
   }

@@ -48,16 +48,62 @@ export class EpicCloseRefusal extends Error {
 
 const USAGE = "bun run epic_close.ts <projectRoot> <EPIC-KEY> --children <listing>";
 
-/** Is `rel` tracked by the git index of `root`? */
-function tracked(root: string, rel: string): boolean {
+/** Is `rel` tracked by the git index of `root`? Shared with epic_edit.ts. */
+export function tracked(root: string, rel: string): boolean {
   const p = Bun.spawnSync(["git", "-C", root, "ls-files", "--", rel], { stdout: "pipe", stderr: "pipe" });
   return p.exitCode === 0 && p.stdout.toString().split("\n").some((l) => l.trim() === rel);
 }
 
-/** The blob the git index of `root` holds for `rel`, or null when it cannot be read. */
-function indexBlob(root: string, rel: string): string | null {
+/** The blob the git index of `root` holds for `rel`, or null when it cannot be read. Shared with epic_edit.ts. */
+export function indexBlob(root: string, rel: string): string | null {
   const p = Bun.spawnSync(["git", "-C", root, "show", `:${rel}`], { stdout: "pipe", stderr: "pipe" });
   return p.exitCode === 0 ? p.stdout.toString() : null;
+}
+
+/**
+ * The blob HEAD holds for `rel`, or null when HEAD has none (no commit, or the
+ * path is in no commit). The plan is read from here, never from the index
+ * alone: a plan that is only `git add`-ed is in no commit. Shared with epic_edit.ts.
+ */
+export function headBlob(root: string, rel: string): string | null {
+  const p = Bun.spawnSync(["git", "-C", root, "show", `HEAD:${rel}`], { stdout: "pipe", stderr: "pipe" });
+  return p.exitCode === 0 ? p.stdout.toString() : null;
+}
+
+/**
+ * Do the working tree and the index both match HEAD for `rel`, as git compares
+ * them (`git diff --quiet HEAD -- <rel>` and `git diff --cached --quiet HEAD --
+ * <rel>`)? Git applies the checkout's eol and autocrlf rules, so a clean CRLF
+ * checkout matches; the bytes are never compared here. A missing working-tree
+ * copy or any git failure is "no". Shared with epic_edit.ts.
+ */
+export function equalsHead(root: string, rel: string): boolean {
+  if (!existsSync(join(root, rel))) return false;
+  const quiet = (extra: string[]) =>
+    Bun.spawnSync(["git", "-C", root, "diff", "--no-ext-diff", "--no-textconv", "--quiet", ...extra, "HEAD", "--", rel], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
+  return quiet([]) && quiet(["--cached"]);
+}
+
+/**
+ * Does the plan's parsed frontmatter in the index and in the working tree equal
+ * HEAD's? epic_close holds only the frontmatter to HEAD (a body-only edit, such
+ * as a ticked checkbox, is not refused, as in v3.3.0), and parsing makes the
+ * comparison independent of line endings. A missing copy or one with no
+ * frontmatter is "no".
+ */
+function frontmatterEqualsHead(root: string, rel: string, headBody: string): boolean {
+  const file = join(root, rel);
+  const indexBody = indexBlob(root, rel);
+  if (!existsSync(file) || indexBody === null) return false;
+  const parse = (body: string) => {
+    try {
+      return JSON.stringify(parseFrontmatter(body));
+    } catch {
+      return null;
+    }
+  };
+  const head = parse(headBody);
+  return head !== null && parse(indexBody) === head && parse(readFileSync(file, "utf-8")) === head;
 }
 
 /** Read the --children listing file as JSON, or refuse naming it. */
@@ -93,26 +139,28 @@ export async function closeEpic(args: EpicCloseArgs): Promise<string> {
       context,
     );
   }
-  // (b) reads the plan the index tracks, never the working-tree copy: an
-  // uncommitted stamp must not satisfy the check, and the coherence probe below
-  // reads the disk, so the two must agree on the plan's frontmatter.
-  const planBody = indexBlob(projectRoot, rel);
+  // (b) reads the plan from HEAD, never the index alone or the working-tree
+  // copy: an uncommitted (or only staged) stamp must not satisfy the check, and
+  // the coherence probe below reads the disk, so the plan's frontmatter in the
+  // index and the working tree must both equal HEAD's (the body may differ).
+  const planBody = headBlob(projectRoot, rel);
   if (planBody === null) {
     throw new EpicCloseRefusal(
-      `${milestone}'s plan ${rel} cannot be read from the git index of ${projectRoot}`,
+      `${milestone}'s plan ${rel} is in no commit: HEAD of ${projectRoot} holds no ${rel} (it is only staged)`,
       `commit ${rel} and run the close again`,
       `${context}, plan=${rel}`,
     );
   }
-  const indexFrontmatter = parseFrontmatter(planBody);
-  const shippedIn = indexFrontmatter.shipped_in;
-  const planFile = join(projectRoot, rel);
-  const diskBody = existsSync(planFile) ? readFileSync(planFile, "utf-8") : null;
-  const diskFrontmatter = diskBody === null ? null : parseFrontmatter(diskBody);
-  if (diskFrontmatter === null || JSON.stringify(diskFrontmatter) !== JSON.stringify(indexFrontmatter)) {
+  const headFrontmatter = parseFrontmatter(planBody);
+  const shippedIn = headFrontmatter.shipped_in;
+  if (!frontmatterEqualsHead(projectRoot, rel, planBody)) {
+    const planFile = join(projectRoot, rel);
+    const diskShippedIn = existsSync(planFile) ? parseFrontmatter(readFileSync(planFile, "utf-8")).shipped_in : undefined;
+    const indexBody = indexBlob(projectRoot, rel);
+    const indexShippedIn = indexBody === null ? undefined : parseFrontmatter(indexBody).shipped_in;
     throw new EpicCloseRefusal(
-      `${milestone}'s plan ${rel} differs between the git index and the working tree (index shipped_in=${String(shippedIn ?? "<absent>")}, working tree shipped_in=${String(diskFrontmatter?.shipped_in ?? "<absent>")}); shipped_in is read from the index only`,
-      `commit or discard the working-tree change to ${rel} so the index and the working tree agree, then run the close again`,
+      `${milestone}'s plan ${rel} frontmatter in the index or the working tree differs from HEAD (HEAD shipped_in=${String(shippedIn ?? "<absent>")}, index shipped_in=${String(indexShippedIn ?? "<absent>")}, working tree shipped_in=${String(diskShippedIn ?? "<absent>")}); shipped_in is read from HEAD only`,
+      `commit or discard the change to ${rel}'s frontmatter so the index and the working tree both match HEAD, then run the close again`,
       `${context}, plan=${rel}`,
     );
   }

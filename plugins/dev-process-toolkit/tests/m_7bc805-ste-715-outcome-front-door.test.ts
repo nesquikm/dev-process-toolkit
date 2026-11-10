@@ -549,7 +549,10 @@ describe("AC-STE-715.9 gate-check line 9", () => {
 
 describe("AC-STE-715.9 the AC-STE-618.8 freeze is re-based once, onto the line-9 edit commit", () => {
   const FREEZE = join(PLUGIN_ROOT, "tests", "m_2306b6-ste-618-live-proof-gate.test.ts");
-  const PERMITTED = [120, 124, 128, 154];
+  // Amended by AC-STE-735.3 (operator ruling 2026-11-10): mirrors the 618 suite's
+  // PERMITTED_LINES, which now admits line 149 (probe #62 spawn_pattern_allowlist's
+  // entry, rewritten in place to state the scaffold scope) as the FIFTH line.
+  const PERMITTED = [120, 124, 128, 149, 154];
 
   /** The AC-STE-618.8 guard, as tests/m_2306b6-ste-618-live-proof-gate.test.ts defines it. */
   function driftBeyond(before: string, after: string, permitted: readonly number[]): string[] {
@@ -587,7 +590,7 @@ describe("AC-STE-715.9 the AC-STE-618.8 freeze is re-based once, onto the line-9
     expect(driftBeyond(parent, at, [])).toEqual(["line 9"]);
   });
 
-  test("KICKOFF names the edit commit, a RE-BASED comment names the ruling and line 9, PERMITTED_LINES is unchanged", () => {
+  test("KICKOFF names the edit commit, a RE-BASED comment names the ruling and line 9, PERMITTED_LINES changes only by AC-STE-735.3's line 149", () => {
     const src = readFileSync(FREEZE, "utf-8");
     // Amended by AC-STE-723.9 (M_fd9a03): R5 re-based KICKOFF onto the milestone's gate-check edit commit, a descendant of the line-9 edit, so the base still holds it.
     const holdsEdit = spawnSync("git", ["merge-base", "--is-ancestor", editCommit(), kickoff()], { cwd: REPO_ROOT });
@@ -595,8 +598,10 @@ describe("AC-STE-715.9 the AC-STE-618.8 freeze is re-based once, onto the line-9
     const at = src.indexOf("RE-BASED (operator ruling 2026-11-04, M_7bc805 / STE-715)");
     expect(at).toBeGreaterThanOrEqual(0);
     expect(src.slice(at, at + 600)).toMatch(/line 9/);
-    expect(src).toContain("const PERMITTED_LINES: readonly number[] = [120, 124, 128, 154];");
-    expect(src).toContain("expect(PERMITTED_LINES).toEqual([120, 124, 128, 154]);");
+    // Amended by AC-STE-735.3: the pin moved by exactly line 149, by its named ruling.
+    expect(src).toContain("const PERMITTED_LINES: readonly number[] = [120, 124, 128, 149, 154];");
+    expect(src).toContain("expect(PERMITTED_LINES).toEqual([120, 124, 128, 149, 154]);");
+    expect(src).toContain("Amended by AC-STE-735.3 (operator ruling 2026-11-10, M_b2fdc0 / STE-735)");
   });
 
   test("at KICKOFF line 9 already holds the edit: the freeze is green on today's file", () => {

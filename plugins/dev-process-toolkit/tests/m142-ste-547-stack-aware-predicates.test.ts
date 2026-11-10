@@ -155,6 +155,11 @@ const MARKER_FIXTURES: ReadonlyArray<{
   { marker: "pyproject.toml", id: "pytest", gated: true },
   { marker: "pytest.ini", id: "pytest", gated: true },
   { marker: "package.json", id: "bun", gated: true },
+  // Amended by AC-STE-732.5: a root Cargo.toml maps to `cargo test`. It sits
+  // AFTER `package.json`, so a repository carrying both keeps its v3.3.0 bun
+  // gate (AC-STE-732.8) and a Vitest repository with a Cargo.toml still reaches
+  // the Vitest refusal (AC-STE-732.5) instead of `cargo test`.
+  { marker: "Cargo.toml", id: "cargo", gated: true },
   { marker: "build.gradle.kts", id: "kotlin", gated: false },
   { marker: "build.gradle", id: "kotlin", gated: false },
   { marker: "go.mod", id: "go", gated: false },

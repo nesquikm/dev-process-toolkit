@@ -74,7 +74,7 @@ The same document `specs/tracker-config.yaml` held, validated by `validateTracke
 
 ### `verification`
 
-The key set is closed: exactly the four keys `verify_skill`, `verify_mode`, `run_cmd` and `e2e_cmd`. Any other key under `verification` is a config error.
+The key set is closed: exactly the five keys `verify_skill`, `verify_mode`, `run_cmd`, `e2e_cmd` and `test_commands`. Any other key under `verification` is a config error. `test_commands` is read from this file only; a legacy CLAUDE.md `## Verification` block cannot supply it.
 
 | Key | Type | Default | Replaces |
 | --- | --- | --- | --- |
@@ -82,8 +82,10 @@ The key set is closed: exactly the four keys `verify_skill`, `verify_mode`, `run
 | `verification.verify_mode` | `advisory` \| `blocking` \| `manual` | resolved from `run_cmd`: `blocking` when `run_cmd` declares a real command, `advisory` when `run_cmd` is `none`, empty or absent | `## Verification` `verify_mode:` |
 | `verification.run_cmd` | string | absent | `## Verification` `run_cmd:` |
 | `verification.e2e_cmd` | string | absent | `## Verification` `e2e_cmd:` |
+| `verification.test_commands` | non-empty list of `{ stack, command }` entries: `stack` is one of `bun` \| `pytest` \| `flutter` \| `vitest` \| `cargo` \| `playwright` (picks the test-count parser), `command` is a non-empty list of non-empty strings; no other key on an entry | absent | new (STE-730), no legacy home; a `## Verification` heading never supplies it |
 
 - `verify_mode`: a written value always wins. An absent key is resolved from `run_cmd`: `blocking` when `run_cmd` declares a real command, so a failing check blocks the commit, and `advisory` when `run_cmd` is `none`, empty or absent, so the outcome is reported and never blocks the commit.
+- `verify_mode` value `required` is refused, as is any value outside `advisory` | `blocking` | `manual`; use `blocking` for a check that blocks the commit.
 - `run_cmd: none` declares that the project cannot be run. `none` is an answer, distinct from an absent key, which is no answer at all.
 - `e2e_cmd: none` answers "no end-to-end suite" under the same convention; an absent key answers nothing.
 

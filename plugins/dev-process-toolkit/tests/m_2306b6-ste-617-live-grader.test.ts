@@ -1445,6 +1445,8 @@ const WRITER_TABLE: ReadonlyArray<{ kind: string; module: string; subcommand: st
   { kind: "attach-target", module: "attach_project_milestone.ts", subcommand: null, args: "<A> jira DST <A>/specs/plan/M_x.md <A>/.dpt/tmp/listing.json" },
   // Amended by AC-STE-699.1: the Epic close is a receipt-writing module the hook lists.
   { kind: "epic-close", module: "epic_close.ts", subcommand: null, args: "<A> DST-1 --children <A>/.dpt/tmp/children.json" },
+  // Amended by AC-STE-729.8: the Epic edit is a receipt-writing module the hook lists.
+  { kind: "epic-edit", module: "epic_edit.ts", subcommand: null, args: "<A> DST-1" },
   { kind: "repoint", module: "repoint_tracker_binding.ts", subcommand: null, args: "<A> jira DST --peer <B>" },
 ];
 /** The module the tracker-write hook does not list but the grader must: repoint receipts are written outside the hook's gate. */

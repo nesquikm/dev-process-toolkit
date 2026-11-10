@@ -26,10 +26,11 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { declaredTestCommands, namedDeclaredCommands, runDeclaredTestCommands } from "./declared_test_commands";
 import { runGateNamingSkips } from "./gate_identity_run";
 import { assertCapturable, captureSkipBaseline, resolveTrunkSha, type CaptureResult } from "./skip_baseline";
 import { skipNamesSource } from "./skip_identities";
-import { STACK_LAYOUTS, type GateInvocation } from "./stack_layout";
+import { STACK_LAYOUTS, packageJsonListsVitest, tableGateRefusal, type GateInvocation } from "./stack_layout";
 import { parseTestOutput, type Stack } from "./test_count_parser";
 
 // STE-547: the marker → runner mapping this module used to keep privately is now
@@ -45,6 +46,8 @@ export function detectGate(projectRoot: string): GateInvocation | null {
   for (const entry of STACK_LAYOUTS) {
     if (entry.gate === null) continue;
     if (existsSync(join(projectRoot, entry.marker))) {
+      // STE-732: a package.json listing vitest gets no table gate at all.
+      if (entry.marker === "package.json" && packageJsonListsVitest(projectRoot)) return null;
       // Rebuilt rather than returned by reference so this function's contract —
       // exactly `{ stack, command }` — cannot drift with the table's entry shape.
       return { stack: entry.gate.stack, command: entry.gate.command };
@@ -107,8 +110,28 @@ export function runCapture(projectRoot: string): CaptureRun {
   // the same check `captureSkipBaseline` repeats after it, never a second copy.
   assertCapturable(projectRoot, sha);
 
+  // STE-730: a declared `verification.test_commands` list replaces the table —
+  // every entry runs, in order, and the table's command never does.
+  const declared = declaredTestCommands(projectRoot);
+  if (declared !== null) {
+    const summed = runDeclaredTestCommands(projectRoot, declared);
+    const named = namedDeclaredCommands(summed);
+    return {
+      branch,
+      sha,
+      stack: declared[0]!.stack,
+      gate: summed.commands.join(", "),
+      skipped: summed.skip,
+      result: captureSkipBaseline(projectRoot, sha, summed.skip, {
+        namesSource: `declared test commands ${named} — count-only, no machine-readable skip report`,
+      }),
+    };
+  }
+
   const gate = detectGate(projectRoot);
   if (gate === null) {
+    const refusal = tableGateRefusal(projectRoot);
+    if (refusal !== null) throw new Error(refusal);
     const markers = STACK_LAYOUTS.filter((entry) => entry.gate !== null)
       .map((entry) => entry.marker)
       .join(", ");

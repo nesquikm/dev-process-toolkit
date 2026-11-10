@@ -48,6 +48,14 @@ const V300_LINE_297_SHA = "623415a58299bb89f58ff631ca0f5bd0533a1dff7af734f9969b8
 const V300_STEP_I_INDEX = 212;
 const V300_STEP_I_LENGTH = 146;
 const V300_STEP_I_SHA = "ddcfac191f62b1f2eb17a88cd98f6cffd1591d50cd87b731f50ebb162bcd069c";
+// Amended by AC-STE-736.1 (operator ruling 2026-11-10, v3.4.0 fix round 1): line 268
+// (index 267), the Phase 4 Procedure-summary line, is rewritten in place so the
+// rewriteArchiveLinks sentence states its order. Admitted only as this one substitution:
+// undoing it must give back the v3.0.0 line, so any other edit to line 268 still fails.
+const V300_LINE_268_INDEX = 267;
+const V300_LINE_268_ORDER_OLD = "Before staging, call `rewriteArchiveLinks(repoRoot, frId)`";
+const V300_LINE_268_ORDER_NEW =
+  "Only after every FR and the plan have moved (the `git mv` steps above), and before staging, call `rewriteArchiveLinks(repoRoot, frId)`";
 
 const IMPLEMENT_ACCEPT = "Accept: `/dev-process-toolkit:retro <scope>`.";
 const IMPLEMENT_DECLINE = "Run: /dev-process-toolkit:retro <scope>";
@@ -67,7 +75,13 @@ function appendedToLine297(body: string): { appended: string } | { error: string
   const stepI = lines[V300_STEP_I_INDEX]!.slice(0, V300_STEP_I_LENGTH);
   if (sha256(stepI) !== V300_STEP_I_SHA) return { error: "the step-i line does not start with its v3.0.0 bytes" };
   restored[V300_STEP_I_INDEX] = stepI;
-  if (sha256(restored.join("\n")) !== V300_IMPLEMENT_SHA) return { error: "a line other than 297 differs from v3.0.0" };
+  // Amended by AC-STE-736.1 (operator ruling 2026-11-10, v3.4.0 fix round 1): line 268 rewritten in place.
+  const line268 = lines[V300_LINE_268_INDEX]!;
+  if (line268.split(V300_LINE_268_ORDER_NEW).length !== 2) {
+    return { error: "line 268 does not carry the rewriteArchiveLinks order statement exactly once" };
+  }
+  restored[V300_LINE_268_INDEX] = line268.replace(V300_LINE_268_ORDER_NEW, V300_LINE_268_ORDER_OLD);
+  if (sha256(restored.join("\n")) !== V300_IMPLEMENT_SHA) return { error: "a line other than 297, the step-i line and line 268 differs from v3.0.0" };
   const appended = line.slice(V300_LINE_297_LENGTH);
   if (appended.length === 0) return { error: "nothing appended to line 297" };
   return { appended };
@@ -132,6 +146,28 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     const third = [...lines];
     third[V300_STEP_I_INDEX + 1] = `${third[V300_STEP_I_INDEX + 1]}x`;
     expect(appendedToLine297(third.join("\n"))).toHaveProperty("error");
+  });
+
+  // Amended by AC-STE-736.1 (operator ruling 2026-11-10, v3.4.0 fix round 1).
+  test("AC-.8 control (AC-STE-736.1): line 268 admits only the order statement; a changed neighbour or any other line-268 edit is rejected", () => {
+    const lines = read(IMPLEMENT_SKILL).split("\n");
+    expect(appendedToLine297(lines.join("\n"))).not.toHaveProperty("error");
+    for (const i of [V300_LINE_268_INDEX - 1, V300_LINE_268_INDEX + 1]) {
+      const neighbour = [...lines];
+      neighbour[i] = `${neighbour[i]}x`;
+      expect({ i, r: appendedToLine297(neighbour.join("\n")) }).toHaveProperty("r.error");
+    }
+    const otherEdit = [...lines];
+    otherEdit[V300_LINE_268_INDEX] = otherEdit[V300_LINE_268_INDEX]!.replace("**Procedure summary.**", "**Procedure summary:**");
+    expect(otherEdit[V300_LINE_268_INDEX]).not.toBe(lines[V300_LINE_268_INDEX]);
+    expect(appendedToLine297(otherEdit.join("\n"))).toHaveProperty("error");
+    const reverted = [...lines];
+    reverted[V300_LINE_268_INDEX] = reverted[V300_LINE_268_INDEX]!.replace(V300_LINE_268_ORDER_NEW, V300_LINE_268_ORDER_OLD);
+    expect(reverted[V300_LINE_268_INDEX]).not.toBe(lines[V300_LINE_268_INDEX]);
+    expect(appendedToLine297(reverted.join("\n"))).toHaveProperty("error");
+    const doubled = [...lines];
+    doubled[V300_LINE_268_INDEX] = `${doubled[V300_LINE_268_INDEX]} ${V300_LINE_268_ORDER_NEW}`;
+    expect(appendedToLine297(doubled.join("\n"))).toHaveProperty("error");
   });
 
   test("AC-.8 the appended text carries the anchor, the retro: on condition, accept, decline, the clause and the pointer, and no STE token", () => {

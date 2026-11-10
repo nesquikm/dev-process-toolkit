@@ -39,7 +39,7 @@ import {
   checkoutRootOf,
   gateEvidenceTarget,
 } from "../../../../adapters/_shared/src/gate_receipt.ts";
-import { isStagedArchiveOnly, isWorkingTreeClean } from "../../../../adapters/_shared/src/archive_only_change.ts";
+import { isStagedArchiveOnly, isStagedSpecOnly, isWorkingTreeClean } from "../../../../adapters/_shared/src/archive_only_change.ts";
 
 /** An NFR-10 `Reminder:`, then exit 1: visible and non-blocking (the sibling /tdd hook's idiom). */
 function remind(sentence: string, remedy: string): never {
@@ -82,6 +82,20 @@ if (
   target.subcommand === "commit" &&
   isWorkingTreeClean(target.repoRoots[0]!) &&
   isStagedArchiveOnly(target.repoRoots[0]!)
+) {
+  process.exit(0);
+}
+// AC-STE-733.1 — a spec-only commit needs no gate-check evidence either: every
+// staged path is a spec file (`isSpecPath`), so there is no code for the gate to
+// grade. Stricter than the archive-only pass about the command: only a PLAIN
+// `git commit` qualifies — no `-a`, no pathspec, no `--amend` — placed in
+// exactly one checkout whose tracked working tree matches its index.
+if (
+  !target.unplaced &&
+  target.repoRoots.length === 1 &&
+  target.plainCommit &&
+  isWorkingTreeClean(target.repoRoots[0]!) &&
+  isStagedSpecOnly(target.repoRoots[0]!)
 ) {
   process.exit(0);
 }

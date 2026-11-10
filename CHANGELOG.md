@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.4.0] — 2026-11-10 — "House Rules"
+
+### Added
+
+- The test capture runs the commands a project declares (STE-730). An optional `verification.test_commands` in `specs/settings.yaml` lists entries of `stack` and `command`. `gate_capture.ts` and `capture_skip_baseline.ts` run each one in order through the bounded supervisor and sum the counts. A command with no readable count, or one killed on its bound, refuses the whole capture; a partial sum never stands. Without the key, both behave as v3.3.0.
+
+### Changed
+
+- A spec-only commit needs no gate run, and a worker's own spec review vouches for the pull request its owner opens (STE-733). `pre-commit-gate-check` permits a plain `git commit` that is the command's only step, in one clean checkout, when every staged path is a spec file. A sibling `git add`, an environment prefix such as `GIT_INDEX_FILE`, a global `-c` or `--config-env` option, `-a`, `--amend` or a pathspec gets today's rule. `pre-pr-spec-review` accepts another session's spec-review receipt only when it records the HEAD being opened (which equals the remote head), the tree is clean with nothing staged, and that session's own transcript shows the spec-review Skill call and the front-door announcement of the receipt's current digest. `docs/hooks-reference.md` names both carve-outs and their residuals, including that a transcript planted inside the projects root, by the opening agent itself among others, is trusted: the same trust class as v3.3.0.
+
+### Fixed
+
+- The planning repository can edit its Jira Epic's description and summary after an exact `Edit <KEY>` answer, and a ticket fetched in the session proves its own ownership (STE-729). `epic_edit.ts` reads the plan from HEAD and requires the index and working tree to match it, so a plan that is only staged never passes; it checks that the plan binds the Epic and records `container_origin: minted`, which `/spec-write` now writes. `epic_close.ts` reads its plan the same way. Every other Epic write stays refused, and nobody hand-builds a `ticket.json` any more.
+- Lock commits carry only the lock (STE-731). `claimLock`, `releaseLock` and `cleanupStaleLocks` commit with `--only`, so other staged files stay staged and out of a lock commit. A lock's branch is matched exactly, never by substring, locally and on remotes. A new `lock.ts` front door runs claim and release and refuses an unsafe lock id; `/spec-archive` and `/implement` release locks after their archive commit.
+- The test capture reads Vitest, Cargo and Playwright counts, and refuses another runner's output (STE-732). Three new parsers, colour-tolerant, join `test_commands`; a root `Cargo.toml` runs `cargo test`; a Vitest `package.json` refuses with a remedy naming `test_commands` instead of running bun. A Vitest run with failed test files, a Cargo run whose test binary crashed (`error: test failed` or `process didn't exit successfully`), and a Playwright run with interrupted or not-run tests never read green. The bun and pytest parsers refuse output carrying another runner's full summary.
+- A bug found after ship and before merge has a named route (STE-734): a new patch milestone on the same branch. Probe #27's collision remedy names it first.
+- The spawn allow-list probe grades only repositories that carry the smoke-test spawn scaffold (STE-735); elsewhere it reports why it skipped.
+- Archived plans keep working FR links, including `#fragment` and `?query` suffixes, and `/spec-archive` and `/implement` move the plan before they rewrite them (STE-736). `verify_mode: required` is still refused but now says to use `blocking`; probe #45 checks plural `write FRs` subjects; the visual check names a route around a loopback refusal.
+- Signature extraction reads a TypeScript project one folder below the root, and a Rust project gets a warning naming the stack instead of a silent empty page (STE-737).
+
+Total test count at release: 23163 tests, 0 failures, 0 errors.
+
 ## [3.3.0] — 2026-11-08 — "Proof of Work"
 
 ### Added

@@ -245,19 +245,39 @@ describe("AC-STE-461.9 — § 0.d's witness conjunct is subject-only, with no br
 // ═══════ AC-STE-461.10 — ownership re-homed to the lock's own branch line ════
 
 describe("AC-STE-461.10 — the ownership conjunct is the producer's own predicate", () => {
-  test("§ 0.d carries the ownership conjunct, byte-identically to local_provider.ts's predicate", () => {
-    // DERIVED, not restated. The producer decides `already-ours` with
-    // `existing.includes(\`branch: ${branch}\`)`; the literal is lifted out of
-    // the source and translated into the doc's placeholder, so a rename on
-    // either side turns this red instead of leaving two independently-worded
-    // restatements of one rule.
+  // Amended by AC-STE-731.1 (operator ruling 2026-11-10, v3.4.0 fix round 1, review L3):
+  // the producer no longer decides `already-ours` with the substring test
+  // `existing.includes(\`branch: ${branch}\`)` (a lock held by feat/a-2 read as
+  // already-ours for feat/a). It parses the `branch:` line and compares it whole,
+  // `extractBranch(existing) === branch`. The pin now requires that exact predicate,
+  // and still DERIVES the doc's line from the producer: the `branch:` key is lifted
+  // out of extractBranch's own regex, so a rename on either side turns this red.
+  const OWNERSHIP_PREDICATE = /if \(extractBranch\(existing\) === branch\)/;
+  const SUBSTRING_PREDICATE = /includes\(`[^`]*\$\{branch\}`\)/;
+  const EXTRACT_BRANCH_KEY = /function extractBranch\(lockContent: string\)[^{]*\{\s*const m = \/\^([a-z]+):\\s\*\(\.\+\)\$\/m\.exec\(lockContent\);/;
+
+  test("§ 0.d carries the ownership conjunct, derived from local_provider.ts's exact parsed predicate", () => {
     const src = read(LOCAL_PROVIDER);
-    const m = /includes\(`([^`]*\$\{branch\})`\)/.exec(src);
-    expect(m).not.toBeNull();
-    const producerLiteral = m![1]!;
-    expect(producerLiteral).toBe("branch: ${branch}");
-    const docForm = producerLiteral.replace("${branch}", "<currentBranch>");
+    expect(OWNERSHIP_PREDICATE.test(src)).toBe(true);
+    expect(SUBSTRING_PREDICATE.test(src)).toBe(false);
+    const key = EXTRACT_BRANCH_KEY.exec(src);
+    expect(key).not.toBeNull();
+    expect(key![1]).toBe("branch");
+    const docForm = `${key![1]}: <currentBranch>`;
     expect(verifyBullet()).toContain(`grep -Fxq "${docForm}" .dpt/locks/<id>`);
+  });
+
+  test("control (AC-STE-731.1): the substring predicate, or a loosened comparison, fails the pin", () => {
+    const src = read(LOCAL_PROVIDER);
+    const substring = src.replace(OWNERSHIP_PREDICATE, "if (existing.includes(`branch: ${branch}`))");
+    expect(substring).not.toBe(src);
+    expect(OWNERSHIP_PREDICATE.test(substring)).toBe(false);
+    expect(SUBSTRING_PREDICATE.test(substring)).toBe(true);
+    const loose = src.replace(OWNERSHIP_PREDICATE, "if (extractBranch(existing)?.startsWith(branch))");
+    expect(OWNERSHIP_PREDICATE.test(loose)).toBe(false);
+    const renamedKey = src.replace("/^branch:\\s*(.+)$/m", "/^owner:\\s*(.+)$/m");
+    expect(renamedKey).not.toBe(src);
+    expect(EXTRACT_BRANCH_KEY.exec(renamedKey)![1]).not.toBe("branch");
   });
 
   test("the two conjuncts are REQUIRED TOGETHER — a conjunction, never alternatives", () => {
