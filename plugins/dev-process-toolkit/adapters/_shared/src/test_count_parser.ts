@@ -61,6 +61,7 @@ function lastCountedMatch(output: string, regex: RegExp): number | undefined {
 // literals. `matchAll` never mutates the shared `lastIndex`, so these
 // constants are safe to reuse across calls.
 const BUN_SKIPPED_RE = /(\d+)\s+skip\b/g;
+const BUN_FAILED_RE = /(\d+)\s+fail\b/g;
 // Bun's run summary is a block: after a blank line, counter lines (`N pass`,
 // `N skip`, `N todo`, `N fail`) with other summary lines among them
 // (`snapshots: +2 added`, `N expect() calls`), closed by `Ran N tests across M
@@ -80,6 +81,28 @@ const PYTEST_SKIPPED_RE = /(\d+)\s+skipped/g;
 const PYTEST_PASSED_RE = /(\d+)\s+passed/g;
 const PYTEST_FAILED_RE = /(\d+)\s+failed/g;
 const PYTEST_ERRORS_RE = /(\d+)\s+errors?\b/g;
+// STE-738 AC-STE-738.7: last-match per counter is not enough — a last summary
+// that omits a counter (`5 passed` after `2 failed, 1 passed`) would borrow
+// the earlier run's value. Every counter is therefore read from ONE line: the
+// last line carrying any pytest counter.
+const PYTEST_COUNTER_LINE_RE = /\d+\s+(?:passed|failed|skipped|errors?\b)/;
+
+// A real summary ends with its timing (`… in 0.50s`, optionally `(0:00:00)`
+// and the closing `=` rule), which a log line echoing a counter does not: the
+// last timed counter line wins, and only a capture with no timed counter line
+// falls back to the last counter line of any shape.
+const PYTEST_TIMED_SUMMARY_RE = /\bin \d+(?:\.\d+)?s\b(?:\s*\(\d+:\d{2}:\d{2}\))?\s*=*\s*$/;
+
+function lastPytestSummaryLine(output: string): string {
+  const lines = output.split("\n").map((line) => line.trimEnd());
+  let loose = "";
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!PYTEST_COUNTER_LINE_RE.test(lines[i])) continue;
+    if (PYTEST_TIMED_SUMMARY_RE.test(lines[i])) return lines[i];
+    if (loose === "") loose = lines[i];
+  }
+  return loose;
+}
 // M132: last-match alone is only half the guard for flutter. Gate commands run
 // `flutter test 2>&1`, so a buffered stderr failure block flushes AFTER the
 // final stdout progress line — and flutter's expanded reporter prints tildes
@@ -151,49 +174,51 @@ function bunSummaryBlocks(output: string): BunSummaryBlock[] {
 
 function parseBun(output: string): TestCountParseResult {
   const blocks = bunSummaryBlocks(output);
-  // The usual capture: every counter from its own summary block, summed over
-  // the blocks. A counter a block does not print is zero — bun omits `skip`
-  // and `todo` at zero. `total` stays the `Ran N` sum (STE-683: pass + fail +
-  // skip, AC-STE-683.2), and a todo test, which `Ran N` counts but never
-  // executes, counts as not executed beside the skips — left out of both, it
-  // would read downstream as a pass.
-  if (blocks.some((block) => block.counters.size > 0)) {
+  // Every suite is read on its own and the suites are summed, so a red first
+  // suite stays red. A suite's counters come from its own summary block; a
+  // block that prints none (a trimmed or reformatted capture) falls back to
+  // last-match over its own stretch of output — the lines after the previous
+  // `Ran` line up to its own — never to a neighbouring suite's block. A
+  // counter a block does not print is zero: bun omits `skip` and `todo` at
+  // zero. `total` stays the `Ran N` sum (STE-683: pass + fail + skip,
+  // AC-STE-683.2), and a todo test, which `Ran N` counts but never executes,
+  // counts as not executed beside the skips — left out of both, it would read
+  // downstream as a pass. Bun does not emit a distinct "error" line; errors
+  // are folded into fail.
+  if (blocks.length > 0) {
+    const lines = output.split(/\r?\n/);
     let total = 0;
     let failures = 0;
     let skipped = 0;
-    for (const { ran, counters } of blocks) {
+    let start = 0;
+    let suite = 0;
+    lines.forEach((line, i) => {
+      if (!BUN_RAN_RE.test(line)) return;
+      const { ran, counters } = blocks[suite++];
       total += ran;
-      failures += counters.get("fail") ?? 0;
-      skipped += (counters.get("skip") ?? 0) + (counters.get("todo") ?? 0);
-    }
+      if (counters.size > 0) {
+        failures += counters.get("fail") ?? 0;
+        skipped += (counters.get("skip") ?? 0) + (counters.get("todo") ?? 0);
+      } else {
+        const segment = lines.slice(start, i).join("\n");
+        failures += lastCountedMatch(segment, BUN_FAILED_RE) ?? 0;
+        skipped += lastCountedMatch(segment, BUN_SKIPPED_RE) ?? 0;
+      }
+      start = i + 1;
+    });
     return { ok: true, count: { total, failures, errors: 0, skipped } };
   }
-
-  // STE-323: anchor on Bun's trailing summary line, not the first match.
-  // Bun emits per-file `N pass` / `N fail` counters before the summary in
-  // multi-file runs, so the legacy `.exec()` first-match path captured the
-  // first per-file count, not the total. Fix: use last-match for both
-  // counters, and prefer the canonical `Ran N tests across M files` line
-  // for the total.
-  const failures = lastCountedMatch(output, /(\d+)\s+fail\b/g) ?? 0;
-  // STE-508: same last-match anchoring as `fail` — per-file `N skip` counters
-  // precede the summary block in multi-file runs.
-  const skipped = lastCountedMatch(output, BUN_SKIPPED_RE) ?? 0;
-  // Bun does not emit a distinct "error" line; errors are folded into fail.
-  const errors = 0;
-
-  // `Ran` lines with no counter lines above them (a trimmed or reformatted
-  // capture): `Ran N` is the total, the counters come last-match.
-  if (blocks.length > 0) {
-    const total = blocks.reduce((sum, block) => sum + block.ran, 0);
-    return { ok: true, count: { total, failures, errors, skipped } };
-  }
   // Fallback: last `N pass` line (older Bun versions or truncated output).
-  // STE-683: `total` carries the `Ran N tests` meaning (pass + fail + skip),
-  // so downstream `total - fail - skip` recovers the pass counter.
+  // STE-323: last-match, not first — Bun emits per-file `N pass` / `N fail`
+  // counters before the summary in multi-file runs. STE-683: `total` carries
+  // the `Ran N tests` meaning (pass + fail + skip), so downstream
+  // `total - fail - skip` recovers the pass counter.
   const lastPass = lastCountedMatch(output, /(\d+)\s+pass\b/g);
   if (lastPass !== undefined) {
-    return { ok: true, count: { total: lastPass + failures + skipped, failures, errors, skipped } };
+    const failures = lastCountedMatch(output, BUN_FAILED_RE) ?? 0;
+    // STE-508: same last-match anchoring as `fail`.
+    const skipped = lastCountedMatch(output, BUN_SKIPPED_RE) ?? 0;
+    return { ok: true, count: { total: lastPass + failures + skipped, failures, errors: 0, skipped } };
   }
   return {
     ok: false,
@@ -202,9 +227,10 @@ function parseBun(output: string): TestCountParseResult {
 }
 
 function parsePytest(output: string): TestCountParseResult {
-  const passedCount = lastCountedMatch(output, PYTEST_PASSED_RE);
-  const failedCount = lastCountedMatch(output, PYTEST_FAILED_RE);
-  const skippedCount = lastCountedMatch(output, PYTEST_SKIPPED_RE);
+  const summary = lastPytestSummaryLine(output);
+  const passedCount = lastCountedMatch(summary, PYTEST_PASSED_RE);
+  const failedCount = lastCountedMatch(summary, PYTEST_FAILED_RE);
+  const skippedCount = lastCountedMatch(summary, PYTEST_SKIPPED_RE);
   // A run where every test skipped prints only `N skipped`: that is zero
   // executed, the same reading bun and flutter give it, not an unparseable run.
   if (passedCount === undefined && failedCount === undefined && skippedCount === undefined) {
@@ -212,7 +238,7 @@ function parsePytest(output: string): TestCountParseResult {
   }
   const passed = passedCount ?? 0;
   const failed = failedCount ?? 0;
-  const errors = lastCountedMatch(output, PYTEST_ERRORS_RE) ?? 0;
+  const errors = lastCountedMatch(summary, PYTEST_ERRORS_RE) ?? 0;
   const skipped = skippedCount ?? 0;
   return { ok: true, count: { total: passed + failed + errors, failures: failed, errors, skipped } };
 }
@@ -220,7 +246,7 @@ function parsePytest(output: string): TestCountParseResult {
 function parseFlutter(output: string): TestCountParseResult {
   const pass = lastCountedMatch(output, FLUTTER_PASSED_RE);
   if (pass === undefined) {
-    return { ok: false, reason: "could not determine test count — no `+N[ ~S][ -F]:` progress line in flutter output" };
+    return { ok: false, reason: "could not determine test count — no +N/-N counters in flutter output" };
   }
   const fail = lastCountedMatch(output, FLUTTER_FAILED_RE) ?? 0;
   const skipped = lastCountedMatch(output, FLUTTER_SKIPPED_RE) ?? 0;

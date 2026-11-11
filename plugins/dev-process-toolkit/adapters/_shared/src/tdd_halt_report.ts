@@ -20,6 +20,12 @@ export interface HaltReport {
    */
   entry?: "tdd" | "implement";
   ac?: string;
+  /**
+   * True when an implementer halted in the AUDIT stage's retry round. Every
+   * AC is GREEN by then, so the resume point is `audit`, never the AC — an
+   * AC resume would re-dispatch implementers for the GREEN ACs after it.
+   */
+  auditRound?: boolean;
   retryCount: number;
   lastBlock?: string;
   rawOutput?: string;
@@ -55,20 +61,29 @@ function resumeCommand(report: HaltReport, at: string = report.ac ?? "<AC-id>"):
 
 /**
  * The resume sentence for a halt that is not `not-load-bearing`, or "" when a
- * plain re-run is right. A halt in Stage GREEN resumes at its AC; after GREEN
- * every test passes, so a re-run from Stage RED would halt in mode A — a
- * refactorer halt resumes at `refactor`, an audit halt at `audit`. A
- * test-writer halt has nothing implemented yet, and a re-run is the remedy.
+ * plain re-run is right. When it is non-empty it is the whole remedy: the
+ * re-run clause would restart at Stage RED and contradict it. Once a test is
+ * GREEN, a re-run from Stage RED would halt in mode A, so every later halt
+ * resumes where it stopped. A first-pass Stage GREEN halt resumes at its AC.
+ * A refactorer halt resumes at `refactor`. An audit halt resumes at `audit`:
+ * any spec-reviewer halt, and an implementer halt in the audit retry round.
+ * A test-writer halt has nothing implemented yet, so a re-run is the remedy.
  */
 function resumeSentence(report: HaltReport): string {
   if (report.mode === "spec-gap") {
-    return ` After the audit, every test is GREEN: implement the ACs it reports missing, or correct the FR, then resume with ${resumeCommand(report, "audit")}.`;
+    return `After the audit, every test is GREEN: implement the ACs it reports missing, or correct the FR, then resume with ${resumeCommand(report, "audit")}.`;
+  }
+  if (report.role === "spec-reviewer") {
+    return `At the audit, every test is GREEN: fix what stopped the spec-reviewer, then resume with ${resumeCommand(report, "audit")}.`;
   }
   if (report.role === "refactorer") {
-    return ` After GREEN, every test passes: fix or revert the refactor, then resume with ${resumeCommand(report, "refactor")}.`;
+    return `After GREEN, every test passes: fix or revert the refactor, then resume with ${resumeCommand(report, "refactor")}.`;
+  }
+  if (report.role === "implementer" && report.auditRound) {
+    return `The halt came in the audit retry round, after every AC was GREEN: fix what stopped the implementer, then resume with ${resumeCommand(report, "audit")}.`;
   }
   if (report.role === "implementer" && report.ac) {
-    return ` For this implementer halt, resume at its AC instead: ${resumeCommand(report)}.`;
+    return `The ACs before this one are GREEN: fix what stopped the implementer, then resume at its AC with ${resumeCommand(report)}.`;
   }
   return "";
 }
@@ -118,7 +133,11 @@ export function formatHaltReport(report: HaltReport): string {
     lines.push(
       `Remedy: the test is the defect, not the implementation — fix the test for ${report.ac ?? "this AC"} by hand ` +
         "so it fails at its assertion when the behavior breaks, " +
-        `then resume with ${resumeCommand(report)}.`,
+        (report.auditRound
+          ? `then resume with ${resumeCommand(report, "audit")}.`
+          : report.ac
+          ? `then resume with ${resumeCommand(report)}.`
+          : "then resume at that AC (this report did not record its id)."),
     );
     lines.push(
       `Context: skill=tdd, mode=${report.mode}, role=${report.role}` +
@@ -127,13 +146,15 @@ export function formatHaltReport(report: HaltReport): string {
     );
     return lines.join("\n");
   }
+  const resume = resumeSentence(report);
   lines.push(
-    "Remedy: inspect the report above and resume manually. " +
-      "Re-run /dev-process-toolkit:tdd against the FR after fixing the " +
-      "identified failure mode (test-writer false-RED, implementer GREEN " +
-      "miss, refactorer regression, format drift, subagent maxTurns, or " +
-      "spec-review reporting unimplemented acceptance criteria)." +
-      resumeSentence(report),
+    resume
+      ? `Remedy: inspect the report above. ${resume}`
+      : "Remedy: inspect the report above and resume manually. " +
+          "Re-run /dev-process-toolkit:tdd against the FR after fixing the " +
+          "identified failure mode (test-writer false-RED, implementer GREEN " +
+          "miss, refactorer regression, format drift, subagent maxTurns, or " +
+          "spec-review reporting unimplemented acceptance criteria).",
   );
   lines.push(
     `Context: skill=tdd, mode=${report.mode}, role=${report.role}` +

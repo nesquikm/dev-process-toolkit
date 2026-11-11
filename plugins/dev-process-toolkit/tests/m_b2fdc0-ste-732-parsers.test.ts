@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  AMENDED_BY_STE_738_2,
   CARGO_COMPILE_ERROR,
   CARGO_CRASH,
   CARGO_CRASH_ERROR_LINE_ONLY,
@@ -220,6 +221,10 @@ describe("AC-STE-732.4 — the bun and pytest parsers refuse a Vitest or Cargo r
 const V330_SHA = "e9d6c6557688309802ed3a1aa668b647b9ac5537";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let TRUNK: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let TRUNK_P: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TRUNK_PARSE = (output: string, stack: string): any => TRUNK_P.parseTestOutput(output, stack);
 
 beforeAll(async () => {
   const exists = Bun.spawnSync(["git", "-C", PLUGIN_ROOT, "cat-file", "-e", `${V330_SHA}^{commit}`], { stdout: "pipe", stderr: "pipe" });
@@ -232,6 +237,7 @@ beforeAll(async () => {
   const src = join(dest, prefix, "adapters", "_shared", "src");
   if (!existsSync(join(src, "deliver_stage_evidence.ts"))) throw new Error(`trunk extraction has no deliver_stage_evidence.ts under ${src}`);
   TRUNK = await import(join(src, "deliver_stage_evidence.ts"));
+  TRUNK_P = await import(join(src, "test_count_parser.ts"));
 });
 
 describe("AC-STE-732.8 — bun / pytest / flutter parse exactly as at v3.3.0", () => {
@@ -277,6 +283,20 @@ describe("AC-STE-732.4 / .8 — a bun / pytest run that merely prints a foreign-
   test("every foreign-looking run keeps its recorded v3.3.0 counts", () =>
     leg("PERMIT mislabel — a bun / pytest run that merely prints a bare `Test Files` or `test result: ok. N passed;` line keeps its v3.3.0 counts"));
   for (const c of FOREIGN_LOOKING_RUNS) {
+    if (c.amended !== undefined) {
+      // Amended by AC-STE-738.2: v3.3.0's first-match count stays on record
+      // and is graded against the real v3.3.0 parser; today's parser reads the
+      // run's own last summary line. Kills: a fixture that re-pins without the
+      // note, or a v330 value that no longer matches what v3.3.0 derived.
+      test(`${c.stack}: ${c.label} — ${c.amended}: v3.3.0 value on record, now the run's own summary`, () => {
+        const now = D.deriveRunCounts({ output: out(c.lines), stack: c.stack });
+        const then = TRUNK.deriveRunCounts({ output: out(c.lines), stack: c.stack });
+        expect(then).toEqual({ ok: true, ...c.v330 });
+        expect(now).toEqual({ ok: true, ...c.expected });
+        expect(now).not.toEqual(then);
+      });
+      continue;
+    }
     test(`${c.stack}: ${c.label} — now === v3.3.0`, () => {
       const now = D.deriveRunCounts({ output: out(c.lines), stack: c.stack });
       const then = TRUNK.deriveRunCounts({ output: out(c.lines), stack: c.stack });
@@ -296,9 +316,22 @@ describe("AC-STE-732.4 / .8 — a bun / pytest run that merely prints a foreign-
   });
 });
 
-describe("AC-STE-732.8 — coloured bun / pytest / flutter output parses exactly as at v3.3.0 (no stripping imposed)", () => {
-  test("every coloured corpus output derives its recorded v3.3.0 counts", () => leg("PERMIT parsers — coloured bun / pytest / flutter outputs derive exactly their v3.3.0 counts"));
+describe("AC-STE-732.8 (amended by AC-STE-738.2) — coloured bun / pytest / flutter output parses as at v3.3.0, but for the re-pinned rows", () => {
+  test("every coloured corpus output derives its recorded counts", () => leg("PERMIT parsers — coloured bun / pytest / flutter outputs derive exactly their v3.3.0 counts"));
   for (const c of LEGACY_ANSI_CORPUS) {
+    const amendment = AMENDED_BY_STE_738_2[c.label];
+    if (amendment !== undefined) {
+      // Amended by AC-STE-738.2: flutter reads SGR-stripped output. Kills: a
+      // parseFlutter fed the raw (coloured) output, which loses the `~1` skip.
+      test(`${c.stack}: ${c.label} — ${amendment.amended}: v3.3.0 value on record, now the stripped reading`, () => {
+        const now = D.deriveRunCounts({ output: c.output, stack: c.stack });
+        const then = TRUNK.deriveRunCounts({ output: c.output, stack: c.stack });
+        expect(then).toEqual({ ok: true, ...amendment.v330 });
+        expect(now).toEqual({ ok: true, ...LEGACY_ANSI_EXPECTED[c.label] });
+        expect(now).not.toEqual(then);
+      });
+      continue;
+    }
     test(`${c.stack}: ${c.label} — now === v3.3.0`, () => {
       const now = D.deriveRunCounts({ output: c.output, stack: c.stack });
       const then = TRUNK.deriveRunCounts({ output: c.output, stack: c.stack });
@@ -306,6 +339,44 @@ describe("AC-STE-732.8 — coloured bun / pytest / flutter output parses exactly
       expect(now).toEqual(then);
     });
   }
+});
+
+describe("AC-STE-738.2 — the AC-STE-732.8 amendment is recorded row by row", () => {
+  const FIXTURE_SRC = readFileSync(join(PLUGIN_ROOT, "tests", "_m_b2fdc0_ste732_fixture.ts"), "utf-8").split("\n");
+
+  test("exactly the three rows the ruling names are re-pinned", () => {
+    expect(Object.keys(AMENDED_BY_STE_738_2).sort()).toEqual([
+      "flutter coloured green",
+      "pytest prints a bare Test Files line",
+      "pytest prints a bare cargo result head",
+    ]);
+  });
+
+  // Kills: a re-pinned row whose fixture line drops the note or v3.3.0's value.
+  for (const [label, a] of Object.entries(AMENDED_BY_STE_738_2)) {
+    test(`${label}: its fixture row carries \`Amended by AC-STE-738.2\` and v3.3.0's value beside it`, () => {
+      const v330 = `{ pass: ${a.v330.pass}, fail: ${a.v330.fail}, skip: ${a.v330.skip} }`;
+      const at = FIXTURE_SRC.findIndex((l) => l.includes(`"${label}"`) && /pass: \d+/.test(l));
+      expect(at).toBeGreaterThanOrEqual(0);
+      // The row itself, or the comment line directly above it.
+      const row = `${FIXTURE_SRC[at - 1] ?? ""}\n${FIXTURE_SRC[at]}`;
+      expect({ label, note: row.includes("Amended by AC-STE-738.2"), v330: row.includes(v330) }).toEqual({ label, note: true, v330: true });
+      expect(a.v330).not.toEqual(a.now);
+    });
+  }
+
+  // v3.3.0's flutter text is `could not determine test count — no +N/-N
+  // counters in flutter output`. Kills: a reworded no-counter refusal on any
+  // of the three stacks.
+  test("the no-counter refusal is v3.3.0's own text, byte for byte, on bun, pytest and flutter", () => {
+    const garbage = "make: the runner printed nothing countable\n";
+    for (const stack of ["bun", "pytest", "flutter"]) {
+      const then = TRUNK.deriveRunCounts({ output: garbage, stack });
+      expect(then.ok).toBe(false);
+      expect({ stack, reason: P.parseTestOutput(garbage, stack).reason }).toEqual({ stack, reason: TRUNK_PARSE(garbage, stack).reason });
+    }
+    expect(P.parseTestOutput(garbage, "flutter").reason).toBe("could not determine test count — no +N/-N counters in flutter output");
+  });
 });
 
 describe("AC-STE-732.2 / .3 — a Vitest run with unhandled errors is not a green run", () => {

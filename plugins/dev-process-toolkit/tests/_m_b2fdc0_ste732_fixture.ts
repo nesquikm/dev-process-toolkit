@@ -1021,26 +1021,54 @@ export const LEGACY_ANSI_CORPUS: ReadonlyArray<{ label: string; stack: "bun" | "
   { label: "flutter coloured red", stack: "flutter", output: text(["00:02 \x1b[32m+3\x1b[0m \x1b[31m-1\x1b[0m: \x1b[31mSome tests failed.\x1b[0m"]) },
 ];
 
-/** What v3.3.0's `deriveRunCounts` derives from each coloured corpus entry (measured at e9d6c655). */
+/**
+ * What `deriveRunCounts` derives from each coloured corpus entry: v3.3.0's
+ * counts (measured at e9d6c655), except the rows AC-STE-738.2 re-pins — each
+ * of those names the amendment and keeps v3.3.0's value on record beside it,
+ * in `AMENDED_BY_STE_738_2`.
+ */
 export const LEGACY_ANSI_EXPECTED: Record<string, { pass: number; fail: number; skip: number }> = {
   "bun coloured summary": { pass: 4, fail: 1, skip: 1 },
   "bun coloured fallback (no Ran line)": { pass: 3, fail: 0, skip: 0 },
   "pytest coloured mixed": { pass: 3, fail: 1, skip: 2 },
   "pytest coloured error": { pass: 2, fail: 1, skip: 0 },
-  // v3.3.0's flutter skip anchor does not see through colour; that stays as shipped.
-  "flutter coloured green": { pass: 5, fail: 0, skip: 0 },
+  // Amended by AC-STE-738.2 (operator ruling 2026-11-11): flutter reads SGR-stripped output, so the `~1` skip counter is seen. v3.3.0: { pass: 5, fail: 0, skip: 0 }.
+  "flutter coloured green": { pass: 5, fail: 0, skip: 1 },
   "flutter coloured red": { pass: 3, fail: 1, skip: 0 },
 };
 
 /**
  * bun / pytest runs that merely PRINT a foreign-looking line, with the counts
- * v3.3.0's `deriveRunCounts` derives from them (measured at e9d6c655). The
- * pytest parser's first-match `N passed` reads the printed line — that is
- * v3.3.0's count, kept as shipped.
+ * `deriveRunCounts` derives from them. The bun rows are v3.3.0's counts
+ * (measured at e9d6c655). v3.3.0's pytest parser read the first `N passed` —
+ * the printed line — so the two pytest rows are re-pinned by AC-STE-738.2 to
+ * the run's own last summary line, each with v3.3.0's value kept on record
+ * beside it (`v330`).
  */
-export const FOREIGN_LOOKING_RUNS: ReadonlyArray<{ label: string; stack: "bun" | "pytest"; lines: readonly string[]; expected: { pass: number; fail: number; skip: number } }> = [
+export const FOREIGN_LOOKING_RUNS: ReadonlyArray<{
+  label: string;
+  stack: "bun" | "pytest";
+  lines: readonly string[];
+  expected: { pass: number; fail: number; skip: number };
+  amended?: "Amended by AC-STE-738.2";
+  v330?: { pass: number; fail: number; skip: number };
+}> = [
   { label: "bun prints a bare Test Files line", stack: "bun", lines: BUN_PRINTS_TEST_FILES, expected: { pass: 2, fail: 0, skip: 0 } },
   { label: "bun prints a bare cargo result head", stack: "bun", lines: BUN_PRINTS_CARGO_HEAD, expected: { pass: 1, fail: 1, skip: 1 } },
-  { label: "pytest prints a bare Test Files line", stack: "pytest", lines: PYTEST_PRINTS_TEST_FILES, expected: { pass: 2, fail: 0, skip: 0 } },
-  { label: "pytest prints a bare cargo result head", stack: "pytest", lines: PYTEST_PRINTS_CARGO_HEAD, expected: { pass: 3, fail: 1, skip: 0 } },
+  { label: "pytest prints a bare Test Files line", stack: "pytest", lines: PYTEST_PRINTS_TEST_FILES, expected: { pass: 4, fail: 0, skip: 0 }, amended: "Amended by AC-STE-738.2", v330: { pass: 2, fail: 0, skip: 0 } },
+  { label: "pytest prints a bare cargo result head", stack: "pytest", lines: PYTEST_PRINTS_CARGO_HEAD, expected: { pass: 2, fail: 1, skip: 0 }, amended: "Amended by AC-STE-738.2", v330: { pass: 3, fail: 1, skip: 0 } },
 ];
+
+/**
+ * AC-STE-738.2 amends AC-STE-732.8 (operator ruling 2026-11-11): every
+ * re-pinned row, by label, with v3.3.0's value on record. The parsers suite
+ * grades `v330` against the real v3.3.0 parser and the re-pinned value against
+ * today's, so neither number can drift unseen. Every row not named here still
+ * derives exactly what v3.3.0 derived.
+ */
+export const AMENDED_BY_STE_738_2: Readonly<Record<string, { amended: "Amended by AC-STE-738.2"; v330: { pass: number; fail: number; skip: number }; now: { pass: number; fail: number; skip: number } }>> = {
+  "flutter coloured green": { amended: "Amended by AC-STE-738.2", v330: { pass: 5, fail: 0, skip: 0 }, now: LEGACY_ANSI_EXPECTED["flutter coloured green"] },
+  ...Object.fromEntries(
+    FOREIGN_LOOKING_RUNS.filter((c) => c.amended !== undefined).map((c) => [c.label, { amended: c.amended!, v330: c.v330!, now: c.expected }]),
+  ),
+};

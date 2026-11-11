@@ -626,3 +626,148 @@ describe("parseTestOutput — unknown / malformed", () => {
     expect(result.ok).toBe(false);
   });
 });
+
+// ===========================================================================
+// STE-738 — the rebase review's test gaps in the bun / pytest / flutter parsers
+// ===========================================================================
+//
+// Each case names the mutant it kills: the one-line change to the parser that
+// turns that case, and only that kind of case, red.
+
+/** A parse's counts, or the refusal itself — never through assertOk, so an unparsed capture fails at the assertion. */
+function counts(result: TestCountParseResult) {
+  return result.ok
+    ? { total: result.count.total, failures: result.count.failures, errors: result.count.errors, skipped: result.count.skipped }
+    : result;
+}
+
+describe("AC-STE-738.6 — bun reads a red first suite as red in every summary shape", () => {
+  // Kills: `parseBun(output)` in place of `parseBun(plain)` — unstripped, no
+  // coloured counter line opens with its digits, so the blocks come up empty
+  // and the last-match fallback reads the green second suite's `0 fail`.
+  test("coloured: two suites, the first red — total 8, failures 1, and a coloured todo stays in its block", () => {
+    const output = [
+      "\x1b[0m\x1b[32m 4 pass\x1b[0m",
+      "\x1b[0m\x1b[90m 2 todo\x1b[0m",
+      "\x1b[0m\x1b[31m 1 fail\x1b[0m",
+      "Ran 7 tests across 1 file. \x1b[0m\x1b[2m[10.00ms]\x1b[0m",
+      "\x1b[0m\x1b[32m 3 pass\x1b[0m",
+      "\x1b[0m\x1b[2m 0 fail\x1b[0m",
+      "Ran 3 tests across 1 file. \x1b[0m\x1b[2m[4.00ms]\x1b[0m",
+    ].join("\n");
+    expect(counts(parseTestOutput(output, "bun"))).toEqual({ total: 10, failures: 1, errors: 0, skipped: 2 });
+  });
+
+  // Kills: the Ran-only branch's last-match `fail` over the whole capture —
+  // each suite's counters sit across a blank line from its `Ran` line, so no
+  // block holds a counter, and last-match reads the second suite's `0 fail`.
+  test("Ran-line-only: two suites, the first red — total 8, failures 1", () => {
+    const output = [" 4 pass", " 1 fail", "", "Ran 5 tests across 1 file.", " 3 pass", " 0 fail", "", "Ran 3 tests across 1 file."].join("\n");
+    expect(counts(parseTestOutput(output, "bun"))).toEqual({ total: 8, failures: 1, errors: 0, skipped: 0 });
+  });
+
+  // Kills: a Ran-only branch that reads the last `Ran` line alone instead of
+  // summing every one.
+  test("Ran-line-only: two green suites — total is the sum of both `Ran` lines", () => {
+    const output = [" 5 pass", " 0 fail", "", "Ran 5 tests across 2 files.", " 3 pass", " 0 fail", "", "Ran 3 tests across 1 file."].join("\n");
+    expect(counts(parseTestOutput(output, "bun"))).toEqual({ total: 8, failures: 0, errors: 0, skipped: 0 });
+  });
+
+  // Kills: last-block-only on the block path — the red first suite vanishes.
+  test("two suites, plain: the red first suite stays red and its skips stay counted", () => {
+    const output = [" 4 pass", " 1 skip", " 1 fail", "Ran 6 tests across 1 file.", " 3 pass", " 0 fail", "Ran 3 tests across 1 file."].join("\n");
+    expect(counts(parseTestOutput(output, "bun"))).toEqual({ total: 9, failures: 1, errors: 0, skipped: 1 });
+  });
+
+  // Kills: dropping the `lines[j].trim() === ""` break in bunSummaryBlocks —
+  // the walk crosses the blank line and reads `3 todo items loaded` as the
+  // todo counter, so a green run reads three tests as not executed.
+  test("a counter-shaped line across a blank line from the summary block never reaches the counts", () => {
+    const output = ["b.test.ts:", "3 todo items loaded", "", " 4 pass", " 0 fail", "Ran 4 tests across 1 file."].join("\n");
+    expect(counts(parseTestOutput(output, "bun"))).toEqual({ total: 4, failures: 0, errors: 0, skipped: 0 });
+  });
+});
+
+describe("AC-STE-738.7 — pytest reads every counter from the last summary line", () => {
+  // Kills: a first-match PYTEST_FAILED_RE or PYTEST_ERRORS_RE (each read
+  // from the first summary gives failures 1 / errors 2).
+  test("two red summaries: failed, errors and passed all come from the second", () => {
+    const output = ["== 1 failed, 2 errors, 2 passed in 0.1s ==", "== 3 failed, 4 errors, 4 passed in 0.2s =="].join("\n");
+    expect(counts(parseTestOutput(output, "pytest"))).toEqual({ total: 11, failures: 3, errors: 4, skipped: 0 });
+  });
+
+  // Kills: per-counter last-match — the last line has no `failed`, so the
+  // first summary's `2 failed` is mixed into the second run's counts.
+  test("a red first summary and a green last one yield the last line's counts", () => {
+    const output = ["== 2 failed, 1 passed in 0.1s ==", "== 5 passed in 0.2s =="].join("\n");
+    expect(counts(parseTestOutput(output, "pytest"))).toEqual({ total: 5, failures: 0, errors: 0, skipped: 0 });
+  });
+
+  // Kills: per-counter last-match on `errors`.
+  test("errors in the first summary only: the last line's zero errors stand", () => {
+    const output = ["== 1 passed, 2 errors in 0.1s ==", "== 4 passed in 0.2s =="].join("\n");
+    expect(counts(parseTestOutput(output, "pytest"))).toEqual({ total: 4, failures: 0, errors: 0, skipped: 0 });
+  });
+
+  // Kills: per-counter last-match on `skipped`.
+  test("skips in the first summary only: the last line's zero skips stand", () => {
+    const output = ["== 1 passed, 3 skipped in 0.1s ==", "== 2 passed in 0.2s =="].join("\n");
+    expect(counts(parseTestOutput(output, "pytest"))).toEqual({ total: 2, failures: 0, errors: 0, skipped: 0 });
+  });
+
+  // Kills: per-counter last-match on `passed` — a last summary with no
+  // `passed` (every test failed) borrows the first run's passes.
+  test("a green first summary and an all-failed last one: the last line has zero passes", () => {
+    const output = ["== 6 passed in 0.1s ==", "== 2 failed in 0.2s =="].join("\n");
+    expect(counts(parseTestOutput(output, "pytest"))).toEqual({ total: 2, failures: 2, errors: 0, skipped: 0 });
+  });
+
+  // Kills: a "summary line" rule that demands `=` borders, which would refuse
+  // `pytest -q`'s bare summary.
+  test("a `-q` summary without `=` borders still parses", () => {
+    expect(counts(parseTestOutput("1 failed, 2 passed in 0.10s", "pytest"))).toEqual({ total: 3, failures: 1, errors: 0, skipped: 0 });
+  });
+});
+
+describe("AC-STE-738.8 — a flutter progress line stamped H:MM:SS counts like an MM:SS line", () => {
+  // Kills: narrowing any of the three stamp groups `(?::\d{2}){1,2}` to
+  // `{1}` — the pass counter then reads `59:59 +5`, the fail and skip
+  // counters read nothing.
+  test("past one hour the H:MM:SS line carries the totals: pass 6, skip 2, fail 1", () => {
+    const output = ["59:59 +5: a", "1:00:03 +5 -1: b [E]", "  Expected: true", "    Actual: <false>", "1:00:04 +6 ~2 -1: Some tests failed."].join("\n");
+    expect(counts(parseTestOutput(output, "flutter"))).toEqual({ total: 7, failures: 1, errors: 0, skipped: 2 });
+  });
+
+  test("an H:MM:SS green run reads like its MM:SS twin", () => {
+    const mmss = parseTestOutput(["59:58 +3: a", "59:59 +4 ~1: All tests passed!"].join("\n"), "flutter");
+    const hmmss = parseTestOutput(["1:00:01 +3: a", "1:00:02 +4 ~1: All tests passed!"].join("\n"), "flutter");
+    expect(counts(hmmss)).toEqual({ total: 4, failures: 0, errors: 0, skipped: 1 });
+    expect(counts(hmmss)).toEqual(counts(mmss));
+  });
+});
+
+describe("STE-738 review round 1 — a summary-shaped stray line never outvotes the real summary", () => {
+  // Kills: the block path summing a counter-less block as 0 failures. The
+  // first suite's counters sit across a blank line from its `Ran` line, the
+  // second suite's block holds its own; with any block holding counters the
+  // first suite used to read as green.
+  test("bun: a Ran-only red first suite beside a counted green block stays red", () => {
+    const output = [" 4 pass", " 1 fail", "", "Ran 5 tests across 1 file.", " 3 pass", " 0 fail", "Ran 3 tests across 1 file."].join("\n");
+    expect(counts(parseTestOutput(output, "bun"))).toEqual({ total: 8, failures: 1, errors: 0, skipped: 0 });
+  });
+
+  // Kills: lastPytestSummaryLine taking the last counter-shaped line even when
+  // a timed summary (`… in 0.50s`) precedes it — a teardown log echoing
+  // `0 passed` after the real summary turned a red run green.
+  test("pytest: a counter-shaped log line after the timed summary is not the summary", () => {
+    const output = ["=== 2 failed, 3 passed in 0.50s ===", "teardown: 0 passed checks pending"].join("\n");
+    expect(counts(parseTestOutput(output, "pytest"))).toEqual({ total: 5, failures: 2, errors: 0, skipped: 0 });
+  });
+
+  // Kills: requiring a timed line with no fallback — `-q` captures trimmed of
+  // their timing still read their last counter line.
+  test("pytest: with no timed summary line the last counter line still reads", () => {
+    const output = ["== 2 failed, 1 passed ==", "== 5 passed =="].join("\n");
+    expect(counts(parseTestOutput(output, "pytest"))).toEqual({ total: 5, failures: 0, errors: 0, skipped: 0 });
+  });
+});

@@ -1824,6 +1824,46 @@ describe("an end-to-end run that executed no test is not evidence", () => {
   });
 });
 
+// AC-STE-738.9 — zero passes is not zero executed. A run with no passing test
+// and at least one failure executed tests: it is a red suite, and the
+// zero-executed ground must not claim it. Kills: dropping `&& counts.fail === 0`
+// from that ground in e2e_authoring.ts, which turns these runs into "executed no
+// test" (a refusal for a touched test, an advisory under none-needed).
+describe("AC-STE-738.9 — an end-to-end run with zero passes and a failure is a red suite", () => {
+  const E2E_ZERO_PASS_RED = ["bun test v1.1.29", "", " 0 pass", " 2 fail", "Ran 2 tests across 1 file. [1.20s]"].join("\n");
+
+  test("under a none-needed record: suite-red, no advisory, no `executed no test` reason", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      noneNeeded: { reason: "x" },
+      run: capturedRun("zero-pass-red", E2E_ZERO_PASS_RED),
+    });
+    expect(outcome.counts).toEqual(expect.objectContaining({ pass: 0, fail: 2 }));
+    expect({
+      suiteRed: outcome.suiteRed,
+      advisories: [...outcome.advisories],
+      executedNoTest: outcome.reasons.some((line) => line.includes("executed no test")),
+      token: outcome.capabilityToken,
+    }).toEqual({ suiteRed: true, advisories: [], executedNoTest: false, token: mod.E2E_CAPABILITY_TOKENS.suite_red });
+  });
+
+  test("with an authored test: suite-red, and the reasons never say the run executed no test", async () => {
+    const mod = await loadE2e();
+    const outcome = mod.resolveE2eAuthoring({
+      e2eCmd: REAL_CMD,
+      addedTests: ["tests/e2e/a.e2e.test.ts"],
+      run: capturedRun("zero-pass-red-authored", E2E_ZERO_PASS_RED),
+    });
+    expect({
+      suiteRed: outcome.suiteRed,
+      advisories: [...outcome.advisories],
+      executedNoTest: outcome.reasons.some((line) => line.includes("executed no test")),
+      token: outcome.capabilityToken,
+    }).toEqual({ suiteRed: true, advisories: [], executedNoTest: false, token: mod.E2E_CAPABILITY_TOKENS.suite_red });
+  });
+});
+
 // The zero-executed ground reads `pass` off the parsed counts, so a stack whose
 // parser misreads `pass` turns every green run into "executed no test". A real
 // `flutter test` capture opens with `00:00 +0: loading …` and prints one

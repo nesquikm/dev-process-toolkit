@@ -7,6 +7,13 @@
 // equal them once the outcome lines this FR adds are taken out. So any other
 // new instruction — a Read, a Grep, a reworded line — is drift, which a model
 // of `bun run` calls alone cannot see.
+//
+// Amended by AC-STE-738.3 (operator ruling 2026-11-11), which amends
+// AC-STE-715.18 by name for skills/tdd/SKILL.md only: PR #121's defect check,
+// stranded-plant sweep, resume points and halt rows live in the orchestrator's
+// own instructions, so no reshaping of that PR passes a one-added-line guard.
+// The tdd freeze is re-based to the file's post-change digest — any one other
+// changed line still reads as drift. spec-review's guard is untouched.
 
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -22,6 +29,27 @@ const GUARDED: Record<string, { v300Sha256: string; addedLines: number }> = {
   tdd: { v300Sha256: "437ef7034c03ab2c0225a19f87a4360a0684318334972559fd1f6936897c6ef2", addedLines: 1 },
   "spec-review": { v300Sha256: "6bcfb014120363c9ca957caef899be59a851ba3da963ed80f757fcb036528498", addedLines: 1 },
 };
+
+/** The skills AC-STE-715.18's v3.0.0-plus-outcome-line guard still applies to. */
+const LINE_GUARDED: ReadonlyArray<string> = ["spec-review"];
+
+/**
+ * AC-STE-738.3 amends AC-STE-715.18: skills/tdd/SKILL.md is pinned at its
+ * post-change digest. The reason is recorded with the pin.
+ */
+const TDD_REBASE = {
+  amends: "AC-STE-715.18",
+  by: "AC-STE-738.3",
+  reason:
+    "PR #121 puts its defect check, stranded-plant sweep, resume points and halt rows in the orchestrator's own instructions; " +
+    "the operator ruled (2026-11-11) to re-base the tdd freeze at the post-change digest rather than widen the line guard",
+  sha256: "6012ecf504e9741c00b0db3ee86b31998bea5f76a464db95779673ede92214f1",
+} as const;
+
+/** The guard after the re-base: drift is any byte that moves the digest. */
+function driftFromRebase(text: string): string[] {
+  return sha(text) === TDD_REBASE.sha256 ? [] : [`skills/tdd/SKILL.md digest ${sha(text)} ≠ pinned ${TDD_REBASE.sha256}`];
+}
 
 const OUTCOME_ORDER = 'bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" outcome';
 
@@ -57,7 +85,10 @@ describe("AC-STE-715.18 line guards for tdd and spec-review", () => {
     test(`CONTROL: the pinned digest is skills/${skill}/SKILL.md at the v3.0.0 merge commit`, () => {
       expect(sha(atV300(rel(skill)))).toBe(pin.v300Sha256);
     });
+  }
 
+  for (const skill of LINE_GUARDED) {
+    const pin = GUARDED[skill];
     test(`skills/${skill}/SKILL.md differs from v3.0.0 only by ${pin.addedLines} added outcome line(s)`, () => {
       const r = driftBeyondOutcomeLines(atV300(rel(skill)), now(skill));
       expect({ skill, ...r }).toEqual({ skill, drift: [], added: pin.addedLines });
@@ -78,4 +109,43 @@ describe("AC-STE-715.18 line guards for tdd and spec-review", () => {
       expect(driftBeyondOutcomeLines(atV300(rel(skill)), lines.join("\n")).drift).not.toEqual([]);
     });
   }
+});
+
+describe("AC-STE-738.3 amends AC-STE-715.18 — skills/tdd/SKILL.md is re-based to its post-change digest", () => {
+  test("the re-base names both AC ids and records its reason", () => {
+    expect({ amends: TDD_REBASE.amends, by: TDD_REBASE.by }).toEqual({ amends: "AC-STE-715.18", by: "AC-STE-738.3" });
+    expect(TDD_REBASE.reason).toMatch(/PR #121/);
+    expect(TDD_REBASE.reason).toMatch(/operator ruled/);
+    // spec-review keeps the v3.0.0 line guard; only tdd moved.
+    expect([...LINE_GUARDED]).toEqual(["spec-review"]);
+  });
+
+  test("the pin is a sha256 digest (AC-STE-738.3 amends AC-STE-715.18)", () => {
+    expect(TDD_REBASE.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("skills/tdd/SKILL.md matches its post-change digest (AC-STE-738.3 amends AC-STE-715.18)", () => {
+    expect(driftFromRebase(now("tdd"))).toEqual([]);
+  });
+
+  // Kills: a re-base that stops reading the file (or pins whatever is there).
+  // The unmodified file passes; any ONE other changed line, anywhere, fails.
+  test("NEIGHBOUR CONTROL: one other changed line in a temp copy of skills/tdd/SKILL.md is rejected (AC-STE-738.3 amends AC-STE-715.18)", () => {
+    const text = now("tdd");
+    expect(driftFromRebase(text)).toEqual([]);
+    const lines = text.split("\n");
+    const targets = [lines.findIndex((l, i) => i > 20 && l.trim().length > 0 && !isOutcomeLine(l)), lines.length - 2, 1];
+    for (const target of targets) {
+      const copy = [...lines];
+      copy[target] = `${copy[target]} Then Read every file under specs/ first.`;
+      expect({ target, drift: driftFromRebase(copy.join("\n")).length }).toEqual({ target, drift: 1 });
+    }
+  });
+
+  test("CONTROL: an added line in a temp copy of skills/tdd/SKILL.md is rejected (AC-STE-738.3 amends AC-STE-715.18)", () => {
+    const lines = now("tdd").split("\n");
+    expect(driftFromRebase(lines.join("\n"))).toEqual([]);
+    lines.splice(30, 0, "Before dispatching, Grep the repository for TODO markers.");
+    expect(driftFromRebase(lines.join("\n"))).not.toEqual([]);
+  });
 });
