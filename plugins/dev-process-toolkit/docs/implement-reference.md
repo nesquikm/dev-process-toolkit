@@ -40,6 +40,22 @@ These are illustrative — use the patterns in your project's CLAUDE.md as the a
 - **Go:** verify every returned `error` is checked; check that deferred `Close()` calls are paired with error handling; confirm context cancellation propagates through goroutines.
 - **Rust:** verify `Result` is not discarded with `let _ = ...`; check that `?` propagates errors to the right boundary; confirm `panic!` is only used for truly unreachable states.
 
+## Defect checks, resuming a halt and parked tests
+
+Guidance `skills/implement/SKILL.md` does not carry inline (its lines are frozen by AC-STE-722.8); each paragraph names the skill step it extends.
+
+**Resuming after a `/tdd` halt (Phase 2 step 8).** `/implement` accepts `[--resume-at <AC-id>|refactor|audit]` after its target. The orchestrator's halt path fires after the bounded-retry cap is exhausted, or at once on a failed defect check (mode `not-load-bearing`, a test that stays GREEN under two plants with the behavior broken), so it surfaces a real failure. Phase 2 tells the orchestrator that `/implement` started the run, so a halt report names `/implement` for the resume. The operator then fixes what the halt report names and re-enters with `/implement <FR-id> --resume-at <point>` (an AC id, `refactor` or `audit`): the flag is not part of the target and is accepted for a single FR only — with `M<N>`, `next` or `all` it refuses, since a milestone-wide resume is not defined — and Phase 2 passes it on as `/dev-process-toolkit:tdd <FR-id> --resume-at <point>`, which skips Stage RED and resumes there; the later phases run as usual.
+
+**Phase 3 after a halt.** An orchestrator halt — bounded-retry exhausted on mode A/B/C/D/E per STE-225, or at once on mode `not-load-bearing` — means Phase 2 already escalated to the operator and Phase 3 does not run; the halt report is the surfaced failure.
+
+**Assertion quality (Phase 3 Stage A step c).** Beyond the shallow assertions the skill lists, also flag assertions that cannot fail: an expectation chosen from the output under test (`if (result.isEmpty) … else …`), a test that can finish without reaching its assertion (early `return`, an exception handler around it, a loop over a possibly empty collection), and an expected value computed through the code under test. Flag, too, a fixed sleep where a bounded condition wait belongs — it fails tests that are right. A new or changed test must go RED at its assertion with the behavior broken (`docs/patterns.md` § Pattern 22). `/tdd` proves it for one test per AC — the implementer's defect check on the test its AC turned GREEN; for a test written outside `/tdd`, put the same `defect check:` line in the change description.
+
+**The AC row of the step-14 report.** The AC checklist row also states how many ACs carry an unverified defect check per `/tdd`'s success report, and each listed AC row names its check.
+
+**An end-to-end run that executed no test (Phase 4 hook).** `resolveE2eAuthoring` also refuses a green declaration when the change added or edited an end-to-end test and the captured run executed no test (zero passes and zero failures — every test skipped); that refusal leaves the authoring token as the decision set it. With a recorded none-needed reason such a run is not refused: it lands in the outcome's `advisories`, and step 14 states each one as a `follow_ups` row. Full text: § Phase 4 End-to-End Authoring Hook.
+
+**Parking a test (Rules — Do NOT skip tests).** A test that cannot pass for a reason outside the code under test is parked at its declaration with the dated reason, what it waits on and the line that restores it — proposed to the user and parked only on approval, never left red, never deleted, never parked to turn a flaky suite green (`docs/patterns.md` § Pattern 18).
+
 ## Skip baseline capture
 
 0.a′ Before the Guard runs — on every `/implement` invocation, and independent of branch automation — RUN the `captureSkipBaseline` entry point, from the project root:

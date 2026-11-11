@@ -14,7 +14,9 @@ const read = (rel: string) => readFileSync(join(PLUGIN, rel), "utf8");
 const TDD = "skills/tdd/SKILL.md";
 const IMPLEMENTER_SKILL = "skills/tdd-implement/SKILL.md";
 const IMPLEMENTER_AGENT = "agents/tdd-implementer.md";
-const IMPLEMENT = "skills/implement/SKILL.md";
+// AC-STE-738.4: skills/implement/SKILL.md stays at main's bytes, so the
+// /implement half of this contract is pinned on the reference doc it moved to.
+const IMPLEMENT = "docs/implement-reference.md";
 
 describe("/tdd — the stranded-plant check restores only a recorded plant", () => {
   test("a file byte-equal to a recorded plant is restored", () => {
@@ -57,8 +59,11 @@ describe("/tdd — resume points after a halt", () => {
     expect(read(TDD)).toContain("- **`refactor`** (a refactorer halt");
   });
 
+  // AC-STE-738.11 widens the `audit` point to every spec-reviewer halt; the
+  // wording is pinned in tests/tdd-orchestrator-halt.test.ts.
   test("a spec-gap halt resumes at audit", () => {
-    expect(read(TDD)).toContain("- **`audit`** (a spec-gap halt");
+    const audit = read(TDD).split("\n").find((l) => l.startsWith("- **`audit`** ("));
+    expect(audit ?? "").toMatch(/spec-gap|spec-reviewer halt/);
   });
 
   test("the per-AC isolation names the defect check as its one exception", () => {
@@ -94,9 +99,7 @@ describe("the implementer's plant procedure", () => {
 
 describe("/implement — what it carries from /tdd and the e2e hook", () => {
   test("a none-needed empty run reaches follow_ups through advisories", () => {
-    expect(read(IMPLEMENT)).toContain(
-      "it lands in the outcome's `advisories`, and step 14 states each one as a `follow_ups` row",
-    );
+    expect(read(IMPLEMENT)).toMatch(/it lands in the outcome's `advisories`, [^\n]*`follow_ups`/);
   });
 
   test("--resume-at is refused outside a single FR", () => {

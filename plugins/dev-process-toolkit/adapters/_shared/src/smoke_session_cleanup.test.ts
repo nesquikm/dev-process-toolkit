@@ -686,7 +686,7 @@ function cli(fx: Fixture, extra: string[]): { code: number | null; out: string }
   ];
   const r = spawnSync("bun", args, {
     encoding: "utf8",
-    env: { ...process.env, HOME: fx.home, CLAUDE_CONFIG_DIR: fx.cfg1 },
+    env: { ...process.env, HOME: fx.home, CLAUDE_CONFIG_DIR: fx.cfg1, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
     timeout: CLI_TIMEOUT - 5000,
   });
   return { code: r.status, out: `${r.stdout ?? ""}\n${r.stderr ?? ""}` };
@@ -1256,5 +1256,92 @@ describe("AC-STE-593.2 / AC-STE-593.8 — the orphan classes are owned by the ru
     for (const p of ID_LESS.flatMap((c) => fx.expected[c])) {
       expect({ p, exists: existsSync(p) }).toEqual({ p, exists: false });
     }
+  });
+});
+
+// ===========================================================================
+// AC-STE-738.5 — the front door's child writes no bun cache under the synthetic $HOME
+// ===========================================================================
+//
+// `cli()` points HOME at the fixture's synthetic home, so a bun child that
+// keeps its runtime transpiler cache writes `Library/Caches/bun/@t@` (or
+// `.bun/…`) INTO the tree the byte-identical checks above snapshot. The child
+// therefore runs with `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`. A `bun` shim on
+// PATH records the variable the child actually received, then execs the real
+// bun, so the env is observed, not inferred from a tree that a small script
+// might leave clean anyway.
+
+function bunCacheDirs(home: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string, depth: number) => {
+    if (depth > 4 || !existsSync(dir)) return;
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (!lstatSync(p).isDirectory()) continue;
+      if (name === "bun" || name === ".bun" || name === "@t@") found.push(p);
+      walk(p, depth + 1);
+    }
+  };
+  walk(home, 0);
+  return found.sort();
+}
+
+describe("AC-STE-738.5 — cli() runs its child with BUN_RUNTIME_TRANSPILER_CACHE_PATH=0", () => {
+  // Kills: dropping `BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"` from cli()'s env.
+  test(
+    "the child receives BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 and leaves no bun cache dir under the synthetic $HOME",
+    () => {
+      const fx = makeFixture();
+      const shimDir = mkdtempSync(join(tmpdir(), "ste738-bunshim-"));
+      tempRoots.push(shimDir);
+      const mark = join(shimDir, "seen-cache-path");
+      const shim = join(shimDir, "bun");
+      writeFileSync(
+        shim,
+        `#!/bin/sh\nprintf '%s' "\${BUN_RUNTIME_TRANSPILER_CACHE_PATH-unset}" > '${mark}'\nexec '${process.execPath}' "$@"\n`,
+      );
+      chmodSync(shim, 0o755);
+      const oldPath = process.env.PATH;
+      // An inherited value would pass the check without cli() setting it.
+      const oldCache = process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH;
+      delete process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH;
+      // An inherited XDG_CACHE_HOME would move the cache out of $HOME, where
+      // the probe below cannot see it.
+      const oldXdg = process.env.XDG_CACHE_HOME;
+      delete process.env.XDG_CACHE_HOME;
+      process.env.PATH = `${shimDir}:${oldPath ?? ""}`;
+      // The fixture plants `.bun/install/cache/…` as a keep-case, so the probe
+      // compares the tree after the run against the tree before it.
+      const before = bunCacheDirs(fx.home);
+      let r: { code: number | null; out: string };
+      try {
+        r = cli(fx, []);
+      } finally {
+        process.env.PATH = oldPath;
+        if (oldCache !== undefined) process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH = oldCache;
+        if (oldXdg !== undefined) process.env.XDG_CACHE_HOME = oldXdg;
+      }
+      expect({ code: r.code, shimRan: existsSync(mark) }).toEqual({ code: 0, shimRan: true });
+      expect(readFileSync(mark, "utf8")).toBe("0");
+      expect(bunCacheDirs(fx.home)).toEqual(before);
+    },
+    CLI_TIMEOUT,
+  );
+
+  // CONTROL: the probe can see a cache. A bun child on a module over bun's
+  // 50 KB cache threshold, with the same synthetic HOME and no override,
+  // writes one — so an empty `bunCacheDirs` above is a measurement, not blindness.
+  test("CONTROL: without the override a bun child under the synthetic HOME does write a cache the probe finds", () => {
+    const home = mkdtempSync(join(tmpdir(), "ste738-home-"));
+    tempRoots.push(home);
+    const big = join(home, "work", "big.ts");
+    mkdirSync(dirname(big), { recursive: true });
+    writeFileSync(big, `export const pad = ${JSON.stringify("x".repeat(80_000))};\nconsole.log(pad.length);\n`);
+    const env: Record<string, string | undefined> = { ...process.env, HOME: home };
+    delete env.BUN_RUNTIME_TRANSPILER_CACHE_PATH;
+    delete env.XDG_CACHE_HOME;
+    const r = spawnSync(process.execPath, ["run", big], { encoding: "utf8", env: env as NodeJS.ProcessEnv, timeout: 30_000 });
+    expect(r.status).toBe(0);
+    expect(bunCacheDirs(home).length).toBeGreaterThan(0);
   });
 });

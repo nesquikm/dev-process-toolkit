@@ -168,9 +168,9 @@ A halt leaves the code of every AC before it GREEN and every test the test-write
 
 `/dev-process-toolkit:tdd <FR-id> --resume-at <point>` resumes instead. Step 1 runs as usual — the receipt and the stranded-plant sweep — after the point is checked: an `<AC-id>` that is not one of the FR's ACs, or any other word but `refactor` and `audit`, refuses before the receipt is recorded. Stage RED is skipped at every point, so no test-writer fork touches the tests; the AUDIT stage's retry round, scoped to the ACs the audit reports missing, still dispatches the test-writer for those.
 
-- **`<AC-id>`** (a halt in Stage GREEN) — starts Stage GREEN at that AC, telling its implementer this is a resume: its test may already be GREEN, and then it goes straight to the defect check. Later ACs run as usual, then REFACTOR and AUDIT.
+- **`<AC-id>`** (a first-pass halt in Stage GREEN) — starts Stage GREEN at that AC, telling its implementer this is a resume: its test may already be GREEN, and then it goes straight to the defect check. Later ACs run as usual, then REFACTOR and AUDIT.
 - **`refactor`** (a refactorer halt, after the operator fixed or reverted the refactor) — skips Stage GREEN, confirms the failing-test command is GREEN, then runs REFACTOR and AUDIT.
-- **`audit`** (a spec-gap halt, after the operator implemented the ACs it reported missing or corrected the FR) — confirms the command is GREEN, then runs AUDIT with its retry round.
+- **`audit`** (any spec-reviewer halt, or an implementer halt in the audit retry round — every AC is GREEN by then, so none is re-dispatched — after the operator fixed what stopped it, implemented the ACs it reported missing or corrected the FR) — confirms the command is GREEN, then runs AUDIT with its retry round.
 
 When `/implement` started the run, the operator resumes through it instead — `/dev-process-toolkit:implement <FR-id> --resume-at <point>` — so Phase 2 passes the flag here and the later phases still run. A halt report names the right one.
 
@@ -178,7 +178,7 @@ When `/implement` started the run, the operator resumes through it instead — `
 
 When the bounded budget is exhausted — or at once on a `not-load-bearing` failure, which spends no budget — the orchestrator:
 
-1. Calls `formatHaltReport(...)` from `adapters/_shared/src/tdd_halt_report.ts` with `{ mode, role, entry, fr, ac, retryCount, lastBlock?, rawOutput? }` — `entry` (`implement` when `/implement` invoked this run, else `tdd`) and `fr` make its resume command one the operator can copy as it stands.
+1. Calls `formatHaltReport(...)` from `adapters/_shared/src/tdd_halt_report.ts` with `{ mode, role, entry, fr, ac, auditRound, retryCount, lastBlock?, rawOutput? }` — `auditRound` (true for an implementer halt in the AUDIT retry round) makes it resume at `audit`, not the AC; `entry` (`implement` when `/implement` invoked this run, else `tdd`) and `fr` make its resume command one the operator can copy as it stands.
 2. Emits the rendered report (failure mode + retry count + last `tdd-result` block, or raw output if no block was emitted).
 3. Exits non-zero — the halt is a real failure surfacing, not a routine pause.
 
