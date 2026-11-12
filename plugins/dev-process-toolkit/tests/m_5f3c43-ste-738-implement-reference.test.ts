@@ -3,13 +3,19 @@
 // `docs/implement-reference.md` instead.
 //
 // The AC-STE-722.8 suite (tests/m_d1b4b7-ste-722-skill-text.test.ts) is the
-// line freeze and passes unamended; this suite pins the two halves of the
-// move: the SKILL.md bytes, and each piece of moved guidance on the reference
-// doc. Each test names the mutant it kills.
+// line freeze; this suite pins the two halves of the move: the SKILL.md bytes,
+// and each piece of moved guidance on the reference doc. Each test names the
+// mutant it kills.
+//
+// Amended by AC-STE-738.13 (operator ruling 2026-11-12, v3.5.0 fix round): the
+// SKILL.md is main's bytes except lines 4, 92 and 280, which carry the exact
+// --resume-at admissions of tests/_m_5f3c43_ste738_implement_admissions.ts.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { ADMITTED_INDEXES, undoAdmissions } from "./_m_5f3c43_ste738_implement_admissions";
 
 const PLUGIN = join(import.meta.dir, "..");
 const MAIN_SHA = "58d211f8";
@@ -30,15 +36,37 @@ const carrying = (...phrases: Array<string | RegExp>): string[] =>
   paragraphs.filter((p) => phrases.every((ph) => (typeof ph === "string" ? p.includes(ph) : ph.test(p))));
 
 describe("AC-STE-738.4 — /implement SKILL.md is main's bytes", () => {
+  /** The SKILL.md lines with the AC-STE-738.13 admissions undone, or the reason they cannot be. */
+  const undone = (body: string): string => {
+    const r = undoAdmissions(body.split("\n"));
+    return "error" in r ? `REFUSED: ${r.error}` : r.lines.join("\n");
+  };
+
   // Kills: any PR #121 hunk left in skills/implement/SKILL.md.
-  test(`skills/implement/SKILL.md is byte-identical to ${MAIN_SHA}`, () => {
-    const now = readFileSync(join(PLUGIN, SKILL_REL), "utf8");
+  // Amended by AC-STE-738.13: byte-identical once the three admitted edits are undone.
+  test(`skills/implement/SKILL.md is byte-identical to ${MAIN_SHA} but for the AC-STE-738.13 lines`, () => {
+    const now = undone(readFileSync(join(PLUGIN, SKILL_REL), "utf8"));
     const then = atMain(SKILL_REL);
     const a = now.split("\n");
     const b = then.split("\n");
     const differing = a.map((l, i) => (l === b[i] ? null : i + 1)).filter((n): n is number => n !== null);
     expect({ lines: `${a.length} vs ${b.length}`, differing: differing.slice(0, 10) }).toEqual({ lines: `${b.length} vs ${b.length}`, differing: [] });
     expect(now === then).toBe(true);
+  });
+
+  // Kills: an admission widened to a whole line, or a second edit riding on an admitted one.
+  test("AC-STE-738.13 control: a changed neighbour of an admitted line, or a second edit on one, is rejected", () => {
+    const body = readFileSync(join(PLUGIN, SKILL_REL), "utf8");
+    const then = atMain(SKILL_REL);
+    expect(undone(body)).toBe(then);
+    const lines = body.split("\n");
+    for (const i of ADMITTED_INDEXES) {
+      for (const n of [i - 1, i, i + 1]) {
+        const edited = [...lines];
+        edited[n] = `x${edited[n]}`;
+        expect({ n, same: undone(edited.join("\n")) === then }).toEqual({ n, same: false });
+      }
+    }
   });
 });
 
