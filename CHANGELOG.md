@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.5.0] — 2026-11-12 — "Load Bearing"
+
+### Added
+
+- New tests prove they can fail for their reason (STE-738). During GREEN, `/tdd` plants the smallest bug in the end state each AC's test reads and requires that test to go RED. A test that stays GREEN under two different plants halts in `not-load-bearing` at once, with no retry. This lands external PR #121 on current main. The bun, pytest and flutter parsers read output with SGR codes stripped. A red first bun suite stays red in every summary shape. pytest reads one summary line, preferring the timed one, and flutter counts `H:MM:SS` progress stamps. A halt's Remedy names its resume point alone, and spec-reviewer and audit-round halts resume at `audit`. AC-STE-732.8 and AC-STE-715.18 are amended by name. `skills/implement/SKILL.md` keeps main's bytes, and its new guidance lives in `docs/implement-reference.md`.
+
+The 2026-11-12 three-leg conformance run (jira, then linear and none) found no regression from this change; its findings are tracked separately.
+
+Total test count at release: 23360 tests, 0 failures, 0 errors.
+
 ## [3.4.0] — 2026-11-10 — "House Rules"
 
 ### Added
