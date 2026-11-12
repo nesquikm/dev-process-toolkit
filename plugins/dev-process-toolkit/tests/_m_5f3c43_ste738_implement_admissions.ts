@@ -13,8 +13,10 @@ export const HINT_NEW = "[--code-only] [--resume-at <AC-id>|refactor|audit]'";
 
 /** Line 92 (index 91), Phase 2 step 8's orchestrator call: an exact append. */
 export const STEP_8_INDEX = 91;
+// Amended in the v3.5.0 fix round 2 (supervisor spec review): `entry: implement` is
+// passed on EVERY run, not only a resume, so a first run's halt names /implement.
 export const STEP_8_APPEND =
-  " When `--resume-at <point>` follows the FR, pass it and `entry: implement` on to `/dev-process-toolkit:tdd <FR-id> --resume-at <point>`: `docs/implement-reference.md` § Defect checks, resuming a halt and parked tests.";
+  " Step 8 always passes `entry: implement` to the orchestrator, so even a first run's halt report names `/dev-process-toolkit:implement` for the resume; when `--resume-at <point>` follows the FR, it also passes that on, as `/dev-process-toolkit:tdd <FR-id> --resume-at <point>`: `docs/implement-reference.md` § Defect checks, resuming a halt and parked tests.";
 
 /** Line 280 (index 279), Phase 4 step 14's report: an exact append. */
 export const STEP_14_INDEX = 279;
