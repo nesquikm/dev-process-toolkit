@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.4.0 — "House Rules"** (M_b2fdc0, nine field-report fixes. The repository that minted a Jira Epic can edit its description and summary after an exact consent answer, and a fetched ticket proves its own ownership; the captures run the test commands a project declares and read Vitest, Cargo and Playwright counts; lock commits carry only the lock; a spec-only commit needs no gate run, and a worker's own spec review vouches for the pull request its owner opens; archived plans keep working links; and a bug found after ship has a named route)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.5.0 — "Load Bearing"** (M_5f3c43, an outside contribution. During GREEN, `/tdd` plants the smallest bug each new test should catch and requires the test to go red; a test that stays green halts the run as `not-load-bearing`. The bun, pytest and flutter parsers read a run's own summary, and a halt names the one point to resume from)
 
 ## Core Philosophy
 

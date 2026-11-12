@@ -35,6 +35,9 @@ import {
   sentencesOf,
   tempDir,
 } from "./_m_d1b4b7_ste722_fixture";
+// Amended by AC-STE-738.13 (operator ruling 2026-11-12, v3.5.0 fix round): lines 4, 92
+// and 280 carry the /implement --resume-at admissions; each is undone before the hash.
+import { ADMITTED_INDEXES, STEP_14_APPEND, STEP_8_APPEND, undoAdmissions } from "./_m_5f3c43_ste738_implement_admissions";
 
 afterAll(cleanupTemps);
 
@@ -81,7 +84,10 @@ function appendedToLine297(body: string): { appended: string } | { error: string
     return { error: "line 268 does not carry the rewriteArchiveLinks order statement exactly once" };
   }
   restored[V300_LINE_268_INDEX] = line268.replace(V300_LINE_268_ORDER_NEW, V300_LINE_268_ORDER_OLD);
-  if (sha256(restored.join("\n")) !== V300_IMPLEMENT_SHA) return { error: "a line other than 297, the step-i line and line 268 differs from v3.0.0" };
+  // Amended by AC-STE-738.13 (v3.5.0 fix round): lines 4, 92 and 280 admitted as exact edits.
+  const undone = undoAdmissions(restored);
+  if ("error" in undone) return undone;
+  if (sha256(undone.lines.join("\n")) !== V300_IMPLEMENT_SHA) return { error: "a line other than 297, the step-i line, line 268 and the AC-STE-738.13 lines differs from v3.0.0" };
   const appended = line.slice(V300_LINE_297_LENGTH);
   if (appended.length === 0) return { error: "nothing appended to line 297" };
   return { appended };
@@ -168,6 +174,41 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     const doubled = [...lines];
     doubled[V300_LINE_268_INDEX] = `${doubled[V300_LINE_268_INDEX]} ${V300_LINE_268_ORDER_NEW}`;
     expect(appendedToLine297(doubled.join("\n"))).toHaveProperty("error");
+  });
+
+  // Amended by AC-STE-738.13 (operator ruling 2026-11-12, v3.5.0 fix round).
+  test("AC-.8 control (AC-STE-738.13): lines 4, 92 and 280 admit only their exact edit; a changed neighbour or any other edit is rejected", () => {
+    const lines = read(IMPLEMENT_SKILL).split("\n");
+    expect(appendedToLine297(lines.join("\n"))).not.toHaveProperty("error");
+    for (const i of ADMITTED_INDEXES) {
+      for (const n of [i - 1, i + 1]) {
+        const neighbour = [...lines];
+        neighbour[n] = `${neighbour[n]}x`;
+        expect({ n, r: appendedToLine297(neighbour.join("\n")) }).toHaveProperty("r.error");
+      }
+      const extra = [...lines];
+      extra[i] = `x${extra[i]}`;
+      expect({ i, r: appendedToLine297(extra.join("\n")) }).toHaveProperty("r.error");
+    }
+    const hintGone = [...lines];
+    hintGone[3] = hintGone[3]!.replace(" [--resume-at <AC-id>|refactor|audit]", "");
+    expect(hintGone[3]).not.toBe(lines[3]);
+    expect(appendedToLine297(hintGone.join("\n"))).toHaveProperty("error");
+    const hintChanged = [...lines];
+    hintChanged[3] = hintChanged[3]!.replace("refactor|audit", "audit");
+    expect(appendedToLine297(hintChanged.join("\n"))).toHaveProperty("error");
+    for (const [i, suffix] of [[91, STEP_8_APPEND], [279, STEP_14_APPEND]] as const) {
+      const dropped = [...lines];
+      dropped[i] = dropped[i]!.slice(0, -suffix.length);
+      expect({ i, r: appendedToLine297(dropped.join("\n")) }).toHaveProperty("r.error");
+      const doubled = [...lines];
+      doubled[i] = `${doubled[i]}${suffix}`;
+      expect({ i, r: appendedToLine297(doubled.join("\n")) }).toHaveProperty("r.error");
+      const reworded = [...lines];
+      reworded[i] = reworded[i]!.replace(suffix, suffix.replace("`docs/implement-reference.md`", "`docs/implement.md`"));
+      expect(reworded[i]).not.toBe(lines[i]);
+      expect({ i, r: appendedToLine297(reworded.join("\n")) }).toHaveProperty("r.error");
+    }
   });
 
   test("AC-.8 the appended text carries the anchor, the retro: on condition, accept, decline, the clause and the pointer, and no STE token", () => {
