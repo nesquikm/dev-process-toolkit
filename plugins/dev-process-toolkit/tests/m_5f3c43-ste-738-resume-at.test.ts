@@ -59,6 +59,17 @@ describe("AC-STE-738.13 — /implement accepts --resume-at and passes it to /tdd
     expect(STEP_8_APPEND).toContain("`entry: implement`");
   });
 
+  // Kills: `entry: implement` passed only on a resume (the round-1 wording) — a
+  // first run's halt would then name `/tdd … --resume-at`, and resuming that way
+  // skips /implement's later phases.
+  test("step 8 passes `entry: implement` on every run, unconditionally, and --resume-at only when given", () => {
+    const sentences = STEP_8_APPEND.trim().split(/;\s+/);
+    const entry = sentences.find((x) => x.includes("`entry: implement`"))!;
+    expect(entry).toContain("always passes `entry: implement`");
+    expect(entry).not.toContain("--resume-at");
+    expect(sentences.find((x) => x.includes("--resume-at <point>` follows the FR"))).toBeDefined();
+  });
+
   // Kills: a pointer to a section the reference doc does not have.
   test("both SKILL.md pointers name a section the reference doc carries", () => {
     for (const suffix of [STEP_8_APPEND, STEP_14_APPEND]) {
@@ -86,6 +97,20 @@ describe("AC-STE-738.13 — every surface naming the resume command names one th
     const skills = resumeCommandSkills(out);
     expect(skills).toEqual(["implement"]);
     for (const s of skills) expect({ s, hint: argumentHint(s)?.includes("--resume-at") }).toEqual({ s, hint: true });
+  });
+
+  // Kills: a first (non-resume) halt of an /implement-started run naming /tdd — the
+  // halt reporter must honour `entry` on a first-pass halt, not only on a resume.
+  test("a first-pass halt of an /implement-started run names /dev-process-toolkit:implement for the resume", () => {
+    for (const r of [
+      { mode: "B" as const, role: "implementer" as const, entry: "implement" as const, fr: "STE-901", ac: "AC-STE-901.1", retryCount: 2 },
+      { mode: "not-load-bearing" as const, role: "implementer" as const, entry: "implement" as const, fr: "STE-901", ac: "AC-STE-901.1", retryCount: 0 },
+      { mode: "C" as const, role: "refactorer" as const, entry: "implement" as const, fr: "STE-901", retryCount: 2 },
+    ]) {
+      const out = formatHaltReport(r);
+      expect({ mode: r.mode, skills: resumeCommandSkills(out) }).toEqual({ mode: r.mode, skills: ["implement"] });
+      expect(out).toContain("/dev-process-toolkit:implement STE-901 --resume-at");
+    }
   });
 
   // Kills: any doc, skill or reporter naming `/<skill> … --resume-at` for a skill whose hint lacks it.
