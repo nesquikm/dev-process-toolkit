@@ -1,7 +1,7 @@
 ---
 milestone: M_4daa6e
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-11-13T16:42:24Z
 kickoff_branch: null
 frozen_at: null
 migration: retro-priority-default
@@ -18,7 +18,7 @@ codename: Trend Lines
 
 **Release target:** the next minor after v3.5.0 (every FR is Added). Verify against CHANGELOG.md before shipping.
 
-**Design rulings (2026-11-12/13).** Every settings write needs an explicit operator approval, reverts included. Nothing may lower quality. Limits are code constants. A group is skill × changelog category × size bucket (S under 100 changed lines, M 100–500, L over 500). The window is the last 20 runs per group, `--last N` overrides it, and a group with fewer than 5 runs reads insufficient. Review finding counts are recorded in this milestone, behind their own opt-in. `retro.priority` ships here, and an `/upgrade` step writes its default.
+**Design rulings (2026-11-12/13).** Every settings write needs an explicit operator approval, reverts included. Nothing may lower quality. Limits are code constants. A group is skill × changelog category × size bucket (S under 100 changed lines, M 100–500, L over 500). The window is the last 20 runs per group, `--last N` overrides it, and a group with fewer than 5 runs reads insufficient. Review finding counts are recorded in this milestone, behind their own opt-in. `retro.priority` ships here, and an `/upgrade` step writes its default. Operator ruling 2026-11-13: `/setup` and the `settings-file` move also seed the default, so a fresh or freshly moved tree starts current.
 
 **Migration:** `retro-priority-default` writes `retro.priority: [waste, tokens, time]` into a moved settings file that lacks it.
 
