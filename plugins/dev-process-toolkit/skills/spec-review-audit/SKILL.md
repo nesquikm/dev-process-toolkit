@@ -27,6 +27,8 @@ The orchestrator passes you (in its prompt body):
    - `done` — covered by a real assertion and a real implementation.
    - `missing` — no test or no implementation found.
    - `partial` — partially covered (e.g., assertion is shallow, implementation has TODO, or scope drifted).
+
+   On a bug FR (`kind: bug` in its frontmatter) every AC is a bug case, and its test must drive the condition in the FR's Steps to reproduce and assert the Expected result: a test that asserts only that the fix's new code ran (a function, branch or key the change added) cannot run on the code before the fix, so it is `partial`. A `Regression:` AC whose named test is not found is `missing`.
 4. **Note** any cross-cutting **drift** (stale specs, dead references, inconsistent naming) as advisory drift hints.
 5. **Emit** exactly one fenced ` ```spec-review-result ` block as the last thing in your turn.
 
