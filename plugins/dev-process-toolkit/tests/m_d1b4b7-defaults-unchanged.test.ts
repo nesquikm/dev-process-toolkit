@@ -27,7 +27,8 @@
 // NAMED ACCEPTED DIFFERENCE (and nothing else): the documented
 // `project_settings.ts get` CLI, which no skill calls by default —
 //   1. `get tracking` prints the gate_outcomes and tool_calls blocks as
-//      STE-717 pins it (M_7bc805);
+//      STE-717 pins it (M_7bc805) and, since AC-STE-774.1 (M_4daa6e), the
+//      review_findings block after them;
 //   2. `get retro` exits 0 and prints the retro section — `enabled: false`
 //      and, since AC-STE-775.2 (M_4daa6e), the default `priority` order —
 //      where v3.0.0 refused it with exit 1;
@@ -120,8 +121,9 @@ const notASection = (section: string, list: string): Out => ({
 });
 
 const TRACKING_V300 = ok(json(["{", '  "token_stats": {', '    "enabled": false', "  }", "}"]));
+// Amended by AC-STE-774.1 (M_4daa6e): get tracking also prints the review_findings block, off, after tool_calls.
 const TRACKING_NOW = ok(
-  json(["{", '  "token_stats": {', '    "enabled": false', "  },", '  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  }", "}"]),
+  json(["{", '  "token_stats": {', '    "enabled": false', "  },", '  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  },", '  "review_findings": {', '    "enabled": false', "  }", "}"]),
 );
 const close = (on: boolean): Out => ok(json(["{", '  "upgrade_offer": {', `    "enabled": ${on}`, "  }", "}"]));
 const orchestration = (effort: string): Out => ok(json(["{", `  "default_effort": "${effort}",`, '  "merge_policy": "offer"', "}"]));
@@ -174,7 +176,8 @@ const V300_GET: Record<Fixture, Record<string, Out>> = {
 
 /** The named differences, applied to the v3.0.0 table. Nothing else moves. */
 const NAMED_DIFFERENCES: Record<string, { why: string; now: Out }> = {
-  tracking: { why: "get tracking prints the M_7bc805 blocks as STE-717 pins it", now: TRACKING_NOW },
+  // Amended by AC-STE-774.1 (M_4daa6e): the tracking section also answers the review_findings default.
+  tracking: { why: "get tracking prints the M_7bc805 blocks as STE-717 pins it, plus the STE-774 review_findings block", now: TRACKING_NOW },
   // Amended by AC-STE-775.2 (M_4daa6e): the retro section answers the default priority order.
   retro: {
     why: "get retro exits 0 and prints the retro section",

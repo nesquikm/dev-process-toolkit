@@ -10,12 +10,32 @@
 // Amended by AC-STE-738.13 (operator ruling 2026-11-12, v3.5.0 fix round): the
 // SKILL.md is main's bytes except lines 4, 92 and 280, which carry the exact
 // --resume-at admissions of tests/_m_5f3c43_ste738_implement_admissions.ts.
+// Amended by AC-STE-774.4 (M_4daa6e): line 213 also carries the exact
+// review_findings record sentence, undone by undoSte774 below.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { ADMITTED_INDEXES, undoAdmissions } from "./_m_5f3c43_ste738_implement_admissions";
+
+// Amended by AC-STE-774.4 (M_4daa6e): line 213 (index 212), Phase 3 step i, carries one exact append — the
+// record call gated on `review_findings: on`. Undone before the AC-STE-738.13 admissions; a line that does not
+// end with it exactly once does not reverse to main's bytes.
+const STEP_I_INDEX = 212;
+const STEP_I_STE774_APPEND =
+  " Only if the `/gate-check` receipt call printed `review_findings: on`, write each Stage B pass's returned review to a temp file and record its counts with `bun run \"${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts\" record \"<checkout root>\" code-review \"<that file>\"`.";
+
+/** The lines with the AC-STE-774.4 step-i append undone, or the reason it is not carried exactly once. */
+function undoSte774(lines: readonly string[]): { lines: string[] } | { error: string } {
+  const out = [...lines];
+  const line = out[STEP_I_INDEX] ?? "";
+  if (!line.endsWith(STEP_I_STE774_APPEND) || line.split(STEP_I_STE774_APPEND).length !== 2) {
+    return { error: "line 213 does not end with its AC-STE-774.4 record sentence exactly once" };
+  }
+  out[STEP_I_INDEX] = line.slice(0, -STEP_I_STE774_APPEND.length);
+  return { lines: out };
+}
 
 const PLUGIN = join(import.meta.dir, "..");
 const MAIN_SHA = "58d211f8";
@@ -38,7 +58,10 @@ const carrying = (...phrases: Array<string | RegExp>): string[] =>
 describe("AC-STE-738.4 — /implement SKILL.md is main's bytes", () => {
   /** The SKILL.md lines with the AC-STE-738.13 admissions undone, or the reason they cannot be. */
   const undone = (body: string): string => {
-    const r = undoAdmissions(body.split("\n"));
+    // Amended by AC-STE-774.4 (M_4daa6e): the step-i record sentence is undone first.
+    const s774 = undoSte774(body.split("\n"));
+    if ("error" in s774) return `REFUSED: ${s774.error}`;
+    const r = undoAdmissions(s774.lines);
     return "error" in r ? `REFUSED: ${r.error}` : r.lines.join("\n");
   };
 
@@ -60,12 +83,32 @@ describe("AC-STE-738.4 — /implement SKILL.md is main's bytes", () => {
     const then = atMain(SKILL_REL);
     expect(undone(body)).toBe(then);
     const lines = body.split("\n");
-    for (const i of ADMITTED_INDEXES) {
+    // Amended by AC-STE-774.4 (M_4daa6e): the step-i line is admitted the same way, so it gets the same control.
+    for (const i of [...ADMITTED_INDEXES, STEP_I_INDEX]) {
       for (const n of [i - 1, i, i + 1]) {
         const edited = [...lines];
         edited[n] = `x${edited[n]}`;
         expect({ n, same: undone(edited.join("\n")) === then }).toEqual({ n, same: false });
       }
+    }
+  });
+
+  // Amended by AC-STE-774.4 (M_4daa6e). Kills: the step-i admission widened to any append, or not required exactly once.
+  test("AC-STE-774.4 control: the step-i record sentence dropped, doubled or reworded is rejected", () => {
+    const lines = readFileSync(join(PLUGIN, SKILL_REL), "utf8").split("\n");
+    const then = atMain(SKILL_REL);
+    expect(undone(lines.join("\n"))).toBe(then);
+    const dropped = [...lines];
+    dropped[STEP_I_INDEX] = dropped[STEP_I_INDEX]!.slice(0, -STEP_I_STE774_APPEND.length);
+    const doubled = [...lines];
+    doubled[STEP_I_INDEX] = `${doubled[STEP_I_INDEX]}${STEP_I_STE774_APPEND}`;
+    const reworded = [...lines];
+    reworded[STEP_I_INDEX] = reworded[STEP_I_INDEX]!.replace("`review_findings: on`", "`outcome: on`");
+    const extra = [...lines];
+    extra[STEP_I_INDEX] = `${extra[STEP_I_INDEX]} Then Read every file under specs/ first.`;
+    for (const [name, edited] of [["dropped", dropped], ["doubled", doubled], ["reworded", reworded], ["extra", extra]] as const) {
+      expect(edited[STEP_I_INDEX]).not.toBe(lines[STEP_I_INDEX]);
+      expect({ name, same: undone(edited.join("\n")) === then }).toEqual({ name, same: false });
     }
   });
 });

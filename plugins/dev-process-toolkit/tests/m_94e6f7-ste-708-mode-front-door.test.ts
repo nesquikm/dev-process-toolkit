@@ -678,6 +678,8 @@ const CONDITIONAL_TARGETS: { module: string; verb?: string; condition: string }[
   { module: "retro_offer.ts", condition: "retro: on" },
   // Amended by AC-STE-724.21 (M_fd9a03)
   { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },
+  // Amended by AC-STE-774.4 (M_4daa6e)
+  { module: "review_findings_receipt.ts", verb: "record", condition: "review_findings: on" },
 ];
 
 function sentences(text: string): string[] {
@@ -776,6 +778,16 @@ describe("AC-STE-708.13 zero extra tool calls", () => {
     ]);
     expect(
       plant('Only if that call also printed `reuse: on`, run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_reuse.ts" run "<root>" test -- "bun test"`.'),
+    ).toEqual([]);
+  });
+
+  // Amended by AC-STE-774.4 (M_4daa6e): review_findings_receipt.ts record is admitted only beside `review_findings: on`.
+  test("AC-.13 control: a planted review_findings_receipt.ts record without review_findings: on is reported, and admitted with it", () => {
+    expect(plant('Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts" record "<root>" spec-review "<file>"`.')).toEqual([
+      "added without its condition (review_findings: on): review_findings_receipt.ts record",
+    ]);
+    expect(
+      plant('Only if that receipt call also printed `review_findings: on`, run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts" record "<root>" spec-review "<file>"`.'),
     ).toEqual([]);
   });
 

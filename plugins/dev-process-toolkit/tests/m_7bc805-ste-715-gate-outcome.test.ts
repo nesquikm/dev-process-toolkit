@@ -70,7 +70,8 @@ describe("AC-STE-715.14 the switch shape", () => {
   test("settingsKeyOrder names gate_outcomes; tracking.gate_outcomes closes on {enabled}; NEW_KEYS holds it", async () => {
     const m = await S();
     // Amended by AC-STE-716.24 (M_7bc805): STE-716 adds tool_calls after gate_outcomes in the tracking key order.
-    expect(m.settingsKeyOrder("tracking")).toEqual(["token_stats", "gate_outcomes", "tool_calls"]);
+    // Amended by AC-STE-774.1 (M_4daa6e): STE-774 adds review_findings after tool_calls.
+    expect(m.settingsKeyOrder("tracking")).toEqual(["token_stats", "gate_outcomes", "tool_calls", "review_findings"]);
     expect(m.settingsKeyOrder("tracking.gate_outcomes")).toEqual(["enabled"]);
     expect(m.NEW_KEYS).toContain("tracking.gate_outcomes");
   });
@@ -236,29 +237,34 @@ describe("AC-STE-715.14 the switch shape", () => {
 
 describe("AC-STE-715.21 the tracking defaults merge", () => {
   // Amended by AC-STE-716.24 (M_7bc805): the merge now also fills tool_calls, after gate_outcomes, in every row below.
+  // Amended by AC-STE-774.1 (M_4daa6e): the merge also fills review_findings, after tool_calls, in every row below.
   const DEFAULT_TRACKING = {
     token_stats: { enabled: false },
     gate_outcomes: { enabled: false },
     tool_calls: { enabled: false },
+    review_findings: { enabled: false },
   };
   const FILES: Array<{ name: string; body: string; expected: Record<string, unknown> }> = [
     {
       name: "a section holding only token_stats: { enabled: false }",
       body: `${SETTINGS_HEAD}tracking:\n  token_stats:\n    enabled: false\n`,
       // Amended by AC-STE-716.24 (M_7bc805): tool_calls is filled after gate_outcomes.
-      expected: { token_stats: { enabled: false }, gate_outcomes: { enabled: false }, tool_calls: { enabled: false } },
+      // Amended by AC-STE-774.1 (M_4daa6e): review_findings is filled after tool_calls.
+      expected: { token_stats: { enabled: false }, gate_outcomes: { enabled: false }, tool_calls: { enabled: false }, review_findings: { enabled: false } },
     },
     // Amended by AC-STE-716.24 (M_7bc805): tool_calls is filled too; token_stats still is not.
     {
       name: "tracking: {}",
       body: `${SETTINGS_HEAD}tracking: {}\n`,
-      expected: { gate_outcomes: { enabled: false }, tool_calls: { enabled: false } },
+      // Amended by AC-STE-774.1 (M_4daa6e): review_findings is filled after tool_calls.
+      expected: { gate_outcomes: { enabled: false }, tool_calls: { enabled: false }, review_findings: { enabled: false } },
     },
     {
       name: "a written gate_outcomes: { enabled: true }",
       body: `${SETTINGS_HEAD}tracking:\n  gate_outcomes:\n    enabled: true\n`,
       // Amended by AC-STE-716.24 (M_7bc805): the written gate_outcomes is kept as written; tool_calls is filled after it.
-      expected: { gate_outcomes: { enabled: true }, tool_calls: { enabled: false } },
+      // Amended by AC-STE-774.1 (M_4daa6e): review_findings is filled after tool_calls.
+      expected: { gate_outcomes: { enabled: true }, tool_calls: { enabled: false }, review_findings: { enabled: false } },
     },
     { name: "no tracking section", body: SETTINGS_HEAD, expected: DEFAULT_TRACKING },
   ];
@@ -287,7 +293,8 @@ describe("AC-STE-715.21 the tracking defaults merge", () => {
     const m = await S();
     const root = settingsTree("merge-order", `${SETTINGS_HEAD}tracking:\n  token_stats:\n    enabled: true\n`);
     // Amended by AC-STE-716.24 (M_7bc805): tool_calls is a second filled key, following gate_outcomes.
-    expect(Object.keys(m.loadProjectSection(root, "tracking"))).toEqual(["token_stats", "gate_outcomes", "tool_calls"]);
+    // Amended by AC-STE-774.1 (M_4daa6e): review_findings is a third filled key, following tool_calls.
+    expect(Object.keys(m.loadProjectSection(root, "tracking"))).toEqual(["token_stats", "gate_outcomes", "tool_calls", "review_findings"]);
   });
 
   test("CONTROL: a temp copy restoring the v3.0.0 pass-through turns the first row red", async () => {

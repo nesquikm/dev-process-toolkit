@@ -15,14 +15,16 @@
 // stands.
 
 import { afterAll, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import {
   PLUGIN_ROOT,
   REPO_ROOT,
+  SETTINGS_HEAD,
   atV300,
   cleanupTemps,
+  git,
   makeTree,
   mentionRuleViolations,
   mintRun,
@@ -52,6 +54,8 @@ const GUARDED_TARGETS: readonly GuardedTarget[] = [
   { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
   // Amended by AC-STE-724.22 (M_fd9a03): the reuse front door is guarded by reuse: on.
   { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },
+  // Amended by AC-STE-774.4 (M_4daa6e): the review-findings record call is guarded by review_findings: on.
+  { module: "review_findings_receipt.ts", verb: "record", condition: "review_findings: on" },
 ];
 
 const SWITCH_LINE_RE = /`([a-z_]+: on)`/g;
@@ -155,6 +159,25 @@ describe("AC-STE-715.15 modelled tool calls", () => {
       expect(calls.filter((c) => c !== outcomes[0]).map((c) => c.key)).toEqual([...V300_CALLS[skill]!]);
       // The outcome call follows the receipt call.
       expect(calls.indexOf(outcomes[0]!)).toBeGreaterThan(calls.findIndex(isReceiptCall));
+      // Amended by AC-STE-774.4 (M_4daa6e): the outcome switch alone prints no review_findings line, so no record call.
+      expect(stdout.split("\n")).not.toContain("review_findings: on");
+      expect(calls.filter((c) => c.key === "review_findings_receipt.ts record")).toEqual([]);
+    }, T);
+
+    // Amended by AC-STE-774.4 (M_4daa6e): with tracking.review_findings on, the real receipt call prints
+    // `review_findings: on`, and /tdd and /spec-review add exactly one record call after it (/gate-check names none).
+    test(`${skill}: review_findings switch on, the modelled list adds exactly ${skill === "gate-check" ? "no" : "one"} record call`, () => {
+      const root = makeTree(`model-rf-${skill}`, "absent");
+      writeFileSync(join(root, "specs", "settings.yaml"), `${SETTINGS_HEAD}tracking:\n  review_findings:\n    enabled: true\n`);
+      git(root, "commit", "-q", "-am", "review_findings on");
+      const stdout = mintRun(root, skill).run.stdout;
+      expect(stdout.split("\n")).toContain("review_findings: on");
+      expect(stdout).not.toContain("outcome: on");
+      const calls = modelRun(skillText(skill), stdout);
+      const records = calls.filter((c) => c.key === "review_findings_receipt.ts record");
+      expect(records.length).toBe(skill === "gate-check" ? 0 : 1);
+      expect(calls.filter((c) => !records.includes(c)).map((c) => c.key)).toEqual([...V300_CALLS[skill]!]);
+      if (records.length === 1) expect(calls.indexOf(records[0]!)).toBeGreaterThan(calls.findIndex(isReceiptCall));
     }, T);
   }
 
@@ -179,9 +202,11 @@ describe("AC-STE-715.15 modelled tool calls", () => {
 
   test("GUARDED_TARGETS is the closed one-row table this milestone ships", () => {
     // Amended by AC-STE-724.22 (M_fd9a03): the reuse front door is guarded by reuse: on.
+    // Amended by AC-STE-774.4 (M_4daa6e): the review-findings record call is guarded by review_findings: on.
     expect(GUARDED_TARGETS).toEqual([
       { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
       { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },
+      { module: "review_findings_receipt.ts", verb: "record", condition: "review_findings: on" },
     ]);
   });
 

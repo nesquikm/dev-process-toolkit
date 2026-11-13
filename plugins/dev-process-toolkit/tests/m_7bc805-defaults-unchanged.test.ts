@@ -96,6 +96,10 @@ const GET_TRACKING_NOW = [
   "  },",
   '  "tool_calls": {',
   '    "enabled": false',
+  // Amended by AC-STE-774.1 (M_4daa6e): the review_findings block, off, follows tool_calls.
+  "  },",
+  '  "review_findings": {',
+  '    "enabled": false',
   "  }",
   "}",
   "",
@@ -106,7 +110,8 @@ function namedGetTrackingDifference(v300: string): string {
   const lines = v300.split("\n");
   // lines[3] is the closing `  }` of token_stats.
   if (lines[3] !== "  }") throw new Error("v3.0.0 literal changed shape");
-  const added = ['  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  }"];
+  // Amended by AC-STE-774.1 (M_4daa6e): the review_findings block, off, is added after tool_calls.
+  const added = ['  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  },", '  "review_findings": {', '    "enabled": false', "  }"];
   return [...lines.slice(0, 3), "  },", ...added, ...lines.slice(4)].join("\n");
 }
 
@@ -244,9 +249,10 @@ describe("AC-STE-717.13 named difference: project_settings.ts get tracking", () 
       expect({ code: now.exitCode, out: now.stdout, err: now.stderr }).toEqual({ code: 0, out: GET_TRACKING_NOW, err: "" });
       expect(namedGetTrackingDifference(then.stdout)).toBe(now.stdout);
       // Exactly: one changed line, six added lines.
+      // Amended by AC-STE-774.1 (M_4daa6e): nine added lines (the review_findings block adds three).
       const a = then.stdout.split("\n");
       const b = now.stdout.split("\n");
-      expect(b.length - a.length).toBe(6);
+      expect(b.length - a.length).toBe(9);
       expect([a[3], b[3]]).toEqual(["  }", "  },"]);
     }, T);
   }
@@ -307,6 +313,8 @@ describe("AC-STE-717.13 hooks.json and modelled tool calls", () => {
     { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
     // Amended by AC-STE-724.22 (M_fd9a03): the reuse front door is guarded by reuse: on.
     { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },
+    // Amended by AC-STE-774.4 (M_4daa6e): the review-findings record call is guarded by review_findings: on.
+    { module: "review_findings_receipt.ts", verb: "record", condition: "review_findings: on" },
   ];
   const SWITCH_LINE_RE = /`([a-z_]+: on)`/g;
   const BUN_RUN_RE = /bun run\s+"?([^\s"`]+?\.ts)"?(?:[ \t]+([a-z][a-z0-9-]*)(?=[\s"`]|$))?/gm;
