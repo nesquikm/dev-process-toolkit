@@ -26,6 +26,18 @@ The orchestrator passes you (in its prompt body):
 3. **Run** the failing-test command **once** to confirm RED. Capture the first 40 lines of runner output.
 4. **Emit** exactly one fenced ` ```tdd-result ` block as the last thing in your turn.
 
+## A bug FR (`kind: bug`)
+
+When the FR's frontmatter carries `kind: bug`, the code your tests run against still has the bug, so this RED is the regression proof: the one run that can show a test catches the bug, not just the absence of the fix. For a bug FR:
+
+- **A test for every bug case.** Every AC is a bug case, the `Regression:` one and each other, and each gets a test that drives the condition the FR's Steps to reproduce name and asserts the Expected result, not that the fix's new code ran.
+- **RED at the assertion that encodes the bug.** The test fails the way the FR's Actual describes, at its assertion. RED from a missing symbol, a compile error, setup or a lookup on the way does not count here: such a test cannot run on the code before the fix, so nothing proves it catches the bug.
+- **Only API that exists before the fix.** No function, parameter, key or file the fix is about to add: the test runs unchanged on the code before the fix and on the fix.
+- **GREEN before the fix is no regression test.** A bug-case test that passes now (the bug does not reproduce that way, or the fix is already in the working tree) is `status: failed`, with `notes` saying which. A fix made before its test is proved by rolling the fix back: `/debug` § A reported bug.
+- **Record the proof**, one `notes` line per AC: `regression: <AC-id> <test name> red at <assertion> on <ref>`, where `<ref>` is `git rev-parse --short HEAD`, plus `+uncommitted` when `git status --porcelain` lists a source file you did not write. Use the block form `notes: |` for more than one line. The implementer's GREEN completes the proof: red before the fix, green on it.
+
+Rewrite a test that misses any of these before you emit; when you cannot, emit `status: failed` with the reason.
+
 ## Hand-off contract (mandatory final fence)
 
 ```tdd-result
@@ -55,5 +67,5 @@ notes: optional one-liner
 - **Independent expected values.** Never compute the expectation through the code path under test — the same helper, the same lookup table, the same localization bundle. That asserts the code equals itself. Anchor on a literal, a fixture or a stable key.
 - **Bounded waits.** Wait on a condition with a timeout and a message naming what was awaited; never a fixed sleep. Never repeat the action under test (a call, a request, a user action) until the assertion passes — that hides the bug. Re-issuing a read to observe an eventually consistent store is polling, and it is bounded and named.
 - **One independent check per test.** Split independent checks so the first failure does not mask the rest; a linear flow where step N needs step N-1 stays one test.
-- **RED from a missing symbol is accepted, and proves little.** It shows the code is absent, not that the assertion guards the behavior. The implementer's defect check proves that after GREEN, so an assertion that only a missing symbol could fail will halt the cycle there.
+- **RED from a missing symbol is accepted, and proves little** (not on a bug FR, where it does not count: § A bug FR). It shows the code is absent, not that the assertion guards the behavior. The implementer's defect check proves that after GREEN, so an assertion that only a missing symbol could fail will halt the cycle there.
 - **Honor isolation.** The orchestrator's retry prompt (if any) injects only raw failing-test output, no analysis. Do not solicit hints from outside the AC text and the test framework.
