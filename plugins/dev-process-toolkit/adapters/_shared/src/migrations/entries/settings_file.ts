@@ -2,8 +2,11 @@
 // CLAUDE.md, `specs/tracker-config.yaml` and `.dpt/video/{config,style}.yaml`
 // into `specs/settings.yaml`, then removes each old copy.
 //
-// Registered last in `MIGRATIONS`: older entries that edit CLAUDE.md run
+// Registered after every entry that edits CLAUDE.md: those older entries run
 // first, so a 2.x tree is brought current on its legacy home before the move.
+// The entries after it (capture-registration, retro-priority-default) work on
+// the moved tree. The move seeds the default retro order itself (STE-775), so
+// the file it creates is already current.
 // `requires_explicit_approval` keeps it out of auto-approve runs, because it
 // rewrites a file a person edits.
 
@@ -11,6 +14,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  DEFAULT_RETRO_PRIORITY,
   detectSettingsSource,
   isForeignSettingsFile,
   loadFromSettingsFile,
@@ -555,6 +559,8 @@ function applyMove(projectRoot: string): ApplyResult {
       if (hasVideoStyle) video.style = clean(legacy.video.style);
       built.video = video;
     }
+    // STE-775 AC-.4 — the file this move creates is current: it carries the retro default.
+    built.retro = { priority: [...DEFAULT_RETRO_PRIORITY] };
     validateSettingsShape(built);
     settings = built;
   } catch (e) {

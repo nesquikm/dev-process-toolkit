@@ -43,6 +43,11 @@ const MODE_DEFAULTED = new WeakSet<object>();
 /** Dotted paths of the keys with no v2.101.4 reader (the AC-STE-706.12 `new` rows). */
 export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes", "tracking.tool_calls", "retro", "optimizations.gate_commands", "verification.test_commands"];
 
+/** STE-775: the three retro metrics `retro.priority` orders, and their default order. */
+export const RETRO_METRICS = ["waste", "tokens", "time"] as const;
+export type RetroMetric = (typeof RETRO_METRICS)[number];
+export const DEFAULT_RETRO_PRIORITY: readonly RetroMetric[] = RETRO_METRICS;
+
 export type SettingsSource = "settings" | "legacy" | "none" | "both";
 
 export interface ProjectSettings {
@@ -58,7 +63,7 @@ export interface ProjectSettings {
     tool_calls: { enabled: boolean };
   } & Record<string, unknown>;
   close_out: { upgrade_offer: { enabled: boolean } };
-  retro: { enabled: boolean };
+  retro: { enabled: boolean; priority: RetroMetric[] };
   release: { files: unknown[] };
   video: { config: VideoConfig | null; style: VideoStyle | null };
   optimizations: Record<string, unknown>;
@@ -218,7 +223,7 @@ function defaults(): ProjectSettings {
     orchestration: {},
     tracking: { token_stats: { enabled: false }, gate_outcomes: { enabled: false }, tool_calls: { enabled: false } },
     close_out: { upgrade_offer: { enabled: false } },
-    retro: { enabled: false },
+    retro: { enabled: false, priority: [...DEFAULT_RETRO_PRIORITY] },
     release: { files: [] },
     video: { config: null, style: null },
     optimizations: Object.fromEntries(OPTIMIZATION_KEYS.map((k) => [k, "run"])),
@@ -312,7 +317,7 @@ export function settingsKeyOrder(path: string): readonly string[] {
     "tracking.tool_calls": ["enabled"],
     close_out: ["upgrade_offer"],
     "close_out.upgrade_offer": ["enabled"],
-    retro: ["enabled"],
+    retro: ["enabled", "priority"],
     release: ["files"],
     "release.files[]": RELEASE_ENTRY_KEYS,
     video: ["config", "style"],
@@ -367,6 +372,15 @@ function checkEnabledMap(parent: Record<string, unknown>, prefix: string, key: s
   const m = requireMap(parent[key], path);
   closeKeys(m, path, settingsKeyOrder(path));
   checkBool(m, path, "enabled");
+}
+
+/** AC-STE-775.1: `retro.priority` is a permutation of RETRO_METRICS — each word exactly once. */
+function checkRetroPriority(v: unknown): void {
+  const ok =
+    Array.isArray(v) &&
+    v.length === RETRO_METRICS.length &&
+    RETRO_METRICS.every((m) => v.filter((x) => x === m).length === 1);
+  if (!ok) throw shapeError("retro.priority", `must list ${RETRO_METRICS.join(", ")}, each exactly once, in any order`);
 }
 
 function validateBinding(v: unknown, path: string): void {
@@ -508,6 +522,7 @@ const SECTION_VALIDATORS: Record<SectionKey, (v: unknown) => void> = {
     const rt = requireMap(v, "retro");
     closeKeys(rt, "retro", settingsKeyOrder("retro"));
     checkBool(rt, "retro", "enabled");
+    if ("priority" in rt) checkRetroPriority(rt.priority);
   },
   release: validateRelease,
   video: (v) => closeKeys(requireMap(v, "video"), "video", settingsKeyOrder("video")),
@@ -575,7 +590,11 @@ function buildSection<K extends SectionKey>(parsed: Record<string, unknown>, sec
             : d.close_out.upgrade_offer.enabled,
       },
     }),
-    retro: () => ({ enabled: isObj(parsed.retro) ? parsed.retro.enabled === true : d.retro.enabled }),
+    retro: () => {
+      const rt: ProjectSettings["retro"] = { enabled: isObj(parsed.retro) ? parsed.retro.enabled === true : d.retro.enabled, priority: d.retro.priority };
+      if (isObj(parsed.retro) && Array.isArray(parsed.retro.priority)) rt.priority = [...parsed.retro.priority] as RetroMetric[];
+      return rt;
+    },
     release: () => (isObj(parsed.release) ? parsed.release : d.release) as ProjectSettings["release"],
     video: () => {
       const video = isObj(parsed.video) ? parsed.video : {};

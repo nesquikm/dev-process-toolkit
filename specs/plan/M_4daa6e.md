@@ -38,9 +38,9 @@ codename: Trend Lines
   verify: an unparseable block writes no receipt and prints a refusal; never a zero
 - [ ] Wire the record call into /spec-review, the /tdd audit and /implement code review behind `review_findings: on` (STE-774)
   verify: with the switch off the three skills make the v3.5.0 tool calls
-- [ ] `retro.priority` key, closed-set validation and default (STE-775)
+- [x] `retro.priority` key, closed-set validation and default (STE-775)
   verify: a non-permutation throws SettingsShapeError; absent reads waste, tokens, time
-- [ ] `retro-priority-default` migration entry (STE-775)
+- [x] `retro-priority-default` migration entry, plus the /setup and settings-file move seeds (STE-775)
   verify: preview then apply writes the key; a second run changes nothing
 - [ ] Run grouping: FR category from frontmatter, size from `Refs:` commits, buckets (STE-776)
   verify: a fixture repo puts each FR in its expected group

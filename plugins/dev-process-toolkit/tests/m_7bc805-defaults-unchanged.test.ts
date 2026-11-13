@@ -36,7 +36,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { runUpgradeStalenessProbe } from "../adapters/_shared/src/upgrade_staleness";
-import { makeCheckout, recordFor } from "./_m_7bc805_capture_fixture";
+import { captureSettingsFor, makeCheckout, recordFor } from "./_m_7bc805_capture_fixture"; // Amended by AC-STE-775.3 (M_4daa6e): captureSettingsFor
 import {
   GIT_ENV,
   PLUGIN_REL,
@@ -276,8 +276,11 @@ describe("AC-STE-717.13 named difference: the teammate's capture-registration ro
   });
 
   test("teammate: probe #69 adds exactly one warn-only `capture-registration` row and the GATE PASSED WITH NOTES verdict line; every other row equals the off fixture", async () => {
-    const teammate = makeCheckout("dn-mate", "on");
-    const off = makeCheckout("dn-off", "absent");
+    // Amended by AC-STE-775.3 (M_4daa6e): both checkouts declare retro.priority (a current 3.6.0 tree), so the
+    // off fixture stays clean and the capture-registration row is the only difference.
+    const current = (state: "on" | "absent") => ({ files: { "specs/settings.yaml": captureSettingsFor(state)! + "retro:\n  priority: [waste, tokens, time]\n" } });
+    const teammate = makeCheckout("dn-mate", "on", current("on"));
+    const off = makeCheckout("dn-off", "absent", current("absent"));
     process.env.CLAUDE_CONFIG_DIR = recordFor("dn-mate-rec", teammate).cfg;
     const on = await runUpgradeStalenessProbe(teammate);
     const base = await runUpgradeStalenessProbe(off);

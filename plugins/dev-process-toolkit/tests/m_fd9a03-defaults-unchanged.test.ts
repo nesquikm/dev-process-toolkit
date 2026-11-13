@@ -37,7 +37,9 @@
 //      default: on top of the M_7bc805 and M_d1b4b7 lines (STE-717, STE-722),
 //      `get optimizations` exits 0 and prints `{`, `  "gate_commands": "run"`,
 //      `}` where v3.0.0 refused it, and the `get` refusal's `Remedy:` section
-//      list gains `optimizations` as its last entry.
+//      list gains `optimizations` as its last entry. Amended by AC-STE-775.2
+//      (M_4daa6e): `get retro` also prints the default `priority` order
+//      (waste, tokens, time) after `enabled`.
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -516,7 +518,11 @@ const V300_GET: Record<Fixture, Record<string, Out>> = {
 /** The named differences, applied to the v3.0.0 table. Nothing else moves. */
 const NAMED_DIFFERENCES: Record<string, { why: string; now: Out }> = {
   tracking: { why: "get tracking prints the M_7bc805 blocks as STE-717 pins it", now: TRACKING_NOW },
-  retro: { why: "get retro exits 0 and prints the retro section (STE-722)", now: ok(json(["{", '  "enabled": false', "}"])) },
+  // Amended by AC-STE-775.2 (M_4daa6e): the retro section answers the default priority order.
+  retro: {
+    why: "get retro exits 0 and prints the retro section (STE-722) with the default priority (STE-775)",
+    now: ok(json(["{", '  "enabled": false,', '  "priority": [', '    "waste",', '    "tokens",', '    "time"', "  ]", "}"])),
+  },
   optimizations: { why: "get optimizations exits 0 and prints its gate_commands: run default (STE-723)", now: ok(json(["{", '  "gate_commands": "run"', "}"])) },
   nosuch: { why: "the Remedy: section list gains retro after close_out and optimizations last", now: notASection("nosuch", NOW_SECTIONS) },
 };

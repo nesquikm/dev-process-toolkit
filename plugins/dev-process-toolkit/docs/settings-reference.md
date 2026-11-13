@@ -128,6 +128,7 @@ Optional key, not written by `/setup`: `docs.changelog_unversioned` (default `fa
 | Key | Type | Default | Replaces |
 | --- | --- | --- | --- |
 | `retro.enabled` | boolean | `false` | new (STE-719), no legacy home; absent means off. The switch for the close-out retro offer only |
+| `retro.priority` | list of `waste`, `tokens`, `time` | `[waste, tokens, time]` | new (STE-775), no legacy home. Each of the three words exactly once, in any order; any other value is a config error |
 
 ### `optimizations`
 
