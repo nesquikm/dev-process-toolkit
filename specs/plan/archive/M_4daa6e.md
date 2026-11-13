@@ -6,6 +6,7 @@ kickoff_branch: null
 frozen_at: null
 migration: retro-priority-default
 codename: Trend Lines
+shipped_in: v3.6.0
 ---
 
 # Implementation Plan
@@ -50,3 +51,15 @@ codename: Trend Lines
   verify: exactly one file written; no receipt, settings or proposal touched
 - [x] One full serial suite run from the primary checkout, then /gate-check
   verify: 0 fail; skip identities equal main's baseline by name
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| dev-process-toolkit:ship-milestone | claude-opus-5-5 | 26 | 6454 | 6985873 | 66671 |
+| design/exploration | claude-opus-5-5 | 170 | 32291 | 28926426 | 376658 |
+| total |  | 196 | 38745 | 35912299 | 443329 |
+
+<!-- token-stats:end -->

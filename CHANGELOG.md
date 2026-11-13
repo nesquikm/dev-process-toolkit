@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.6.0] — 2026-11-13 — "Trend Lines"
+
+### Added
+
+- A retro priority order in the settings file (STE-775). `retro.priority` lists `waste`, `tokens` and `time`, each once, in any order, and reads as waste, tokens, time when absent; any other value is refused naming `retro.priority`. The new `retro-priority-default` `/upgrade` step writes the default into a moved `specs/settings.yaml` that lacks it. `/setup` and the `settings-file` move seed the same default into the files they create, so a fresh or freshly moved tree starts current and one `/upgrade` of a legacy tree leaves nothing pending. The step surfaces a settings file that does not parse instead of reading it as nothing to do.
+- Reviews record their finding counts (STE-774). With the opt-in `tracking.review_findings` switch on, `/spec-review`, the `/tdd` audit and `/implement`'s code review each record one `review-findings` receipt through `review_findings_receipt.ts record`: done, partial and missing per FR for `/spec-review`, partial and missing for the audit, and concerns per pass for the code review. A receipt holds counts only, never a finding's text, a path or a branch name. The record call is gated on a new `review_findings: on` line the gate receipt call prints; with the switch off every skill makes exactly its v3.5.0 tool calls. A result that does not parse is refused, never counted as zero, and no commit, PR or tracker gate reads the receipt.
+- A retrospective shows the trend across runs (STE-776). `/retro --trend [--last N]` reads the last N (default 20) archived FR runs of each skill, changelog category and size bucket. It reports waste, tokens and time as a window median plus the newer-minus-older change, beside four quality signals: gate failure rate, spec-review gaps per FR, code-review concerns per 100 changed lines and post-merge fixes. Columns follow `retro.priority` and groups sort worst first. A value with no recorded input reads `skipped: not observable`, naming the tracking key when one is off; a group under five runs reads `insufficient: <n> runs`; neither ever reads 0. It writes one aliased `dpt-retro-trend/1` report and nothing else, and `retro_proposal.ts` refuses that report.
+
+Milestone A of the self-tuning settings design. Run `/dev-process-toolkit:upgrade` once to write `retro.priority` into an existing moved settings file; it previews the change and applies it only after approval. Turn on `tracking.review_findings` (and the other `tracking` keys) for the trend to have data to read.
+
+Total test count at release: 23538 tests, 0 failures, 0 errors.
+
 ## [3.5.0] — 2026-11-12 — "Load Bearing"
 
 ### Added
