@@ -548,6 +548,37 @@ describe("AC-STE-774.3 an unparseable result writes no receipt", () => {
     expect(reviewReceipts(root)).toEqual([]);
   }, T);
 
+  // /spec-review round 1 (M_4daa6e): the three refusals AC-.3 lists that had no test.
+  test("AC-.3 an unset CLAUDE_CODE_SESSION_ID writes no receipt and refuses", () => {
+    const root = makeTree("no-session", settingsFor("on"));
+    const file = join(tempDir("ste774-result"), "result.md");
+    writeFileSync(file, "OVERALL: OK\n");
+    const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+    delete env.CLAUDE_CODE_SESSION_ID;
+    const p = spawnSync("bun", ["run", RECORD_CLI, "record", root, "code-review", file], { cwd: root, env, encoding: "utf-8" });
+    expectRefusal({ exitCode: p.status ?? -1, stdout: p.stdout ?? "", stderr: p.stderr ?? "" });
+    expect(p.stderr).toContain("CLAUDE_CODE_SESSION_ID");
+    expect(existsSync(join(root, ".dpt", "ledger", "receipts"))).toBe(false);
+  }, T);
+
+  test("AC-.3 a root outside a git checkout, switch on, writes no receipt and refuses", () => {
+    const root = settingsTree("nocheckout-on", settingsFor("on"));
+    const r = record(root, "code-review", "OVERALL: OK\n");
+    expectRefusal(r);
+    expect(r.stderr).toContain("reason=no-checkout");
+    expect(existsSync(join(root, ".dpt", "ledger", "receipts"))).toBe(false);
+  }, T);
+
+  test("AC-.3 a receipt that cannot be written refuses", () => {
+    const root = makeTree("unwritable", settingsFor("on"));
+    // A plain file where the ledger directory must go makes the receipt store unwritable.
+    mkdirSync(join(root, ".dpt"), { recursive: true });
+    writeFileSync(join(root, ".dpt", "ledger"), "not a directory\n");
+    const r = record(root, "code-review", "OVERALL: OK\n");
+    expectRefusal(r);
+    expect(r.stderr).toContain("reason=receipt-not-written");
+  }, T);
+
   // Phase 3 review round 1: an unreadable result path is refused in the NFR-10 shape.
   test("AC-.3 a result path that is a directory writes no receipt and refuses", () => {
     const root = makeTree("result-dir", settingsFor("on"));

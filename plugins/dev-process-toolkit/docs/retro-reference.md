@@ -41,11 +41,11 @@ Size is the added plus deleted lines of the commits whose footer carries `Refs: 
 
 | id | per run | input |
 |---|---|---|
-| `waste` | reruns on an unchanged key plus rounds that changed no file (the `gate_rerun_unchanged_key` and `zero_yield_round` rules) | `tracking.tool_calls` |
+| `waste` | reruns on an unchanged key plus rounds that changed no file (the `gate_rerun_unchanged_key` and `zero_yield_round` rules; not observable unless both are) | `tracking.tool_calls` |
 | `tokens` | claimed output tokens per changed line | `tracking.token_stats` |
 | `time` | the run's median gate wall time | `tracking.gate_outcomes` |
 
-**Signals** (pooled over the window, one value each): `gate_failure_rate` (failed over failed plus passed gate runs; `tracking.gate_outcomes`), `spec_review_gaps_per_fr` (`/spec-review` partial plus missing ACs per run; `tdd-audit` receipts are not counted; `tracking.review_findings`), `code_review_concerns_per_100_lines` (`tracking.review_findings`) and `post_merge_fixes` (`fix` commits within 14 days of the FR's last `Refs:` commit that touch a file it changed and do not name its id; read from git).
+**Signals** (pooled over the window, one value each): `gate_failure_rate` (failed over failed plus passed gate runs; `tracking.gate_outcomes`), `spec_review_gaps_per_fr` (`/spec-review` partial plus missing ACs per run; `tdd-audit` receipts are not counted; `tracking.review_findings`), `code_review_concerns_per_100_lines` (`tracking.review_findings`; a receipt naming no FR joins its run by session) and `post_merge_fixes` (`fix` commits within 14 days of the FR's last `Refs:` commit that touch a file it changed and do not name its id; read from git).
 
 **Notes, never zero.** A cell whose tracking key is off reads `skipped: not observable (tracking.<key> is off)`; a cell whose input is simply absent reads `skipped: not observable`. A group with fewer than `TREND_MIN_RUNS` (5) runs in its window reads `insufficient: <n> runs` in every cell.
 

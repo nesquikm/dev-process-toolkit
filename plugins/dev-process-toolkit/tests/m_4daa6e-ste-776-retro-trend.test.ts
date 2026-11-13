@@ -671,6 +671,64 @@ describe("AC-STE-776.4 quality signals per group", () => {
     LONG,
   );
 
+  // /spec-review round 1 (M_4daa6e): the AC-.2 fallback had no named assertion.
+  test(
+    "AC-.2 an FR with no changelog_category groups under unknown",
+    () => {
+      const aIds = ORDER.flatMap((spec, i) => (A.includes(spec) ? [frId(i)] : []));
+      const t = trendFor("no-category", {
+        after: (root) => {
+          for (const id of aIds) {
+            const p = join(root, "specs", "frs", "archive", `${id}.md`);
+            writeFileSync(p, readFileSync(p, "utf-8").replace(/^changelog_category:.*\n/m, ""));
+          }
+        },
+      });
+      expect(groupKeys(t.report)).toContain("implement/unknown/S");
+      expect(groupKeys(t.report)).not.toContain("implement/Added/S");
+      expect(group(t.report, "implement", "unknown", "S").runs).toBe(5);
+    },
+    LONG,
+  );
+
+  // /spec-review round 1 (M_4daa6e): waste needs BOTH of its halves. With every
+  // group-A timeline's TDD rounds removed, zero_yield_round is not observable, so
+  // the cell reads skipped — never the reruns half alone posing as the whole.
+  test(
+    "AC-.5 waste with one half unobservable (no TDD rounds) reads skipped, not the other half alone",
+    () => {
+      const aSessions = ORDER.flatMap((spec, i) => (A.includes(spec) ? [RUN_SESSIONS[i]!] : []));
+      const t = trendFor("waste-half", {
+        after: (root) => {
+          for (const s of aSessions) {
+            const p = join(root, ".dpt", "ledger", "tool-calls", `${s}.timeline.json`);
+            const tl = JSON.parse(readFileSync(p, "utf-8"));
+            writeFileSync(p, `${JSON.stringify({ ...tl, rounds: [] }, null, 2)}\n`);
+          }
+        },
+      });
+      const m = metric(groupA(t.report), "waste");
+      expect(m.median).toBeNull();
+      expect(String(m.note)).toStartWith(SKIPPED_PREFIX);
+    },
+    LONG,
+  );
+
+  // /spec-review round 1 (M_4daa6e): a rubric pass naming no AC records `frs: []`
+  // (AC-STE-774.2) and joins its run by session, so its concerns count.
+  test(
+    "AC-.4 code-review concerns: a receipt with an empty FR list joins its run by session (6 over 200 lines = 3)",
+    () => {
+      const t = trendFor("cr-empty-frs", {
+        after: (root) => writeReviewReceipt(root, RUN_SESSIONS[0]!, "2026-09-01T12:00:00.000Z", "code-review", [], { concerns: 2 }),
+      });
+      const s = signal(groupA(t.report), "code_review_concerns_per_100_lines");
+      expect(s.note).toBeNull();
+      expect(s.value).toBeCloseTo(3, 9);
+    },
+    LONG,
+  );
+
   test(
     "AC-.4 code-review concerns per 100 changed lines: 4 over 200 lines = 2",
     () => {

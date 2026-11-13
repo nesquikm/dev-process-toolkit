@@ -260,7 +260,8 @@ function signalValues(projectRoot: string, window: Run[], commits: Commit[] | nu
         const row = counts[run.id] as { partial?: unknown; missing?: unknown } | undefined;
         if (row) gaps += num(row.partial) + num(row.missing);
       } else if (ev.reviewer === "code-review") {
-        if (!Array.isArray(ev.frs) || ev.frs.includes(run.id)) concerns += num(counts.concerns);
+        // A receipt naming no FR (a rubric pass, AC-STE-774.2) joins its run by session.
+        if (!Array.isArray(ev.frs) || ev.frs.length === 0 || ev.frs.includes(run.id)) concerns += num(counts.concerns);
       }
     }
     lines += run.lines;
@@ -327,7 +328,8 @@ function runValues(projectRoot: string, run: Run): Record<RetroMetric, number | 
   };
   const reruns = ruleValue(inputs, "gate_rerun_unchanged_key");
   const zeroYield = ruleValue(inputs, "zero_yield_round");
-  const waste = reruns === null && zeroYield === null ? null : (reruns ?? 0) + (zeroYield ?? 0);
+  // Both halves must be observable: one unmeasured half is not 0 (AC-STE-776.5).
+  const waste = reruns === null || zeroYield === null ? null : reruns + zeroYield;
   const walls = inputs.sessions
     .flatMap((s) => gateRuns(s.timeline))
     .filter((g) => (g.outcome === "pass" || g.outcome === "fail") && typeof g.wall_ms === "number")
