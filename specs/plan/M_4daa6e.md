@@ -42,11 +42,11 @@ codename: Trend Lines
   verify: a non-permutation throws SettingsShapeError; absent reads waste, tokens, time
 - [x] `retro-priority-default` migration entry, plus the /setup and settings-file move seeds (STE-775)
   verify: preview then apply writes the key; a second run changes nothing
-- [ ] Run grouping: FR category from frontmatter, size from `Refs:` commits, buckets (STE-776)
+- [x] Run grouping: FR category from frontmatter, size from `Refs:` commits, buckets (STE-776)
   verify: a fixture repo puts each FR in its expected group
-- [ ] Metrics and quality signals over the window, with skipped and insufficient dispositions (STE-776)
+- [x] Metrics and quality signals over the window, with skipped and insufficient dispositions (STE-776)
   verify: a pinned fixture project prints the expected numbers; a missing input never reads zero
-- [ ] `retro.ts --trend [--last N]`, the `dpt-retro-trend/1` report and the /retro skill text (STE-776)
+- [x] `retro.ts --trend [--last N]`, the `dpt-retro-trend/1` report and the /retro skill text (STE-776)
   verify: exactly one file written; no receipt, settings or proposal touched
-- [ ] One full serial suite run from the primary checkout, then /gate-check
+- [x] One full serial suite run from the primary checkout, then /gate-check
   verify: 0 fail; skip identities equal main's baseline by name
