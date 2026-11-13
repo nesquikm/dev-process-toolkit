@@ -44,6 +44,7 @@ Put each check in the cheapest tier that can fail for the reason it is about: bu
 
 ### A test must be able to fail
 - **Defect check:** a new or changed test goes RED at its assertion when the smallest bug is planted in the behavior it covers; RED earlier means the plant moves, and GREEN under a second, different plant too means the test is not done
+- **A bug's test:** RED on the code before the fix at the assertion that encodes the bug, through API that exists there, and GREEN on the fix; one test per bug case
 - **Hard, not adaptive:** the expected outcome comes from what the test controls, never from the output under test
 - **No quiet exits:** no early return or exception handler (`try`/`catch`, `try`/`except`) around an assertion; a precondition the test cannot control is a declared skip with its reason
 - **Independent expected values:** never computed through the code under test (same helper, lookup table or localization bundle)

@@ -57,6 +57,16 @@ Once the root cause is confirmed:
 2. **Run the gate check after the fix** — Read the full output. Report the actual result (e.g., "47 tests, 0 failures, 0 errors").
 3. **Check for related issues** — Did this fix reveal another failure? Address it before declaring done.
 
+## A reported bug
+
+When `$ARGUMENTS` is a bug someone reported (a symptom, a ticket, a bug FR) rather than a red test or gate, the bug is fixed only when a test catches it: RED on the code before the fix, at the assertion that encodes the bug, and GREEN on the fix. A test that passes today proves nothing about the bug.
+
+- **A bug FR (`kind: bug`)** — Phases 1–3 find the root cause; the fix itself goes through `/implement <FR-id>`, whose `/tdd` writes a test for every bug case and proves it RED before the fix. Do not fix it in Phase 4 first.
+- **No FR** — Phase 4 starts with the test: drive the condition the report names, assert what should happen instead, and run it. It must go RED at that assertion, through API that exists before the fix; RED from a missing symbol proves nothing here. Then fix, and see it GREEN.
+- **A fix made before its test** (yours, or one under review) — prove the test by rolling the fix back. `<pre-fix>` is `git merge-base origin/<base> <fix>`, or the merge commit's first parent for a merged fix. In a worktree at `<fix>` with nothing uncommitted: for each non-test path in `git diff --name-status <pre-fix> <fix>`, `M` or `D` → `git checkout <pre-fix> -- <path>`, `A` → `git rm -q <path>`; regenerate whatever those paths feed. Run the test: RED at its assertion. `git reset --hard HEAD` brings the fix back. GREEN on the rolled-back code means the test catches nothing: rewrite it.
+
+Put one line per bug case in the change description: `regression: <test> red at <assertion> on <pre-fix> → green on <fix>`.
+
 ## The 3-Fix Rule
 
 If you have attempted 3 different fixes and the test still fails:
@@ -79,4 +89,5 @@ Continuing past 3 failed fixes without changing your mental model burns time and
 - Do NOT increase `sleep()` durations to fix flaky tests — find the condition and wait for it
 - Do NOT park or delete a flaky test to get the suite green — it is a bug in the test or the code
 - Do NOT claim the issue is fixed without running the gate and reading the actual output
+- Do NOT fix a reported bug before a test reproduces it, or call a fix that came first done before rolling it back has turned that test RED
 - After 3 failed fixes, escalate — do not attempt fix #4
