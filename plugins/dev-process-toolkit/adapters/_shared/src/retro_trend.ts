@@ -131,6 +131,21 @@ interface RefsTotals {
 
 const noRefs = (): RefsTotals => ({ lines: 0, last: 0, files: new Set<string>() });
 
+/**
+ * A numstat path as the paths it names: a rename (`dir/{a.ts => b.ts}` or
+ * `a.ts => b.ts`) yields the new and the old path, anything else itself.
+ */
+function renamePaths(path: string): string[] {
+  const brace = /^(.*)\{(.*) => (.*)\}(.*)$/.exec(path);
+  if (brace) {
+    const [, pre, from, to, post] = brace;
+    const join = (mid: string) => `${pre}${mid}${post}`.replace(/\/\/+/g, "/");
+    return [join(to!), join(from!)];
+  }
+  const arrow = /^(.+) => (.+)$/.exec(path);
+  return arrow ? [arrow[2]!, arrow[1]!] : [path];
+}
+
 /** Changed lines, files and last commit time per FR id, from commits whose `Refs:` trailer names it. */
 function refsCommits(projectRoot: string): Map<string, RefsTotals> | null {
   const records = gitLogRecords(projectRoot, "%(trailers:key=Refs,valueonly,separator=%x2C)", "--numstat");
@@ -145,7 +160,7 @@ function refsCommits(projectRoot: string): Map<string, RefsTotals> | null {
       const m = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(row);
       if (!m) continue;
       if (m[1] !== "-") lines += Number(m[1]) + Number(m[2]);
-      files.push(m[3]!);
+      files.push(...renamePaths(m[3]!));
     }
     for (const id of ids) {
       const cur = out.get(id) ?? noRefs();
@@ -200,10 +215,13 @@ function allCommits(projectRoot: string): Commit[] | null {
 const POST_MERGE_WINDOW_MS = 14 * 86_400_000;
 const FIX_SUBJECT_RE = /^fix(\([^)]*\))?!?:/;
 
-/** True when the message names `id` as a whole id (STE-1 is not named by STE-10). */
+/**
+ * True when the message names `id` as a whole id (STE-1 is not named by STE-10),
+ * bare or as an AC citation `AC-<id>.<n>` (AC-STE-784.5).
+ */
 function namesId(message: string, id: string): boolean {
   const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?<![A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_])`).test(message);
+  return new RegExp(`(?:(?<![A-Za-z0-9_-])|(?<=(?<![A-Za-z0-9_-])AC-))${escaped}(?![A-Za-z0-9_])`).test(message);
 }
 
 /**
@@ -224,17 +242,15 @@ function postMergeFixes(run: Run, commits: Commit[] | null): number | null {
   ).length;
 }
 
-/** The run's sessions' `review-findings` receipts' evidence. */
-function reviewFindings(projectRoot: string, run: Run): { reviewer?: unknown; frs?: unknown; counts?: unknown }[] {
-  return run.sessions.flatMap((s) => {
-    try {
-      return readSessionReceipts(projectRoot, s)
-        .receipts.filter((r) => r.kind === REVIEW_FINDINGS_KIND)
-        .map((r) => (r.evidence ?? {}) as { reviewer?: unknown; frs?: unknown; counts?: unknown });
-    } catch {
-      return [];
-    }
-  });
+/** One session's `review-findings` receipts' evidence. */
+function reviewFindings(projectRoot: string, session: string): { reviewer?: unknown; frs?: unknown; counts?: unknown }[] {
+  try {
+    return readSessionReceipts(projectRoot, session)
+      .receipts.filter((r) => r.kind === REVIEW_FINDINGS_KIND)
+      .map((r) => (r.evidence ?? {}) as { reviewer?: unknown; frs?: unknown; counts?: unknown });
+  } catch {
+    return [];
+  }
 }
 
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
@@ -246,22 +262,34 @@ function signalValues(projectRoot: string, window: Run[], commits: Commit[] | nu
   let gaps = 0;
   let concerns = 0;
   let lines = 0;
+  let sawSpecReview = false;
+  let sawCodeReview = false;
   let fixes: number | null = 0;
+  const ids = new Set(window.map((r) => r.id));
+  // A session several runs share counts its gate runs and code-review receipts once (AC-STE-784.3).
+  const seen = new Set<string>();
   for (const run of window) {
     for (const s of run.sessions) {
-      for (const g of gateRuns(readTimeline(projectRoot, s))) {
-        if (g.outcome === "pass") pass++;
-        else if (g.outcome === "fail") fail++;
+      const first = !seen.has(s);
+      seen.add(s);
+      if (first) {
+        for (const g of gateRuns(readTimeline(projectRoot, s))) {
+          if (g.outcome === "pass") pass++;
+          else if (g.outcome === "fail") fail++;
+        }
       }
-    }
-    for (const ev of reviewFindings(projectRoot, run)) {
-      const counts = (ev.counts ?? {}) as Record<string, unknown>;
-      if (ev.reviewer === "spec-review") {
-        const row = counts[run.id] as { partial?: unknown; missing?: unknown } | undefined;
-        if (row) gaps += num(row.partial) + num(row.missing);
-      } else if (ev.reviewer === "code-review") {
-        // A receipt naming no FR (a rubric pass, AC-STE-774.2) joins its run by session.
-        if (!Array.isArray(ev.frs) || ev.frs.length === 0 || ev.frs.includes(run.id)) concerns += num(counts.concerns);
+      for (const ev of reviewFindings(projectRoot, s)) {
+        const counts = (ev.counts ?? {}) as Record<string, unknown>;
+        if (ev.reviewer === "spec-review") {
+          sawSpecReview = true;
+          const row = counts[run.id] as { partial?: unknown; missing?: unknown } | undefined;
+          if (row) gaps += num(row.partial) + num(row.missing);
+        } else if (ev.reviewer === "code-review") {
+          sawCodeReview = true;
+          // A receipt naming no FR (a rubric pass, AC-STE-774.2) joins the window by session.
+          const named = !Array.isArray(ev.frs) || ev.frs.length === 0 || ev.frs.some((f) => ids.has(f as string));
+          if (first && named) concerns += num(counts.concerns);
+        }
       }
     }
     lines += run.lines;
@@ -271,8 +299,9 @@ function signalValues(projectRoot: string, window: Run[], commits: Commit[] | nu
   }
   return {
     gate_failure_rate: pass + fail > 0 ? fail / (pass + fail) : null,
-    spec_review_gaps_per_fr: window.length > 0 ? gaps / window.length : null,
-    code_review_concerns_per_100_lines: lines > 0 ? (100 * concerns) / lines : null,
+    // No receipt of a kind in the window is not observable, never 0 (AC-STE-784.2).
+    spec_review_gaps_per_fr: sawSpecReview && window.length > 0 ? gaps / window.length : null,
+    code_review_concerns_per_100_lines: sawCodeReview && lines > 0 ? (100 * concerns) / lines : null,
     post_merge_fixes: fixes,
   };
 }
@@ -358,14 +387,14 @@ function metricCell(id: RetroMetric, values: (number | null)[]) {
 
 type TrackingKey = "token_stats" | "gate_outcomes" | "tool_calls" | "review_findings";
 
-/** The tracking key whose input each metric and signal reads. */
-const INPUT_KEY: Record<string, TrackingKey | undefined> = {
-  waste: "tool_calls",
-  tokens: "token_stats",
-  time: "gate_outcomes",
-  gate_failure_rate: "gate_outcomes",
-  spec_review_gaps_per_fr: "review_findings",
-  code_review_concerns_per_100_lines: "review_findings",
+/** The tracking keys whose input each metric and signal reads (AC-STE-784.4: time and gate_failure_rate need both). */
+const INPUT_KEY: Record<string, TrackingKey[] | undefined> = {
+  waste: ["tool_calls"],
+  tokens: ["token_stats"],
+  time: ["gate_outcomes", "tool_calls"],
+  gate_failure_rate: ["gate_outcomes", "tool_calls"],
+  spec_review_gaps_per_fr: ["review_findings"],
+  code_review_concerns_per_100_lines: ["review_findings"],
 };
 
 /** The tracking keys that are off; an unreadable settings file leaves every key off. */
@@ -380,10 +409,11 @@ function trackingOff(projectRoot: string): Set<TrackingKey> {
   return new Set(keys.filter((k) => tr[k]?.enabled !== true));
 }
 
-/** `skipped: not observable (tracking.<key> is off)` when the cell's input is not recorded, else null. */
+/** `skipped: not observable (tracking.<key> is off)` naming every off key the cell reads, else null. */
 function offNote(off: Set<TrackingKey>, id: string): string | null {
-  const key = INPUT_KEY[id];
-  return key !== undefined && off.has(key) ? `skipped: not observable (tracking.${key} is off)` : null;
+  const keys = (INPUT_KEY[id] ?? []).filter((k) => off.has(k)).map((k) => `tracking.${k}`);
+  if (keys.length === 0) return null;
+  return `skipped: not observable (${keys.join(" and ")} ${keys.length === 1 ? "is" : "are"} off)`;
 }
 
 /** The `retro.priority` order; a loader refusal propagates (NFR-10), never a silent default. */
@@ -432,9 +462,19 @@ export function buildTrendReport(projectRoot: string, last: number) {
       }),
     };
   });
-  // Worst first: larger first-ranked delta first; a null delta (insufficient / skipped) sorts last.
-  const lead = (g: (typeof groups)[number]): number => g.metrics[0]?.delta ?? Number.NEGATIVE_INFINITY;
-  groups.sort((a, b) => (lead(a) === lead(b) ? 0 : lead(b) > lead(a) ? 1 : -1));
+  // Worst first by the first-ranked metric's delta; a null delta (insufficient / skipped) sorts
+  // after a number, and a null on both sides falls through to the next ranked metric.
+  groups.sort((a, b) => {
+    for (let i = 0; i < priority.length; i++) {
+      const da = a.metrics[i]?.delta ?? null;
+      const db = b.metrics[i]?.delta ?? null;
+      if (da === null && db === null) continue;
+      if (da === null) return 1;
+      if (db === null) return -1;
+      return da === db ? 0 : db > da ? 1 : -1;
+    }
+    return 0;
+  });
   return { schema: TREND_SCHEMA, last, priority, sessions: sessionIds.map((s) => ({ alias: aliasFor(aliases, s), digest: sessionDigest(s) })), groups };
 }
 

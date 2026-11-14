@@ -31,8 +31,13 @@ function settingsModule(): typeof ProjectSettings {
   return require("../../project_settings") as typeof ProjectSettings;
 }
 
+/** The first line of a thrown value's message — the part a one-line summary quotes. */
+function firstLine(e: unknown): string {
+  return (e instanceof Error ? e.message : String(e)).split("\n")[0]!;
+}
+
 function plan(projectRoot: string): Plan {
-  const { detectSettingsSource, SETTINGS_FILE, DEFAULT_RETRO_PRIORITY } = settingsModule();
+  const { detectSettingsSource, SETTINGS_FILE, DEFAULT_RETRO_PRIORITY, checkRetroPriority } = settingsModule();
   const source = detectSettingsSource(projectRoot);
   if (source !== "settings") {
     return {
@@ -48,6 +53,13 @@ function plan(projectRoot: string): Plan {
   }
   const retro = (parsed as { retro?: unknown } | null)?.retro;
   if (retro !== null && typeof retro === "object" && "priority" in (retro as object)) {
+    // AC-STE-784.7: a present priority the loader refuses (null included) is broken, not "nothing to do".
+    try {
+      checkRetroPriority((retro as { priority: unknown }).priority);
+    } catch (e) {
+      const why = firstLine(e);
+      return { applies: "broken", rel: SETTINGS_FILE, reason: `${SETTINGS_FILE} declares a retro.priority the loader refuses (${why})` };
+    }
     return { applies: false, reason: null };
   }
   return { applies: true, rel: SETTINGS_FILE, order: [...DEFAULT_RETRO_PRIORITY] };
@@ -70,13 +82,18 @@ export const retroPriorityDefault: MigrationEntry = {
   apply(projectRoot: string): ApplyResult {
     const p = plan(projectRoot);
     if (p.applies === "broken") {
-      return { changed: [], summary: `Refusing: ${p.reason}.\nRemedy: fix ${p.rel} so it parses, then re-run /dev-process-toolkit:upgrade.\nContext: entry=retro-priority-default, file=${p.rel}` };
+      return { changed: [], summary: `Refusing: ${p.reason}.\nRemedy: fix ${p.rel} so the loader accepts it, then re-run /dev-process-toolkit:upgrade.\nContext: entry=retro-priority-default, file=${p.rel}` };
     }
     if (!p.applies) {
       return { changed: [], summary: p.reason ?? `${settingsModule().SETTINGS_FILE} already declares retro.priority — nothing to do` };
     }
     const { writeProjectSettings } = require("../../project_settings_writer") as typeof ProjectSettingsWriter;
-    writeProjectSettings(projectRoot, { retro: { priority: p.order } });
+    try {
+      writeProjectSettings(projectRoot, { retro: { priority: p.order } });
+    } catch (e) {
+      const why = firstLine(e).replace(/^Refusing:\s*/, "");
+      return { changed: [], summary: `Refusing: ${why}.\nRemedy: add \`priority: [${p.order.join(", ")}]\` under retro in ${p.rel} by hand, then re-run /dev-process-toolkit:upgrade.\nContext: entry=retro-priority-default, file=${p.rel}` };
+    }
     return { changed: [p.rel], summary: `added retro.priority: [${p.order.join(", ")}] to ${p.rel}` };
   },
 };

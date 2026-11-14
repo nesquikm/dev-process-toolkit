@@ -377,7 +377,7 @@ function checkEnabledMap(parent: Record<string, unknown>, prefix: string, key: s
 }
 
 /** AC-STE-775.1: `retro.priority` is a permutation of RETRO_METRICS — each word exactly once. */
-function checkRetroPriority(v: unknown): void {
+export function checkRetroPriority(v: unknown): void {
   const ok =
     Array.isArray(v) &&
     v.length === RETRO_METRICS.length &&
