@@ -17,7 +17,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { ADMITTED_INDEXES, undoAdmissions } from "./_m_5f3c43_ste738_implement_admissions";
+// Amended by AC-STE-788.1 (M_870603): line 102's step-11 gate-check line is undone by undoSte788.
+import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_11_OLD, undoAdmissions, undoSte788 } from "./_m_5f3c43_ste738_implement_admissions";
 
 // Amended by AC-STE-774.4 (M_4daa6e): line 213 (index 212), Phase 3 step i, carries one exact append — the
 // record call gated on `review_findings: on`. Undone before the AC-STE-738.13 admissions; a line that does not
@@ -61,7 +62,10 @@ describe("AC-STE-738.4 — /implement SKILL.md is main's bytes", () => {
     // Amended by AC-STE-774.4 (M_4daa6e): the step-i record sentence is undone first.
     const s774 = undoSte774(body.split("\n"));
     if ("error" in s774) return `REFUSED: ${s774.error}`;
-    const r = undoAdmissions(s774.lines);
+    // Amended by AC-STE-788.1 (M_870603): the step-11 gate-check line is undone next.
+    const s788 = undoSte788(s774.lines);
+    if ("error" in s788) return `REFUSED: ${s788.error}`;
+    const r = undoAdmissions(s788.lines);
     return "error" in r ? `REFUSED: ${r.error}` : r.lines.join("\n");
   };
 
@@ -84,7 +88,8 @@ describe("AC-STE-738.4 — /implement SKILL.md is main's bytes", () => {
     expect(undone(body)).toBe(then);
     const lines = body.split("\n");
     // Amended by AC-STE-774.4 (M_4daa6e): the step-i line is admitted the same way, so it gets the same control.
-    for (const i of [...ADMITTED_INDEXES, STEP_I_INDEX]) {
+    // Amended by AC-STE-788.1 (M_870603): the step-11 line is admitted the same way, so it gets the same control.
+    for (const i of [...ADMITTED_INDEXES, STEP_I_INDEX, STEP_11_INDEX]) {
       for (const n of [i - 1, i, i + 1]) {
         const edited = [...lines];
         edited[n] = `x${edited[n]}`;
@@ -109,6 +114,27 @@ describe("AC-STE-738.4 — /implement SKILL.md is main's bytes", () => {
     for (const [name, edited] of [["dropped", dropped], ["doubled", doubled], ["reworded", reworded], ["extra", extra]] as const) {
       expect(edited[STEP_I_INDEX]).not.toBe(lines[STEP_I_INDEX]);
       expect({ name, same: undone(edited.join("\n")) === then }).toEqual({ name, same: false });
+    }
+  });
+});
+
+// Amended by AC-STE-788.1 / AC-STE-788.2 (M_870603). Kills: the step-11 admission widened to a marker-less
+// or turn-ending line, or reverted to the old "Run the gate commands" bytes.
+describe("AC-STE-788.1 / AC-STE-788.2 — the step-11 admission is exact", () => {
+  test("control: the step-11 line without the marker, without the never-ends sentence, or reverted is rejected", () => {
+    const lines = readFileSync(join(PLUGIN, SKILL_REL), "utf8").split("\n");
+    expect(undoSte788(lines)).not.toHaveProperty("error");
+    const line = lines[STEP_11_INDEX]!;
+    const variants: Array<[string, string]> = [
+      ["no marker", line.replace(" with the driven-run marker `<dpt:driven>v1</dpt:driven>` in its arguments", "")],
+      ["no never-ends sentence", line.replace(" The gate-check report never ends this skill's turn: on a pass, continue to Phase 3, then Phase 4, in the same turn.", "")],
+      ["reverted", STEP_11_OLD],
+    ];
+    for (const [name, v] of variants) {
+      expect(v).not.toBe(line);
+      const edited = [...lines];
+      edited[STEP_11_INDEX] = v;
+      expect({ name, r: undoSte788(edited) }).toHaveProperty("r.error");
     }
   });
 });

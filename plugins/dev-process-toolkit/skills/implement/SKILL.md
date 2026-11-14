@@ -99,7 +99,7 @@ If the current milestone accumulates 3 or more `contradicts` / `infeasible` devi
 
 10. **Checkpoint** — After completing each logical unit of work (a TDD cycle for a meaningful chunk), create a git commit on the working branch. These intermediate commits are recovery points.
 
-11. **Gate check** — Run the gate commands from step 3. This is the **deterministic kill switch**: if it fails, fix before proceeding. Use `/dev-process-toolkit:debug` for unclear failures.
+11. **Gate check** — Invoke `/dev-process-toolkit:gate-check` with the driven-run marker `<dpt:driven>v1</dpt:driven>` in its arguments; it runs the gate commands from step 3. This is the **deterministic kill switch**: if it fails, fix before proceeding. The gate-check report never ends this skill's turn: on a pass, continue to Phase 3, then Phase 4, in the same turn. Use `/dev-process-toolkit:debug` for unclear failures.
 
 ## Parallelization
 

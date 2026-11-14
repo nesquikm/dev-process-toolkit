@@ -45,3 +45,23 @@ export function undoAdmissions(lines: readonly string[]): { lines: string[] } | 
   }
   return { lines: out };
 }
+
+// Amended by AC-STE-788.1 (M_870603): line 102 (index 101), Phase 2 step 11, invokes
+// /dev-process-toolkit:gate-check with the driven-run marker in place of "Run the gate commands".
+// Amended by AC-STE-788.2 (M_870603): the same line states the gate-check report never ends the turn.
+// Admitted only as this one exact line; undoing it gives back the frozen bytes, so any other edit fails.
+export const STEP_11_INDEX = 101;
+export const STEP_11_OLD =
+  "11. **Gate check** — Run the gate commands from step 3. This is the **deterministic kill switch**: if it fails, fix before proceeding. Use `/dev-process-toolkit:debug` for unclear failures.";
+export const STEP_11_NEW =
+  "11. **Gate check** — Invoke `/dev-process-toolkit:gate-check` with the driven-run marker `<dpt:driven>v1</dpt:driven>` in its arguments; it runs the gate commands from step 3. This is the **deterministic kill switch**: if it fails, fix before proceeding. The gate-check report never ends this skill's turn: on a pass, continue to Phase 3, then Phase 4, in the same turn. Use `/dev-process-toolkit:debug` for unclear failures.";
+
+/** The lines with the AC-STE-788.1/.2 step-11 line reversed, or the reason it is not carried exactly. */
+export function undoSte788(lines: readonly string[]): { lines: string[] } | { error: string } {
+  const out = [...lines];
+  if (out[STEP_11_INDEX] !== STEP_11_NEW) {
+    return { error: "line 102 is not exactly its AC-STE-788.1/.2 gate-check step" };
+  }
+  out[STEP_11_INDEX] = STEP_11_OLD;
+  return { lines: out };
+}
