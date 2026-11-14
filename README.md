@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.6.0 — "Trend Lines"** (M_4daa6e, milestone A of the self-tuning settings design. `/retro --trend` reads the last runs of each kind of work and shows how waste, tokens and time move, beside four quality signals; a value with no recorded data reads skipped, never 0. Reviews can record their finding counts behind `tracking.review_findings`, and a new `retro.priority` setting orders what the trend ranks first)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.6.1 — "Second Look"** (M_870603, a second look at v3.6.0. The trend stops reading zero for data it never saw and counts a shared session once, and the `retro.priority` upgrade step refuses a broken value. Auto-approved spec commits pass probe #45, the Jira drift probe sees a done ticket, a create never reuses a closed one, `git add && git commit` takes the spec-only pass, a headless `/implement` keeps going after its gate, and `/conformance-loop` refuses a dirty tree)
 
 ## Core Philosophy
 
