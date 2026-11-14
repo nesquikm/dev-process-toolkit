@@ -122,6 +122,13 @@ export interface CommitTarget {
    */
   plainCommit: boolean;
   /**
+   * AC-STE-741.1 — non-null when the command is exactly `git add <p1> [<p2> …]`
+   * then ONE commit that would be plain on its own, both run in the same
+   * directory: the literal paths the add names and that directory. Every other
+   * command carries null. The caller still grades the paths and the tree.
+   */
+  addThenCommit: AddThenCommit | null;
+  /**
    * Non-null when the command writes no commit but runs a history-changing git
    * subcommand the gates do not cover (`pull`, `rebase`, `stash`, writing
    * `notes`) — a notice naming it, so the gap is never silent (AC-STE-601.9).
@@ -131,6 +138,12 @@ export interface CommitTarget {
 
 /** Directory → checkout root lookup. Returns null for "inside no checkout". */
 export type CheckoutRootResolver = CheckoutRootLookup;
+
+/** AC-STE-741.1 — the literal paths of a `git add` that precedes a plain commit. */
+export interface AddThenCommit {
+  dir: string;
+  paths: string[];
+}
 
 // ---------------------------------------------------------------------------
 // checkoutRootOf — walk up to the first directory holding a `.git` entry.
@@ -624,6 +637,7 @@ const NO_COMMIT: CommitTarget = {
   subcommand: null,
   fromIndex: false,
   plainCommit: false,
+  addThenCommit: null,
   advisory: null,
 };
 
@@ -641,14 +655,14 @@ export function resolveCommitTarget(
   roots: CheckoutRootResolver = checkoutRootOf,
   aliases: GitAliasLookup = gitAliasOf,
 ): CommitTarget {
-  const { occurrences, advisory, candidates, balanced } = collectOccurrences(
+  const { occurrences, advisory, candidates, balanced, added } = collectOccurrences(
     command,
     sessionCwd,
     roots,
     aliases,
     0,
   );
-  return verdict(occurrences, advisory, candidates, balanced, roots);
+  return verdict(occurrences, advisory, candidates, balanced, roots, occurrences.length === 1 ? added : null);
 }
 
 interface Collected {
@@ -658,6 +672,13 @@ interface Collected {
   /** Checkouts an unplaced commit could write to (AC-STE-601.7). */
   candidates: string[];
   balanced: boolean;
+  /** AC-STE-741.1 — the `git add` half of `git add <paths> && git commit`. */
+  added: AddThenCommit | null;
+}
+
+/** AC-STE-741.1 — a pathspec word that names one literal path: no option, glob, magic or expansion. */
+function isLiteralAddPath(word: string): boolean {
+  return word !== "" && !word.startsWith("-") && !word.startsWith(":") && !/[*?[\]\\]/.test(word) && !isUnexpanded(word);
 }
 
 function collectOccurrences(
@@ -675,6 +696,27 @@ function collectOccurrences(
   const reading = readInvocations(command, sessionCwd, roots, COMMIT_READING);
   const { invocations } = reading;
   let balanced = reading.balanced;
+  let added: AddThenCommit | null = null;
+  // AC-STE-741.1 — the add half: the first of exactly two invocations, a bare
+  // `git add` of literal paths with no global option, binding or wrapper. The
+  // connector between the two is not read: `&&`, `;`, `||` or `&` are all safe,
+  // because the pass grades the staged set plus the named paths and the
+  // unstaged remainder, and a plain commit writes only the index.
+  const head = depth === 0 && invocations.length === 2 ? invocations[0]! : null;
+  const headGit = head !== null && !head.nestingExceeded ? parseGit(head.argv) : null;
+  const addHead: AddThenCommit | null =
+    head !== null &&
+    headGit !== null &&
+    headGit.subcommand === "add" &&
+    headGit.globals.length === 0 &&
+    headGit.args.length > 0 &&
+    headGit.args.every(isLiteralAddPath) &&
+    head.assignments.length === 0 &&
+    head.unplaced === null &&
+    !head.caseArm &&
+    head.dir !== null
+      ? { dir: head.dir, paths: [...headGit.args] }
+      : null;
 
   /** Offer the checkout holding a literal directory as a candidate root. */
   const offer = (dir: string | null): void => {
@@ -739,6 +781,17 @@ function collectOccurrences(
       // sibling `git add`, a write, or an alternate index changes what the
       // commit holds after the hook has read the staged set.
       if (writes !== null && writes.plain && (depth > 0 || invocations.length !== 1 || invocation.assignments.length > 0)) {
+        // AC-STE-741.1 — the one sibling a caller may grade: a preceding literal `git add`.
+        if (
+          addHead !== null &&
+          invocation === invocations[1] &&
+          invocation.assignments.length === 0 &&
+          invocation.dir === addHead.dir &&
+          git.dashCs.length === 0 &&
+          !carriesGlobalConfig(git.globals)
+        ) {
+          added = addHead;
+        }
         writes = { ...writes, plain: false };
       }
       // AC-STE-733.1 — a global `-c key=value` or `--config-env` reconfigures the
@@ -817,7 +870,7 @@ function collectOccurrences(
     });
   }
 
-  return { occurrences, advisory, candidates, balanced };
+  return { occurrences, advisory, candidates, balanced, added };
 }
 
 function verdict(
@@ -826,6 +879,7 @@ function verdict(
   candidates: readonly string[],
   balanced: boolean,
   roots: CheckoutRootResolver,
+  added: AddThenCommit | null = null,
 ): CommitTarget {
   if (occurrences.length === 0) return { ...NO_COMMIT, candidateRoots: [], advisory };
 
@@ -853,6 +907,7 @@ function verdict(
     subcommand: first.subcommand,
     fromIndex: first.fromIndex,
     plainCommit: occurrences.every((o) => o.plain),
+    addThenCommit: added,
     advisory: null,
   });
 
