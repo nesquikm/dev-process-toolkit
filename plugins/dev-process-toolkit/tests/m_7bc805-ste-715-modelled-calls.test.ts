@@ -116,6 +116,15 @@ const V300_CALLS: Record<string, readonly string[]> = {
   "spec-review": ["gate_receipt.ts spec-review"],
 };
 
+// Amended by AC-STE-786.2 (M_870603): /gate-check probe #49 now names the Jira listing-query
+// call before the drift call; today's lists are v3.0.0's plus exactly that one call.
+const NOW_CALLS: Record<string, readonly string[]> = {
+  ...V300_CALLS,
+  "gate-check": V300_CALLS["gate-check"]!.flatMap((k) =>
+    k === "tracker_local_reconciliation_drift.ts" ? ["tracker_listing_query.ts jira", k] : [k],
+  ),
+};
+
 const skillText = (skill: string): string => readFileSync(join(PLUGIN_ROOT, "skills", skill, "SKILL.md"), "utf-8");
 
 async function runsGateOutcome(): Promise<(c: string) => boolean> {
@@ -143,7 +152,8 @@ describe("AC-STE-715.15 modelled tool calls", () => {
       const stdout = receiptStdout("absent", skill);
       expect(stdout).not.toContain("outcome: on");
       const calls = modelRun(skillText(skill), stdout);
-      expect(calls.map((c) => c.key)).toEqual([...V300_CALLS[skill]!]);
+      // Amended by AC-STE-786.2 (M_870603): today's list, the v3.0.0 one plus the admitted call.
+      expect(calls.map((c) => c.key)).toEqual([...NOW_CALLS[skill]!]);
       expect(calls.filter((c) => c.key === "project_settings.ts mode")).toEqual([]);
       expect(calls.filter((c) => accepts(materialise(c.command)))).toEqual([]);
     }, T);
@@ -156,7 +166,8 @@ describe("AC-STE-715.15 modelled tool calls", () => {
       const outcomes = calls.filter((c) => accepts(materialise(c.command)));
       expect(outcomes.length).toBe(1);
       expect(outcomes[0]!.key).toBe("gate_receipt.ts outcome");
-      expect(calls.filter((c) => c !== outcomes[0]).map((c) => c.key)).toEqual([...V300_CALLS[skill]!]);
+      // Amended by AC-STE-786.2 (M_870603): today's list, the v3.0.0 one plus the admitted call.
+      expect(calls.filter((c) => c !== outcomes[0]).map((c) => c.key)).toEqual([...NOW_CALLS[skill]!]);
       // The outcome call follows the receipt call.
       expect(calls.indexOf(outcomes[0]!)).toBeGreaterThan(calls.findIndex(isReceiptCall));
       // Amended by AC-STE-774.4 (M_4daa6e): the outcome switch alone prints no review_findings line, so no record call.
@@ -176,7 +187,8 @@ describe("AC-STE-715.15 modelled tool calls", () => {
       const calls = modelRun(skillText(skill), stdout);
       const records = calls.filter((c) => c.key === "review_findings_receipt.ts record");
       expect(records.length).toBe(skill === "gate-check" ? 0 : 1);
-      expect(calls.filter((c) => !records.includes(c)).map((c) => c.key)).toEqual([...V300_CALLS[skill]!]);
+      // Amended by AC-STE-786.2 (M_870603): today's list, the v3.0.0 one plus the admitted call.
+      expect(calls.filter((c) => !records.includes(c)).map((c) => c.key)).toEqual([...NOW_CALLS[skill]!]);
       if (records.length === 1) expect(calls.indexOf(records[0]!)).toBeGreaterThan(calls.findIndex(isReceiptCall));
     }, T);
   }

@@ -311,6 +311,13 @@ const V300_GATE_CHECK_CALLS: readonly string[] = [
   "video_commit_nudge.ts",
 ];
 
+// Amended by AC-STE-786.2 (M_870603): probe #49 now names the Jira listing-query
+// call before the drift call, so today's modelled list is v3.0.0's plus exactly that one call.
+const ADMITTED_786_CALL = "tracker_listing_query.ts jira";
+const NOW_GATE_CHECK_CALLS: readonly string[] = V300_GATE_CHECK_CALLS.flatMap((k) =>
+  k === "tracker_local_reconciliation_drift.ts" ? [ADMITTED_786_CALL, k] : [k],
+);
+
 const GATE_CHECK_V300_TEXT = (): string => atV300(`${PLUGIN_REL}/skills/gate-check/SKILL.md`);
 
 describe("AC-STE-725.13 the AC-STE-715.15 /gate-check modeller, re-run on the finished milestone", () => {
@@ -338,17 +345,19 @@ describe("AC-STE-725.13 the AC-STE-715.15 /gate-check modeller, re-run on the fi
       const stdout = spawnSrc(PLUGIN_ROOT, "gate_receipt.ts", ["gate-check", root], root).out;
       expect(stdout.split("\n")).not.toContain(REUSE_ON);
       const calls = modelRun(skillText("gate-check"), stdout);
-      expect(calls.map((c) => c.key)).toEqual([...V300_GATE_CHECK_CALLS]);
+      // Amended by AC-STE-786.2 (M_870603): today's list is v3.0.0's plus the one admitted call.
+      expect(calls.map((c) => c.key)).toEqual([...NOW_GATE_CHECK_CALLS]);
       expect(calls.filter((c) => c.module === "gate_reuse.ts")).toEqual([]);
-      // The same receipt stdout on the v3.0.0 bytes yields the same list.
-      expect(modelRun(GATE_CHECK_V300_TEXT(), stdout).map((c) => c.key)).toEqual(calls.map((c) => c.key));
+      // The same receipt stdout on the v3.0.0 bytes yields the same list, less the admitted call.
+      expect(modelRun(GATE_CHECK_V300_TEXT(), stdout).map((c) => c.key)).toEqual(calls.map((c) => c.key).filter((k) => k !== ADMITTED_786_CALL));
     }, T);
   }
 
   test("CONTROL: with `reuse: on` stubbed into the receipt stdout the list departs from v3.0.0 and holds gate_reuse.ts run", () => {
     const calls = modelRun(skillText("gate-check"), `${RECEIPT_STDOUT_V300}outcome: on\n${REUSE_ON}`);
     expect(calls.some((c) => c.key === "gate_reuse.ts run")).toBe(true);
-    expect(calls.map((c) => c.key)).not.toEqual([...V300_GATE_CHECK_CALLS]);
+    // Amended by AC-STE-786.2 (M_870603): departs from today's switch-off list, not merely from v3.0.0's.
+    expect(calls.map((c) => c.key)).not.toEqual([...NOW_GATE_CHECK_CALLS]);
   });
 
   test("AC-STE-725.13 no sentence of STE-725.md or of this file denies that the /gate-check modeller exists", () => {
@@ -587,7 +596,8 @@ describe("AC-STE-725.11 every pinned literal is load-bearing", () => {
       ["rerun\n", spawnSrc(PLUGIN_ROOT, "gate_reuse.ts", ["verdict", root], root).out],
       [RECEIPT_STDOUT_V300, receipt.out],
       [RECEIPT_JSON_V300, receipt.files[".dpt/ledger/receipts/<sid>/<receipt>"] ?? ""],
-      [V300_GATE_CHECK_CALLS.join("\n"), modelRun(skillText("gate-check"), receipt.out).map((c) => c.key).join("\n")],
+      // Amended by AC-STE-786.2 (M_870603): today's list carries the one admitted listing-query call.
+      [NOW_GATE_CHECK_CALLS.join("\n"), modelRun(skillText("gate-check"), receipt.out).map((c) => c.key).join("\n")],
       [SUMMARY_TEMPLATE_V300, summarySection(skillText("gate-check")).split("\n").find((l) => l.startsWith("conformance-probes pass:")) ?? ""],
       [nowGet("keys", "optimizations").out, getRun(PLUGIN_ROOT, root, "optimizations").out],
       [nowGet("keys", "nosuch").err, getRun(PLUGIN_ROOT, root, "nosuch").err],

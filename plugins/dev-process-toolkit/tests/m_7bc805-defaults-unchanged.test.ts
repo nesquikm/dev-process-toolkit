@@ -330,6 +330,14 @@ describe("AC-STE-717.13 hooks.json and modelled tool calls", () => {
     tdd: ["gate_receipt.ts tdd"],
     "spec-review": ["gate_receipt.ts spec-review"],
   };
+  // Amended by AC-STE-786.2 (M_870603): /gate-check probe #49 now names the Jira listing-query
+  // call before the drift call; today's lists are v3.0.0's plus exactly that one call.
+  const NOW_CALLS: Record<string, readonly string[]> = {
+    ...V300_CALLS,
+    "gate-check": V300_CALLS["gate-check"]!.flatMap((k) =>
+      k === "tracker_local_reconciliation_drift.ts" ? ["tracker_listing_query.ts jira", k] : [k],
+    ),
+  };
   function modelRun(text: string, receiptStdout: string): string[] {
     const printed = new Set(receiptStdout.split("\n"));
     const issued: string[] = [];
@@ -362,7 +370,8 @@ describe("AC-STE-717.13 hooks.json and modelled tool calls", () => {
           env: { ...(process.env as Record<string, string>), ...GIT_ENV, CLAUDE_CODE_SESSION_ID: SID },
         }).stdout;
         const text = readFileSync(join(PLUGIN_ROOT, "skills", skill, "SKILL.md"), "utf-8");
-        expect({ skill, calls: modelRun(text, stdout ?? "") }).toEqual({ skill, calls: [...V300_CALLS[skill]!] });
+        // Amended by AC-STE-786.2 (M_870603): today's list, the v3.0.0 one plus the admitted call.
+        expect({ skill, calls: modelRun(text, stdout ?? "") }).toEqual({ skill, calls: [...NOW_CALLS[skill]!] });
       }
     }, T);
   }
