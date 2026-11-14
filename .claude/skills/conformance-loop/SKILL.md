@@ -38,9 +38,9 @@ Context: skill=conformance-loop, flag=<flag>
 
 ## Pre-flight refusals
 
-Each fires before any side effects, exits non-zero with an NFR-10-shape message. **Nine refusals total — (0) plus (a)–(h)**, emitting eleven distinct canonical messages between them; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place).
+Each fires before any side effects, exits non-zero with an NFR-10-shape message. **Ten refusals total — (0) plus (a)–(i)**, emitting twelve distinct canonical messages between them; refusals (c)–(e) **delegate** to `/smoke-test`'s pre-flights of the same probe (so the canonical message and probe shape stay defined in one place).
 
-**(0) is deliberately not a letter, and that is a compatibility decision rather than a stylistic one.** It is ORDERED FIRST — it runs before pre-flight (a)'s cwd probe — but the lettered refusals keep the letters they have always had. Re-lettering to insert it as a new `(a)` would silently re-point every by-letter cross-reference in this file, in `/smoke-test`, and in the test suite at a different refusal than the one its author meant. Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set. Refusal (h) is the STE-367 workspace-trust precondition — it runs before any spawn and asserts every SELECTED leg's test-project path is trusted.
+**(0) is deliberately not a letter, and that is a compatibility decision rather than a stylistic one.** It is ORDERED FIRST — it runs before pre-flight (a)'s cwd probe — but the lettered refusals keep the letters they have always had. Re-lettering to insert it as a new `(a)` would silently re-point every by-letter cross-reference in this file, in `/smoke-test`, and in the test suite at a different refusal than the one its author meant. Refusal (f) is the Phase 0 `permissions.allow` pre-flight introduced by STE-252 — it runs before any `claude -p` spawn and asserts the tracked allow-list artifact is present and populated. Refusal (g) is the STE-351 subscription-billing guard — it runs before any spawn and asserts no API-billing env var is set. Refusal (h) is the STE-367 workspace-trust precondition — it runs before any spawn and asserts every SELECTED leg's test-project path is trusted. Refusal (i) is the STE-789 dirty-tree precondition — it runs before (c) and before any spawn, pidfile or log, and refuses when `git status --porcelain` at the toolkit root is not empty, because every `/smoke-test` leg would refuse the same tree at its own pre-flight #4.
 
 (0) **Leg selection resolves to a non-empty subset of `SMOKE_LEGS` (STE-447).** Runs immediately after argument parsing and **before pre-flight (a)**, because a refusal that fires later has already had the opportunity to touch the filesystem. Resolving `--legs` is what introduces the possibility of an empty run, and an empty run is not a cheap run — it is a **vacuously green** one. A run that spawns nothing writes no per-leg findings file; a findings file that does not exist contributes no `**Severity:** high` lines; and the `green` termination probe reads zero high lines as convergence. The loop would report `green` having tested nothing. That is the milestone's own "no findings and no evidence must never reconcile to the same verdict" rule one level up from a missing findings file, so the selector that creates the hazard is the thing that must close it — fail-closed, before any spawn.
 
@@ -235,7 +235,29 @@ Then re-run /conformance-loop. The entries persist across runs (operator-owned; 
 Context: skill=conformance-loop, pre-flight=workspace_trust_check, paths=[<untrusted>]
 ```
 
-Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose. There are **12 refusal anchors** in this section: (a)–(e), (g) and (h) carry one each; (0) carries THREE (unknown value, zero selection, unreadable registry) and the STE-351-strengthened (f) carries two (allow-list-empty, spawn-pattern-missing). This restated total is machine-checked against the section rather than hand-maintained — `tests/m121-ste-447-legs-selector.test.ts` recomputes the anchor count and fails if the two disagree, which is why the number above can be trusted. (A whole-section `grep -o 'NFR-10 canonical refusal' | wc -l` reports 14, not 11: this sentence mentions the phrase three more times. The count that means something is the anchor count, and the previous revision of this sentence — which claimed "ten markers … nine refusal anchors" while the section carried nine anchors and thirteen mentions — is why the number is now derived instead of asserted.)
+(i) **Toolkit working tree clean (STE-789).** Runs first among the side-effecting checks: before pre-flight (c), and before any pidfile or log is written. Every `/smoke-test` child refuses a dirty toolkit tree at its own pre-flight #4, so a dirty tree here would pass the loop's other checks, spawn every selected leg, and watch each one die on the same refusal. The probe runs `git status --porcelain` at the toolkit root (`TOOLKIT_ROOT` when set, else the repository holding the current directory) and refuses non-zero, naming every offending path, when the output is not empty. NFR-10 canonical refusal:
+
+```bash
+ROOT="${TOOLKIT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+if [ -z "$ROOT" ]; then
+  echo "Toolkit root unresolved — /conformance-loop cannot check the tree for uncommitted changes." >&2
+  echo "Remedy: run from inside the toolkit checkout, or set TOOLKIT_ROOT." >&2
+  echo "Context: skill=conformance-loop, pre-flight=dirty_tree, root=unresolved" >&2
+  exit 1
+fi
+DIRTY="$(git -C "$ROOT" status --porcelain)"
+if [ -n "$DIRTY" ]; then
+  {
+    echo "Toolkit working tree at $ROOT is not clean — every /smoke-test child would refuse at its pre-flight #4. Offending paths:"
+    printf '%s\n' "$DIRTY" | sed 's/^/  /'
+    echo "Remedy: commit, stash or remove the paths above, then re-run /conformance-loop."
+    echo "Context: skill=conformance-loop, pre-flight=dirty_tree, root=$ROOT"
+  } >&2
+  exit 1
+fi
+```
+
+Each refusal above carries the literal phrase **NFR-10 canonical refusal** in the surrounding prose. There are **13 refusal anchors** in this section: (a)–(e), (g), (h) and (i) carry one each; (0) carries THREE (unknown value, zero selection, unreadable registry) and the STE-351-strengthened (f) carries two (allow-list-empty, spawn-pattern-missing). This restated total is machine-checked against the section rather than hand-maintained — `tests/m121-ste-447-legs-selector.test.ts` recomputes the anchor count and fails if the two disagree, which is why the number above can be trusted. (A whole-section `grep -o 'NFR-10 canonical refusal' | wc -l` reports 15, not 13: this sentence mentions the phrase two more times. The count that means something is the anchor count, and the previous revision of this sentence — which claimed "ten markers … nine refusal anchors" while the section carried nine anchors and thirteen mentions — is why the number is now derived instead of asserted.)
 
 ## Flow
 

@@ -64,7 +64,8 @@ describe("AC-STE-716.1 the tool_calls switch", () => {
 
   test("settingsKeyOrder names tool_calls after gate_outcomes; tracking.tool_calls closes on {enabled}; NEW_KEYS holds it", async () => {
     const m = await S();
-    expect(m.settingsKeyOrder("tracking")).toEqual(["token_stats", "gate_outcomes", "tool_calls"]);
+    // Amended by AC-STE-774.1 (M_4daa6e): STE-774 adds review_findings after tool_calls.
+    expect(m.settingsKeyOrder("tracking")).toEqual(["token_stats", "gate_outcomes", "tool_calls", "review_findings"]);
     expect(m.settingsKeyOrder("tracking.tool_calls")).toEqual(["enabled"]);
     expect(m.NEW_KEYS).toContain("tracking.tool_calls");
   });
@@ -210,22 +211,27 @@ describe("AC-STE-716.24 the tracking defaults merge fills tool_calls", () => {
     const m = await S();
     const root = settingsTree("merge-omit", `${SETTINGS_HEAD}tracking:\n  token_stats:\n    enabled: true\n`);
     const tr = m.loadProjectSection(root, "tracking");
-    expect(tr).toEqual({ token_stats: { enabled: true }, gate_outcomes: { enabled: false }, tool_calls: { enabled: false } });
-    expect(Object.keys(tr)).toEqual(["token_stats", "gate_outcomes", "tool_calls"]);
+    // Amended by AC-STE-774.1 (M_4daa6e): review_findings is filled too, after tool_calls.
+    expect(tr).toEqual({ token_stats: { enabled: true }, gate_outcomes: { enabled: false }, tool_calls: { enabled: false }, review_findings: { enabled: false } });
+    expect(Object.keys(tr)).toEqual(["token_stats", "gate_outcomes", "tool_calls", "review_findings"]);
   });
 
   test("`tracking: {}` reads tool_calls: { enabled: false }", async () => {
     const m = await S();
     const root = settingsTree("merge-empty", `${SETTINGS_HEAD}tracking: {}\n`);
-    expect(m.loadProjectSection(root, "tracking")).toEqual({ gate_outcomes: { enabled: false }, tool_calls: { enabled: false } });
+    // Amended by AC-STE-774.1 (M_4daa6e): review_findings is filled too, after tool_calls.
+    expect(m.loadProjectSection(root, "tracking")).toEqual({ gate_outcomes: { enabled: false }, tool_calls: { enabled: false }, review_findings: { enabled: false } });
   });
 
   test("the AC-STE-706.1 row of the loader suite carries the amended literal and comment", () => {
     const src = readFileSync(join(PLUGIN_ROOT, "tests", "m_94e6f7-ste-706-settings-loader.test.ts"), "utf-8");
+    // Amended by AC-STE-774.1 (M_4daa6e): the literal now also carries review_findings after tool_calls, and the row
+    // carries the AC-STE-774.1 comment beside the AC-STE-716.24 one.
     expect(src).toContain(
-      "expect(r.settings.tracking).toEqual({ ...(BASE.tracking as Record<string, unknown>), gate_outcomes: { enabled: false }, tool_calls: { enabled: false } });",
+      "expect(r.settings.tracking).toEqual({ ...(BASE.tracking as Record<string, unknown>), gate_outcomes: { enabled: false }, tool_calls: { enabled: false }, review_findings: { enabled: false } });",
     );
     expect(src).toContain("; Amended by AC-STE-716.24 (M_7bc805): tool_calls too.");
+    expect(src).toContain("// Amended by AC-STE-774.1 (M_4daa6e): review_findings is a third filled default, after tool_calls.");
   });
 
   test("docs/layout-reference.md names toolCallLedgerPath in its composer list, and dpt_paths.ts exports it", async () => {

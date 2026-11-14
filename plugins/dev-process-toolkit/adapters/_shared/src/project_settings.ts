@@ -41,7 +41,12 @@ export const SETTINGS_FILE = "specs/settings.yaml";
 const MODE_DEFAULTED = new WeakSet<object>();
 
 /** Dotted paths of the keys with no v2.101.4 reader (the AC-STE-706.12 `new` rows). */
-export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes", "tracking.tool_calls", "retro", "optimizations.gate_commands", "verification.test_commands"];
+export const NEW_KEYS: readonly string[] = ["close_out.upgrade_offer", "tracking.gate_outcomes", "tracking.tool_calls", "tracking.review_findings", "retro", "optimizations.gate_commands", "verification.test_commands"];
+
+/** STE-775: the three retro metrics `retro.priority` orders, and their default order. */
+export const RETRO_METRICS = ["waste", "tokens", "time"] as const;
+export type RetroMetric = (typeof RETRO_METRICS)[number];
+export const DEFAULT_RETRO_PRIORITY: readonly RetroMetric[] = RETRO_METRICS;
 
 export type SettingsSource = "settings" | "legacy" | "none" | "both";
 
@@ -56,9 +61,10 @@ export interface ProjectSettings {
     token_stats: { enabled: boolean };
     gate_outcomes: { enabled: boolean };
     tool_calls: { enabled: boolean };
+    review_findings: { enabled: boolean };
   } & Record<string, unknown>;
   close_out: { upgrade_offer: { enabled: boolean } };
-  retro: { enabled: boolean };
+  retro: { enabled: boolean; priority: RetroMetric[] };
   release: { files: unknown[] };
   video: { config: VideoConfig | null; style: VideoStyle | null };
   optimizations: Record<string, unknown>;
@@ -216,9 +222,9 @@ function defaults(): ProjectSettings {
     verification: {},
     docs: {},
     orchestration: {},
-    tracking: { token_stats: { enabled: false }, gate_outcomes: { enabled: false }, tool_calls: { enabled: false } },
+    tracking: { token_stats: { enabled: false }, gate_outcomes: { enabled: false }, tool_calls: { enabled: false }, review_findings: { enabled: false } },
     close_out: { upgrade_offer: { enabled: false } },
-    retro: { enabled: false },
+    retro: { enabled: false, priority: [...DEFAULT_RETRO_PRIORITY] },
     release: { files: [] },
     video: { config: null, style: null },
     optimizations: Object.fromEntries(OPTIMIZATION_KEYS.map((k) => [k, "run"])),
@@ -306,13 +312,14 @@ export function settingsKeyOrder(path: string): readonly string[] {
     "verification.test_commands[]": TEST_COMMAND_ENTRY_KEYS,
     docs: DOCS_KEYS,
     orchestration: ORCHESTRATION_KEYS,
-    tracking: ["token_stats", "gate_outcomes", "tool_calls"],
+    tracking: ["token_stats", "gate_outcomes", "tool_calls", "review_findings"],
     "tracking.token_stats": ["enabled"],
     "tracking.gate_outcomes": ["enabled"],
     "tracking.tool_calls": ["enabled"],
+    "tracking.review_findings": ["enabled"],
     close_out: ["upgrade_offer"],
     "close_out.upgrade_offer": ["enabled"],
-    retro: ["enabled"],
+    retro: ["enabled", "priority"],
     release: ["files"],
     "release.files[]": RELEASE_ENTRY_KEYS,
     video: ["config", "style"],
@@ -367,6 +374,15 @@ function checkEnabledMap(parent: Record<string, unknown>, prefix: string, key: s
   const m = requireMap(parent[key], path);
   closeKeys(m, path, settingsKeyOrder(path));
   checkBool(m, path, "enabled");
+}
+
+/** AC-STE-775.1: `retro.priority` is a permutation of RETRO_METRICS — each word exactly once. */
+export function checkRetroPriority(v: unknown): void {
+  const ok =
+    Array.isArray(v) &&
+    v.length === RETRO_METRICS.length &&
+    RETRO_METRICS.every((m) => v.filter((x) => x === m).length === 1);
+  if (!ok) throw shapeError("retro.priority", `must list ${RETRO_METRICS.join(", ")}, each exactly once, in any order`);
 }
 
 function validateBinding(v: unknown, path: string): void {
@@ -498,6 +514,7 @@ const SECTION_VALIDATORS: Record<SectionKey, (v: unknown) => void> = {
     checkEnabledMap(tr, "tracking", "token_stats");
     checkEnabledMap(tr, "tracking", "gate_outcomes");
     checkEnabledMap(tr, "tracking", "tool_calls");
+    checkEnabledMap(tr, "tracking", "review_findings");
   },
   close_out: (v) => {
     const co = requireMap(v, "close_out");
@@ -508,6 +525,7 @@ const SECTION_VALIDATORS: Record<SectionKey, (v: unknown) => void> = {
     const rt = requireMap(v, "retro");
     closeKeys(rt, "retro", settingsKeyOrder("retro"));
     checkBool(rt, "retro", "enabled");
+    if ("priority" in rt) checkRetroPriority(rt.priority);
   },
   release: validateRelease,
   video: (v) => closeKeys(requireMap(v, "video"), "video", settingsKeyOrder("video")),
@@ -565,6 +583,7 @@ function buildSection<K extends SectionKey>(parsed: Record<string, unknown>, sec
       const tr: Record<string, unknown> = { ...parsed.tracking };
       if (!("gate_outcomes" in tr)) tr.gate_outcomes = d.tracking.gate_outcomes;
       if (!("tool_calls" in tr)) tr.tool_calls = d.tracking.tool_calls;
+      if (!("review_findings" in tr)) tr.review_findings = d.tracking.review_findings;
       return tr as ProjectSettings["tracking"];
     },
     close_out: () => ({
@@ -575,7 +594,11 @@ function buildSection<K extends SectionKey>(parsed: Record<string, unknown>, sec
             : d.close_out.upgrade_offer.enabled,
       },
     }),
-    retro: () => ({ enabled: isObj(parsed.retro) ? parsed.retro.enabled === true : d.retro.enabled }),
+    retro: () => {
+      const rt: ProjectSettings["retro"] = { enabled: isObj(parsed.retro) ? parsed.retro.enabled === true : d.retro.enabled, priority: d.retro.priority };
+      if (isObj(parsed.retro) && Array.isArray(parsed.retro.priority)) rt.priority = [...parsed.retro.priority] as RetroMetric[];
+      return rt;
+    },
     release: () => (isObj(parsed.release) ? parsed.release : d.release) as ProjectSettings["release"],
     video: () => {
       const video = isObj(parsed.video) ? parsed.video : {};
@@ -727,6 +750,19 @@ export function gateOutcomesSwitchOn(projectRoot: string): boolean {
 export function toolCallsSwitchOn(projectRoot: string): boolean {
   try {
     return loadProjectSection(projectRoot, "tracking")?.tool_calls?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * STE-774 — the review_findings switch `tracking.review_findings.enabled`, read
+ * through the loader in the `gateOutcomesSwitchOn` shape: true only for an
+ * explicit `true`; any loader refusal reads as off.
+ */
+export function reviewFindingsSwitchOn(projectRoot: string): boolean {
+  try {
+    return loadProjectSection(projectRoot, "tracking")?.review_findings?.enabled === true;
   } catch {
     return false;
   }

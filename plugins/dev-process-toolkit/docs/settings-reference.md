@@ -116,6 +116,7 @@ Optional key, not written by `/setup`: `docs.changelog_unversioned` (default `fa
 | `tracking.token_stats` | block `{ enabled: boolean }` | `{ enabled: false }` | `## Token Stats` `enabled:` |
 | `tracking.gate_outcomes` | block `{ enabled: boolean }` | `{ enabled: false }` | new (STE-715), no legacy home; absent means off. It shares the `tracking` section, so a malformed value refuses every `tracking` read, the token-stats switch included |
 | `tracking.tool_calls` | block `{ enabled: boolean }` | `{ enabled: false }` | new (STE-716), no legacy home; absent means off. It shares the `tracking` section, so a malformed value refuses every `tracking` read |
+| `tracking.review_findings` | block `{ enabled: boolean }` | `{ enabled: false }` | new (STE-774), no legacy home; absent means off. It shares the `tracking` section, so a malformed value refuses every `tracking` read |
 
 ### `close_out`
 
@@ -128,6 +129,7 @@ Optional key, not written by `/setup`: `docs.changelog_unversioned` (default `fa
 | Key | Type | Default | Replaces |
 | --- | --- | --- | --- |
 | `retro.enabled` | boolean | `false` | new (STE-719), no legacy home; absent means off. The switch for the close-out retro offer only |
+| `retro.priority` | list of `waste`, `tokens`, `time` | `[waste, tokens, time]` | new (STE-775), no legacy home. Each of the three words exactly once, in any order; any other value is a config error |
 
 ### `optimizations`
 

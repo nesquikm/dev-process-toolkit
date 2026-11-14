@@ -36,7 +36,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { runUpgradeStalenessProbe } from "../adapters/_shared/src/upgrade_staleness";
-import { makeCheckout, recordFor } from "./_m_7bc805_capture_fixture";
+import { captureSettingsFor, makeCheckout, recordFor } from "./_m_7bc805_capture_fixture"; // Amended by AC-STE-775.3 (M_4daa6e): captureSettingsFor
 import {
   GIT_ENV,
   PLUGIN_REL,
@@ -96,6 +96,10 @@ const GET_TRACKING_NOW = [
   "  },",
   '  "tool_calls": {',
   '    "enabled": false',
+  // Amended by AC-STE-774.1 (M_4daa6e): the review_findings block, off, follows tool_calls.
+  "  },",
+  '  "review_findings": {',
+  '    "enabled": false',
   "  }",
   "}",
   "",
@@ -106,7 +110,8 @@ function namedGetTrackingDifference(v300: string): string {
   const lines = v300.split("\n");
   // lines[3] is the closing `  }` of token_stats.
   if (lines[3] !== "  }") throw new Error("v3.0.0 literal changed shape");
-  const added = ['  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  }"];
+  // Amended by AC-STE-774.1 (M_4daa6e): the review_findings block, off, is added after tool_calls.
+  const added = ['  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  },", '  "review_findings": {', '    "enabled": false', "  }"];
   return [...lines.slice(0, 3), "  },", ...added, ...lines.slice(4)].join("\n");
 }
 
@@ -244,9 +249,10 @@ describe("AC-STE-717.13 named difference: project_settings.ts get tracking", () 
       expect({ code: now.exitCode, out: now.stdout, err: now.stderr }).toEqual({ code: 0, out: GET_TRACKING_NOW, err: "" });
       expect(namedGetTrackingDifference(then.stdout)).toBe(now.stdout);
       // Exactly: one changed line, six added lines.
+      // Amended by AC-STE-774.1 (M_4daa6e): nine added lines (the review_findings block adds three).
       const a = then.stdout.split("\n");
       const b = now.stdout.split("\n");
-      expect(b.length - a.length).toBe(6);
+      expect(b.length - a.length).toBe(9);
       expect([a[3], b[3]]).toEqual(["  }", "  },"]);
     }, T);
   }
@@ -276,8 +282,11 @@ describe("AC-STE-717.13 named difference: the teammate's capture-registration ro
   });
 
   test("teammate: probe #69 adds exactly one warn-only `capture-registration` row and the GATE PASSED WITH NOTES verdict line; every other row equals the off fixture", async () => {
-    const teammate = makeCheckout("dn-mate", "on");
-    const off = makeCheckout("dn-off", "absent");
+    // Amended by AC-STE-775.3 (M_4daa6e): both checkouts declare retro.priority (a current 3.6.0 tree), so the
+    // off fixture stays clean and the capture-registration row is the only difference.
+    const current = (state: "on" | "absent") => ({ files: { "specs/settings.yaml": captureSettingsFor(state)! + "retro:\n  priority: [waste, tokens, time]\n" } });
+    const teammate = makeCheckout("dn-mate", "on", current("on"));
+    const off = makeCheckout("dn-off", "absent", current("absent"));
     process.env.CLAUDE_CONFIG_DIR = recordFor("dn-mate-rec", teammate).cfg;
     const on = await runUpgradeStalenessProbe(teammate);
     const base = await runUpgradeStalenessProbe(off);
@@ -304,6 +313,8 @@ describe("AC-STE-717.13 hooks.json and modelled tool calls", () => {
     { module: "gate_receipt.ts", verb: "outcome", condition: "outcome: on" },
     // Amended by AC-STE-724.22 (M_fd9a03): the reuse front door is guarded by reuse: on.
     { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },
+    // Amended by AC-STE-774.4 (M_4daa6e): the review-findings record call is guarded by review_findings: on.
+    { module: "review_findings_receipt.ts", verb: "record", condition: "review_findings: on" },
   ];
   const SWITCH_LINE_RE = /`([a-z_]+: on)`/g;
   const BUN_RUN_RE = /bun run\s+"?([^\s"`]+?\.ts)"?(?:[ \t]+([a-z][a-z0-9-]*)(?=[\s"`]|$))?/gm;
@@ -318,6 +329,14 @@ describe("AC-STE-717.13 hooks.json and modelled tool calls", () => {
     ],
     tdd: ["gate_receipt.ts tdd"],
     "spec-review": ["gate_receipt.ts spec-review"],
+  };
+  // Amended by AC-STE-786.2 (M_870603): /gate-check probe #49 now names the Jira listing-query
+  // call before the drift call; today's lists are v3.0.0's plus exactly that one call.
+  const NOW_CALLS: Record<string, readonly string[]> = {
+    ...V300_CALLS,
+    "gate-check": V300_CALLS["gate-check"]!.flatMap((k) =>
+      k === "tracker_local_reconciliation_drift.ts" ? ["tracker_listing_query.ts jira", k] : [k],
+    ),
   };
   function modelRun(text: string, receiptStdout: string): string[] {
     const printed = new Set(receiptStdout.split("\n"));
@@ -351,7 +370,8 @@ describe("AC-STE-717.13 hooks.json and modelled tool calls", () => {
           env: { ...(process.env as Record<string, string>), ...GIT_ENV, CLAUDE_CODE_SESSION_ID: SID },
         }).stdout;
         const text = readFileSync(join(PLUGIN_ROOT, "skills", skill, "SKILL.md"), "utf-8");
-        expect({ skill, calls: modelRun(text, stdout ?? "") }).toEqual({ skill, calls: [...V300_CALLS[skill]!] });
+        // Amended by AC-STE-786.2 (M_870603): today's list, the v3.0.0 one plus the admitted call.
+        expect({ skill, calls: modelRun(text, stdout ?? "") }).toEqual({ skill, calls: [...NOW_CALLS[skill]!] });
       }
     }, T);
   }

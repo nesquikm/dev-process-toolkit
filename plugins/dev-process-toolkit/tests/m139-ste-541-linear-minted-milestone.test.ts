@@ -854,6 +854,8 @@ describe("AC-STE-541.4 — the adoption notice is registered and owned by /spec-
       "settings-file",
       // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
       "capture-registration",
+      // Amended by AC-STE-775.3 (M_4daa6e): retro-priority-default (3.6.0) is appended after capture-registration.
+      "retro-priority-default",
     ]);
   });
 

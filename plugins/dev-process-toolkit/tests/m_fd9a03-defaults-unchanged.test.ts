@@ -37,7 +37,11 @@
 //      default: on top of the M_7bc805 and M_d1b4b7 lines (STE-717, STE-722),
 //      `get optimizations` exits 0 and prints `{`, `  "gate_commands": "run"`,
 //      `}` where v3.0.0 refused it, and the `get` refusal's `Remedy:` section
-//      list gains `optimizations` as its last entry.
+//      list gains `optimizations` as its last entry. Amended by AC-STE-775.2
+//      (M_4daa6e): `get retro` also prints the default `priority` order
+//      (waste, tokens, time) after `enabled`. Amended by AC-STE-774.1
+//      (M_4daa6e): `get tracking` also prints `review_findings: { enabled:
+//      false }` after `tool_calls`.
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -307,6 +311,13 @@ const V300_GATE_CHECK_CALLS: readonly string[] = [
   "video_commit_nudge.ts",
 ];
 
+// Amended by AC-STE-786.2 (M_870603): probe #49 now names the Jira listing-query
+// call before the drift call, so today's modelled list is v3.0.0's plus exactly that one call.
+const ADMITTED_786_CALL = "tracker_listing_query.ts jira";
+const NOW_GATE_CHECK_CALLS: readonly string[] = V300_GATE_CHECK_CALLS.flatMap((k) =>
+  k === "tracker_local_reconciliation_drift.ts" ? [ADMITTED_786_CALL, k] : [k],
+);
+
 const GATE_CHECK_V300_TEXT = (): string => atV300(`${PLUGIN_REL}/skills/gate-check/SKILL.md`);
 
 describe("AC-STE-725.13 the AC-STE-715.15 /gate-check modeller, re-run on the finished milestone", () => {
@@ -334,17 +345,19 @@ describe("AC-STE-725.13 the AC-STE-715.15 /gate-check modeller, re-run on the fi
       const stdout = spawnSrc(PLUGIN_ROOT, "gate_receipt.ts", ["gate-check", root], root).out;
       expect(stdout.split("\n")).not.toContain(REUSE_ON);
       const calls = modelRun(skillText("gate-check"), stdout);
-      expect(calls.map((c) => c.key)).toEqual([...V300_GATE_CHECK_CALLS]);
+      // Amended by AC-STE-786.2 (M_870603): today's list is v3.0.0's plus the one admitted call.
+      expect(calls.map((c) => c.key)).toEqual([...NOW_GATE_CHECK_CALLS]);
       expect(calls.filter((c) => c.module === "gate_reuse.ts")).toEqual([]);
-      // The same receipt stdout on the v3.0.0 bytes yields the same list.
-      expect(modelRun(GATE_CHECK_V300_TEXT(), stdout).map((c) => c.key)).toEqual(calls.map((c) => c.key));
+      // The same receipt stdout on the v3.0.0 bytes yields the same list, less the admitted call.
+      expect(modelRun(GATE_CHECK_V300_TEXT(), stdout).map((c) => c.key)).toEqual(calls.map((c) => c.key).filter((k) => k !== ADMITTED_786_CALL));
     }, T);
   }
 
   test("CONTROL: with `reuse: on` stubbed into the receipt stdout the list departs from v3.0.0 and holds gate_reuse.ts run", () => {
     const calls = modelRun(skillText("gate-check"), `${RECEIPT_STDOUT_V300}outcome: on\n${REUSE_ON}`);
     expect(calls.some((c) => c.key === "gate_reuse.ts run")).toBe(true);
-    expect(calls.map((c) => c.key)).not.toEqual([...V300_GATE_CHECK_CALLS]);
+    // Amended by AC-STE-786.2 (M_870603): departs from today's switch-off list, not merely from v3.0.0's.
+    expect(calls.map((c) => c.key)).not.toEqual([...NOW_GATE_CHECK_CALLS]);
   });
 
   test("AC-STE-725.13 no sentence of STE-725.md or of this file denies that the /gate-check modeller exists", () => {
@@ -468,8 +481,9 @@ const notASection = (section: string, list: string): Out => ({
 });
 
 const TRACKING_V300 = ok(json(["{", '  "token_stats": {', '    "enabled": false', "  }", "}"]));
+// Amended by AC-STE-774.1 (M_4daa6e): get tracking also prints the review_findings block, off, after tool_calls.
 const TRACKING_NOW = ok(
-  json(["{", '  "token_stats": {', '    "enabled": false', "  },", '  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  }", "}"]),
+  json(["{", '  "token_stats": {', '    "enabled": false', "  },", '  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  },", '  "review_findings": {', '    "enabled": false', "  }", "}"]),
 );
 const close = (on: boolean): Out => ok(json(["{", '  "upgrade_offer": {', `    "enabled": ${on}`, "  }", "}"]));
 const orchestration = (effort: string): Out => ok(json(["{", `  "default_effort": "${effort}",`, '  "merge_policy": "offer"', "}"]));
@@ -515,8 +529,13 @@ const V300_GET: Record<Fixture, Record<string, Out>> = {
 
 /** The named differences, applied to the v3.0.0 table. Nothing else moves. */
 const NAMED_DIFFERENCES: Record<string, { why: string; now: Out }> = {
-  tracking: { why: "get tracking prints the M_7bc805 blocks as STE-717 pins it", now: TRACKING_NOW },
-  retro: { why: "get retro exits 0 and prints the retro section (STE-722)", now: ok(json(["{", '  "enabled": false', "}"])) },
+  // Amended by AC-STE-774.1 (M_4daa6e): the tracking section also answers the review_findings default.
+  tracking: { why: "get tracking prints the M_7bc805 blocks as STE-717 pins it, plus the STE-774 review_findings block", now: TRACKING_NOW },
+  // Amended by AC-STE-775.2 (M_4daa6e): the retro section answers the default priority order.
+  retro: {
+    why: "get retro exits 0 and prints the retro section (STE-722) with the default priority (STE-775)",
+    now: ok(json(["{", '  "enabled": false,', '  "priority": [', '    "waste",', '    "tokens",', '    "time"', "  ]", "}"])),
+  },
   optimizations: { why: "get optimizations exits 0 and prints its gate_commands: run default (STE-723)", now: ok(json(["{", '  "gate_commands": "run"', "}"])) },
   nosuch: { why: "the Remedy: section list gains retro after close_out and optimizations last", now: notASection("nosuch", NOW_SECTIONS) },
 };
@@ -577,7 +596,8 @@ describe("AC-STE-725.11 every pinned literal is load-bearing", () => {
       ["rerun\n", spawnSrc(PLUGIN_ROOT, "gate_reuse.ts", ["verdict", root], root).out],
       [RECEIPT_STDOUT_V300, receipt.out],
       [RECEIPT_JSON_V300, receipt.files[".dpt/ledger/receipts/<sid>/<receipt>"] ?? ""],
-      [V300_GATE_CHECK_CALLS.join("\n"), modelRun(skillText("gate-check"), receipt.out).map((c) => c.key).join("\n")],
+      // Amended by AC-STE-786.2 (M_870603): today's list carries the one admitted listing-query call.
+      [NOW_GATE_CHECK_CALLS.join("\n"), modelRun(skillText("gate-check"), receipt.out).map((c) => c.key).join("\n")],
       [SUMMARY_TEMPLATE_V300, summarySection(skillText("gate-check")).split("\n").find((l) => l.startsWith("conformance-probes pass:")) ?? ""],
       [nowGet("keys", "optimizations").out, getRun(PLUGIN_ROOT, root, "optimizations").out],
       [nowGet("keys", "nosuch").err, getRun(PLUGIN_ROOT, root, "nosuch").err],

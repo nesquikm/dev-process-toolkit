@@ -112,7 +112,12 @@ const FLOOR = "2.0.0";
 function makeCleanManagedFixture(): Fixture {
   const root = mkdtempSync(join(tmpdir(), "ste-411-clean-"));
   writeFileSync(join(root, "CLAUDE.md"), ["# Project", "", "## Project Settings", "", renderSettingsPointer(FLOOR)].join("\n"));
-  writeProjectSettings(root, { schema_version: 1, min_dpt_version: FLOOR, task_tracking: { mode: "none" } }, { create: true });
+  // Amended by AC-STE-775.3 (M_4daa6e): a current 3.6.0 settings file declares retro.priority.
+  writeProjectSettings(
+    root,
+    { schema_version: 1, min_dpt_version: FLOOR, task_tracking: { mode: "none" }, retro: { priority: ["waste", "tokens", "time"] } },
+    { create: true },
+  );
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 

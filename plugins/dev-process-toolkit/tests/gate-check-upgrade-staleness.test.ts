@@ -276,6 +276,19 @@ function plantCaptureEntryWithKeyAbsent(root: string): void {
     "utf-8",
   );
   mkdirSync(join(root, "specs"), { recursive: true });
+  // Amended by AC-STE-775.3 (M_4daa6e): the settings file declares retro.priority (current 3.6.0), so this
+  // tree carries only capture-registration's legacy state.
+  writeFileSync(
+    join(root, "specs", "settings.yaml"),
+    'schema_version: 1\nmin_dpt_version: "2.0.0"\nretro:\n  priority: [waste, tokens, time]\n',
+    "utf-8",
+  );
+}
+
+// Amended by AC-STE-775.3 (M_4daa6e): retro-priority-default is appended after capture-registration.
+// A moved settings file (the tree's only settings home) whose retro section has no `priority` key.
+function plantSettingsFileWithoutRetroPriority(root: string): void {
+  mkdirSync(join(root, "specs"), { recursive: true });
   writeFileSync(join(root, "specs", "settings.yaml"), 'schema_version: 1\nmin_dpt_version: "2.0.0"\n', "utf-8");
 }
 
@@ -668,6 +681,8 @@ describe("AC-STE-394.9 — each live legacy state renders exactly its own row", 
     ["settings-file", plantLegacySettingsHome], // Amended by M_94e6f7/STE-711 (AC-.13)
     // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
     ["capture-registration", plantCaptureEntryWithKeyAbsent],
+    // Amended by AC-STE-775.3 (M_4daa6e): retro-priority-default is appended after capture-registration.
+    ["retro-priority-default", plantSettingsFileWithoutRetroPriority],
   ];
 
   // Completeness guard. Without it the table above is a hand-maintained list

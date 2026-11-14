@@ -1067,7 +1067,7 @@ describeIfLoop("STE-447 — the pre-flight section's own anchor count is derived
     expect(stated).not.toBeNull();
 
     // An anchor is a mention that INTRODUCES a refusal — it is followed by a
-    // fenced refusal template. The summary sentence's own three mentions are
+    // fenced refusal template. The summary sentence's own two mentions are
     // not anchors, and are excluded by that rule rather than by subtraction.
     const anchors = section
       .split("\n")

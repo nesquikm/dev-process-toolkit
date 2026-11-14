@@ -39,7 +39,7 @@ import {
   checkoutRootOf,
   gateEvidenceTarget,
 } from "../../../../adapters/_shared/src/gate_receipt.ts";
-import { isStagedArchiveOnly, isStagedSpecOnly, isWorkingTreeClean } from "../../../../adapters/_shared/src/archive_only_change.ts";
+import { isSpecOnlyAfterAdding, isStagedArchiveOnly, isStagedSpecOnly, isWorkingTreeClean } from "../../../../adapters/_shared/src/archive_only_change.ts";
 
 /** An NFR-10 `Reminder:`, then exit 1: visible and non-blocking (the sibling /tdd hook's idiom). */
 function remind(sentence: string, remedy: string): never {
@@ -96,6 +96,17 @@ if (
   target.plainCommit &&
   isWorkingTreeClean(target.repoRoots[0]!) &&
   isStagedSpecOnly(target.repoRoots[0]!)
+) {
+  process.exit(0);
+}
+// AC-STE-741.1 — the same pass for `git add <spec paths> && git commit`: the
+// add names literal existing spec files, the staged set plus them is
+// spec-only, and no tracked change outside them is left unstaged.
+if (
+  !target.unplaced &&
+  target.repoRoots.length === 1 &&
+  target.addThenCommit !== null &&
+  isSpecOnlyAfterAdding(target.repoRoots[0]!, target.addThenCommit.dir, target.addThenCommit.paths)
 ) {
   process.exit(0);
 }

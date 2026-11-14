@@ -1176,9 +1176,14 @@ describe("AC-STE-710.16 a fresh /setup writes only the keys its v2.101.4 steps w
     const setupCode = readdirSync(join(PLUGIN, "adapters", "_shared", "src", "setup"))
       .filter((n) => n.endsWith(".ts"))
       .map((n) => `adapters/_shared/src/setup/${n}`);
+    // Amended by AC-STE-775.4 (M_4daa6e), operator ruling 2026-11-13: /setup's
+    // create call seeds exactly the default retro order, so a fresh tree is
+    // current. That one literal is exempt; any other mention of retro, or of
+    // any other NEW_KEYS key, still turns this red.
+    const RETRO_PRIORITY_SEED = 'retro: { priority: ["waste", "tokens", "time"] }';
     const hits: string[] = [];
     for (const rel of [...SETUP_PROSE, ...setupCode]) {
-      const body = read(PLUGIN, rel);
+      const body = read(PLUGIN, rel).split(RETRO_PRIORITY_SEED).join("");
       for (const k of PS.NEW_KEYS) {
         const leaf = k.split(".").pop()!;
         if (body.includes(k) || new RegExp(`\\b${leaf}\\b`).test(body)) hits.push(`${rel}: ${k}`);

@@ -273,6 +273,8 @@ export interface DecisionCandidate {
   issuetype?: string;
   /** Linear project-milestone id; `null` = the row sits in no milestone. */
   milestone?: string | null;
+  /** STE-787 — the row's status is closed (Jira category `done`; Linear `completed` / `canceled`). Absent = open. */
+  closed?: boolean;
 }
 
 /** The conjuncts the query carried, plus the title being created. */
@@ -338,6 +340,7 @@ export function decideCreate(
   const wanted = normalizeTitleForCompare(query.title);
   const match = page.candidates.find(
     (c) =>
+      c.closed !== true &&
       normalizeTitleForCompare(c.title) === wanted &&
       (query.linearMilestone === undefined || c.milestone === query.linearMilestone),
   );
@@ -419,9 +422,9 @@ export async function runCreateIdempotencyProbe(
 // ------------------------------------------------------------- the front door
 
 /** The fields a Jira search page must carry for `decide` to grade it. */
-export const JIRA_QUERY_FIELDS = ["summary", "labels", "issuetype", "parent", "project"] as const;
+export const JIRA_QUERY_FIELDS = ["summary", "labels", "issuetype", "parent", "project", "status"] as const;
 /** The fields a Linear `list_issues` page must carry for `decide` to grade it. */
-export const LINEAR_QUERY_FIELDS = ["title", "labels", "projectMilestone", "project", "team"] as const;
+export const LINEAR_QUERY_FIELDS = ["title", "labels", "projectMilestone", "project", "team", "statusType"] as const;
 export const LINEAR_QUERY_LIMIT = 250;
 
 interface QueryArgs {
@@ -670,6 +673,9 @@ function readJiraPages(
       issuetype,
       parent: f.parent == null ? null : (refName(f.parent) ?? null),
       ...(labels ? { labels } : {}),
+      ...(isObj(f.status) && isObj(f.status.statusCategory) && f.status.statusCategory.key === "done"
+        ? { closed: true }
+        : {}),
     });
   }
   return { candidates, capped };
@@ -706,6 +712,7 @@ function readLinearPages(
       project,
       milestone: milestoneId(issue.projectMilestone),
       ...(labels ? { labels } : {}),
+      ...(issue.statusType === "completed" || issue.statusType === "canceled" ? { closed: true } : {}),
     });
   }
   return { candidates, capped };

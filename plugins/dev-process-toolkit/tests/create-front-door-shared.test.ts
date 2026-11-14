@@ -595,8 +595,9 @@ describe("AC-STE-604.1 — query builds from the binding", () => {
       expect(out.jql).toContain("issuetype != Epic");
       expect(out.jql).toContain("summary ~ ");
       expect(out.jql).not.toContain("summary = ");
+      // Amended by AC-STE-787.1 (M_870603): the query also asks for `status`.
       expect([...out.fields].sort()).toEqual(
-        ["issuetype", "labels", "parent", "project", "summary"].sort(),
+        ["issuetype", "labels", "parent", "project", "summary", "status"].sort(),
       );
     });
   });
@@ -695,8 +696,9 @@ describe("AC-STE-604.1 — query builds from the binding", () => {
       expect(args.project).toBe("DPT");
       expect(args.label).toBe("glade-be");
       expect(args.limit).toBe(250);
+      // Amended by AC-STE-787.1 (M_870603): the query also asks for `statusType`.
       expect([...args.fields].sort()).toEqual(
-        ["labels", "project", "projectMilestone", "team", "title"].sort(),
+        ["labels", "project", "projectMilestone", "team", "title", "statusType"].sort(),
       );
     });
   });

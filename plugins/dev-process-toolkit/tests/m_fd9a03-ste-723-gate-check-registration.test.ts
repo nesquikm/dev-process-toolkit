@@ -136,6 +136,12 @@ describe("AC-STE-723.14 net-zero placement on the gate-check edit commit", () =>
   // scope. It is the only line of 1-176 admitted to differ, and only as that entry.
   const REWRITTEN_IN_PLACE_BY_735 = 149;
   const PROBE_62_HEAD = /^62\. \*\*`spawn_pattern_allowlist`\*\*/;
+  // Amended by AC-STE-786.2 (M_870603): line 128 is probe #49's entry, admitted only as its
+  // trunk bytes with the one Jira listing-query parenthetical inserted after the read.
+  const REWRITTEN_IN_PLACE_BY_786 = 128;
+  const PROBE_49_READ = "fetch the container pages with the adapter's `list_active_frs` read, save";
+  const PROBE_49_READ_786 =
+    "fetch the container pages with the adapter's `list_active_frs` read (Jira: run `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/tracker_listing_query.ts jira <projectRoot> <projectKey>` and use the JQL it prints, verbatim), save";
 
   /** Lines 1-176 vs trunk (149 admitted only as the probe #62 entry naming the scaffold scope), then 178-229 vs trunk's 177-228. */
   function headDrift(t: readonly string[], c: readonly string[]): number[] {
@@ -148,7 +154,12 @@ describe("AC-STE-723.14 net-zero placement on the gate-check edit commit", () =>
         PROBE_62_HEAD.test(t[i]!) &&
         PROBE_62_HEAD.test(c[i]!) &&
         c[i]!.includes("Scoped to the scaffold:");
-      if (!admitted) bad.push(n);
+      // Amended by AC-STE-786.2 (M_870603)
+      const admitted786 =
+        n === REWRITTEN_IN_PLACE_BY_786 &&
+        t[i]!.split(PROBE_49_READ).length === 2 &&
+        c[i] === t[i]!.replace(PROBE_49_READ, PROBE_49_READ_786);
+      if (!admitted && !admitted786) bad.push(n);
     }
     for (let n = 178; n <= 229; n++) if (c[n - 1] !== t[n - 2]) bad.push(n);
     return bad;
@@ -173,6 +184,24 @@ describe("AC-STE-723.14 net-zero placement on the gate-check edit commit", () =>
     const moved = [...c];
     moved[148] = `63. Scoped to the scaffold: ${c[148]}`;
     expect(headDrift(t, moved)).toEqual([149]);
+  });
+
+  // Amended by AC-STE-786.2 (M_870603)
+  test("CONTROL (AC-STE-786.2): line 128 admits only the probe #49 listing-query insert; a changed neighbour or any other line-128 edit is reported", () => {
+    const t = trunk().split("\n");
+    const c = now().split("\n");
+    const n127 = [...c];
+    n127[126] = `${n127[126]}x`;
+    expect(headDrift(t, n127)).toEqual([127]);
+    const n129 = [...c];
+    n129[128] = `${n129[128]}x`;
+    expect(headDrift(t, n129)).toEqual([129]);
+    const extra = [...c];
+    extra[127] = `${extra[127]}x`;
+    expect(headDrift(t, extra)).toEqual([128]);
+    const otherInsert = [...c];
+    otherInsert[127] = t[127]!.replace(PROBE_49_READ, PROBE_49_READ_786.replace("verbatim", "loosely"));
+    expect(headDrift(t, otherInsert)).toEqual([128]);
   });
 
   test("CONTROL: a one-byte edit on an unrewritten line from 231 on is reported", () => {

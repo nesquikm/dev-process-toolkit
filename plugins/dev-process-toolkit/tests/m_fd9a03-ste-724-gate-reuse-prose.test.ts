@@ -440,8 +440,11 @@ describe("AC-STE-724.22 the M_7bc805 modeller issues gate_reuse.ts run only when
 
   test("AC-STE-724.22 GUARDED_TARGETS holds the gate_reuse.ts run row under its Amended-by comment", () => {
     expect(GUARDED_TARGETS).toContainEqual(REUSE_ROW);
+    // Amended by AC-STE-774.4 (M_4daa6e): the review-findings record row now follows
+    // this one, so the row no longer closes the array; it must still sit directly
+    // under its own Amended-by comment.
     expect(readFileSync(MODELLER_SUITE, "utf-8")).toContain(
-      '  // Amended by AC-STE-724.22 (M_fd9a03): the reuse front door is guarded by reuse: on.\n  { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },\n];',
+      '  // Amended by AC-STE-724.22 (M_fd9a03): the reuse front door is guarded by reuse: on.\n  { module: "gate_reuse.ts", verb: "run", condition: "reuse: on" },\n',
     );
   });
 

@@ -17,16 +17,21 @@
 //
 // On each: gate_capture.ts, deliver_decision.ts, upgrade_offer.ts and
 // retro_offer.ts. Each stdout equals its v3.0.0 literal (retro_offer.ts, being
-// new, prints nothing) and no file is written. The modelled /implement and
+// new, prints nothing) and no file is written. One amendment (AC-STE-775.3,
+// M_4daa6e): on `upgrade`, upgrade_offer.ts offers the pending
+// retro-priority-default migration — a newer registry entry, not a retro
+// switch effect. The modelled /implement and
 // /deliver close-outs take their reached offers from those real outputs and
 // record no operator turn and no retro_offer.ts call.
 //
 // NAMED ACCEPTED DIFFERENCE (and nothing else): the documented
 // `project_settings.ts get` CLI, which no skill calls by default —
 //   1. `get tracking` prints the gate_outcomes and tool_calls blocks as
-//      STE-717 pins it (M_7bc805);
-//   2. `get retro` exits 0 and prints `{`, `  "enabled": false`, `}` where
-//      v3.0.0 refused it with exit 1;
+//      STE-717 pins it (M_7bc805) and, since AC-STE-774.1 (M_4daa6e), the
+//      review_findings block after them;
+//   2. `get retro` exits 0 and prints the retro section — `enabled: false`
+//      and, since AC-STE-775.2 (M_4daa6e), the default `priority` order —
+//      where v3.0.0 refused it with exit 1;
 //   3. the `get` refusal's `Remedy:` section list gains `retro` after `close_out`.
 // Every other `get` output equals v3.0.0.
 //
@@ -95,6 +100,15 @@ interface Out {
   out: string;
   err: string;
 }
+// Amended by AC-STE-775.3 (M_4daa6e): the `upgrade` fixture is a moved settings
+// file with no retro.priority, so the retro-priority-default migration is
+// pending there and upgrade_offer.ts offers it. That offer is the upgrade
+// switch's doing; no retro switch output moves.
+const UPGRADE_OFFER_NOW_ON_UPGRADE =
+  "retro-priority-default (3.6.0): specs/settings.yaml declares no retro.priority: add `priority: [waste, tokens, time]` under retro\n" +
+  "Apply the pending toolkit upgrades now? [y/N]\n";
+const UPGRADE_TURNS_NOW_ON_UPGRADE = ["implement_upgrade_offer", "deliver_close_upgrade_offer"];
+
 const ok = (out: string): Out => ({ code: 0, out, err: "" });
 const json = (lines: string[]): string => `${lines.join("\n")}\n`;
 
@@ -107,8 +121,9 @@ const notASection = (section: string, list: string): Out => ({
 });
 
 const TRACKING_V300 = ok(json(["{", '  "token_stats": {', '    "enabled": false', "  }", "}"]));
+// Amended by AC-STE-774.1 (M_4daa6e): get tracking also prints the review_findings block, off, after tool_calls.
 const TRACKING_NOW = ok(
-  json(["{", '  "token_stats": {', '    "enabled": false', "  },", '  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  }", "}"]),
+  json(["{", '  "token_stats": {', '    "enabled": false', "  },", '  "gate_outcomes": {', '    "enabled": false', "  },", '  "tool_calls": {', '    "enabled": false', "  },", '  "review_findings": {', '    "enabled": false', "  }", "}"]),
 );
 const close = (on: boolean): Out => ok(json(["{", '  "upgrade_offer": {', `    "enabled": ${on}`, "  }", "}"]));
 const orchestration = (effort: string): Out => ok(json(["{", `  "default_effort": "${effort}",`, '  "merge_policy": "offer"', "}"]));
@@ -161,8 +176,13 @@ const V300_GET: Record<Fixture, Record<string, Out>> = {
 
 /** The named differences, applied to the v3.0.0 table. Nothing else moves. */
 const NAMED_DIFFERENCES: Record<string, { why: string; now: Out }> = {
-  tracking: { why: "get tracking prints the M_7bc805 blocks as STE-717 pins it", now: TRACKING_NOW },
-  retro: { why: "get retro exits 0 and prints the retro section", now: ok(json(["{", '  "enabled": false', "}"])) },
+  // Amended by AC-STE-774.1 (M_4daa6e): the tracking section also answers the review_findings default.
+  tracking: { why: "get tracking prints the M_7bc805 blocks as STE-717 pins it, plus the STE-774 review_findings block", now: TRACKING_NOW },
+  // Amended by AC-STE-775.2 (M_4daa6e): the retro section answers the default priority order.
+  retro: {
+    why: "get retro exits 0 and prints the retro section",
+    now: ok(json(["{", '  "enabled": false,', '  "priority": [', '    "waste",', '    "tokens",', '    "time"', "  ]", "}"])),
+  },
   // Amended by AC-STE-723.15 (M_fd9a03): optimizations joins TOP_KEYS last.
   nosuch: { why: "the Remedy: section list gains retro after close_out", now: notASection("nosuch", `${NOW_SECTIONS}, optimizations`) },
 };
@@ -209,7 +229,8 @@ describe("AC-STE-722.12 the four front doors equal v3.0.0 on every fixture", () 
       expect(gate.stdout, describeRun(gate)).toBe(V300_STDOUT[f].gate);
       expect(deliver.stdout, describeRun(deliver)).toBe(V300_STDOUT[f].deliver);
       expect(deliver.code).toBe(0);
-      expect(upgrade.stdout, describeRun(upgrade)).toBe(V300_STDOUT[f].upgrade);
+      // Amended by AC-STE-775.3 (M_4daa6e): see UPGRADE_OFFER_NOW_ON_UPGRADE.
+      expect(upgrade.stdout, describeRun(upgrade)).toBe(f === "upgrade" ? UPGRADE_OFFER_NOW_ON_UPGRADE : V300_STDOUT[f].upgrade);
       expect(upgrade.code).toBe(0);
       for (const scope of [FR_ID, MILESTONE]) {
         const retro = runRetroOffer(root, scope);
@@ -271,7 +292,9 @@ describe("AC-STE-722.12 modelled /implement and /deliver close-outs", () => {
       const del = reachedFrom(root, "deliver");
       const a = modelRun({ chain: [{ skill: "/implement", target: FR_ID }], promptBody: `/dev-process-toolkit:implement ${FR_ID}`, reachedOffers: impl.reached });
       const b = modelRun({ chain: [{ skill: "/deliver", target: MILESTONE }], promptBody: `/dev-process-toolkit:deliver ${MILESTONE}`, reachedOffers: del.reached });
-      expect([...a.operatorTurns, ...b.operatorTurns]).toEqual([]);
+      // Amended by AC-STE-775.3 (M_4daa6e): on `upgrade` the only turns are the
+      // upgrade offers of the pending migration; still no retro turn.
+      expect([...a.operatorTurns, ...b.operatorTurns]).toEqual(f === "upgrade" ? UPGRADE_TURNS_NOW_ON_UPGRADE : []);
       expect([...impl.calls, ...del.calls]).not.toContain("retro_offer.ts");
       expect(stepExecutionCounts(a)["/retro"] ?? 0).toBe(0);
       expect(stepExecutionCounts(b)["/retro"] ?? 0).toBe(0);
@@ -309,7 +332,8 @@ describe("AC-STE-722.12 named difference: project_settings.ts get", () => {
     for (const f of FIXTURES) for (const s of Object.keys(NAMED_DIFFERENCES)) expect(NAMED_DIFFERENCES[s]!.now).not.toEqual(V300_GET[f][s]);
     expect(NOW_SECTIONS.split(", ").filter((s) => s !== "retro")).toEqual(V300_SECTIONS.split(", "));
     expect(NOW_SECTIONS.split(", ").indexOf("retro")).toBe(NOW_SECTIONS.split(", ").indexOf("close_out") + 1);
-    expect(NAMED_DIFFERENCES.retro!.now.out.split("\n")).toEqual(["{", '  "enabled": false', "}", ""]);
+    // Amended by AC-STE-775.2 (M_4daa6e): the retro section answers the default priority order.
+    expect(NAMED_DIFFERENCES.retro!.now.out.split("\n")).toEqual(["{", '  "enabled": false,', '  "priority": [', '    "waste",', '    "tokens",', '    "time"', "  ]", "}", ""]);
   });
 
   test("no default /implement or /deliver call runs project_settings.ts get", () => {

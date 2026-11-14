@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.5.0 — "Load Bearing"** (M_5f3c43, an outside contribution. During GREEN, `/tdd` plants the smallest bug each new test should catch and requires the test to go red; a test that stays green halts the run as `not-load-bearing`. The bun, pytest and flutter parsers read a run's own summary, and a halt names the one point to resume from)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.6.1 — "Second Look"** (M_870603, a second look at v3.6.0. The trend stops reading zero for data it never saw and counts a shared session once, and the `retro.priority` upgrade step refuses a broken value. Auto-approved spec commits pass probe #45, the Jira drift probe sees a done ticket, a create never reuses a closed one, `git add && git commit` takes the spec-only pass, a headless `/implement` keeps going after its gate, and `/conformance-loop` refuses a dirty tree)
 
 ## Core Philosophy
 

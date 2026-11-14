@@ -491,6 +491,23 @@ describe("R2-F1 every registry entry's changed set names exactly the files it wr
     });
   }
 
+  // Amended by AC-STE-775.4 (M_4daa6e), operator ruling 2026-11-13: the move now
+  // seeds retro.priority, so retro-priority-default never fires on the four shapes
+  // above. Its real trigger is a tree moved BEFORE 3.6.0 — the moved file with the
+  // seed taken out — so grade it there, by the same changed-set rule.
+  test("R2-F1 none pre-3.6 migrated: retro-priority-default's diff equals its changed set", () => {
+    const root = triggerTree("none", "migrated");
+    const settingsPath = join(root, "specs/settings.yaml");
+    const seeded = readFileSync(settingsPath, "utf-8");
+    const unseeded = seeded.replace(/^retro:\n(?:[ \t]+.*\n)+/m, "");
+    expect(unseeded).not.toBe(seeded);
+    writeFileSync(settingsPath, unseeded);
+    const e = entry("retro-priority-default");
+    expect(e.detect(root).applies).toBe(true);
+    expect(audit(root, e, "none/pre-3.6-migrated")).toBeNull();
+    expect(e.detect(root).applies).toBe(false);
+  });
+
   test("R2-F1 coverage: every script entry applied at least once, and linear-team-key on a migrated tree", () => {
     const scripts = MIGRATIONS.filter((e) => e.kind === "script").map((e) => e.id);
     expect(scripts.filter((id) => !applied.has(id))).toEqual([]);
