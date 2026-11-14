@@ -567,17 +567,18 @@ That protection is why a timeout does not mint a duplicate Epic.
 
 **Epic label — at mint time only.** After it derives the id, and outside the
 step-1 retry, the mint writes the label `milestone-M_<key>` on the Epic itself
-(`milestone-M_GK_78` for `GK-78`). That label is a read-side convenience: it
+(`milestone-M_GK_78` for `GK-78`), followed by every `default_labels` entry
+of the binding, so label-scoped cleanup finds the Epic like any other ticket. That label is a read-side convenience: it
 lets a repo enumerating a shared project find the milestone by its label. It
 is never the binding surface — membership stays the FR's `parent`, below. A
 failed label write never fails the mint: the Epic and its derived id stand,
 and only the convenience is missing. In a live session the write is a
 read-merge-write on the Epic's own key —
 `mcp__atlassian__editJiraIssue(issueIdOrKey=<epic-key>,
-additional_fields={ labels: [...<existing labels>, "milestone-M_<key>"] })`,
+additional_fields={ labels: [...<existing labels>, "milestone-M_<key>", ...<default_labels>] })`,
 never clobbering a label already there. `mintMilestoneEpic` performs it
-through the provider's `addLabel` and reports whether it landed as
-`labelled`; its command form prints the label it would write as
+through the provider's `addLabel`, given the default labels in process as
+`defaultLabels`, and reports whether every write landed as `labelled`; its command form prints the label it would write as
 `label=milestone-M_<key>` beside the derived id.
 
 **Joining, never minting.** A repo joining a container another repo already
