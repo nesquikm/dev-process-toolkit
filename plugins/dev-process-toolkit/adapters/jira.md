@@ -80,7 +80,7 @@ below, which is how the create payload gets the bug type.
 | `addCommentToJiraIssue` | `mcp__atlassian__addCommentToJiraIssue` | Available on the live MCP surface (smoke-test #5 enumerated tool list) for callers that need to post a markdown comment. Pass `contentFormat: "markdown"`. No /implement-internal caller today. |
 | Project visibility probe | `mcp__atlassian__getVisibleJiraProjects` | Called by `/setup` step 7b before any other Jira operation; refuses with NFR-10 canonical shape when the configured `project` key is not visible to the authenticated principal. |
 | `listMilestones` (optional driver method) | `mcp__atlassian__searchJiraIssuesUsingJql` | Enumerate milestone Epics via `issuetype = Epic` (primary leg) and union the grandfathered `milestone-<M-token>` labels (legacy leg). Both legs paginate with client-side union-grammar filters, dedupe, and return bare `M_<epic-key>` / `M<N>` tokens. Best-effort: any failure ⇒ `[]`. Pure read; see § Milestone Listing below. |
-| `list_active_frs` | `mcp__atlassian__searchJiraIssuesUsingJql` | The orphan-listing read: JQL `project = <KEY> AND statusCategory != Done` with `fields: [key, summary, issuetype, labels, description, creator, project, status]` (`status.statusCategory.key` `done` marks a ticket closed: listed, never offered — the JQL already excludes those, so the field guards a page read by any other query), paginated with `nextPageToken` until the response carries `isLast: true` — or, when the Atlassian server answers in its wrapped shape (`context` + `issues.nodes`), with `issues.pageInfo.endCursor` until `issues.pageInfo.hasNextPage` is false; the server was observed to flip between the two within days, and the front doors read both. Save every page verbatim as a JSON file — each page after the first with the cursor it was fetched with added as a top-level `requestCursor`, so a dropped or reordered page shows as a broken chain; the saved pages feed the front doors — `container_ownership.ts` (`list` / `consent`, see `docs/spec-write-tracker-mode.md` § Orphan listing) and probe #49's `tracker_local_reconciliation_drift.ts` — which classify each ticket by its labels and refuse a page lacking `labels` or `description` in shared mode, or one carrying a ticket from another project. Pure read; no mutation. |
+| `list_active_frs` | `mcp__atlassian__searchJiraIssuesUsingJql` | The orphan-listing read: JQL is what `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/tracker_listing_query.ts jira <projectRoot> <KEY>` prints (`project = <KEY> AND (statusCategory != Done OR key in (<keys bound by active FRs>))`, or `project = <KEY> AND statusCategory != Done` when no active FR binds a key) — run it and pass its output verbatim, never retype the JQL — with `fields: [key, summary, issuetype, labels, description, creator, project, status]` (`status.statusCategory.key` `done` marks a ticket closed: listed, never offered — the JQL fetches a closed ticket only when an active local FR binds it, so the field is what keeps that ticket out of the orphan offer while it still counts as the FR's match), paginated with `nextPageToken` until the response carries `isLast: true` — or, when the Atlassian server answers in its wrapped shape (`context` + `issues.nodes`), with `issues.pageInfo.endCursor` until `issues.pageInfo.hasNextPage` is false; the server was observed to flip between the two within days, and the front doors read both. Save every page verbatim as a JSON file — each page after the first with the cursor it was fetched with added as a top-level `requestCursor`, so a dropped or reordered page shows as a broken chain; the saved pages feed the front doors — `container_ownership.ts` (`list` / `consent`, see `docs/spec-write-tracker-mode.md` § Orphan listing) and probe #49's `tracker_local_reconciliation_drift.ts` — which classify each ticket by its labels and refuse a page lacking `labels` or `description` in shared mode, or one carrying a ticket from another project. Pure read; no mutation. |
 
 > **No `deleteJiraIssue` tool.** The MCP surface does not expose issue
 > deletion. `/spec-archive` for Jira transitions the ticket to `Done` (or a
@@ -567,17 +567,18 @@ That protection is why a timeout does not mint a duplicate Epic.
 
 **Epic label — at mint time only.** After it derives the id, and outside the
 step-1 retry, the mint writes the label `milestone-M_<key>` on the Epic itself
-(`milestone-M_GK_78` for `GK-78`). That label is a read-side convenience: it
+(`milestone-M_GK_78` for `GK-78`), followed by every `default_labels` entry
+of the binding, so label-scoped cleanup finds the Epic like any other ticket. That label is a read-side convenience: it
 lets a repo enumerating a shared project find the milestone by its label. It
 is never the binding surface — membership stays the FR's `parent`, below. A
 failed label write never fails the mint: the Epic and its derived id stand,
 and only the convenience is missing. In a live session the write is a
 read-merge-write on the Epic's own key —
 `mcp__atlassian__editJiraIssue(issueIdOrKey=<epic-key>,
-additional_fields={ labels: [...<existing labels>, "milestone-M_<key>"] })`,
+additional_fields={ labels: [...<existing labels>, "milestone-M_<key>", ...<default_labels>] })`,
 never clobbering a label already there. `mintMilestoneEpic` performs it
-through the provider's `addLabel` and reports whether it landed as
-`labelled`; its command form prints the label it would write as
+through the provider's `addLabel`, given the default labels in process as
+`defaultLabels`, and reports whether every write landed as `labelled`; its command form prints the label it would write as
 `label=milestone-M_<key>` beside the derived id.
 
 **Joining, never minting.** A repo joining a container another repo already

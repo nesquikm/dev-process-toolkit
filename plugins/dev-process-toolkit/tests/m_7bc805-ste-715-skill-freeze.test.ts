@@ -14,6 +14,12 @@
 // own instructions, so no reshaping of that PR passes a one-added-line guard.
 // The tdd freeze is re-based to the file's post-change digest — any one other
 // changed line still reads as drift. spec-review's guard is untouched.
+//
+// Amended by AC-STE-774.4 (M_4daa6e): each file carries one STE-774 record
+// sentence gated on `review_findings: on`, admitted by its exact bytes — a
+// whole added line in spec-review (beside the outcome line), and an exact
+// in-line sentence in tdd's § 5 AUDIT parse paragraph, taken out before the
+// AC-STE-738.3 digest is compared. The digest pin itself does not move.
 
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -29,6 +35,16 @@ const GUARDED: Record<string, { v300Sha256: string; addedLines: number }> = {
   tdd: { v300Sha256: "437ef7034c03ab2c0225a19f87a4360a0684318334972559fd1f6936897c6ef2", addedLines: 1 },
   "spec-review": { v300Sha256: "6bcfb014120363c9ca957caef899be59a851ba3da963ed80f757fcb036528498", addedLines: 1 },
 };
+
+// Amended by AC-STE-774.4 (M_4daa6e): the exact STE-774 lines each guarded file admits.
+/** skills/spec-review/SKILL.md step 1: one whole added line, after the outcome line. */
+const SPEC_REVIEW_STE774_LINE =
+  '   Only if that receipt call also printed `review_findings: on`, after the audit result is parsed write the fork\'s full output to a temp file and record its counts with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts" record "<that checkout root>" spec-review "<that file>"`.';
+/** skills/tdd/SKILL.md § 5 AUDIT: one sentence inserted into the parse paragraph. */
+const TDD_STE774_SENTENCE =
+  ' Only if the § 1 receipt call also printed `review_findings: on`, write the fork\'s full output to a temp file and record its counts with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts" record "<that checkout root>" tdd-audit "<that file>"` once per audit.';
+/** The admitted STE-774 lines per line-guarded skill. */
+const STE774_LINES: Record<string, number> = { "spec-review": 1 };
 
 /** The skills AC-STE-715.18's v3.0.0-plus-outcome-line guard still applies to. */
 const LINE_GUARDED: ReadonlyArray<string> = ["spec-review"];
@@ -48,7 +64,11 @@ const TDD_REBASE = {
 
 /** The guard after the re-base: drift is any byte that moves the digest. */
 function driftFromRebase(text: string): string[] {
-  return sha(text) === TDD_REBASE.sha256 ? [] : [`skills/tdd/SKILL.md digest ${sha(text)} ≠ pinned ${TDD_REBASE.sha256}`];
+  // Amended by AC-STE-774.4 (M_4daa6e): the STE-774 sentence, carried exactly once, is taken out first.
+  const parts = text.split(TDD_STE774_SENTENCE);
+  if (parts.length !== 2) return [`skills/tdd/SKILL.md carries the AC-STE-774.4 sentence ${parts.length - 1} times, not once`];
+  const base = parts.join("");
+  return sha(base) === TDD_REBASE.sha256 ? [] : [`skills/tdd/SKILL.md digest ${sha(base)} ≠ pinned ${TDD_REBASE.sha256}`];
 }
 
 const OUTCOME_ORDER = 'bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" outcome';
@@ -62,19 +82,22 @@ function isOutcomeLine(line: string): boolean {
  * The guard. Returns every drift beyond the permitted added outcome lines,
  * named by the v3.0.0 line it sits at, plus the count of added outcome lines.
  */
-function driftBeyondOutcomeLines(before: string, after: string): { drift: string[]; added: number } {
+// Amended by AC-STE-774.4 (M_4daa6e): also counts, and takes out, the exact STE-774 line (`ste774`).
+function driftBeyondOutcomeLines(before: string, after: string): { drift: string[]; added: number; ste774: number } {
   const a = before.split("\n");
   const kept: string[] = [];
   let added = 0;
+  let ste774 = 0;
   for (const line of after.split("\n")) {
     if (isOutcomeLine(line) && !a.includes(line)) added++;
+    else if (line === SPEC_REVIEW_STE774_LINE && !a.includes(line)) ste774++;
     else kept.push(line);
   }
   const drift: string[] = [];
   if (kept.length !== a.length) drift.push(`line count ${a.length} → ${kept.length} (outcome lines excluded)`);
   const n = Math.min(kept.length, a.length);
   for (let i = 0; i < n; i++) if (kept[i] !== a[i]) drift.push(`line ${i + 1}`);
-  return { drift, added };
+  return { drift, added, ste774 };
 }
 
 const rel = (skill: string): string => `${PLUGIN_REL}/skills/${skill}/SKILL.md`;
@@ -91,16 +114,27 @@ describe("AC-STE-715.18 line guards for tdd and spec-review", () => {
     const pin = GUARDED[skill];
     test(`skills/${skill}/SKILL.md differs from v3.0.0 only by ${pin.addedLines} added outcome line(s)`, () => {
       const r = driftBeyondOutcomeLines(atV300(rel(skill)), now(skill));
-      expect({ skill, ...r }).toEqual({ skill, drift: [], added: pin.addedLines });
+      // Amended by AC-STE-774.4 (M_4daa6e): plus exactly the admitted STE-774 line(s).
+      expect({ skill, ...r }).toEqual({ skill, drift: [], added: pin.addedLines, ste774: STE774_LINES[skill] ?? 0 });
     });
 
     test(`NEIGHBOUR CONTROL: one other changed line in a temp copy of skills/${skill}/SKILL.md is reported`, () => {
       const lines = now(skill).split("\n");
-      const target = lines.findIndex((l, i) => i > 20 && l.trim().length > 0 && !isOutcomeLine(l));
+      // Amended by AC-STE-774.4 (M_4daa6e): the neighbour is never the admitted STE-774 line itself.
+      const target = lines.findIndex((l, i) => i > 20 && l.trim().length > 0 && !isOutcomeLine(l) && l !== SPEC_REVIEW_STE774_LINE);
       lines[target] = `${lines[target]} Then Read every file under specs/ first.`;
       const r = driftBeyondOutcomeLines(atV300(rel(skill)), lines.join("\n"));
       expect(r.drift.length).toBe(1);
       expect(r.drift[0]).toMatch(/^line \d+$/);
+    });
+
+    // Amended by AC-STE-774.4 (M_4daa6e). Kills: the STE-774 admission widened past its exact bytes.
+    test(`CONTROL: the admitted STE-774 line of skills/${skill}/SKILL.md, edited by one clause, is reported`, () => {
+      const lines = now(skill).split("\n");
+      const at = lines.indexOf(SPEC_REVIEW_STE774_LINE);
+      expect(at).toBeGreaterThan(0);
+      lines[at] = `${lines[at]} Then Read every file under specs/ first.`;
+      expect(driftBeyondOutcomeLines(atV300(rel(skill)), lines.join("\n")).drift).not.toEqual([]);
     });
 
     test(`CONTROL: an added non-outcome line in a temp copy of skills/${skill}/SKILL.md is reported`, () => {
@@ -139,6 +173,19 @@ describe("AC-STE-738.3 amends AC-STE-715.18 — skills/tdd/SKILL.md is re-based 
       const copy = [...lines];
       copy[target] = `${copy[target]} Then Read every file under specs/ first.`;
       expect({ target, drift: driftFromRebase(copy.join("\n")).length }).toEqual({ target, drift: 1 });
+    }
+  });
+
+  // Amended by AC-STE-774.4 (M_4daa6e). Kills: the STE-774 sentence admitted loosely, or more than once.
+  test("CONTROL: the STE-774 sentence of skills/tdd/SKILL.md dropped, doubled or reworded is rejected", () => {
+    const text = now("tdd");
+    expect(driftFromRebase(text)).toEqual([]);
+    const dropped = text.replace(TDD_STE774_SENTENCE, "");
+    const doubled = text.replace(TDD_STE774_SENTENCE, TDD_STE774_SENTENCE + TDD_STE774_SENTENCE);
+    const reworded = text.replace(TDD_STE774_SENTENCE, TDD_STE774_SENTENCE.replace("once per audit", "once per round"));
+    for (const [name, copy] of [["dropped", dropped], ["doubled", doubled], ["reworded", reworded]] as const) {
+      expect(copy).not.toBe(text);
+      expect({ name, drift: driftFromRebase(copy).length }).toEqual({ name, drift: 1 });
     }
   });
 

@@ -21,6 +21,7 @@ bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/retro.ts <projectRoot> [scope
 - No argument: the current session.
 - An FR id or a milestone: the sessions whose token-ledger rows are claimed by that FR, or by any FR of that milestone.
 - Free text is refused; relay the refusal from stderr verbatim and stop.
+- `--trend [--last N]`: the trend across runs instead of one run; N (default 20) is a positive integer, else refused. It writes `.dpt/ledger/retro/trend-<stamp>.json`; see `docs/retro-reference.md`.
 
 On success it prints one JSON line `{ report, tripped_count, suggested_severity }` and writes exactly one file, `.dpt/ledger/retro/<scope-slug>-<stamp>.json`. That file is the only write this step makes.
 

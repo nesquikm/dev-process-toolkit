@@ -28,6 +28,7 @@ import {
   RUNNING_VERSION,
   WRAPPER_REL,
   atV300,
+  captureSettingsFor, // Amended by AC-STE-775.3 (M_4daa6e)
   cleanupTemps,
   configDir,
   git,
@@ -529,8 +530,11 @@ describe("AC-STE-716.21 the teammate row", () => {
   });
 
   test("a committed switch with no registration gets one warn-only capture-registration row and GATE PASSED WITH NOTES; the off fixture reads GATE PASSED", async () => {
-    const teammate = makeCheckout("mate-on", "on");
-    const off = makeCheckout("mate-off", "absent");
+    // Amended by AC-STE-775.3 (M_4daa6e): both checkouts declare retro.priority (a current 3.6.0 tree), so the
+    // off fixture stays clean and the capture-registration row is the only difference.
+    const current = (state: "on" | "absent") => ({ files: { "specs/settings.yaml": captureSettingsFor(state)! + "retro:\n  priority: [waste, tokens, time]\n" } });
+    const teammate = makeCheckout("mate-on", "on", current("on"));
+    const off = makeCheckout("mate-off", "absent", current("absent"));
     process.env.CLAUDE_CONFIG_DIR = recordFor("mate-rec", teammate).cfg;
     const before = snapshot(teammate);
     const on = await runUpgradeStalenessProbe(teammate);

@@ -163,7 +163,10 @@ describe("AC-STE-722.14 upgrade_offer.ts stdout equals v3.0.0", () => {
       test(`AC-.14 upgrade_offer.ts on the STE-712 fixture "${f.name}" with retro ${retro} prints its v3.0.0 bytes`, () => {
         const root = writeTree(tempDir("up712"), {
           "CLAUDE.md": SETUP_MARKER_MD,
-          "specs/settings.yaml": f.settings + (retro === "absent" ? "" : `retro:\n  enabled: ${retro}\n`),
+          // Amended by AC-STE-775.3 (M_4daa6e): every fixture declares retro.priority (a current 3.6.0 tree), so
+          // probe #69 reports only the planted monolith; "retro absent" still means the retro SWITCH (enabled) is absent.
+          "specs/settings.yaml":
+            f.settings + `retro:\n${retro === "absent" ? "" : `  enabled: ${retro}\n`}  priority: [waste, tokens, time]\n`,
           ...(f.stale ? { "specs/requirements.md": MONOLITH } : {}),
         });
         const r = runUpgradeOffer(root);

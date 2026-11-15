@@ -36,6 +36,11 @@ orchestration:
 tracking:
   token_stats:
     enabled: true
+retro:
+  priority:
+    - waste
+    - tokens
+    - time
 release:
   files:
     - path: plugins/dev-process-toolkit/.claude-plugin/plugin.json

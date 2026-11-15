@@ -114,15 +114,17 @@ describe("AC-STE-719.3 the retro settings section", () => {
   test("loadProjectSettings accepts a top-level retro key and returns its value", async () => {
     const m = await settingsMod();
     const root = settingsTree("retro-accept", `${SETTINGS_HEAD}retro:\n  enabled: true\n`);
-    expect(m.loadProjectSettings(root).settings.retro).toEqual({ enabled: true });
-    expect(m.loadProjectSection(root, "retro")).toEqual({ enabled: true });
+    // Amended by AC-STE-775.2 (M_4daa6e): the retro section carries the default priority order.
+    expect(m.loadProjectSettings(root).settings.retro).toEqual({ enabled: true, priority: ["waste", "tokens", "time"] });
+    expect(m.loadProjectSection(root, "retro")).toEqual({ enabled: true, priority: ["waste", "tokens", "time"] });
   });
 
-  test("an absent section, a legacy tree and no settings file default to { enabled: false }", async () => {
+  test("an absent section, a legacy tree and no settings file default to { enabled: false } with the default priority", async () => {
     const m = await settingsMod();
-    expect(m.loadProjectSettings(settingsTree("retro-absent", SETTINGS_HEAD)).settings.retro).toEqual({ enabled: false });
-    expect(m.loadProjectSettings(settingsTree("retro-legacy", null, LEGACY_MD)).settings.retro).toEqual({ enabled: false });
-    expect(m.loadProjectSettings(settingsTree("retro-none", null)).settings.retro).toEqual({ enabled: false });
+    // Amended by AC-STE-775.2 (M_4daa6e): the retro section carries the default priority order.
+    expect(m.loadProjectSettings(settingsTree("retro-absent", SETTINGS_HEAD)).settings.retro).toEqual({ enabled: false, priority: ["waste", "tokens", "time"] });
+    expect(m.loadProjectSettings(settingsTree("retro-legacy", null, LEGACY_MD)).settings.retro).toEqual({ enabled: false, priority: ["waste", "tokens", "time"] });
+    expect(m.loadProjectSettings(settingsTree("retro-none", null)).settings.retro).toEqual({ enabled: false, priority: ["waste", "tokens", "time"] });
   });
 
   test("a non-map retro section and a non-boolean enabled throw SettingsShapeError", async () => {
@@ -131,11 +133,12 @@ describe("AC-STE-719.3 the retro settings section", () => {
     expect(() => m.loadProjectSettings(settingsTree("retro-yes", `${SETTINGS_HEAD}retro:\n  enabled: "yes"\n`))).toThrow(m.SettingsShapeError);
   });
 
-  test("TOP_KEYS orders retro after close_out; settingsKeyOrder('retro') is ['enabled']; NEW_KEYS holds retro", async () => {
+  test("TOP_KEYS orders retro after close_out; settingsKeyOrder('retro') is ['enabled', 'priority']; NEW_KEYS holds retro", async () => {
     const m = await settingsMod();
     const top = m.settingsKeyOrder("") as string[];
     expect(top.indexOf("retro")).toBe(top.indexOf("close_out") + 1);
-    expect(m.settingsKeyOrder("retro")).toEqual(["enabled"]);
+    // Amended by AC-STE-775.1 (M_4daa6e): priority joins the retro closed set.
+    expect(m.settingsKeyOrder("retro")).toEqual(["enabled", "priority"]);
     expect(m.NEW_KEYS).toContain("retro");
   });
 

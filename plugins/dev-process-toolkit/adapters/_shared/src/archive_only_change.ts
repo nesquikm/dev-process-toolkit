@@ -5,6 +5,9 @@
 //   - a rename specs/plan/<p>.md  → specs/plan/archive/<p>.md
 //   - a modification of specs/requirements.md
 
+import { lstatSync, realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
+
 import { normalizeFrontmatterSource } from "./frontmatter";
 
 export interface ArchiveChange {
@@ -258,7 +261,7 @@ export function isArchiveOnly(changes: readonly ArchiveChange[]): boolean {
 // `--literal-pathspecs` (S5): a path argument names exactly that file, so a
 // glob-named file (`specs/frs/[x]*.md`) never pulls a sibling's diff in.
 function gitOut(root: string, args: string[]): string | null {
-  const r = Bun.spawnSync(["git", "--literal-pathspecs", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+  const r = Bun.spawnSync(["git", "--literal-pathspecs", "-C", root, ...args], { stdout: "pipe", stderr: "pipe", env: process.env });
   return r.exitCode === 0 ? r.stdout.toString() : null;
 }
 
@@ -410,8 +413,45 @@ export function isWorkingTreeClean(root: string): boolean {
  * spec-shaped destination. A git failure reads as "not spec-only".
  */
 export function isStagedSpecOnly(root: string): boolean {
-  const raw = gitOut(root, ["diff", "--cached", "--no-renames", "--name-only", "-z"]);
-  if (raw === null) return false;
-  const paths = raw.split("\0").filter((p) => p !== "");
-  return paths.length > 0 && paths.every(isSpecPath);
+  const paths = changedPaths(root, "staged");
+  return paths !== null && paths.length > 0 && paths.every(isSpecPath);
+}
+
+/**
+ * The tracked paths whose staged (`--cached`) or unstaged content differs, with
+ * rename detection OFF so a move reports both its sides. Null on a git failure.
+ */
+function changedPaths(root: string, side: "staged" | "unstaged"): string[] | null {
+  const cached = side === "staged" ? ["--cached"] : [];
+  const raw = gitOut(root, ["diff", ...cached, "--no-renames", "--name-only", "-z"]);
+  return raw === null ? null : raw.split("\0").filter((p) => p !== "");
+}
+
+/**
+ * AC-STE-741.1 — true when `git add <paths>` then a plain commit would commit a
+ * spec-only set: every path is an existing regular file inside the checkout
+ * that satisfies `isSpecPath`, the staged set plus those paths is spec-only,
+ * and every unstaged tracked change lies inside those paths. Untracked files
+ * the add does not name are not committed and do not block. Rename detection
+ * is off; a git failure reads as "not spec-only".
+ */
+export function isSpecOnlyAfterAdding(root: string, dir: string, paths: readonly string[]): boolean {
+  let realRoot: string;
+  const named = new Set<string>();
+  try {
+    realRoot = realpathSync(root);
+    for (const p of paths) {
+      const abs = resolve(dir, p);
+      if (!lstatSync(abs).isFile()) return false;
+      const rel = relative(realRoot, realpathSync(abs));
+      if (rel === "" || rel.startsWith("..") || isAbsolute(rel) || !isSpecPath(rel)) return false;
+      named.add(rel);
+    }
+  } catch {
+    return false;
+  }
+  const staged = changedPaths(realRoot, "staged");
+  const unstaged = changedPaths(realRoot, "unstaged");
+  if (staged === null || unstaged === null) return false;
+  return named.size > 0 && staged.every(isSpecPath) && unstaged.every((p) => named.has(p));
 }

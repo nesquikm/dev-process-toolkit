@@ -99,7 +99,7 @@ If the current milestone accumulates 3 or more `contradicts` / `infeasible` devi
 
 10. **Checkpoint** — After completing each logical unit of work (a TDD cycle for a meaningful chunk), create a git commit on the working branch. These intermediate commits are recovery points.
 
-11. **Gate check** — Run the gate commands from step 3. This is the **deterministic kill switch**: if it fails, fix before proceeding. Use `/dev-process-toolkit:debug` for unclear failures.
+11. **Gate check** — Invoke `/dev-process-toolkit:gate-check` with the driven-run marker `<dpt:driven>v1</dpt:driven>` in its arguments; it runs the gate commands from step 3. This is the **deterministic kill switch**: if it fails, fix before proceeding. The gate-check report never ends this skill's turn: on a pass, continue to Phase 3, then Phase 4, in the same turn. Use `/dev-process-toolkit:debug` for unclear failures.
 
 ## Parallelization
 
@@ -210,7 +210,7 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    h. **Decision:** GATE PASSED ⇒ exit loop. GATE PASSED WITH NOTES ⇒ carry notes into Phase 4 report, exit loop. Issues on round 1 ⇒ fix + re-run gate + go to round 2. Issues on round 2 ⇒ escalate to user. Full matrix: `docs/implement-reference.md` § Decision matrix.
 
-   i. **After any fix** — re-run the full gate fresh, cite actual numbers (e.g., "47 tests, 0 failures, 0 errors"). Never claim clean from memory. A command the gate reports as `(reused)` counts as fresh: its key was recomputed on the spot, and its numbers are the stored run's. After any fix the tree differs, so the key differs and the command runs.
+   i. **After any fix** — re-run the full gate fresh, cite actual numbers (e.g., "47 tests, 0 failures, 0 errors"). Never claim clean from memory. A command the gate reports as `(reused)` counts as fresh: its key was recomputed on the spot, and its numbers are the stored run's. After any fix the tree differs, so the key differs and the command runs. Only if the `/gate-check` receipt call printed `review_findings: on`, write each Stage B pass's returned review to a temp file and record its counts with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts" record "<checkout root>" code-review "<that file>"`.
 
 ## Phase 4: Report & Handoff
 

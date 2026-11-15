@@ -1765,7 +1765,38 @@ async function runOutcomeFrontDoor(argv: readonly string[]): Promise<void> {
   }
 }
 
-/** The receipt order every gate skill names: one announcement, then `outcome: on` when keyed. */
+/** `outcome: on` when the receipt is keyed, then `reuse: on` for gate-check when its knob reads reuse. */
+async function printOutcomeLines(skill: string, target: string, path: string): Promise<void> {
+  // STE-715: a receipt carrying a key means the switch read on and the key
+  // was computed, so the gate's outcome call may follow.
+  if (!receiptCarriesKey(path)) return;
+  console.log("outcome: on");
+  // STE-724 (AC-STE-724.20): only the gate-check receipt call reports the
+  // gate_commands knob. A dynamic import keeps optimizations_config.ts off
+  // the hooks' static import graph and unloaded with the outcome switch off;
+  // any load or read error prints nothing extra and changes nothing else.
+  if (skill !== "gate-check") return;
+  try {
+    const root = checkoutRootOf(target);
+    if (root === null) return;
+    const { readOptimizations } = await import("./optimizations_config");
+    if (readOptimizations(root).gate_commands === "reuse") console.log("reuse: on");
+  } catch {
+    // best effort: the receipt and its two lines stand as written
+  }
+}
+
+/** The STE-774 switch through the same dynamic settings import; any error reads as off. */
+async function reviewFindingsSwitchOn(root: string): Promise<boolean> {
+  try {
+    const settings = await import("./project_settings");
+    return settings.reviewFindingsSwitchOn(root);
+  } catch {
+    return false;
+  }
+}
+
+/** The receipt order every gate skill names: one announcement, then `outcome: on` when keyed, then `review_findings: on`. */
 async function runReceiptFrontDoor(argv: readonly string[]): Promise<void> {
   const [skill, target] = argv;
   try {
@@ -1779,23 +1810,11 @@ async function runReceiptFrontDoor(argv: readonly string[]): Promise<void> {
     }
     const path = await recordGateRun(skill, target);
     console.log(announceReceipt(path));
-    // STE-715: a receipt carrying a key means the switch read on and the key
-    // was computed, so the gate's outcome call may follow.
-    if (!receiptCarriesKey(path)) return;
-    console.log("outcome: on");
-    // STE-724 (AC-STE-724.20): only the gate-check receipt call reports the
-    // gate_commands knob. A dynamic import keeps optimizations_config.ts off
-    // the hooks' static import graph and unloaded with the outcome switch off;
-    // any load or read error prints nothing extra and changes nothing else.
-    if (skill !== "gate-check") return;
-    try {
-      const root = checkoutRootOf(target);
-      if (root === null) return;
-      const { readOptimizations } = await import("./optimizations_config");
-      if (readOptimizations(root).gate_commands === "reuse") console.log("reuse: on");
-    } catch {
-      // best effort: the receipt and its two lines stand as written
-    }
+    await printOutcomeLines(skill, target, path);
+    // STE-774: the review_findings switch line, last, so a skill's record call
+    // runs only behind it; a load or read error reads as off.
+    const root = checkoutRootOf(target);
+    if (root !== null && (await reviewFindingsSwitchOn(root))) console.log("review_findings: on");
   } catch (error) {
     // stderr, never stdout — the fail-closed invariant in this file's header.
     console.error(error instanceof Error ? error.message : String(error));

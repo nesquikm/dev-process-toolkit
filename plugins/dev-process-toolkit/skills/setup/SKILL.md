@@ -163,7 +163,7 @@ Call `writeDptGitignore(projectRoot)` from `adapters/_shared/src/setup/dpt_gitig
 
 Full procedure (rubber-duck offer, chrome-devtools-mcp for web projects): `docs/setup-reference.md` § Step 7 — Configure MCP servers.
 
-**Settings-file create (`none` source only).** Before step 7b's first settings writer runs, when `loadProjectSettings(projectRoot).source` is `none`, call `writeProjectSettings(projectRoot, { schema_version: 1, min_dpt_version: "3.0.0" }, { create: true })` — `/setup` is the only caller that passes `{ create: true }`, and no later step does. A foreign `specs/settings.yaml` refuses the create; the run then writes every legacy home as v2.101.4 does and names the file in Step 11. The floor is the format floor `3.0.0`, which the template pointer `renderSettingsPointer("3.0.0")` names. Full rule: `docs/setup-reference.md` § Settings-file create.
+**Settings-file create (`none` source only).** Before step 7b's first settings writer runs, when `loadProjectSettings(projectRoot).source` is `none`, call `writeProjectSettings(projectRoot, { schema_version: 1, min_dpt_version: "3.0.0", retro: { priority: ["waste", "tokens", "time"] } }, { create: true })` — `/setup` is the only caller that passes `{ create: true }`, and no later step does. A foreign `specs/settings.yaml` refuses the create; the run then writes every legacy home as v2.101.4 does and names the file in Step 11. The floor is the format floor `3.0.0`, which the template pointer `renderSettingsPointer("3.0.0")` names. Full rule: `docs/setup-reference.md` § Settings-file create.
 
 ### 7b. Tracker mode (opt-in)
 

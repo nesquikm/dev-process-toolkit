@@ -56,6 +56,11 @@ export interface MintMilestoneEpicOptions {
    * match: a join by key binds that key, and closed Epics are never joined.
    */
   expect?: MilestoneMintDecision;
+  /**
+   * STE-787 AC-STE-787.4 — the `default_labels` entries, written on the minted
+   * Epic beside its `milestone-<id>` label. Absent ⇒ the milestone label alone.
+   */
+  defaultLabels?: readonly string[];
 }
 
 /** The pair a mint yields: the tracker's key, and the id derived from it. */
@@ -242,13 +247,17 @@ export async function mintMilestoneEpic(
   // that decides the label string for every writer and reader — never composed
   // here from the raw key or by hand. A rejection is swallowed: the Epic and
   // the id stand, only `labelled` reports the miss.
+  // STE-787 AC-STE-787.4 — each default label is written the same way, once,
+  // and any one rejected write turns `labelled` false without failing the mint.
   let labelled = false;
   if (provider.addLabel) {
-    try {
-      await provider.addLabel(epicKey, milestoneLabel(milestoneId));
-      labelled = true;
-    } catch {
-      labelled = false;
+    labelled = true;
+    for (const label of [milestoneLabel(milestoneId), ...(opts?.defaultLabels ?? [])]) {
+      try {
+        await provider.addLabel(epicKey, label);
+      } catch {
+        labelled = false;
+      }
     }
   }
 

@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.6.1] — 2026-11-14 — "Second Look"
+
+### Fixed
+
+- The trend and its upgrade step read their inputs honestly (STE-784). An independent review of 3.6.0 found seven misreadings, all fixed. The two review signals read `skipped: not observable` when the window holds no receipt of their kind, never 0. A session shared by several runs counts its gate runs and review receipts once per window. `time` and `gate_failure_rate` need both `tracking.gate_outcomes` and `tracking.tool_calls`, and a skipped note names every key that is off. A fix commit citing `AC-<FR id>.<n>` names that FR. A rename in a `Refs:` commit records both paths. Groups sort by the next ranked metric when the first is unobservable for both. Waste still reads skipped until TDD rounds record file changes (STE-795). The `retro-priority-default` step refuses a null or invalid `retro.priority`, and a settings-writer throw, instead of reading them as nothing to do.
+- An auto-approved spec commit carries its audit token (STE-785). On the marker path `/spec-write` writes `spec_write_commit_default_applied` into the commit body as well as the summary, so probe #45 no longer fails every unattended spec commit.
+- The Jira drift probe sees an FR whose ticket is done (STE-786). The new `tracker_listing_query.ts jira <root> <KEY>` prints the listing JQL, widened to every key an active FR binds, so a single-FR ship no longer reads as a `local-orphan` error. `adapters/jira.md` and probe #49 run it.
+- A create never reuses a closed ticket (STE-787). The idempotency search now asks for status, and `decide` skips a Done, completed or canceled candidate; a row without status reads as open, as before, so a search recorded before this change no longer matches the printed query. A minted Jira milestone Epic carries every `default_labels` entry, so label-scoped cleanup finds it.
+- `git add <spec paths> && git commit` takes the spec-only pass (STE-741). The commit hook grades what the add will stage when it names literal spec files and nothing tracked outside them has changed; broad add forms are graded as before. The receipt-recognition half is STE-791.
+- A headless `/implement` keeps going after its gate (STE-788). Step 11 drives `/gate-check` with the driven-run marker and says its report never ends the turn.
+- `/conformance-loop` refuses a dirty toolkit tree before it spawns any leg (STE-789), and `/smoke-test` pre-flight #4 writes a fresh `fail` verdict when it refuses, so no leg is graded from a stale verdict.
+
+Milestone M_870603, a second look at v3.6.0: the review findings above plus the high-severity findings of the 2026-11-14 conformance run. The medium and low findings are filed as STE-790 to STE-795.
+
+Total test count at release: 23660 tests, 0 failures, 0 errors.
+
+## [3.6.0] — 2026-11-13 — "Trend Lines"
+
+### Added
+
+- A retro priority order in the settings file (STE-775). `retro.priority` lists `waste`, `tokens` and `time`, each once, in any order, and reads as waste, tokens, time when absent; any other value is refused naming `retro.priority`. The new `retro-priority-default` `/upgrade` step writes the default into a moved `specs/settings.yaml` that lacks it. `/setup` and the `settings-file` move seed the same default into the files they create, so a fresh or freshly moved tree starts current and one `/upgrade` of a legacy tree leaves nothing pending. The step surfaces a settings file that does not parse instead of reading it as nothing to do.
+- Reviews record their finding counts (STE-774). With the opt-in `tracking.review_findings` switch on, `/spec-review`, the `/tdd` audit and `/implement`'s code review each record one `review-findings` receipt through `review_findings_receipt.ts record`: done, partial and missing per FR for `/spec-review`, partial and missing for the audit, and concerns per pass for the code review. A receipt holds counts only, never a finding's text, a path or a branch name. The record call is gated on a new `review_findings: on` line the gate receipt call prints; with the switch off every skill makes exactly its v3.5.0 tool calls. A result that does not parse is refused, never counted as zero, and no commit, PR or tracker gate reads the receipt.
+- A retrospective shows the trend across runs (STE-776). `/retro --trend [--last N]` reads the last N (default 20) archived FR runs of each skill, changelog category and size bucket. It reports waste, tokens and time as a window median plus the newer-minus-older change, beside four quality signals: gate failure rate, spec-review gaps per FR, code-review concerns per 100 changed lines and post-merge fixes. Columns follow `retro.priority` and groups sort worst first. A value with no recorded input reads `skipped: not observable`, naming the tracking key when one is off; a group under five runs reads `insufficient: <n> runs`; neither ever reads 0. It writes one aliased `dpt-retro-trend/1` report and nothing else, and `retro_proposal.ts` refuses that report.
+
+Milestone A of the self-tuning settings design. Run `/dev-process-toolkit:upgrade` once to write `retro.priority` into an existing moved settings file; it previews the change and applies it only after approval. Turn on `tracking.review_findings` (and the other `tracking` keys) for the trend to have data to read.
+
+Total test count at release: 23538 tests, 0 failures, 0 errors.
+
 ## [3.5.0] — 2026-11-12 — "Load Bearing"
 
 ### Added

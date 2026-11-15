@@ -29,13 +29,17 @@
 // probes of STE-709 (#18 #19 #21 #22 #25 #52 #69 #74 #80 #87) and probe #21's
 // dry-run helper.
 //
-// The three allowed differences, by name (ALLOWED_DIFFERENCES):
+// The four allowed differences, by name (ALLOWED_DIFFERENCES):
 //   (1) "settings-yaml-citation"           — a citation or remedy naming specs/settings.yaml
 //   (2) "probe-69-settings-file-row"       — probe #69's warn-only `settings-file` row on an
 //                                            unmoved managed tree
 //   (3) "probe-21-tracker-notes-destination" — the probe #21 remedy and its dry-run helper's
 //                                            diff send non-canonical keys to `## Tracker Notes`
 //                                            instead of a `### <Tracker>` sub-section (R4-4)
+//   (4) "probe-69-retro-priority-default-row" — Amended by AC-STE-775.3 (M_4daa6e): probe #69's
+//                                            warn-only `retro-priority-default` row on the moved
+//                                            settings tree, which (holding only moved keys) declares
+//                                            no retro.priority; a newer registry entry, settings tree only
 // Tool calls have no allowed difference (AC-STE-708.13 grades the call lists).
 // The readers' values have no allowed difference on any fixture; the commented
 // row's readers are the FR's "no allowed difference" row.
@@ -416,7 +420,7 @@ async function collect(root: string): Promise<Record<string, unknown>> {
 }
 
 // ---------------------------------------------------------------------------
-// The three allowed differences, by name.
+// The four allowed differences, by name. (4) Amended by AC-STE-775.3 (M_4daa6e).
 // ---------------------------------------------------------------------------
 
 const ALLOWED_DIFFERENCES = {
@@ -424,6 +428,8 @@ const ALLOWED_DIFFERENCES = {
   "probe-69-settings-file-row": "(2) probe #69's warn-only settings-file row on an unmoved managed tree",
   "probe-21-tracker-notes-destination":
     "(3) the probe #21 remedy and its dry-run helper's diff send non-canonical keys to ## Tracker Notes instead of a ### <Tracker> sub-section",
+  // Amended by AC-STE-775.3 (M_4daa6e): the 3.6.0 registry entry fires on a moved settings file without retro.priority.
+  "probe-69-retro-priority-default-row": "(4) probe #69's warn-only retro-priority-default row on the moved settings tree",
 } as const;
 type Allowance = keyof typeof ALLOWED_DIFFERENCES;
 
@@ -433,7 +439,8 @@ const ALLOWANCE_SCOPE: Readonly<Record<Fixture, readonly Allowance[]>> = {
   drifted: ["settings-yaml-citation", "probe-69-settings-file-row", "probe-21-tracker-notes-destination"],
   commented: ["settings-yaml-citation", "probe-69-settings-file-row", "probe-21-tracker-notes-destination"],
   unmanaged: ["settings-yaml-citation", "probe-21-tracker-notes-destination"],
-  settings: ["settings-yaml-citation", "probe-21-tracker-notes-destination"],
+  // Amended by AC-STE-775.3 (M_4daa6e): allowance (4) applies to the moved settings tree only.
+  settings: ["settings-yaml-citation", "probe-21-tracker-notes-destination", "probe-69-retro-priority-default-row"],
 };
 
 const CITE_RE = /(?:<ROOT>\/)?(?:specs\/settings\.yaml|CLAUDE\.md|specs\/tracker-config\.yaml)(?::\d+)?/g;
@@ -463,13 +470,26 @@ function maskCitations(trunk: unknown, now: unknown): [unknown, unknown] {
 const PROBE_69_ROW = /^settings-file \(\d+\.\d+\.\d+\): /;
 const PROBE_69_REMEDY = "Remedy: run /dev-process-toolkit:upgrade to apply these migrations (Claude can invoke it; it is not on the slash menu).";
 
+// Amended by AC-STE-775.3 (M_4daa6e): allowance (4)'s row, the exact text the 3.6.0 entry prints.
+const PROBE_69_RETRO_ROW =
+  "retro-priority-default (3.6.0): specs/settings.yaml declares no retro.priority: add `priority: [waste, tokens, time]` under retro";
+
 /** (2): drop exactly one warn-only settings-file row (and the remedy note it brings) from probe #69. */
 function dropSettingsFileRow(trunk: unknown, now: unknown): unknown | string {
+  return dropOneProbe69Row(trunk, now, (r) => PROBE_69_ROW.test(r), "settings-file");
+}
+
+/** (4) Amended by AC-STE-775.3 (M_4daa6e): drop exactly one retro-priority-default row (and its remedy note). */
+function dropRetroPriorityRow(trunk: unknown, now: unknown): unknown | string {
+  return dropOneProbe69Row(trunk, now, (r) => r === PROBE_69_RETRO_ROW, "retro-priority-default");
+}
+
+function dropOneProbe69Row(trunk: unknown, now: unknown, isRow: (r: string) => boolean, what: string): unknown | string {
   const t = (trunk as { value?: { rows?: string[]; notes?: string[]; violations?: unknown[] } }).value;
   const n = (now as { value?: { rows?: string[]; notes?: string[]; violations?: unknown[] } }).value;
   if (!t || !n || !Array.isArray(n.rows)) return "probe #69 output is not a report";
-  const extra = n.rows.filter((r) => PROBE_69_ROW.test(r) && !(t.rows ?? []).includes(r));
-  if (extra.length !== 1) return `probe #69: ${extra.length} settings-file rows, the allowance admits exactly one`;
+  const extra = n.rows.filter((r) => isRow(r) && !(t.rows ?? []).includes(r));
+  if (extra.length !== 1) return `probe #69: ${extra.length} ${what} rows, the allowance admits exactly one`;
   const rows = n.rows.filter((r) => r !== extra[0]);
   let notes = (n.notes ?? []).filter((r) => r !== extra[0]);
   if ((t.notes ?? []).length === 0 && rows.length === 0) notes = notes.filter((r) => r !== PROBE_69_REMEDY);
@@ -528,6 +548,13 @@ function compare(fixture: Fixture, key: string, trunk: unknown, now: unknown): {
     n = r;
     used.push("probe-69-settings-file-row");
   }
+  // Amended by AC-STE-775.3 (M_4daa6e): allowance (4).
+  if (key === "probe #69" && scope.includes("probe-69-retro-priority-default-row")) {
+    const r = dropRetroPriorityRow(t, n);
+    if (typeof r === "string") return { diffs: [r], used };
+    n = r;
+    used.push("probe-69-retro-priority-default-row");
+  }
   if (scope.includes("probe-21-tracker-notes-destination")) {
     if (key === "helper migrate-task-tracking-canonical") {
       const tv = (t as { value?: unknown }).value;
@@ -582,11 +609,13 @@ beforeAll(async () => {
 }, 120_000);
 
 describe("AC-STE-713.14 defaults unchanged", () => {
-  test("AC-.14 the allowed differences are exactly three, listed by name", () => {
+  // Amended by AC-STE-775.3 (M_4daa6e): allowance (4) joins the list.
+  test("AC-.14 the allowed differences are exactly four, listed by name", () => {
     expect(Object.keys(ALLOWED_DIFFERENCES)).toEqual([
       "settings-yaml-citation",
       "probe-69-settings-file-row",
       "probe-21-tracker-notes-destination",
+      "probe-69-retro-priority-default-row",
     ]);
   });
 
@@ -685,6 +714,15 @@ describe("AC-STE-713.14 controls", () => {
     const now = { value: { rows: [row], notes: [row, PROBE_69_REMEDY], violations: [] } };
     expect(compare("settings", "probe #69", TRUNK_LITERALS.legacy["probe #69"], now).diffs).not.toEqual([]);
     expect(compare("unmanaged", "probe #69", TRUNK_LITERALS.unmanaged["probe #69"], now).diffs).not.toEqual([]);
+  });
+
+  // Amended by AC-STE-775.3 (M_4daa6e): allowance (4)'s controls — settings tree only, exactly one row.
+  test("AC-.14 control: allowance (4) admits one retro-priority-default row on the settings tree, not two, and not on an unmanaged tree", () => {
+    const one = { value: { rows: [PROBE_69_RETRO_ROW], notes: [PROBE_69_RETRO_ROW, PROBE_69_REMEDY], violations: [] } };
+    expect(compare("settings", "probe #69", TRUNK_LITERALS.legacy["probe #69"], one).diffs).toEqual([]);
+    const two = { value: { rows: [PROBE_69_RETRO_ROW, PROBE_69_RETRO_ROW], notes: [PROBE_69_RETRO_ROW, PROBE_69_RETRO_ROW, PROBE_69_REMEDY], violations: [] } };
+    expect(compare("settings", "probe #69", TRUNK_LITERALS.legacy["probe #69"], two).diffs).not.toEqual([]);
+    expect(compare("unmanaged", "probe #69", TRUNK_LITERALS.unmanaged["probe #69"], one).diffs).not.toEqual([]);
   });
 
   test("AC-.14 control: a helper diff that re-adds the stray key under ### Linear is not admitted by allowance (3)", () => {

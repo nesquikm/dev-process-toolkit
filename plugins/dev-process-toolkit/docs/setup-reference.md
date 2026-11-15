@@ -8,7 +8,7 @@ Every key of the project settings file `specs/settings.yaml`, with its type, def
 
 ## Settings-file create
 
-On a `none` source (`loadProjectSettings(projectRoot).source` reports no settings file and no legacy home), `/setup` creates the settings file before its first writer runs, by calling `writeProjectSettings(projectRoot, { schema_version: 1, min_dpt_version: "3.0.0" }, { create: true })`; it is the only caller that passes `{ create: true }`, and every later step edits the file in place. On a foreign file the create refuses and `/setup` falls back to every legacy home, as below.
+On a `none` source (`loadProjectSettings(projectRoot).source` reports no settings file and no legacy home), `/setup` creates the settings file before its first writer runs, by calling `writeProjectSettings(projectRoot, { schema_version: 1, min_dpt_version: "3.0.0", retro: { priority: ["waste", "tokens", "time"] } }, { create: true })`; it is the only caller that passes `{ create: true }`, and every later step edits the file in place. On a foreign file the create refuses and `/setup` falls back to every legacy home, as below.
 
 **A foreign settings file is never overwritten.** When `specs/settings.yaml` already exists but is foreign (on a tree that has not been migrated, no column-0 `min_dpt_version:` line; `docs/settings-reference.md` § Sources has the rule), it belongs to something else, and the create refuses in NFR-10 shape naming that file. `/setup` then writes every legacy home exactly as v2.101.4 does, leaves the foreign file byte-identical, and its Step 11 closing report names `specs/settings.yaml` as a foreign file it left in place.
 

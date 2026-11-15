@@ -30,3 +30,27 @@ One file, `.dpt/ledger/retro/<scope-slug>-<UTC yyyymmddThhmmssZ>.json`, schema `
 `adapters/_shared/src/retro_proposal.ts` reads a saved report and proposes turning on a recording key a skipped rule named. `propose` prints `set`, `because` and optional `add .gitignore:` lines, then one `digest=` line. It writes nothing.
 
 `apply` writes only on a verified approval in the session transcript: a real `propose` result carrying the digest, then an `AskUserQuestion` holding every printed line, answered `Apply the shown change`. It first writes one `retro-apply` receipt, which consumes the approval and is never rolled back, and prints `retro-apply: consumed digest=<digest>`. One approval admits one `apply`: it is consumed by that receipt, by any recorded `apply` call naming the digest, or by that printed line in any later tool result. It then checks preconditions, writes the keys, appends any printed `.gitignore` line, and registers the capture hook. A refused `register` restores the prior bytes. `retro.ts` never imports this module; the report schema is unchanged.
+
+## Trend
+
+`retro.ts <root> --trend [--last N]` routes to `retro_trend.ts` and writes one `.dpt/ledger/retro/trend-<stamp>.json` (schema `dpt-retro-trend/1`). A run is one archived FR with token-ledger rows claimed by its id; runs group by (skill, `changelog_category`, size bucket) and each group keeps its newest N runs. N defaults to `TREND_DEFAULT_LAST` (20) and must be a positive integer; anything else, `--last` with no value or given twice, any other argument, or a `retro.priority` the loader refuses, is refused in the NFR-10 shape and writes nothing.
+
+Size is the added plus deleted lines of the commits whose footer carries `Refs: <FR id>`: S under 100, M 100 to 500, L over 500. A run's skill is the skill on its first claimed ledger row, and an FR with no `changelog_category` groups under `unknown`. When git cannot be read, no run can be sized and every group's size reads `unknown`.
+
+**Metrics** (one cell each, columns in `retro.priority` order). Each shows the window median of the per-run values and `delta`, the newer half's median minus the older half's:
+
+| id | per run | input |
+|---|---|---|
+| `waste` | reruns on an unchanged key plus rounds that changed no file (the `gate_rerun_unchanged_key` and `zero_yield_round` rules; not observable unless both are). Waste reads skipped until TDD rounds record whether they changed a file | `tracking.tool_calls` |
+| `tokens` | claimed output tokens per changed line | `tracking.token_stats` |
+| `time` | the run's median gate wall time | `tracking.gate_outcomes` and `tracking.tool_calls` |
+
+**Signals** (pooled over the window, one value each): `gate_failure_rate` (failed over failed plus passed gate runs; `tracking.gate_outcomes` and `tracking.tool_calls`), `spec_review_gaps_per_fr` (`/spec-review` partial plus missing ACs per run; `tdd-audit` receipts are not counted; skipped when the window holds no spec-review receipt; `tracking.review_findings`), `code_review_concerns_per_100_lines` (`tracking.review_findings`; a receipt naming no FR, or any FR in the window, counts; skipped when the window holds no code-review receipt) and `post_merge_fixes` (`fix` commits within 14 days of the FR's last `Refs:` commit that touch a file it changed, old or new name after a rename, and do not name its id or cite one of its ACs; read from git).
+
+**Notes, never zero.** A cell whose tracking key is off reads `skipped: not observable (tracking.<key> is off)`, or `(tracking.<a> and tracking.<b> are off)` when it needs several keys that are off; a cell whose input is simply absent reads `skipped: not observable`. A group with fewer than `TREND_MIN_RUNS` (5) runs in its window reads `insufficient: <n> runs` in every cell.
+
+**Order.** Groups sort worst first by the `delta` of the first-ranked metric; a group with no number there sorts after one with a number, and when that `delta` is null for both groups compared, the next ranked metric decides, and so on.
+
+**Sharing.** A session claimed by several FRs belongs to each of their runs, but the pooled signals count its gate runs and receipts once per window, so a shared session is never counted twice. The per-run metrics still read the session for each run that claims it.
+
+The trend report writes no receipt, settings or proposal, and `retro_proposal.ts` refuses it (its schema is not `dpt-retro/1`).

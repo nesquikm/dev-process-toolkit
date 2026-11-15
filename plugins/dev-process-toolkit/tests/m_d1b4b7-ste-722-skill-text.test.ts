@@ -37,7 +37,8 @@ import {
 } from "./_m_d1b4b7_ste722_fixture";
 // Amended by AC-STE-738.13 (operator ruling 2026-11-12, v3.5.0 fix round): lines 4, 92
 // and 280 carry the /implement --resume-at admissions; each is undone before the hash.
-import { ADMITTED_INDEXES, STEP_14_APPEND, STEP_8_APPEND, undoAdmissions } from "./_m_5f3c43_ste738_implement_admissions";
+// Amended by AC-STE-788.1 (M_870603): line 102's step-11 gate-check line is undone by undoSte788 before the hash.
+import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_14_APPEND, STEP_8_APPEND, undoAdmissions, undoSte788 } from "./_m_5f3c43_ste738_implement_admissions";
 
 afterAll(cleanupTemps);
 
@@ -85,7 +86,10 @@ function appendedToLine297(body: string): { appended: string } | { error: string
   }
   restored[V300_LINE_268_INDEX] = line268.replace(V300_LINE_268_ORDER_NEW, V300_LINE_268_ORDER_OLD);
   // Amended by AC-STE-738.13 (v3.5.0 fix round): lines 4, 92 and 280 admitted as exact edits.
-  const undone = undoAdmissions(restored);
+  // Amended by AC-STE-788.1 / AC-STE-788.2 (M_870603): line 102 admitted as one exact line.
+  const s788 = undoSte788(restored);
+  if ("error" in s788) return s788;
+  const undone = undoAdmissions(s788.lines);
   if ("error" in undone) return undone;
   if (sha256(undone.lines.join("\n")) !== V300_IMPLEMENT_SHA) return { error: "a line other than 297, the step-i line, line 268 and the AC-STE-738.13 lines differs from v3.0.0" };
   const appended = line.slice(V300_LINE_297_LENGTH);
@@ -190,6 +194,15 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
       extra[i] = `x${extra[i]}`;
       expect({ i, r: appendedToLine297(extra.join("\n")) }).toHaveProperty("r.error");
     }
+    // Amended by AC-STE-788.1 (M_870603): the step-11 line gets the same neighbour and extra-edit control.
+    for (const n of [STEP_11_INDEX - 1, STEP_11_INDEX + 1]) {
+      const neighbour = [...lines];
+      neighbour[n] = `${neighbour[n]}x`;
+      expect({ n, r: appendedToLine297(neighbour.join("\n")) }).toHaveProperty("r.error");
+    }
+    const extra11 = [...lines];
+    extra11[STEP_11_INDEX] = `x${extra11[STEP_11_INDEX]}`;
+    expect(appendedToLine297(extra11.join("\n"))).toHaveProperty("error");
     const hintGone = [...lines];
     hintGone[3] = hintGone[3]!.replace(" [--resume-at <AC-id>|refactor|audit]", "");
     expect(hintGone[3]).not.toBe(lines[3]);

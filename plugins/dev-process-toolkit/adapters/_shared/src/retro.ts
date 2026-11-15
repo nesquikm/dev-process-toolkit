@@ -19,6 +19,7 @@ import { loadProjectSection } from "./project_settings";
 import { buildRetroReport, type RetroReport } from "./retro_report";
 import { SKIPPED_DISPOSITION, evaluateRetroRules, type RetroInputs, type RetroRuleResult } from "./retro_rules";
 import { resolveRetroScope, type RetroScope } from "./retro_scope";
+import { trendMain } from "./retro_trend";
 import { readLedgerRows } from "./token_usage";
 
 function trackingSwitches(projectRoot: string): RetroInputs["tracking"] {
@@ -114,6 +115,7 @@ if (import.meta.main) {
     process.stderr.write("usage: bun run retro.ts <projectRoot> [scope]\n");
     process.exit(2);
   }
+  if (scopeArg === "--trend") process.exit(trendMain(rootArg, process.argv.slice(4)));
   try {
     const { path, report } = runRetro(resolve(rootArg), scopeArg);
     process.stdout.write(JSON.stringify({ report: path, tripped_count: report.tripped_count, suggested_severity: report.suggested_severity }) + "\n");

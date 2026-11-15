@@ -27,6 +27,7 @@ The orchestrator runs in the **main context** (no `context: fork`) so it can par
 
    Those paths settle which checkout is in scope. Record the run against it, before the fork is dispatched, with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" spec-review "<that checkout root>"`. If it refuses, stop and report its block verbatim — the PR gate reads that receipt inside the repository the PR is opened for, so without it `gh pr create` is refused later with no explanation.
    Only if that call also printed `outcome: on`, after the audit result is parsed record its verdict with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" outcome spec-review "<that checkout root>" <pass|fail>`: `pass` when `drift_count` is 0 and every traceability row is `done`, else `fail`.
+   Only if that receipt call also printed `review_findings: on`, after the audit result is parsed write the fork's full output to a temp file and record its counts with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts" record "<that checkout root>" spec-review "<that file>"`.
 
 2. **Dispatch the audit fork** — Invoke `Skill('dev-process-toolkit:spec-review-audit')` with the rendered prompt body:
 

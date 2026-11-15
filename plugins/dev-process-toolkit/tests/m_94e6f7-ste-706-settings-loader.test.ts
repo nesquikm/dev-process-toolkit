@@ -360,7 +360,8 @@ describe("AC-STE-706.1 exports", () => {
     expect(r.settings.docs).toEqual(BASE.docs);
     expect(r.settings.orchestration).toEqual(BASE.orchestration);
     // Amended by AC-STE-715.21 (M_7bc805): absent new tracking keys read their default.; Amended by AC-STE-716.24 (M_7bc805): tool_calls too.
-    expect(r.settings.tracking).toEqual({ ...(BASE.tracking as Record<string, unknown>), gate_outcomes: { enabled: false }, tool_calls: { enabled: false } });
+    // Amended by AC-STE-774.1 (M_4daa6e): review_findings is a third filled default, after tool_calls.
+    expect(r.settings.tracking).toEqual({ ...(BASE.tracking as Record<string, unknown>), gate_outcomes: { enabled: false }, tool_calls: { enabled: false }, review_findings: { enabled: false } });
     expect(r.settings.close_out).toEqual(BASE.close_out);
     expect(r.settings.release).toEqual(BASE.release);
     expect(r.settings.task_tracking.linear).toEqual((BASE.task_tracking as Record<string, unknown>).linear);
@@ -997,6 +998,8 @@ const MAPPING: Record<string, Row> = {
   "tracking.gate_outcomes": { kind: "new", fr: "STE-715", note: "no legacy home" },
   // Amended by AC-STE-716.1 (M_7bc805): the tool-call capture switch is a new key with no legacy home.
   "tracking.tool_calls": { kind: "new", fr: "STE-716", note: "no legacy home" },
+  // Amended by AC-STE-774.1 (M_4daa6e): the review-findings capture switch is a new key with no legacy home.
+  "tracking.review_findings": { kind: "new", fr: "STE-774", note: "no legacy home" },
   "close_out.upgrade_offer": { kind: "new", fr: "STE-712", note: "no legacy home" },
   // Amended by AC-STE-719.3 (M_d1b4b7): the retro offer switch is a new block with no legacy home.
   retro: { kind: "new", fr: "STE-719", note: "no legacy home" },
@@ -1015,6 +1018,8 @@ const LEAF_BLOCKS = new Set([
   "tracking.gate_outcomes",
   // Amended by AC-STE-716.1 (M_7bc805): the tool-call capture switch is one setting block.
   "tracking.tool_calls",
+  // Amended by AC-STE-774.1 (M_4daa6e): the review-findings capture switch is one setting block.
+  "tracking.review_findings",
   "close_out.upgrade_offer",
   // Amended by AC-STE-719.3 (M_d1b4b7): the retro switch is one setting block.
   "retro",

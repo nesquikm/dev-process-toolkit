@@ -87,7 +87,7 @@ Pass the spec-reviewer:
 
 The child fork runs in isolation with a read-only toolset (no `Write`, no `Edit`, no `Bash`, no `Agent`). It traces each AC to the implementation + tests, classifies each as ✓ Done / ✗ Missing / ⚠ Partial, scans for cross-cutting spec drift, and ends with a single `tdd-spec-review-result` fenced block.
 
-The orchestrator parses the returned block via `parseTddSpecReviewBlock(...)` from `adapters/_shared/src/tdd_spec_review_result.ts` (the AC.3 helper). It then branches on `missing_acs.length`:
+The orchestrator parses the returned block via `parseTddSpecReviewBlock(...)` from `adapters/_shared/src/tdd_spec_review_result.ts` (the AC.3 helper). Only if the § 1 receipt call also printed `review_findings: on`, write the fork's full output to a temp file and record its counts with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts" record "<that checkout root>" tdd-audit "<that file>"` once per audit. It then branches on `missing_acs.length`:
 
 - **`missing_acs.length === 0` ⇒ exit-ok.** The audit passed. `partial_acs`, `drift_count`, `advisory_findings`, and `cross_cutting_drift` are **advisory only** — they are surfaced in the human-readable report but do not halt the FR or consume the retry budget. A clean first audit always exits successfully regardless of advisory fields.
 - **`missing_acs.length > 0` on the first audit ⇒ retry path.** The orchestrator re-enters the RED→GREEN sub-loop for the missing ACs only (write-test + implement), capped at a single audit-round retry (`recordAuditRoundFailure(...)` budget, cap = 1).

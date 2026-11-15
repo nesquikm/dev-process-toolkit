@@ -764,9 +764,11 @@ describe("AC-STE-711.1 the registry entry", () => {
   });
 
   // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
-  test("AC-.1 the entry sits last in MIGRATIONS before capture-registration and validateRegistry passes", () => {
-    expect(MIGRATIONS[MIGRATIONS.length - 2]!.id).toBe("settings-file");
-    expect(MIGRATIONS[MIGRATIONS.length - 1]!.id).toBe("capture-registration");
+  // Amended by AC-STE-775.3 (M_4daa6e): retro-priority-default (3.6.0) is appended after capture-registration.
+  test("AC-.1 the entry sits in MIGRATIONS before capture-registration and retro-priority-default, and validateRegistry passes", () => {
+    expect(MIGRATIONS[MIGRATIONS.length - 3]!.id).toBe("settings-file");
+    expect(MIGRATIONS[MIGRATIONS.length - 2]!.id).toBe("capture-registration");
+    expect(MIGRATIONS[MIGRATIONS.length - 1]!.id).toBe("retro-priority-default");
     expect(() => validateRegistry(MIGRATIONS)).not.toThrow();
     expect(MIGRATIONS.filter((m) => m.id === "settings-file")).toHaveLength(1);
   });
@@ -931,12 +933,16 @@ describe("AC-STE-711.19 only moved keys are written", () => {
     video: "video",
   };
   for (const r of MOVE_ROWS) {
-    test(`AC-.19 "${r.name}": the settings file holds only keys whose legacy home existed`, () => {
+    test(`AC-.19 "${r.name}": the settings file holds only keys whose legacy home existed, plus the retro default seed`, () => {
       const { root } = migrated(r);
       const raw = settingsRaw(root);
       expect(raw.schema_version).toBe(1);
       expect(String(raw.min_dpt_version)).toBe(FLOOR);
-      expect(Object.keys(raw).sort()).toEqual(["min_dpt_version", "schema_version", ...r.homes.map((h) => TOP_OF[h])].sort());
+      // Amended by AC-STE-775.4 (M_4daa6e), operator ruling 2026-11-13: the move also
+      // seeds exactly the default retro order, so the created file is current. That is
+      // the one key with no legacy home; every other key still must have one.
+      expect(Object.keys(raw).sort()).toEqual(["min_dpt_version", "retro", "schema_version", ...r.homes.map((h) => TOP_OF[h])].sort());
+      expect(raw.retro).toEqual({ priority: ["waste", "tokens", "time"] });
       expect("close_out" in raw).toBe(false);
       if (raw.task_tracking !== undefined) {
         const tt = raw.task_tracking as Record<string, unknown>;

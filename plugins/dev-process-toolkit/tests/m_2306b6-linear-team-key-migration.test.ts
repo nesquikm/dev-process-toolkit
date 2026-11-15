@@ -44,7 +44,13 @@ describe("migration linear-team-key", () => {
     const ids = MIGRATIONS.map((m) => m.id);
     expect(ids.indexOf("linear-team-key")).toBeGreaterThan(ids.indexOf("verification-run-keys"));
     // Amended by AC-STE-716.20 (M_7bc805): capture-registration is appended after settings-file.
-    expect(ids.slice(ids.indexOf("linear-team-key") + 1)).toEqual(["dpt-gitignore-video", "settings-file", "capture-registration"]);
+    // Amended by AC-STE-775.3 (M_4daa6e): retro-priority-default (3.6.0) is appended after capture-registration.
+    expect(ids.slice(ids.indexOf("linear-team-key") + 1)).toEqual([
+      "dpt-gitignore-video",
+      "settings-file",
+      "capture-registration",
+      "retro-priority-default",
+    ]);
     expect(MIGRATIONS.find((m) => m.id === "dpt-gitignore-video")?.introduced_in).toBe("2.96.0");
   });
   test("PERMIT — a key-shaped team is not detected", () => {
