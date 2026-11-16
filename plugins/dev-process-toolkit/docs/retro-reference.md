@@ -64,3 +64,9 @@ The trend report writes no receipt, settings or proposal, and `retro_proposal.ts
 **Gate.** A row is written only when at least one `tracking.<name>.enabled` in `specs/settings.yaml` is `true`. With every tracking switch off, nothing is written and the helper prints `skipped: no tracking switch is on`. A legacy tree whose settings still live in CLAUDE.md records nothing until `/dev-process-toolkit:upgrade` moves them, and a hook payload with no session id writes nothing.
 
 **Privacy.** `settings` holds every `PROPOSABLE_SETTINGS` key, each mapped to its raw value in the settings file or to `"absent"` when unset, and no other settings key. The row never copies the rest of the settings file.
+
+## Run claims
+
+**Attribution.** The `session-token-ledger` hook attributes each usage-bearing transcript line to the latest run-start row of the same session and the same skill whose `started_at` is at or before the line's `timestamp`, and the line's FR is that row's `fr`. When that `fr` is `null`, the line inherits the `fr` of the latest run-start row of the session, of any skill, with a non-null `fr` and a `started_at` between that row's start and the line. `(main-loop)` lines, and lines with no such row, are unattributed. Attributed lines are written as one row per (skill, model, FR) with `claimed_by: <FR>` and `claim_source: "run"`; unattributed lines keep one row per (skill, model). The token sums per (skill, model) are unchanged by the split.
+
+**Settled claims.** A row whose `claim_source` is `"run"` is settled: `filterRowsForFR` selects it for its own FR, never demotes it to the design bucket (`design/exploration`), and never selects or re-claims it for any other FR, even when its session is in that FR's lineage. The STE-698 carry rule applies to unattributed rows only.

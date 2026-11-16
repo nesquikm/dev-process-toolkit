@@ -6,29 +6,17 @@
 // only in ./dpt_paths (AC-STE-382.1).
 
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { captureStatus, manifestVersion, runningPluginRoot } from "./capture_registration";
 import { runStartLedgerPath } from "./dpt_paths";
 import { settingsSectionValue } from "./project_settings";
 import { PROPOSABLE_SETTINGS } from "./retro_proposal";
+import { RUN_START_SCHEMA, type RunStartRow } from "./run_start_ledger";
 
-export const RUN_START_SCHEMA = "dpt-run-start/1";
-
-export interface RunStartRow {
-  schema: typeof RUN_START_SCHEMA;
-  session_id: string;
-  /** The full `dev-process-toolkit:<name>` skill string. */
-  skill: string;
-  fr: string | null;
-  /** ISO-8601, verbatim from the caller. */
-  started_at: string;
-  settings_hash: string | null;
-  settings: Record<string, unknown>;
-  plugin_version: string | null;
-  registration: string | null;
-}
+// The read side lives in ./run_start_ledger (STE-811); re-exported for callers.
+export { RUN_START_SCHEMA, readRunStarts, type RunStartRow } from "./run_start_ledger";
 
 export interface RunStartInput {
   session: string;
@@ -109,26 +97,6 @@ export function recordRunStart(root: string, input: RunStartInput): RunStartRow 
     closeSync(fd);
   }
   return row;
-}
-
-/** Every run-start row in the ledger, or only `session`'s when given. */
-export function readRunStarts(root: string, session?: string): RunStartRow[] {
-  const file = runStartLedgerPath(root);
-  if (!existsSync(file)) return [];
-  const rows: RunStartRow[] = [];
-  for (const line of readFileSync(file, "utf-8").split("\n")) {
-    if (line.trim() === "") continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    // A JSON line that is not a run-start row is skipped, never thrown on.
-    if (parsed === null || typeof parsed !== "object" || (parsed as { schema?: unknown }).schema !== RUN_START_SCHEMA) continue;
-    rows.push(parsed as RunStartRow);
-  }
-  return session === undefined ? rows : rows.filter((r) => r.session_id === session);
 }
 
 // CLI: bun run run_start.ts <root> <skill> [fr]
