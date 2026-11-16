@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.6.2 — "Plain Reading"** (M_f1e079. `/retro --trend` counts post-merge fixes that name the run, after it was archived, and reads a non-Conventional-Commits history as not observable rather than zero; `waste` names both tracking switches it reads. A shipped Jira Epic closes again when the Atlassian tools add their `actionSource` attribution key)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.6.2 — "Plain Reading"** (M_f1e079, three trend fixes and one Epic close. `/retro --trend` counts post-merge fixes that name the run, after it was archived, and reads a non-Conventional-Commits history as not observable rather than zero; `waste` names both tracking switches it reads. A shipped Jira Epic closes again when the Atlassian tools add their `actionSource` attribution key)
 
 ## Core Philosophy
 
