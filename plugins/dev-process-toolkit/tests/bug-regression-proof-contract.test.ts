@@ -29,11 +29,26 @@ const IMPLEMENT = "docs/implement-reference.md";
 const PATTERNS = "docs/patterns.md";
 const TESTING_SPEC_TEMPLATE = "templates/spec-templates/testing-spec.md.template";
 
+// The closed set of the test-writer's `notes` lines on a bug FR.
 const PROOF_LINE = "`regression: <AC-id> <test name> red at <assertion> on <ref>`";
-const NA_LINE = "`regression: <AC-id> n/a — guards unchanged behavior`";
+const NEW_BEHAVIOR_LINE = "`regression: <AC-id> n/a — new behavior the fix adds`";
+const UNCHANGED_LINE = "`regression: <AC-id> n/a — guards unchanged behavior`";
+const NOT_PROVED_LINE = "`regression: <AC-id> not proved — <reason>`";
 const NAMED_TEST = "A `Regression:` AC that names its test (`<test file> › <test name>`) gets it at that path, under that name.";
-const KEPT_OUTCOME_LINE = "`defect check: fix undone in <file> → still GREEN; <plant 2> → red at <test name>`";
+const BUG_CASE = "A bug case is an AC the bug breaks: the `Regression:` one, and any other AC the FR's Actual shows failing today.";
+// The implementer's defect-check line on a `Regression:` AC, when the undo is no proof.
+const UNDO_NO_PROOF = "`defect check: fix undone in <file> → <still GREEN | changed nothing | red before the assertion>; <plant 2> → red at <test name>`";
+const UNDO_NA = "`defect check: fix undone: n/a — <no snapshot | the fix adds files only>; <plant 2> → red at <test name>`";
+const SNAPSHOT_FILE = "`<git-dir>/dpt-red-base/<prefix>`";
 const ROLLBACK_PROOF_LINE = "`regression: <test> red at <assertion> on <pre-fix> → green on <fix>`";
+
+/** The `## A bug FR` section of the test-writer skill, up to the next `## ` heading. */
+function bugFrSection(md: string): string {
+  const start = md.indexOf("## A bug FR (`kind: bug`)");
+  if (start < 0) return "";
+  const next = md.indexOf("\n## ", start + 1);
+  return md.slice(start, next < 0 ? undefined : next);
+}
 
 describe("the test-writer — a bug FR's RED is the regression proof", () => {
   test("the skill has a section for a bug FR", () => {
@@ -41,135 +56,226 @@ describe("the test-writer — a bug FR's RED is the regression proof", () => {
   });
 
   test("every bug case gets a test", () => {
+    expect(read(TEST_WRITER_SKILL)).toContain(`- **${BUG_CASE.replace("A bug case", "A bug case**")}`);
+  });
+
+  // An AC for behavior the fix adds cannot be RED before the fix except on a
+  // missing symbol; holding it to the bug-case rule leaves it no legal path.
+  test("an AC for new behavior the fix adds follows the ordinary RED rule", () => {
     expect(read(TEST_WRITER_SKILL)).toContain(
-      "**A test for every bug case.** A bug case is an AC the bug breaks: the `Regression:` one, and any other AC the FR's Actual shows failing today.",
+      "- **New behavior the fix adds** (a helper, a parameter, a message the FR asks for) does not exist yet, so the Actual cannot show it failing. Its test follows the ordinary rules, RED from a missing symbol included",
     );
   });
 
-  // An AC that guards behavior the bug leaves intact is GREEN before the fix
-  // by design; demanding RED of it would halt an ordinary bug FR in mode A.
-  test("an AC guarding unchanged behavior is no bug case", () => {
-    expect(read(TEST_WRITER_SKILL)).toContain(`its line reads ${NA_LINE}`);
+  test("an AC guarding unchanged behavior needs no RED", () => {
+    expect(read(TEST_WRITER_SKILL)).toContain(
+      "- **Unchanged behavior** the bug leaves intact passes before the fix by design and needs no RED.",
+    );
+  });
+
+  test("a bug case's RED counts only at the assertion that encodes the bug", () => {
+    expect(read(TEST_WRITER_SKILL)).toContain(
+      "It goes RED at the assertion that encodes the bug, the way the FR's Actual describes: RED from a missing symbol, a compile error, setup or a lookup on the way does not count here",
+    );
+  });
+
+  test("a bug case's test uses only API that exists before the fix", () => {
+    expect(read(TEST_WRITER_SKILL)).toContain(
+      "It uses only API that exists before the fix, no function, parameter, key or file the fix is about to add",
+    );
+  });
+
+  // The scoping itself: the API rule sits inside the bug-case bullet, not in
+  // the section's preamble, where it would bind every AC of the FR again.
+  test("the API-before-the-fix rule binds bug cases only", () => {
+    const lines = bugFrSection(read(TEST_WRITER_SKILL)).split("\n").filter((l) => l.includes("API that exists before the fix"));
+    expect(lines.map((l) => l.startsWith("- **A bug case**"))).toEqual([true]);
   });
 
   test("a Regression: AC's named test goes at the path and name it gives", () => {
     expect(read(TEST_WRITER_SKILL)).toContain(NAMED_TEST);
   });
 
-  test("a bug FR allows the test-writer one more run after a rewrite", () => {
+  test("the skill records a bug case's proof line", () => {
+    expect(read(TEST_WRITER_SKILL)).toContain(`- ${PROOF_LINE} — a bug case RED at its assertion;`);
+  });
+
+  test("the skill records an AC for new behavior as n/a", () => {
+    expect(read(TEST_WRITER_SKILL)).toContain(`- ${NEW_BEHAVIOR_LINE};`);
+  });
+
+  test("the skill records an AC guarding unchanged behavior as n/a", () => {
+    expect(read(TEST_WRITER_SKILL)).toContain(`- ${UNCHANGED_LINE};`);
+  });
+
+  // A bug case GREEN before the fix (the fix already in the tree, as in the
+  // audit's retry round) is recorded, not failed: a failed test-writer has no
+  // orchestrator mode, and a halt there has no exit the operator can take.
+  test("the skill records a bug case it cannot prove as not proved", () => {
     expect(read(TEST_WRITER_SKILL)).toContain(
-      "A test that misses any of these is rewritten and the command run once more: a bug FR allows that second run.",
+      `- ${NOT_PROVED_LINE} — a bug case whose test is GREEN now (the bug does not reproduce that way, or the fix is already in the working tree) or RED only before its assertion.`,
     );
   });
 
-  test("the proof's git reads ride the test run's Bash call", () => {
-    expect(read(TEST_WRITER_SKILL)).toContain("Run both in the same Bash call as the test command.");
-  });
-
-  test("RED counts only at the assertion that encodes the bug", () => {
+  test("a not proved line does not fail the run", () => {
     expect(read(TEST_WRITER_SKILL)).toContain(
-      "**RED at the assertion that encodes the bug.** The test fails the way the FR's Actual describes, at its assertion. RED from a missing symbol, a compile error, setup or a lookup on the way does not count here",
+      "A `not proved` line does not fail the run: return `status: ok` when the run is otherwise sound, and `/implement` step 14 lists the AC as unproved.",
     );
   });
 
-  test("the test uses only API that exists before the fix", () => {
+  test("the bug FR section never asks for status: failed", () => {
+    const section = bugFrSection(read(TEST_WRITER_SKILL));
+    expect(section.length).toBeGreaterThan(0);
+    expect(section).not.toContain("status: failed");
+  });
+
+  test("a bug case is rewritten once before it is recorded not proved, when a turn is left", () => {
+    expect(read(TEST_WRITER_SKILL)).toContain("When a turn is left, rewrite such a test once and run the command again first.");
+  });
+
+  test("the ref names a repository with no commit", () => {
+    expect(read(TEST_WRITER_SKILL)).toContain("`<ref>` is `git rev-parse --short HEAD`, or `no-commit` in a repository without one");
+  });
+
+  test("the skill records the Stage RED snapshot through a temporary index", () => {
+    const md = read(TEST_WRITER_SKILL);
+    expect(md).toContain("**Record the Stage RED snapshot.**");
+    expect(md).toContain('GIT_INDEX_FILE="$i" git add -A && t=$(GIT_INDEX_FILE="$i" git write-tree) && echo "$h $t" > "$f"');
+  });
+
+  // The audit's retry round runs after GREEN: rewriting the snapshot then
+  // would make it hold the fix, and the undo plant would undo nothing.
+  test("the snapshot is rewritten only when HEAD has moved", () => {
+    const md = read(TEST_WRITER_SKILL);
+    expect(md).toContain('if [ "$(cut -d\' \' -f1 "$f" 2>/dev/null)" != "$h" ]; then');
+    expect(md).toContain("The file names the `HEAD` it was taken on and is rewritten only when that `HEAD` has moved");
+  });
+
+  test("the skill's missing-symbol rule names the bug case exception", () => {
     expect(read(TEST_WRITER_SKILL)).toContain(
-      "**Only API that exists before the fix.** No function, parameter, key or file the fix is about to add",
+      "- **RED from a missing symbol is accepted, and proves little** (not for a bug case on a bug FR, where it does not count: § A bug FR).",
     );
   });
 
-  test("a bug-case test that is GREEN before the fix is a failed RED", () => {
-    expect(read(TEST_WRITER_SKILL)).toContain(
-      "**GREEN before the fix is no regression test.** A bug-case test that passes now",
-    );
-  });
-
-  test("the skill records one proof line per AC", () => {
-    expect(read(TEST_WRITER_SKILL)).toContain(`**Record the proof**, one \`notes\` line per AC: ${PROOF_LINE}`);
-  });
-
-  test("the skill's missing-symbol rule names the bug FR exception", () => {
-    expect(read(TEST_WRITER_SKILL)).toContain(
-      "- **RED from a missing symbol is accepted, and proves little** (not on a bug FR, where it does not count: § A bug FR).",
-    );
-  });
-
-  test("the agent carries the bug FR rule and its proof line", () => {
+  test("the agent sorts a bug case and places its named test as the skill does", () => {
     const agent = read(TEST_WRITER_AGENT);
-    expect(agent).toContain(
-      "**A bug FR** (`kind: bug` in its frontmatter): the code still has the bug, so this RED is the regression proof.",
-    );
-    expect(agent).toContain(`Record one \`notes\` line per AC (block form \`notes: |\`): ${PROOF_LINE}`);
-  });
-
-  test("the agent's missing-symbol rule names the bug FR exception", () => {
-    expect(read(TEST_WRITER_AGENT)).toContain(
-      "**RED from a missing symbol** is accepted and proves only that the code is absent, except on a bug FR.",
-    );
-  });
-
-  test("the agent counts a bug case, its named test and an unchanged-behavior AC as the skill does", () => {
-    const agent = read(TEST_WRITER_AGENT);
-    expect(agent).toContain("A bug case is an AC the bug breaks: the `Regression:` one, and any other AC the FR's Actual shows failing today.");
+    expect(agent).toContain(BUG_CASE);
     expect(agent).toContain(NAMED_TEST);
-    expect(agent).toContain(`its line reads ${NA_LINE}`);
   });
 
   test("the agent does not count RED before the assertion, a lookup on the way included", () => {
     expect(read(TEST_WRITER_AGENT)).toContain(
-      "RED from a missing symbol, a compile error, setup or a lookup on the way does not count",
+      "RED from a missing symbol, a compile error, setup or a lookup on the way does not count here.",
     );
   });
 
-  test("the agent allows one more run after a rewrite", () => {
-    expect(read(TEST_WRITER_AGENT)).toContain("the command run once more: a bug FR allows that second run.");
+  test("the agent lets new behavior follow the ordinary rule", () => {
+    expect(read(TEST_WRITER_AGENT)).toContain(
+      "New behavior the fix adds follows the ordinary rules, RED from a missing symbol included; unchanged behavior the bug leaves intact needs no RED.",
+    );
+  });
+
+  test("the agent carries the closed set of notes lines", () => {
+    const agent = read(TEST_WRITER_AGENT);
+    expect([PROOF_LINE, NEW_BEHAVIOR_LINE, UNCHANGED_LINE, NOT_PROVED_LINE].filter((l) => !agent.includes(l))).toEqual([]);
+  });
+
+  test("the agent returns ok over a not proved line", () => {
+    expect(read(TEST_WRITER_AGENT)).toContain("A `not proved` line does not fail the run: return `status: ok`.");
+  });
+
+  test("the agent records the Stage RED snapshot", () => {
+    expect(read(TEST_WRITER_AGENT)).toContain(
+      "record the Stage RED snapshot the implementer undoes the fix from, as the child skill's § A bug FR shows.",
+    );
+  });
+
+  test("the agent's missing-symbol rule names the bug case exception", () => {
+    expect(read(TEST_WRITER_AGENT)).toContain(
+      "**RED from a missing symbol** is accepted and proves only that the code is absent, except for a bug case on a bug FR.",
+    );
   });
 });
 
 describe("the implementer — a Regression: AC's first plant undoes the fix", () => {
-  test("the skill makes the first plant the fix undone in one file", () => {
+  test("the skill makes the first plant the fix undone in one file, from the snapshot", () => {
     expect(read(IMPLEMENTER_SKILL)).toContain(
-      "When the AC's body begins `Regression:`, make the first plant the fix undone in one file",
+      "When the AC's body begins `Regression:`, make the first plant the fix undone in one file, from the Stage RED snapshot the test-writer recorded",
     );
   });
 
-  test("the agent makes the first plant the fix undone in one file", () => {
+  test("the agent makes the first plant the fix undone in one file, from the snapshot", () => {
     expect(read(IMPLEMENTER_AGENT)).toContain(
-      "When the AC's body begins `Regression:`, the first plant is the fix undone in one file",
+      "When the AC's body begins `Regression:`, the first plant is the fix undone in one file: `git show <tree>:<path>`",
     );
   });
 
-  // Earlier ACs' forks may have written the fix, and a resumed fork wrote
-  // nothing: the committed version is the code before the fix either way.
-  test("the skill undoes the fix from its committed version, whoever wrote it", () => {
+  // Under `/implement M<N>` an earlier FR's work sits uncommitted in the tree:
+  // `HEAD` would undo it too. The snapshot predates this FR's implementers only.
+  test("the skill reads the snapshot, not HEAD", () => {
+    const md = read(IMPLEMENTER_SKILL);
+    expect(md).toContain(`\`<tree>\` is the second field of ${SNAPSHOT_FILE}`);
+    expect(md).not.toContain("git show HEAD:<path>");
+  });
+
+  test("the agent reads the snapshot, not HEAD", () => {
+    const md = read(IMPLEMENTER_AGENT);
+    expect(md).toContain(`the second field of ${SNAPSHOT_FILE}`);
+    expect(md).not.toContain("git show HEAD:<path>");
+  });
+
+  test("the skill undoes a file the snapshot diff names as modified", () => {
+    expect(read(IMPLEMENTER_SKILL)).toContain("Pick a source file `git diff --name-status --no-renames <tree>` lists as modified");
+  });
+
+  test("the skill names an undo that is no proof", () => {
+    expect(read(IMPLEMENTER_SKILL)).toContain(UNDO_NO_PROOF);
+  });
+
+  test("the agent names an undo that is no proof", () => {
+    expect(read(IMPLEMENTER_AGENT)).toContain(UNDO_NO_PROOF);
+  });
+
+  test("the skill names an undo with nothing to plant", () => {
+    expect(read(IMPLEMENTER_SKILL)).toContain(UNDO_NA);
+  });
+
+  test("the agent names an undo with nothing to plant", () => {
+    expect(read(IMPLEMENTER_AGENT)).toContain(UNDO_NA);
+  });
+
+  test("the skill hands every undo but a red one to step 14 as unproved", () => {
+    expect(read(IMPLEMENTER_SKILL)).toContain("`/implement` step 14 counts every other form as unproved.");
+  });
+
+  // The undo plant takes out code other ACs' forks wrote in that file, so the
+  // isolation sentence that named only the test-file read is no longer whole.
+  test("the skill's isolation sentence names the undo plant", () => {
     expect(read(IMPLEMENTER_SKILL)).toContain(
-      "copy in the committed version (`git show HEAD:<path>`) of a source file the fix modified, whichever AC's fork wrote the fix",
+      "on a `Regression:` AC its first plant also swaps one source file back to its Stage RED version for the length of the check",
     );
   });
 
-  test("the agent undoes the fix from its committed version, whoever wrote it", () => {
+  test("the agent's isolation rule names the undo plant", () => {
     expect(read(IMPLEMENTER_AGENT)).toContain(
-      "the committed version (`git show HEAD:<path>`) of a source file the fix modified, whichever AC's fork wrote it",
+      "on a `Regression:` AC the first plant swaps one source file back to its Stage RED version for the length of the check",
     );
-  });
-
-  // A fix-undone plant that stayed GREEN must stay in the line, where the
-  // orchestrator lists `still GREEN` on an `ok` block as unverified.
-  test("the skill keeps the fix-undone plant's outcome in its line", () => {
-    expect(read(IMPLEMENTER_SKILL)).toContain(`keep its outcome there when it did not go RED at the assertion: ${KEPT_OUTCOME_LINE}`);
-  });
-
-  test("the agent keeps the fix-undone plant's outcome in its line", () => {
-    expect(read(IMPLEMENTER_AGENT)).toContain(`keep its outcome in \`notes\` when it did not go RED at the assertion: ${KEPT_OUTCOME_LINE}`);
   });
 });
 
 describe("the audits — a bug-case test must run on the code before the fix", () => {
   const RULE = "a test that asserts only that the fix's new code ran (a function, branch or key the change added) cannot run on the code before the fix";
+  const VERDICT: Record<string, string> = {
+    [TDD_AUDIT_SKILL]: "`⚠ Partial`",
+    [TDD_AUDIT_AGENT]: "`⚠ Partial`",
+    [SPEC_AUDIT_SKILL]: "`partial`",
+    [SPEC_AUDIT_AGENT]: "`partial`",
+  };
 
-  for (const rel of [TDD_AUDIT_SKILL, TDD_AUDIT_AGENT, SPEC_AUDIT_SKILL, SPEC_AUDIT_AGENT]) {
+  for (const [rel, verdict] of Object.entries(VERDICT)) {
+    // Through the verdict word: a pin that stops before it lets `done` slip in.
     test(`${rel} classifies a test of the fix's new code as partial`, () => {
-      expect(read(rel)).toContain(RULE);
+      expect(read(rel)).toContain(`${RULE}, so it is ${verdict}.`);
     });
 
     test(`${rel} classifies a Regression: test off its named path or name as partial`, () => {
@@ -178,10 +284,13 @@ describe("the audits — a bug-case test must run on the code before the fix", (
       );
     });
 
-    // A new `missing` verdict would send the audit's retry round to a
-    // test-writer that cannot see RED on a tree the fix already changed.
-    test(`${rel} adds no missing verdict for a Regression: AC`, () => {
-      expect(read(rel)).not.toContain("whose named test is not found");
+    // A `missing` verdict would send the audit's retry round to a test-writer
+    // that cannot see RED on a tree the fix already changed. Graded on the
+    // bug FR passage itself, whatever words a regression would use.
+    test(`${rel}'s bug FR passage gives partial and never missing`, () => {
+      const passage = read(rel).split("\n").filter((l) => /On a bug FR \(`kind: bug`|\*\*A bug FR\*\* \(`kind: bug`/.test(l));
+      expect(passage.length).toBe(1);
+      expect({ partial: passage[0]!.includes(verdict), missing: /missing/i.test(passage[0]!) }).toEqual({ partial: true, missing: false });
     });
 
     test(`${rel} counts only an AC the bug breaks as a bug case`, () => {
@@ -195,13 +304,24 @@ describe("/debug — a reported bug is fixed only when a test catches it", () =>
     expect(read(DEBUG)).toContain("## A reported bug");
   });
 
+  // The model invokes a skill by its description: without the reported bug
+  // there, the section is unreachable for a symptom or a ticket.
+  test("the description names a reported bug", () => {
+    const description = read(DEBUG).split("\n").find((l) => l.startsWith("description:")) ?? "";
+    expect(description).toContain("or when a reported bug (a symptom, a ticket, a bug FR) needs its cause found and a test that proves the fix");
+  });
+
   test("a bug FR is fixed through /implement, not in Phase 4 first", () => {
     expect(read(DEBUG)).toContain("The fix itself goes through `/implement <FR-id>`");
   });
 
   // /implement's Stage RED must see the code before the fix.
   test("a bug FR's investigation leaves no fix behind for /implement", () => {
-    expect(read(DEBUG)).toContain("leave no fix behind: revert Phase 3's edits");
+    expect(read(DEBUG)).toContain("leave no fix behind: revert Phase 3's edits one by one");
+  });
+
+  test("reverting Phase 3 never resets the whole tree", () => {
+    expect(read(DEBUG)).toContain("`git checkout -- <file>` only for a file that was clean before Phase 3, never the whole tree");
   });
 
   // A renamed path prints as R100, which the M/D/A recipe would skip.
@@ -209,6 +329,24 @@ describe("/debug — a reported bug is fixed only when a test catches it", () =>
     expect(read(DEBUG)).toContain(
       "for each non-test path in `git diff --name-status --no-renames <pre-fix> <fix>`, `M` or `D` → `git checkout <pre-fix> -- <path>`, `A` → `git rm -q <path>`",
     );
+  });
+
+  test("a squash-merged fix's pre-fix ref is its parent", () => {
+    expect(read(DEBUG)).toContain("and `<fix>^` for a squash-merged one");
+  });
+
+  test("the rollback runs in a throwaway worktree", () => {
+    expect(read(DEBUG)).toContain("Work in a throwaway worktree, `git worktree add --detach <dir> <fix>`");
+  });
+
+  test("the throwaway worktree is removed", () => {
+    expect(read(DEBUG)).toContain("Then `git worktree remove --force <dir>`.");
+  });
+
+  // Untracked build output survives `git reset --hard` and can still hold
+  // the code before the fix.
+  test("the rollback regenerates after the fix comes back", () => {
+    expect(read(DEBUG)).toContain("regenerate again, so no build output still holds the code before the fix, and run the test: GREEN");
   });
 
   test("the change description carries one proof line per bug case", () => {
@@ -229,13 +367,27 @@ describe("the docs — what proves a Regression: criterion", () => {
 
   test("resolver-entry counts only an AC the bug breaks as a bug case", () => {
     expect(read(RESOLVER_ENTRY)).toContain(
-      "Every bug case, an AC the bug breaks, gets such a test; an AC that guards behavior the bug leaves intact is no bug case.",
+      "an AC that guards behavior the bug leaves intact is no bug case, and neither is one for new behavior the fix adds, whose test follows the ordinary RED rule.",
+    );
+  });
+
+  test("resolver-entry says an unproved bug case never halts the run", () => {
+    expect(read(RESOLVER_ENTRY)).toContain(
+      "A bug case the test-writer cannot prove is recorded `not proved` and counted at `/implement` step 14; it never halts the run.",
     );
   });
 
   test("the step-14 AC row carries each bug AC's proof line and the unproved count", () => {
     expect(read(IMPLEMENT)).toContain(
-      "On a bug FR (`kind: bug`), the row also states how many ACs are unproved, and each AC row carries the `regression:` line the test-writer recorded for it in Stage RED's `notes`; an AC without one is listed as unproved.",
+      "On a bug FR (`kind: bug`), the row also states how many ACs are unproved, and each AC row carries the `regression:` line the test-writer recorded for it in Stage RED's `notes`.",
+    );
+  });
+
+  // One token separates the undo's proof from every other outcome, so a line
+  // that also carries `→ red at` for plant 2 is never read as proved.
+  test("step 14 says which lines count as unproved", () => {
+    expect(read(IMPLEMENT)).toContain(
+      "An AC is unproved when that line reads `not proved`, when it has no line, and, for the `Regression:` AC, when its defect-check line does not begin `defect check: fix undone in <file> → red at`; an `n/a` line is not unproved.",
     );
   });
 
@@ -247,6 +399,12 @@ describe("the docs — what proves a Regression: criterion", () => {
 
   test("the defect-check pattern names the bug variant", () => {
     expect(read(PATTERNS)).toContain("**A bug's test proves itself on the code before the fix.**");
+  });
+
+  test("the defect-check pattern owes the bug RED to bug cases only", () => {
+    expect(read(PATTERNS)).toContain(
+      "Only a bug case, an AC the bug breaks, owes that RED: a test for new behavior the fix adds follows the ordinary rule.",
+    );
   });
 
   test("the testing-spec template carries the bug rule", () => {
