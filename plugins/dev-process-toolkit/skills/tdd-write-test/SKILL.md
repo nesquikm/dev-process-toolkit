@@ -41,21 +41,19 @@ When the FR's frontmatter carries `kind: bug`, the code your tests run against s
 - `regression: <AC-id> n/a — guards unchanged behavior`;
 - `regression: <AC-id> not proved — <reason>` — a bug case whose test is GREEN now (the bug does not reproduce that way, or the fix is already in the working tree) or RED only before its assertion. When a turn is left, rewrite such a test once and run the command again first.
 
-`<ref>` is `git rev-parse --short HEAD`, or `no-commit` in a repository without one, plus `+uncommitted` when `git status --porcelain` lists a source file you did not write. A `not proved` line does not fail the run: return `status: ok` when the run is otherwise sound, and `/implement` step 14 lists the AC as unproved. A fix made before its test is proved by rolling the fix back: `/debug` § A reported bug.
+`<ref>` is `git rev-parse --short HEAD`, or `no-commit` in a repository without one, plus `+uncommitted` when `git status --porcelain` lists a source file you did not write; read both in the same Bash call as the test run. A `not proved` line does not fail the run: return `status: ok` when the run is otherwise sound, and `/implement` step 14 lists the AC as unproved. A fix made before its test is proved by rolling the fix back: `/debug` § A reported bug.
 
-**Record the Stage RED snapshot.** The implementer's defect check undoes the fix from it, so it must hold the code before the fix and nothing a later stage wrote. Take it, and read `<ref>`, in the same Bash call as the test run; `<prefix>` is the part of the AC ids between `AC-` and the last `.`:
+**Record the Stage RED snapshot** once the run shows at least one bug case RED at its assertion, and only then, in a Bash call of its own after that run. Such a run was on the code with the bug, so its tree is the code before the fix, and the implementer's defect check undoes the fix from it. A run where every bug case is GREEN (the audit's retry round, a fix already in the tree) leaves the snapshot as it is. `<prefix>` is the part of the AC ids between `AC-` and the last `.`:
 
 ```bash
 g=$(git rev-parse --absolute-git-dir); d="$g/dpt-red-base"; f="$d/<prefix>"; i="$d/<prefix>.index"
 h=$(git rev-parse -q --verify HEAD || echo none)
-if [ "$(cut -d' ' -f1 "$f" 2>/dev/null)" != "$h" ]; then
-  mkdir -p "$d" && rm -f "$i" && { [ "$h" = none ] || GIT_INDEX_FILE="$i" git read-tree HEAD; } \
-    && GIT_INDEX_FILE="$i" git add -A && t=$(GIT_INDEX_FILE="$i" git write-tree) && echo "$h $t" > "$f"
-  rm -f "$i"
-fi
+mkdir -p "$d" && rm -f "$f" "$i" && { [ "$h" = none ] || GIT_INDEX_FILE="$i" git read-tree HEAD; } \
+  && GIT_INDEX_FILE="$i" git add -A && t=$(GIT_INDEX_FILE="$i" git write-tree) && echo "$h $t" > "$f"
+rm -f "$i"
 ```
 
-The file names the `HEAD` it was taken on and is rewritten only when that `HEAD` has moved: a run after a commit takes a fresh snapshot, while the audit's retry round and a re-run over the same `HEAD` keep the first one, taken before any implementer ran. A temporary index takes untracked files too and leaves your index alone.
+The file holds the `HEAD` it was taken on and the tree. The old file goes first, so a snapshot that fails to build leaves none behind rather than a stale one. A temporary index takes untracked files too and leaves your index alone.
 
 ## Hand-off contract (mandatory final fence)
 
