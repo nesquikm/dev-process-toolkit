@@ -448,18 +448,20 @@ describe("AC-STE-784.4 time and gate_failure_rate name every tracking key that i
 const fixOn = (day: number, file: string, message: string): Ev => ({ when: at(day, 3), op: { kind: "append", file }, message });
 const run0File = join("src", `${idOf(0)}.txt`);
 
-describe("AC-STE-784.5 a fix citing an AC of the FR is not a post-merge fix of it", () => {
+// Amended by AC-STE-796.1: a fix that names the FR (an AC citation names it) now
+// counts, and a fix naming no FR does not, whatever files either touches.
+describe("AC-STE-784.5 a fix citing an AC of the FR names it", () => {
   test(
-    "AC-STE-784.5 a fix citing AC-STE-9001.2 on the FR's file is not counted (0)",
+    "AC-STE-784.5 a fix citing AC-STE-9001.2 names the FR, so it counts (1)",
     () => {
       const r = trend("ac-cite", { runs: fiveRuns(), events: [fixOn(2, run0File, `fix(core): cover AC-${idOf(0)}.2 edge\n`)] });
-      expect(signal(group(r, "implement"), "post_merge_fixes")).toMatchObject({ value: 0, note: null });
+      expect(signal(group(r, "implement"), "post_merge_fixes")).toMatchObject({ value: 1, note: null });
     },
     LONG,
   );
 
   test(
-    "AC-STE-784.5 beside a plain fix (counted), the AC-citing fix is not counted (1)",
+    "AC-STE-784.5 beside a plain fix (not counted), the AC-citing fix is counted (1)",
     () => {
       const r = trend("ac-cite-plus-plain", {
         runs: fiveRuns(),
@@ -471,10 +473,10 @@ describe("AC-STE-784.5 a fix citing an AC of the FR is not a post-merge fix of i
   );
 
   test(
-    "AC-STE-784.5 a fix citing an AC of a longer id (AC-STE-90011.1) does not name STE-9001, so it counts (1)",
+    "AC-STE-784.5 a fix citing an AC of a longer id (AC-STE-90011.1) does not name STE-9001, so it does not count (0)",
     () => {
       const r = trend("ac-cite-longer", { runs: fiveRuns(), events: [fixOn(2, run0File, `fix: AC-${idOf(0)}1.1 is a different FR\n`)] });
-      expect(signal(group(r, "implement"), "post_merge_fixes")).toMatchObject({ value: 1, note: null });
+      expect(signal(group(r, "implement"), "post_merge_fixes")).toMatchObject({ value: 0, note: null });
     },
     LONG,
   );
@@ -498,7 +500,9 @@ const renameFixture = (fix: Ev): Fixture => ({
 });
 const writeFix = (file: string): Ev => ({ when: at(4), op: { kind: "write", file, lines: 2 }, message: "fix(core): touch a renamed path\n" });
 
-describe("AC-STE-784.6 a renamed path is matched by its new and its old name", () => {
+// Amended by AC-STE-796.1: touching the run's files no longer matters, so a fix
+// that names no FR is not counted on a renamed path either (it was counted, 1).
+describe("AC-STE-784.6 a renamed path no longer makes an unnamed fix count", () => {
   for (const [label, file] of [
     ["brace rename, the new path", "src/moved-a.txt"],
     ["brace rename, the old path", "src/legacy-a.txt"],
@@ -506,10 +510,10 @@ describe("AC-STE-784.6 a renamed path is matched by its new and its old name", (
     ["arrow rename, the old path", "legacy-b.txt"],
   ] as const) {
     test(
-      `AC-STE-784.6 ${label}: a later fix touching ${file} is counted (1)`,
+      `AC-STE-784.6 ${label}: a later fix touching ${file} without naming the FR is not counted (0)`,
       () => {
         const r = trend(`rename-${label.replace(/\W+/g, "_")}`, renameFixture(writeFix(file)));
-        expect(signal(group(r, "implement"), "post_merge_fixes")).toMatchObject({ value: 1, note: null });
+        expect(signal(group(r, "implement"), "post_merge_fixes")).toMatchObject({ value: 0, note: null });
       },
       LONG,
     );

@@ -6825,17 +6825,21 @@ describe("FO-M3-1 (M_a85e46 review) — hook: any top-level key outside the enve
     expectPermit(await runHook(JIRA("editJiraIssue"), MERGE_GK_85, { cwd: w.be, transcript: s2.save(w.scratch) }));
   }, 60_000);
 
-  test("FO-M3-1 — labelsEnvelope counts every top-level key outside {cloudId, issueIdOrKey, fields, update, contentFormat, responseContentFormat} as an extra key", async () => {
+  test("FO-M3-1 — labelsEnvelope counts every top-level key outside {cloudId, issueIdOrKey, fields, update, contentFormat, responseContentFormat, actionSource} as an extra key", async () => {
     const m = (await import(OWNERSHIP_SRC)) as { labelsEnvelope: (input: unknown) => { extraKeys: string[] } | null };
     expect({
       transition: m.labelsEnvelope({ ...MERGE_GK_85, transition: { id: "31" } }),
       properties: m.labelsEnvelope({ ...MERGE_GK_85, properties: [] }),
-      actionSource: m.labelsEnvelope({ ...MERGE_GK_85, actionSource: "x" }),
+      // Amended by AC-STE-797.1: `actionSource` is Atlassian call metadata, an
+      // envelope key, so the "any key the gate does not know" row uses `foo`.
+      unknownKey: m.labelsEnvelope({ ...MERGE_GK_85, foo: "x" }),
+      actionSource: m.labelsEnvelope({ ...MERGE_GK_85, actionSource: "model_tool_call" }),
       formatOnly: m.labelsEnvelope({ ...MERGE_GK_85, contentFormat: "markdown", responseContentFormat: "markdown" }),
     }).toEqual({
       transition: { extraKeys: ["transition"] },
       properties: { extraKeys: ["properties"] },
-      actionSource: { extraKeys: ["actionSource"] },
+      unknownKey: { extraKeys: ["foo"] },
+      actionSource: { extraKeys: [] },
       formatOnly: { extraKeys: [] },
     });
   });

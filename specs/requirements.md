@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v3.6.1 ("Second Look")**.
+**Latest shipped release:** **v3.6.2 ("Plain Reading")**.
 
 ### Shipped milestones
 
@@ -649,4 +649,6 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-741.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/archive_only_change.ts, plugins/dev-process-toolkit/adapters/_shared/src/commit_target_repo.ts, plugins/dev-process-toolkit/docs/hooks-reference.md, plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-commit-gate-check.ts | plugins/dev-process-toolkit/tests/m_870603-ste-741-add-and-commit.test.ts |
 | AC-STE-788.1..4 | plugins/dev-process-toolkit/skills/implement/SKILL.md | plugins/dev-process-toolkit/tests/_m_5f3c43_ste738_implement_admissions.ts, plugins/dev-process-toolkit/tests/m_5f3c43-ste-738-implement-reference.test.ts, plugins/dev-process-toolkit/tests/m_870603-ste-788-implement-drives-gate.test.ts, plugins/dev-process-toolkit/tests/m_d1b4b7-ste-722-skill-text.test.ts |
 | AC-STE-789.1..4 | .claude/skills/conformance-loop/SKILL.md, .claude/skills/smoke-test/SKILL.md | plugins/dev-process-toolkit/tests/m121-ste-447-legs-selector.test.ts, plugins/dev-process-toolkit/tests/m_870603-ste-789-dirty-tree-preflight.test.ts |
+| AC-STE-796.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/retro_trend.ts, plugins/dev-process-toolkit/docs/retro-reference.md | plugins/dev-process-toolkit/tests/m_4daa6e-ste-776-retro-trend.test.ts, plugins/dev-process-toolkit/tests/m_870603-ste-784-trend-honesty.test.ts, plugins/dev-process-toolkit/tests/m_f1e079-ste-796-trend-names.test.ts |
+| AC-STE-797.1..5 | plugins/dev-process-toolkit/adapters/_shared/src/join_consent_ownership.ts, plugins/dev-process-toolkit/adapters/_shared/src/shared_tracker_live_grader.ts, plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-tracker-write-gate.ts | plugins/dev-process-toolkit/tests/hook-modules-pre-tracker-write-gate.test.ts, plugins/dev-process-toolkit/tests/m_f1e079-ste-797-epic-close-v2.test.ts |
 

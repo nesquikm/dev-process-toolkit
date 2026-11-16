@@ -27,13 +27,30 @@ export function exemptsJoinConsent(route: OwnershipRoute | string): boolean {
 }
 
 /**
- * The top-level keys of a labels write that are not edits: the addressing
- * keys, the two edit blocks (graded separately below) and the two format keys
- * AC-STE-655.9 exempts. Every other top-level key counts as an edit
- * (FO-M3-1, M_a85e46 review): an allowlist, so a key the gate does not know
- * is refused rather than permitted.
+ * The top-level keys every Jira write may carry that are never edits: the
+ * addressing keys and `actionSource` (AC-STE-797.1). The three allowlists
+ * below each extend this core, so a new non-edit key is added once.
  */
-const ENVELOPE_KEYS = new Set(["cloudId", "issueIdOrKey", "fields", "update", "contentFormat", "responseContentFormat"]);
+const CALL_KEYS = ["cloudId", "issueIdOrKey", "actionSource"] as const;
+
+/** The two format keys AC-STE-655.9 exempts. */
+const FORMAT_KEYS = ["contentFormat", "responseContentFormat"] as const;
+
+/**
+ * STE-729 AC.3 + AC-STE-797.3 — the only top-level keys an Epic edit may carry
+ * (no `update` block): the CALL_KEYS, `fields` and the two format keys. The
+ * ONE set the hook (pre-tracker-write-gate.ts) and the live grader
+ * (shared_tracker_live_grader.ts) both import.
+ */
+export const EPIC_EDIT_INPUT_KEYS: ReadonlySet<string> = new Set([...CALL_KEYS, "fields", ...FORMAT_KEYS]);
+
+/**
+ * The top-level keys of a labels write that are not edits: the Epic-edit keys
+ * plus the `update` block (both edit blocks are graded separately below).
+ * Every other top-level key counts as an edit (FO-M3-1, M_a85e46 review): an
+ * allowlist, so a key the gate does not know is refused rather than permitted.
+ */
+const ENVELOPE_KEYS: ReadonlySet<string> = new Set([...EPIC_EDIT_INPUT_KEYS, "update"]);
 
 /**
  * STE-655 AC.8: the ONE labels-write envelope the hook (gateJoinedLabels) and
@@ -41,9 +58,9 @@ const ENVELOPE_KEYS = new Set(["cloudId", "issueIdOrKey", "fields", "update", "c
  * `fields.labels` nor a top-level `update` block; otherwise `extraKeys` lists
  * the keys under `fields` other than `labels`, plus `update` when that block
  * is present, plus every top-level key outside ENVELOPE_KEYS (a `transition`,
- * `properties` or any key the gate does not know). Only the addressing keys
- * (`cloudId`, `issueIdOrKey`) and the format keys (`contentFormat` /
- * `responseContentFormat`) never count.
+ * `properties` or any key the gate does not know). Only the CALL_KEYS
+ * (`cloudId`, `issueIdOrKey`, `actionSource`) and the format keys
+ * (`contentFormat` / `responseContentFormat`) never count.
  */
 export function labelsEnvelope(input: unknown): { extraKeys: string[] } | null {
   if (input === null || typeof input !== "object") return null;
@@ -172,7 +189,7 @@ export function typedAdopts(answer: string, key: string): boolean {
 }
 
 /** The only input keys a status-only `transitionJiraIssue` carries (STE-699 AC.4). */
-const STATUS_ONLY_KEYS: ReadonlySet<string> = new Set(["cloudId", "issueIdOrKey", "transition"]);
+const STATUS_ONLY_KEYS: ReadonlySet<string> = new Set([...CALL_KEYS, "transition"]);
 
 /**
  * STE-699 AC.4 — true when a `transitionJiraIssue` input carries nothing but

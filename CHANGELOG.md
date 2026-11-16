@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.6.2] — 2026-11-16 — "Plain Reading"
+
+### Fixed
+
+- `/retro --trend` counts post-merge fixes that name the run, and skips what it cannot see (STE-796). `post_merge_fixes` used to count any `fix` commit that touched one of the run's files within 14 days, so shared hub files dominated it. It now counts `fix` commits whose subject or `Refs:` trailer names the run's id, or cites one of its ACs, dated in the 14 days after the FR's `archived_at`. A run whose `archived_at` is not a date makes the value unobservable. When fewer than half of the subjects in the fix windows are Conventional Commits, the value reads `skipped: not observable (history is not Conventional Commits)` instead of a false 0. `waste` now names both `tracking.gate_outcomes` and `tracking.tool_calls` when it skips.
+- A shipped milestone's Jira Epic closes when the call carries `actionSource` (STE-797). The Atlassian tools add this attribution key to `transitionJiraIssue` and `editJiraIssue`. The tracker-write gate read it as an extra edit, so a status-only close was refused as "not owned" even with an intact `epic-close` receipt. `actionSource` is now call metadata for the Epic close, the Epic edit and the labels check. The hook and the live grader read one shared key set. The "not a plain invocation" note no longer cites a wrapped deciding command that a later plain run of the same module replaced.
+
+Milestone M_f1e079, three trend defects and one field report about the Epic close.
+
+Total test count at release: 23719 tests, 0 failures, 0 errors.
+
 ## [3.6.1] — 2026-11-14 — "Second Look"
 
 ### Fixed

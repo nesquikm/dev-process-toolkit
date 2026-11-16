@@ -66,9 +66,11 @@
 //     receipts are not spec-review).
 //   - code_review_concerns_per_100_lines = 100 * sum of `code-review` concerns /
 //     sum of changed lines, pooled.
-//   - post_merge_fixes = count of `fix` / `fix(<scope>)` commits within 14 days
-//     after the FR's last Refs commit that touch a file the FR changed and whose
-//     message does not name the FR id.
+//   - post_merge_fixes = count of `fix` / `fix(<scope>)` commits dated after the
+//     FR's `archived_at` and no more than 14 days after it whose subject or
+//     `Refs:` trailer names the FR id (Amended by AC-STE-796.1: it was fixes
+//     touching the FR's files within 14 days of its last Refs commit and NOT
+//     naming it).
 //   - Groups sort worst first by the delta of the first-ranked metric (larger
 //     increase = worse); every metric is higher-is-worse.
 //
@@ -180,8 +182,10 @@ const P200: G = ["P", 200, "A"];
 //   gate outcomes 12, fails 3 -> 0.25
 //   spec-review partial+missing [0,1,3,0,3] = 7 over 5 FRs -> 1.4 (tdd-audit 5+5 ignored)
 //   code-review concerns [1,0,0,0,3] = 4 over 200 lines -> 2 per 100
-//   post-merge fixes: A1 +3d (in), A2 +15d (out), A3 +13d (in), A4 chore (out),
-//     A4 fix naming the FR (out), A5 fix on an unrelated file (out) -> 2
+//   post-merge fixes (Amended by AC-STE-796.1, days after archived_at, each names
+//     its FR in the subject unless said): A1 +2d (in), A2 +15d (out), A3 +13d (in),
+//     A4 chore (out), A4 fix naming the FR in its body only (out), A5 fix naming
+//     no FR (out) -> 2
 const A: RunSpec[] = [
   { skill: "implement", category: "Added", commits: [30, 20], tokens: 400, gates: [P100, P100], rounds: [[IMPL, true]], spec: { partial: 0, missing: 0 }, tdd: { partial: 5, missing: 5 }, concerns: 1 },
   { skill: "implement", category: "Added", commits: [40], tokens: 320, gates: [F100, F100, P100], rounds: [[IMPL, false], [IMPL, true]], spec: { partial: 1, missing: 0 }, concerns: 0 },
@@ -340,11 +344,15 @@ function buildFixture(label: string, o: FixtureOpts = {}): string {
     const i = ORDER.indexOf(A[k]!);
     return 2 * i + A[k]!.commits.length - 1;
   };
+  // The day group A's run k is archived (its frontmatter archived_at).
+  const archDay = (k: number) => 2 * ORDER.indexOf(A[k]!) + 2;
   // Post-merge fix candidates (only two count).
-  events.push({ when: at(lastDay(0) + 3), file: join("src", `${a(0)}.txt`), lines: null, message: "fix: tighten the first delivery\n" });
-  events.push({ when: at(lastDay(1) + 15), file: join("src", `${a(1)}.txt`), lines: null, message: "fix(core): too late to count\n" });
-  events.push({ when: at(lastDay(2) + 13), file: join("src", `${a(2)}.txt`), lines: null, message: "fix(core): inside the window\n" });
-  events.push({ when: at(lastDay(3) + 2), file: join("src", `${a(3)}.txt`), lines: null, message: "chore: not a fix\n" });
+  // Amended by AC-STE-796.1: a counted fix names its FR in the subject, and the
+  // window is anchored on archived_at, not the last Refs: commit.
+  events.push({ when: at(archDay(0) + 2), file: join("src", `${a(0)}.txt`), lines: null, message: `fix: tighten the first delivery of ${a(0)}\n` });
+  events.push({ when: at(archDay(1) + 15), file: join("src", `${a(1)}.txt`), lines: null, message: `fix(core): too late to count for ${a(1)}\n` });
+  events.push({ when: at(archDay(2) + 13), file: join("src", `${a(2)}.txt`), lines: null, message: `fix(core): inside the window for ${a(2)}\n` });
+  events.push({ when: at(lastDay(3) + 2), file: join("src", `${a(3)}.txt`), lines: null, message: `chore: not a fix for ${a(3)}\n` });
   events.push({ when: at(lastDay(3) + 3), file: join("src", `${a(3)}.txt`), lines: null, message: `fix: tidy up\n\nFollow-up to ${a(3)}.\n` });
   events.push({ when: at(lastDay(4) + 1, 4), file: join("src", "other.txt"), lines: null, message: "fix: an unrelated file\n" });
   if (o.extraEvents) events.push(...o.extraEvents(a, lastDay));
@@ -740,7 +748,9 @@ describe("AC-STE-776.4 quality signals per group", () => {
   );
 
   test(
-    "AC-.4 post-merge fixes: 2 (late, chore, self-naming and unrelated-file commits excluded)",
+    // Amended by AC-STE-796.1: the excluded fixes are now the late one, the body-only
+    // mention and the one naming no FR (it was: self-naming and unrelated-file).
+    "AC-.4 post-merge fixes: 2 (late, chore, body-only and unnamed commits excluded)",
     () => {
       const s = signal(groupA(defaultTrend().report), "post_merge_fixes");
       expect({ value: s.value, note: s.note }).toEqual({ value: 2, note: null });
@@ -748,8 +758,10 @@ describe("AC-STE-776.4 quality signals per group", () => {
     LONG,
   );
 
-  // "Reference the FR" is a whole-id match: A1's id is STE-9001, and a fix that
-  // names STE-90011 (a different FR whose id starts with STE-9001) still counts.
+  // "Name the FR" is a whole-id match: A1's id is STE-9001, and a fix that names
+  // STE-90011 (a different FR whose id starts with STE-9001) does not name it.
+  // Amended by AC-STE-796.1: naming the FR now makes a fix count, so the longer-id
+  // fix no longer counts and the exact-id fix now does.
   const prefixFix = (a: (k: number) => string, lastDay: (k: number) => number): CommitEvent => ({
     when: at(lastDay(0) + 5),
     file: join("src", `${a(0)}.txt`),
@@ -764,17 +776,17 @@ describe("AC-STE-776.4 quality signals per group", () => {
   });
 
   test(
-    "AC-.4 post-merge fixes: a fix naming a longer id that starts with the FR's id counts (3)",
+    "AC-.4 post-merge fixes: a fix naming a longer id that starts with the FR's id does not count (2)",
     () => {
       const g = groupA(trendFor("pmf-prefix", { extraEvents: (a, d) => [prefixFix(a, d)] }).report);
       const s = signal(g, "post_merge_fixes");
-      expect({ value: s.value, note: s.note }).toEqual({ value: 3, note: null });
+      expect({ value: s.value, note: s.note }).toEqual({ value: 2, note: null });
     },
     LONG,
   );
 
   test(
-    "AC-.4 post-merge fixes: beside the longer-id fix, a fix naming the FR's exact id is still excluded (3)",
+    "AC-.4 post-merge fixes: beside the longer-id fix (not counted), a fix naming the FR's exact id counts (3)",
     () => {
       const g = groupA(trendFor("pmf-prefix-exact", { extraEvents: (a, d) => [prefixFix(a, d), exactFix(a, d)] }).report);
       const s = signal(g, "post_merge_fixes");
@@ -896,12 +908,14 @@ describe("AC-STE-776.5 not observable and insufficient read as such, never 0", (
 
 describe("AC-STE-776.5 post-merge fixes with an unobservable input read skipped, never 0", () => {
   test(
-    "AC-.5 a run in the window with no Refs: commits: post_merge_fixes reads skipped with value null",
+    // Amended by AC-STE-796.1: the window is anchored on archived_at, so a run
+    // with no Refs: commits is still observable (it read skipped when the window
+    // was anchored on the last Refs: commit). AC-STE-796.2 covers the null case.
+    "AC-.5 a run in the window with no Refs: commits: post_merge_fixes stays observable (2)",
     () => {
       const g = groupA(trendFor("pmf-no-refs", { stripRefs: [idOf(A[4]!)] }).report);
       const s = signal(g, "post_merge_fixes");
-      expect(s.value).toBeNull();
-      expect(String(s.note)).toStartWith(SKIPPED_PREFIX);
+      expect({ value: s.value, note: s.note }).toEqual({ value: 2, note: null });
     },
     LONG,
   );

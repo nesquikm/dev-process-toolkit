@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.6.1 — "Second Look"** (M_870603, a second look at v3.6.0. The trend stops reading zero for data it never saw and counts a shared session once, and the `retro.priority` upgrade step refuses a broken value. Auto-approved spec commits pass probe #45, the Jira drift probe sees a done ticket, a create never reuses a closed one, `git add && git commit` takes the spec-only pass, a headless `/implement` keeps going after its gate, and `/conformance-loop` refuses a dirty tree)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.6.2 — "Plain Reading"** (M_f1e079. `/retro --trend` counts post-merge fixes that name the run, after it was archived, and reads a non-Conventional-Commits history as not observable rather than zero; `waste` names both tracking switches it reads. A shipped Jira Epic closes again when the Atlassian tools add their `actionSource` attribution key)
 
 ## Core Philosophy
 

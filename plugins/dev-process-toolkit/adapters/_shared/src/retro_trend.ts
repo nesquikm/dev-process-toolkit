@@ -79,15 +79,22 @@ interface Run {
   category: string;
   lines: number;
   lastCommitAt: number;
-  files: string[];
   sessions: string[];
   outputTokens: number;
+  /** Epoch ms of the archive file's `archived_at`; NaN when absent or unreadable. */
+  archivedAt: number;
 }
 
-function archivedFrs(projectRoot: string): { id: string; category: string }[] {
+/** A frontmatter `archived_at` value as epoch ms, NaN when it is not a date. */
+function archivedAtMs(v: unknown): number {
+  if (v instanceof Date) return v.getTime();
+  return typeof v === "string" ? Date.parse(v) : NaN;
+}
+
+function archivedFrs(projectRoot: string): { id: string; category: string; archivedAt: number }[] {
   const dir = join(projectRoot, "specs", "frs", "archive");
   if (!existsSync(dir)) return [];
-  const out: { id: string; category: string }[] = [];
+  const out: { id: string; category: string; archivedAt: number }[] = [];
   for (const name of readdirSync(dir).sort()) {
     if (!name.endsWith(".md")) continue;
     let fm: Record<string, unknown>;
@@ -96,7 +103,7 @@ function archivedFrs(projectRoot: string): { id: string; category: string }[] {
     } catch {
       continue;
     }
-    out.push({ id: name.slice(0, -3), category: typeof fm.changelog_category === "string" ? fm.changelog_category : "unknown" });
+    out.push({ id: name.slice(0, -3), category: typeof fm.changelog_category === "string" ? fm.changelog_category : "unknown", archivedAt: archivedAtMs(fm.archived_at) });
   }
   return out;
 }
@@ -126,27 +133,11 @@ function gitLogRecords(projectRoot: string, field: string, extra: string): [numb
 interface RefsTotals {
   lines: number;
   last: number;
-  files: Set<string>;
 }
 
-const noRefs = (): RefsTotals => ({ lines: 0, last: 0, files: new Set<string>() });
+const noRefs = (): RefsTotals => ({ lines: 0, last: 0 });
 
-/**
- * A numstat path as the paths it names: a rename (`dir/{a.ts => b.ts}` or
- * `a.ts => b.ts`) yields the new and the old path, anything else itself.
- */
-function renamePaths(path: string): string[] {
-  const brace = /^(.*)\{(.*) => (.*)\}(.*)$/.exec(path);
-  if (brace) {
-    const [, pre, from, to, post] = brace;
-    const join = (mid: string) => `${pre}${mid}${post}`.replace(/\/\/+/g, "/");
-    return [join(to!), join(from!)];
-  }
-  const arrow = /^(.+) => (.+)$/.exec(path);
-  return arrow ? [arrow[2]!, arrow[1]!] : [path];
-}
-
-/** Changed lines, files and last commit time per FR id, from commits whose `Refs:` trailer names it. */
+/** Changed lines and last commit time per FR id, from commits whose `Refs:` trailer names it. */
 function refsCommits(projectRoot: string): Map<string, RefsTotals> | null {
   const records = gitLogRecords(projectRoot, "%(trailers:key=Refs,valueonly,separator=%x2C)", "--numstat");
   if (records === null) return null;
@@ -155,17 +146,14 @@ function refsCommits(projectRoot: string): Map<string, RefsTotals> | null {
     const ids = refs.split(",").map((s) => s.trim()).filter((s) => s !== "");
     if (ids.length === 0) continue;
     let lines = 0;
-    const files: string[] = [];
     for (const row of numstat.split("\n")) {
       const m = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(row);
       if (!m) continue;
       if (m[1] !== "-") lines += Number(m[1]) + Number(m[2]);
-      files.push(...renamePaths(m[3]!));
     }
     for (const id of ids) {
       const cur = out.get(id) ?? noRefs();
       cur.lines += lines;
-      for (const f of files) cur.files.add(f);
       cur.last = Math.max(cur.last, when);
       out.set(id, cur);
     }
@@ -189,29 +177,28 @@ function collectRuns(projectRoot: string): Run[] {
     const sessions = [...new Set(claimed.map((r) => r.session_id).filter((s): s is string => typeof s === "string"))];
     const c = commits?.get(fr.id) ?? noRefs();
     const outputTokens = claimed.reduce((n, r) => n + (typeof r.output_tokens === "number" ? r.output_tokens : 0), 0);
-    runs.push({ id: fr.id, sized: commits !== null, skill, category: fr.category, lines: c.lines, lastCommitAt: c.last, files: [...c.files], sessions, outputTokens });
+    runs.push({ id: fr.id, sized: commits !== null, skill, category: fr.category, lines: c.lines, lastCommitAt: c.last, sessions, outputTokens, archivedAt: fr.archivedAt });
   }
   return runs;
 }
 
 interface Commit {
   when: number;
-  message: string;
-  files: string[];
+  subject: string;
+  refs: string[];
 }
 
-/** Every commit with its full message and touched files, or `null` when git cannot be read. */
+/** Every commit with its subject and `Refs:` trailer ids, or `null` when git cannot be read. */
 function allCommits(projectRoot: string): Commit[] | null {
-  const records = gitLogRecords(projectRoot, "%B", "--name-only");
+  const records = gitLogRecords(projectRoot, "%s%x1d%(trailers:key=Refs,valueonly,separator=%x2C)", "HEAD");
   if (records === null) return null;
-  return records.map(([when, message, names]) => ({
-    when,
-    message,
-    files: names.split("\n").map((s) => s.trim()).filter((s) => s !== ""),
-  }));
+  return records.map(([when, field]) => {
+    const [subject = "", refs = ""] = field.split("\x1d");
+    return { when, subject, refs: refs.split(",").map((s) => s.trim()).filter((s) => s !== "") };
+  });
 }
 
-/** The window a commit counts as a post-merge fix of an FR. */
+/** The window, counted from the FR's `archived_at`, in which a commit counts as its post-merge fix. */
 const POST_MERGE_WINDOW_MS = 14 * 86_400_000;
 const FIX_SUBJECT_RE = /^fix(\([^)]*\))?!?:/;
 
@@ -225,21 +212,39 @@ function namesId(message: string, id: string): boolean {
 }
 
 /**
- * `fix` commits within 14 days after the run's last commit, touching its files,
- * not naming it — or `null` when that is not observable: the run has no `Refs:`
- * commit to measure from, or git could not be read.
+ * `fix` commits dated after the run's `archived_at` and no more than 14 days
+ * after it whose subject or `Refs:` trailer names the run's id (AC-STE-796.1) —
+ * or `null` when git could not be read.
  */
 function postMergeFixes(run: Run, commits: Commit[] | null): number | null {
-  if (commits === null || run.lastCommitAt === 0) return null;
-  const files = new Set(run.files);
+  if (commits === null) return null;
+  // An `archived_at` that is not a date has no window to count in (AC-STE-796.2).
+  if (!Number.isFinite(run.archivedAt)) return null;
   return commits.filter(
     (c) =>
-      FIX_SUBJECT_RE.test(c.message) &&
-      c.when > run.lastCommitAt &&
-      c.when - run.lastCommitAt <= POST_MERGE_WINDOW_MS &&
-      !namesId(c.message, run.id) &&
-      c.files.some((f) => files.has(f)),
+      FIX_SUBJECT_RE.test(c.subject) &&
+      c.when > run.archivedAt &&
+      c.when - run.archivedAt <= POST_MERGE_WINDOW_MS &&
+      (namesId(c.subject, run.id) || c.refs.some((r) => namesId(r, run.id))),
   ).length;
+}
+
+/** The subject grammar the `commit-msg` hook enforces (templates/git-hooks/commit-msg.sh). */
+const CONVENTIONAL_SUBJECT_RE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: .+/;
+const NOT_CONVENTIONAL_NOTE = "skipped: not observable (history is not Conventional Commits)";
+
+/**
+ * False when fewer than half of the commit subjects dated inside the window's
+ * fix windows are Conventional Commits (AC-STE-796.3); windows holding no
+ * commit at all stay observable.
+ */
+function conventionalHistory(window: Run[], commits: Commit[] | null): boolean {
+  if (commits === null) return true;
+  const inside = commits.filter((c) =>
+    window.some((r) => Number.isFinite(r.archivedAt) && c.when > r.archivedAt && c.when - r.archivedAt <= POST_MERGE_WINDOW_MS),
+  );
+  const matched = inside.filter((c) => CONVENTIONAL_SUBJECT_RE.test(c.subject)).length;
+  return inside.length === 0 || matched * 2 >= inside.length;
 }
 
 /** One session's `review-findings` receipts' evidence. */
@@ -387,9 +392,9 @@ function metricCell(id: RetroMetric, values: (number | null)[]) {
 
 type TrackingKey = "token_stats" | "gate_outcomes" | "tool_calls" | "review_findings";
 
-/** The tracking keys whose input each metric and signal reads (AC-STE-784.4: time and gate_failure_rate need both). */
+/** The tracking keys whose input each metric and signal reads (AC-STE-784.4, AC-STE-796.4: waste, time and gate_failure_rate need both). */
 const INPUT_KEY: Record<string, TrackingKey[] | undefined> = {
-  waste: ["tool_calls"],
+  waste: ["gate_outcomes", "tool_calls"],
   tokens: ["token_stats"],
   time: ["gate_outcomes", "tool_calls"],
   gate_failure_rate: ["gate_outcomes", "tool_calls"],
@@ -457,6 +462,7 @@ export function buildTrendReport(projectRoot: string, last: number) {
         if (values === null) return { id, value: null, note };
         const skipped = offNote(off, id);
         if (skipped !== null) return { id, value: null, note: skipped };
+        if (id === "post_merge_fixes" && !conventionalHistory(window, commits)) return { id, value: null, note: NOT_CONVENTIONAL_NOTE };
         const value = values[id] ?? null;
         return value === null ? { id, value: null, note: "skipped: not observable" } : { id, value, note: null };
       }),
