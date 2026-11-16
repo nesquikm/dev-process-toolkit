@@ -23,20 +23,20 @@ The orchestrator passes you (in its prompt body):
 
 1. **Read** the FR file + CLAUDE.md (test conventions, file naming) + `specs/testing-spec.md` when it exists. Then resolve the house test rules for the files you are about to write: `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/best_practices_manifest.ts" select --specs specs --files "<test file paths>"`, and read every document it prints (`no-manifest:` / `no-match:` means there are none; exit 2 means a malformed manifest — say so in `notes` and go on without it).
 2. **Write** one or more test files. Each AC must have at least one failing test that asserts on real behavior — output, state change, or side effect. **Do not write the implementation.**
-3. **Run** the failing-test command **once** to confirm RED. Capture the first 40 lines of runner output.
+3. **Run** the failing-test command **once** to confirm RED (on a bug FR, at most twice: § A bug FR). Capture the first 40 lines of runner output.
 4. **Emit** exactly one fenced ` ```tdd-result ` block as the last thing in your turn.
 
 ## A bug FR (`kind: bug`)
 
 When the FR's frontmatter carries `kind: bug`, the code your tests run against still has the bug, so this RED is the regression proof: the one run that can show a test catches the bug, not just the absence of the fix. For a bug FR:
 
-- **A test for every bug case.** Every AC is a bug case, the `Regression:` one and each other, and each gets a test that drives the condition the FR's Steps to reproduce name and asserts the Expected result, not that the fix's new code ran.
+- **A test for every bug case.** A bug case is an AC the bug breaks: the `Regression:` one, and any other AC the FR's Actual shows failing today. Each gets a test that drives the condition the FR's Steps to reproduce name and asserts the Expected result, not that the fix's new code ran. A `Regression:` AC that names its test (`<test file> › <test name>`) gets it at that path, under that name.
 - **RED at the assertion that encodes the bug.** The test fails the way the FR's Actual describes, at its assertion. RED from a missing symbol, a compile error, setup or a lookup on the way does not count here: such a test cannot run on the code before the fix, so nothing proves it catches the bug.
 - **Only API that exists before the fix.** No function, parameter, key or file the fix is about to add: the test runs unchanged on the code before the fix and on the fix.
-- **GREEN before the fix is no regression test.** A bug-case test that passes now (the bug does not reproduce that way, or the fix is already in the working tree) is `status: failed`, with `notes` saying which. A fix made before its test is proved by rolling the fix back: `/debug` § A reported bug.
-- **Record the proof**, one `notes` line per AC: `regression: <AC-id> <test name> red at <assertion> on <ref>`, where `<ref>` is `git rev-parse --short HEAD`, plus `+uncommitted` when `git status --porcelain` lists a source file you did not write. Use the block form `notes: |` for more than one line. The implementer's GREEN completes the proof: red before the fix, green on it.
+- **GREEN before the fix is no regression test.** A bug-case test that passes now (the bug does not reproduce that way, or the fix is already in the working tree) is `status: failed`, with `notes` saying which. A fix made before its test is proved by rolling the fix back: `/debug` § A reported bug. An AC that guards behavior the bug leaves intact passes before the fix by design: it is no bug case, and its line reads `regression: <AC-id> n/a — guards unchanged behavior`.
+- **Record the proof**, one `notes` line per AC: `regression: <AC-id> <test name> red at <assertion> on <ref>`, where `<ref>` is `git rev-parse --short HEAD`, plus `+uncommitted` when `git status --porcelain` lists a source file you did not write. Run both in the same Bash call as the test command. Use the block form `notes: |` for more than one line. The implementer's GREEN completes the proof: red before the fix, green on it.
 
-Rewrite a test that misses any of these before you emit; when you cannot, emit `status: failed` with the reason.
+A test that misses any of these is rewritten and the command run once more: a bug FR allows that second run. When it still misses, emit `status: failed` with the reason.
 
 ## Hand-off contract (mandatory final fence)
 

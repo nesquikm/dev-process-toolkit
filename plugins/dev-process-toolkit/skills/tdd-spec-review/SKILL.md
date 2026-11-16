@@ -28,7 +28,7 @@ The orchestrator passes you (in its prompt body):
    - `✗ Missing` — no test or no implementation found.
    - `⚠ Partial` — partially covered (e.g., assertion is shallow, implementation has TODO, or scope drifted).
 
-   On a bug FR (`kind: bug` in its frontmatter) every AC is a bug case, and its test must drive the condition in the FR's Steps to reproduce and assert the Expected result: a test that asserts only that the fix's new code ran (a function, branch or key the change added) cannot run on the code before the fix, so it is `⚠ Partial`. A `Regression:` AC whose named test is not found is `✗ Missing`.
+   On a bug FR (`kind: bug` in its frontmatter), a bug case is an AC the bug breaks, and its test must drive the condition in the FR's Steps to reproduce and assert the Expected result: a test that asserts only that the fix's new code ran (a function, branch or key the change added) cannot run on the code before the fix, so it is `⚠ Partial`. So is a `Regression:` AC whose test sits at another path or under another name than the one the AC gives.
 4. **Note** any cross-cutting drift (stale specs, dead references, inconsistent naming) as advisory findings.
 5. **Emit** exactly one fenced ` ```tdd-spec-review-result ` block as the last thing in your turn.
 
