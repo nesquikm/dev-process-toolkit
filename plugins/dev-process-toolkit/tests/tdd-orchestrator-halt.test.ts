@@ -218,10 +218,12 @@ describe("an implementer halt names the resume at its AC", () => {
     expect(remedy).toContain("/dev-process-toolkit:tdd STE-901 --resume-at AC-STE-901.3");
   });
 
-  test("a test-writer halt has no AC to resume at, and offers no resume", () => {
+  // A Stage RED test-writer halt has no AC to resume at. Its one resume is the
+  // audit-round exit, `--resume-at audit`, named beside the re-run clause.
+  test("a test-writer halt has no AC to resume at, and names only the audit exit", () => {
     const out = formatHaltReport({ mode: "A", role: "test-writer", retryCount: 2 });
     const remedy = out.split("\n").find((l) => l.startsWith("Remedy:")) ?? "";
-    expect(remedy).not.toContain("--resume-at");
+    expect((remedy.match(/--resume-at \S+/g) ?? []).map((m) => m.replace(/[.,;]$/, ""))).toEqual(["--resume-at audit"]);
   });
 
   // A run /implement started resumes through /implement, or the gate, review,
@@ -296,11 +298,42 @@ describe("AC-STE-738.10 — with a resume point, the Remedy names that resume co
   }
 
   // Kills: an over-eager fix that drops the re-run clause where no resume
-  // point exists — a test-writer halt has nothing implemented to resume.
-  test("with no resume point (a test-writer halt) the Remedy keeps the re-run clause and names no --resume-at", () => {
+  // point exists — a Stage RED test-writer halt has nothing implemented to
+  // resume. The audit-round exit rides beside it, never in its place.
+  test("with no resume point (a test-writer halt) the Remedy keeps the re-run clause and names only the audit exit", () => {
     const remedy = remedyOf(formatHaltReport({ mode: "A", role: "test-writer", fr: "STE-901", retryCount: 2 }));
-    expect({ rerun: remedy.includes(RERUN_CLAUSE), resume: remedy.includes("--resume-at") }).toEqual({ rerun: true, resume: false });
+    expect({ rerun: remedy.includes(RERUN_CLAUSE), commands: commandsIn(remedy) }).toEqual({
+      rerun: true,
+      commands: ["/dev-process-toolkit:tdd STE-901 --resume-at audit"],
+    });
   });
+
+  // Kills: a false-RED test-writer halt whose only remedy is the re-run. In
+  // the audit retry round, and on a bug FR whose fix is already in the
+  // working tree, every test is GREEN and a re-run halts the same way.
+  test("a false-RED test-writer halt names the way out when a re-run cannot fail", () => {
+    const remedy = remedyOf(formatHaltReport({ mode: "A", role: "test-writer", fr: "STE-901", retryCount: 2 }));
+    expect(remedy).toContain("A re-run halts again when nothing can fail.");
+    expect(remedy).toContain("On a bug FR whose fix is already in the working tree, take the fix out and re-run");
+  });
+
+  // Kills: dropping the test-writer branch of the audit-round resume.
+  test("a test-writer halt in the audit retry round resumes at audit, with no re-run clause", () => {
+    const remedy = remedyOf(formatHaltReport({ mode: "A", role: "test-writer", fr: "STE-901", auditRound: true, retryCount: 2 }));
+    expect({ rerun: remedy.includes(RERUN_CLAUSE), commands: commandsIn(remedy) }).toEqual({
+      rerun: false,
+      commands: ["/dev-process-toolkit:tdd STE-901 --resume-at audit"],
+    });
+  });
+
+  // Kills: the false-RED exits leaking into a format or maxTurns halt, where
+  // a re-run is the whole remedy.
+  for (const mode of ["D", "E"] as const) {
+    test(`a test-writer halt in mode ${mode} keeps the plain re-run remedy`, () => {
+      const remedy = remedyOf(formatHaltReport({ mode, role: "test-writer", fr: "STE-901", retryCount: 2 }));
+      expect({ rerun: remedy.includes(RERUN_CLAUSE), resume: remedy.includes("--resume-at") }).toEqual({ rerun: true, resume: false });
+    });
+  }
 
   // Kills: dropping the `report.ac` guard on the implementer resume sentence
   // (or the not-load-bearing remedy's unconditional resume), which prints
