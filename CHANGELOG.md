@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.7.0] — 2026-11-17 — "Red Before Green"
+
+### Added
+
+- A bug's regression test is proved red before the fix (STE-817, external contribution in PR #137 by @vladislavgorbunov-afk). For a `kind: bug` FR, `/tdd`'s test-writer proves each bug case's test RED on the code before the fix and snapshots the tree only after a bug-case RED; the implementer proves the fix load-bearing by undoing it from Stage RED's tree. The `/tdd` and `/spec-review` audits mark a bug test that cannot fail before the fix as `partial`, `/implement` step 14 counts a bug case without that proof as unproved, and the `/tdd` halt report names `--resume-at audit` for a false-RED test-writer halt. `/debug` gains `## A reported bug`: a reported bug is fixed only when a test is RED at its assertion before the fix and GREEN on it.
+- `/debug` proves a fix made before its test without committing it. The contributed path told the agent to commit an uncommitted fix to get a ref, a commit nobody approved and the plugin's own hooks refuse. An uncommitted fix is now proved in a fresh `mktemp -d` worktree of HEAD: the other uncommitted work goes in first (untracked files one by one, deletions and renames applied), then the test (RED), then the fix (GREEN), and the worktree is removed whatever the outcome. A file mixing the fix with other work goes back to the operator.
+
+Milestone M_353741, one external contribution and the commit it no longer asks for.
+
+Total test count at release: 23831 tests, 0 failures, 0 errors.
+
 ## [3.6.2] — 2026-11-16 — "Plain Reading"
 
 ### Fixed

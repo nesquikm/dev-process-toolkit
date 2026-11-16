@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.6.2 — "Plain Reading"** (M_f1e079, three trend fixes and one Epic close. `/retro --trend` counts post-merge fixes that name the run, after it was archived, and reads a non-Conventional-Commits history as not observable rather than zero; `waste` names both tracking switches it reads. A shipped Jira Epic closes again when the Atlassian tools add their `actionSource` attribution key)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.7.0 — "Red Before Green"** (M_353741, one external contribution and the commit it no longer asks for. A bug FR's regression test is proved RED on the code before the fix and GREEN on it, and the audits mark a bug test that cannot fail first as partial. `/debug` proves an uncommitted fix in a throwaway worktree of HEAD instead of committing it)
 
 ## Core Philosophy
 
