@@ -424,8 +424,9 @@ describe("/debug — a reported bug is fixed only when a test catches it", () =>
   });
 
   // AC-STE-817.4/.5 — Core Principle 4: no step of the proof asks for a
-  // commit the operator has not approved. HEAD is the code before an
-  // uncommitted fix, so a detached worktree of HEAD needs no new ref.
+  // commit or a stash the operator has not approved. HEAD lacks both the fix
+  // and any other uncommitted work, so the other work goes into a detached
+  // worktree of HEAD first and the RED then isolates the fix.
   test("the fix made before its test no longer asks for a commit", () => {
     expect(read(DEBUG)).not.toContain("commit a fix that is not committed yet");
   });
@@ -435,67 +436,158 @@ describe("/debug — a reported bug is fixed only when a test catches it", () =>
     expect(uncommittedFixPath(read(DEBUG))).toContain("`git worktree add --detach <dir> HEAD`");
   });
 
-  test("an uncommitted fix's test is copied in and run RED at its assertion first", () => {
-    const path = uncommittedFixPath(read(DEBUG));
-    const add = path.indexOf("`git worktree add --detach <dir> HEAD`");
-    const copyTest = path.indexOf("copy the test in");
-    const red = path.indexOf("RED at its assertion");
-    expect(add).toBeGreaterThanOrEqual(0);
-    expect(copyTest).toBeGreaterThan(add);
-    expect(red).toBeGreaterThan(copyTest);
+  test("an uncommitted fix's slice stops where the committed-fix path starts", () => {
+    const md = read(DEBUG);
+    const path = uncommittedFixPath(md);
+    expect(md).toContain("For a committed fix");
+    expect(path).not.toContain("For a committed fix");
+    expect(path).not.toContain("git merge-base");
   });
 
-  test("an uncommitted fix's changed paths, untracked ones included, go in after the RED", () => {
+  test("an uncommitted fix's worktree dir is a fresh mktemp -d outside the working tree", () => {
     const path = uncommittedFixPath(read(DEBUG));
-    const red = path.indexOf("RED at its assertion");
-    const copyFix = path.indexOf("every path the fix changed, untracked ones included");
-    const green = path.indexOf("GREEN", copyFix);
-    expect(red).toBeGreaterThanOrEqual(0);
-    expect(copyFix).toBeGreaterThan(red);
-    expect(green).toBeGreaterThan(copyFix);
+    expect(path).toContain("`mktemp -d`");
+    expect(path).toContain("outside the working tree");
   });
 
-  test("an uncommitted fix's worktree is removed after the GREEN", () => {
+  test("an uncommitted fix's path stops if the worktree add fails", () => {
+    expect(uncommittedFixPath(read(DEBUG))).toMatch(/stop if `(git worktree )?add[^`]*` fails/i);
+  });
+
+  test("an uncommitted fix's other work is listed with untracked files one by one", () => {
     const path = uncommittedFixPath(read(DEBUG));
-    const copyFix = path.indexOf("every path the fix changed, untracked ones included");
+    expect(path).toContain("`git status --porcelain --untracked-files=all`");
+    expect(path).toContain("neither the fix nor the test");
+  });
+
+  test("the other uncommitted work goes in with deletions, renames and parent directories", () => {
+    const path = uncommittedFixPath(read(DEBUG));
+    expect(path).toContain("deletions and renames applied");
+    expect(path).toContain("parent directories created");
+  });
+
+  test("the uncommitted-fix worktree gets its dependencies installed or linked", () => {
+    expect(uncommittedFixPath(read(DEBUG))).toMatch(/install\w* or link\w* (the )?dependencies/i);
+  });
+
+  // The order is the proof: other work in, RED with the test alone, then the
+  // fix's paths, GREEN, and the worktree gone.
+  test("the uncommitted-fix path runs other work → test → RED → fix → GREEN → remove", () => {
+    const path = uncommittedFixPath(read(DEBUG));
+    const other = path.indexOf("neither the fix nor the test");
+    const deps = at(path, /install\w* or link\w* (the )?dependencies/i, other);
+    const copyTest = at(path, /cop(y|ies) the test in/i, other);
+    const red = path.indexOf("RED at its assertion", copyTest);
+    const copyFix = at(path, /cop(y|ies) in the fix's paths/i, red);
     const green = path.indexOf("GREEN", copyFix);
     const remove = path.indexOf("`git worktree remove --force <dir>`", green);
-    expect(green).toBeGreaterThanOrEqual(0);
+    expect(other).toBeGreaterThanOrEqual(0);
+    expect(deps).toBeGreaterThan(other);
+    expect(copyTest).toBeGreaterThan(deps);
+    expect(red).toBeGreaterThan(copyTest);
+    expect(copyFix).toBeGreaterThan(red);
+    expect(green).toBeGreaterThan(copyFix);
     expect(remove).toBeGreaterThan(green);
   });
 
-  test("an uncommitted fix's paths come from git status, deletions and renames applied", () => {
+  test("the uncommitted-fix path regenerates before the RED and again after the fix goes in", () => {
     const path = uncommittedFixPath(read(DEBUG));
-    expect(path).toContain("each non-test path `git status --porcelain` lists");
-    expect(path).toContain("a path the fix deleted is deleted there too, and so is the old name of a path it renamed");
+    const other = path.indexOf("neither the fix nor the test");
+    const copyTest = at(path, /cop(y|ies) the test in/i, other);
+    const red = path.indexOf("RED at its assertion", copyTest);
+    const copyFix = at(path, /cop(y|ies) in the fix's paths/i, red);
+    const green = path.indexOf("GREEN", copyFix);
+    const regenBefore = at(path, /regenerat/i, other);
+    const regenAfter = at(path, /regenerat/i, copyFix);
+    expect(other).toBeGreaterThanOrEqual(0);
+    expect(regenBefore).toBeGreaterThan(other);
+    expect(regenBefore).toBeLessThan(red);
+    expect(copyFix).toBeGreaterThan(red);
+    expect(regenAfter).toBeGreaterThan(copyFix);
+    expect(green).toBeGreaterThan(regenAfter);
   });
 
-  test("the proof line names HEAD and the working tree for an uncommitted fix", () => {
-    expect(read(DEBUG)).toContain(
-      "In the proof line below, this path's `<pre-fix>` is `HEAD` and its `<fix>` is `the working tree`.",
+  test("a file holding both the fix and other work cannot be split: the operator is asked", () => {
+    const path = uncommittedFixPath(read(DEBUG));
+    expect(path).toContain("both the fix and other uncommitted work");
+    expect(path).toContain("cannot be split");
+    expect(path).toMatch(OPERATOR_ASK);
+  });
+
+  test("the other uncommitted paths copied in are named in the change description", () => {
+    expect(uncommittedFixPath(read(DEBUG))).toMatch(
+      /other uncommitted paths[^.]*named in the change description|\bname\w*[^.]*other uncommitted paths[^.]*in the change description/i,
     );
   });
 
-  test("the uncommitted-fix path never tells the agent to commit", () => {
+  test("the uncommitted-fix worktree is removed whatever the outcome", () => {
+    expect(uncommittedFixPath(read(DEBUG))).toMatch(/whatever the outcome[^.]*`git worktree remove --force <dir>`/i);
+  });
+
+  test("the proof line names HEAD plus the other work, and the working tree, for an uncommitted fix", () => {
+    expect(uncommittedFixPath(read(DEBUG))).toContain(
+      "In the proof line below, this path's `<pre-fix>` is `HEAD` plus the other uncommitted work and its `<fix>` is `the working tree`.",
+    );
+  });
+
+  test("an uncommitted fix's mixed file is caught before any work is copied in", () => {
+    const path = uncommittedFixPath(read(DEBUG));
+    const ask = path.indexOf("cannot be split");
+    const copy = path.indexOf("neither the fix nor the test");
+    expect(ask).toBeGreaterThanOrEqual(0);
+    expect(copy).toBeGreaterThan(ask);
+  });
+
+  // The operator ask is the one sentence that may say "commit": the agent
+  // itself never commits or stashes on this path.
+  test("the uncommitted-fix path never tells the agent to commit or stash", () => {
     const path = uncommittedFixPath(read(DEBUG));
     expect(path).toContain("`git worktree add --detach <dir> HEAD`");
-    expect(path).not.toMatch(/\bgit commit\b|\bcommit (it|the fix)\b/);
+    expect(path).toMatch(OPERATOR_ASK);
+    const agentSteps = path.replace(new RegExp(`[^.]*${OPERATOR_ASK.source}[^.]*\\.`, "i"), "");
+    expect(agentSteps).not.toMatch(/\bcommit\b|\bstash\b/i);
+  });
+
+  test("the committed-fix path removes its own worktree", () => {
+    const path = committedFixPath(read(DEBUG));
+    expect(path).toContain("`git worktree add --detach <dir> <fix>`");
+    expect(path).toContain("`git worktree remove --force <dir>`");
   });
 });
 
+/** The ask a file holding both the fix and other work puts to the operator. */
+const OPERATOR_ASK = /ask\w* the operator to commit or set aside the other work first/i;
+
+/** Index of the first match of `re` in `s` at or after `from`; -1 when none or `from` < 0. */
+function at(s: string, re: RegExp, from: number): number {
+  if (from < 0) return -1;
+  const m = re.exec(s.slice(from));
+  return m ? from + m.index : -1;
+}
+
 /**
  * /debug's path for a fix that is not committed yet: from its opening phrase
- * through the first `git worktree remove --force <dir>` after a GREEN, or to
- * the next `## ` heading. Empty when the phrase is absent.
+ * up to "For a committed fix", or to the next `## ` heading when that phrase
+ * does not follow. Empty when the opening phrase is absent.
  */
 function uncommittedFixPath(md: string): string {
   const start = md.indexOf("For a fix that is not committed yet");
   if (start < 0) return "";
   const heading = md.indexOf("\n## ", start);
-  const end = heading < 0 ? md.length : heading;
-  const green = md.indexOf("GREEN", start);
-  const remove = green < 0 || green > end ? -1 : md.indexOf("`git worktree remove --force <dir>`", green);
-  return md.slice(start, remove < 0 || remove > end ? end : remove + "`git worktree remove --force <dir>`".length);
+  const committed = md.indexOf("For a committed fix", start);
+  const end = [heading, committed].filter((i) => i >= 0).reduce((a, b) => Math.min(a, b), md.length);
+  return md.slice(start, end);
+}
+
+/**
+ * /debug's path for a committed fix: from "For a committed fix" up to
+ * "GREEN on the rolled-back". Empty when either phrase is absent.
+ */
+function committedFixPath(md: string): string {
+  const start = md.indexOf("For a committed fix");
+  if (start < 0) return "";
+  const end = md.indexOf("GREEN on the rolled-back", start);
+  return end < 0 ? "" : md.slice(start, end);
 }
 
 describe("the docs — what proves a Regression: criterion", () => {
