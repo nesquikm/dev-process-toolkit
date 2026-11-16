@@ -198,7 +198,7 @@ function allCommits(projectRoot: string): Commit[] | null {
   });
 }
 
-/** The window a commit counts as a post-merge fix of an FR. */
+/** The window, counted from the FR's `archived_at`, in which a commit counts as its post-merge fix. */
 const POST_MERGE_WINDOW_MS = 14 * 86_400_000;
 const FIX_SUBJECT_RE = /^fix(\([^)]*\))?!?:/;
 
