@@ -60,15 +60,43 @@ const outcomeRun = (root: string): string => `bun run "${PLUGIN_REAL}/adapters/_
 // AC-STE-716.2 — nothing bundled
 // ===========================================================================
 
+/**
+ * Amended by AC-STE-810.4 (M_c46877): hooks.json with the `run-start-snapshot`
+ * entries (PreToolUse `Skill`, UserPromptSubmit) removed, and any group that
+ * removal leaves empty dropped — parsed, so the comparison is on structure.
+ */
+function withoutRunStart(text: string): unknown {
+  const json = JSON.parse(text) as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command?: string }> }>> };
+  for (const [ev, groups] of Object.entries(json.hooks)) {
+    json.hooks[ev] = groups
+      .map((g) => ({ ...g, hooks: g.hooks.filter((h) => !(h.command ?? "").endsWith("/run-start-snapshot.sh")) }))
+      .filter((g) => g.hooks.length > 0);
+  }
+  return json;
+}
+
 describe("AC-STE-716.2 hooks/hooks.json is unchanged", () => {
-  test("hooks/hooks.json is byte-identical to the milestone base", () => {
-    expect(readFileSync(join(PLUGIN_ROOT, "hooks", "hooks.json"), "utf-8")).toBe(atV300(`${PLUGIN_REL}/hooks/hooks.json`));
+  // Amended by AC-STE-810.4 (M_c46877): STE-810 adds the run-start hook; every
+  // other entry still equals the milestone base, and the capture hook is still absent.
+  test("hooks/hooks.json equals the milestone base apart from the STE-810 run-start entries", () => {
+    expect(withoutRunStart(readFileSync(join(PLUGIN_ROOT, "hooks", "hooks.json"), "utf-8"))).toEqual(
+      withoutRunStart(atV300(`${PLUGIN_REL}/hooks/hooks.json`)),
+    );
   });
 
-  test("the two bundled-hook shape suites are byte-identical to the milestone base (pass with no edit)", () => {
-    for (const rel of ["tests/bundled-hooks-shape.test.ts", "tests/hooks-reference-install-shapes.test.ts"]) {
-      expect({ rel, same: readFileSync(join(PLUGIN_ROOT, rel), "utf-8") === atV300(`${PLUGIN_REL}/${rel}`) }).toEqual({ rel, same: true });
-    }
+  // Amended by AC-STE-810.4 (M_c46877): tests/bundled-hooks-shape.test.ts carries the
+  // STE-810 count amendments, so only the install-shapes suite stays byte-identical.
+  // Amended by AC-STE-810.4 (M_c46877): the install-shapes suite now differs from the base
+  // by exactly the STE-810 seven → nine entry-count edit and its comment, and by nothing else.
+  test("the install-shapes bundled-hook suite equals the milestone base apart from the STE-810 entry-count edit", () => {
+    const rel = "tests/hooks-reference-install-shapes.test.ts";
+    const expected = atV300(`${PLUGIN_REL}/${rel}`)
+      .replace("hooks/hooks.json, seven command-type entries,", "hooks/hooks.json, nine command-type entries,")
+      .replace(
+        '    expect(s).toContain("seven `command`-type entries");',
+        '    // Amended by AC-STE-810.4 (M_c46877): seven → nine entries — run-start-snapshot is wired twice.\n    expect(s).toContain("nine `command`-type entries");',
+      );
+    expect({ rel, same: readFileSync(join(PLUGIN_ROOT, rel), "utf-8") === expected }).toEqual({ rel, same: true });
   });
 
   test("no file under hooks/ names tool-call-capture", () => {

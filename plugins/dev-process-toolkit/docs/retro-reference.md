@@ -56,3 +56,11 @@ Size is the added plus deleted lines of the commits whose footer carries `Refs: 
 **Sharing.** A session claimed by several FRs belongs to each of their runs, but the pooled signals count its gate runs and receipts once per window, so a shared session is never counted twice. The per-run metrics still read the session for each run that claims it.
 
 The trend report writes no receipt, settings or proposal, and `retro_proposal.ts` refuses it (its schema is not `dpt-retro/1`).
+
+## Run-start ledger
+
+`adapters/_shared/src/run_start.ts` appends one row per skill start to `.dpt/ledger/run-starts.jsonl`, schema `dpt-run-start/1`, in one append write. The `run-start-snapshot` hook calls it when a skill starts. A row holds exactly these keys: `schema`, `session_id`, `skill` (the full `dev-process-toolkit:<name>` string the token ledger keys on), `fr` (or null), `started_at` (ISO-8601), `settings_hash`, `settings`, `plugin_version` and `registration`. `settings_hash` is the sha256 of the canonical JSON of `settings`, `plugin_version` and `registration`.
+
+**Gate.** A row is written only when at least one `tracking.<name>.enabled` in `specs/settings.yaml` is `true`. With every tracking switch off, nothing is written and the helper prints `skipped: no tracking switch is on`. A legacy tree whose settings still live in CLAUDE.md records nothing until `/dev-process-toolkit:upgrade` moves them, and a hook payload with no session id writes nothing.
+
+**Privacy.** `settings` holds every `PROPOSABLE_SETTINGS` key, each mapped to its raw value in the settings file or to `"absent"` when unset, and no other settings key. The row never copies the rest of the settings file.

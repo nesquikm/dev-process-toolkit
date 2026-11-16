@@ -49,10 +49,11 @@ describe("CONTROL — the sections the ACs grade are found and non-empty", () =>
     expect(harness()).toContain("${CLAUDE_PLUGIN_ROOT}");
   });
 
-  test("CONTROL: the kept install-shape facts survive the rewrite — hooks/hooks.json, seven command-type entries, timeout: 5000 in seconds, the fail-open leg", () => {
+  test("CONTROL: the kept install-shape facts survive the rewrite — hooks/hooks.json, nine command-type entries, timeout: 5000 in seconds, the fail-open leg", () => {
     const s = harness();
     expect(s).toContain("hooks/hooks.json");
-    expect(s).toContain("seven `command`-type entries");
+    // Amended by AC-STE-810.4 (M_c46877): seven → nine entries — run-start-snapshot is wired twice.
+    expect(s).toContain("nine `command`-type entries");
     expect(s).toContain("timeout: 5000");
     expect(s).toContain("**seconds**");
     expect(s).toContain("Fail-open on missing session log");
