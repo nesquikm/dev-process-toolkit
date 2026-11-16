@@ -422,7 +422,81 @@ describe("/debug — a reported bug is fixed only when a test catches it", () =>
   test("the rules forbid fixing a reported bug before a test reproduces it", () => {
     expect(read(DEBUG)).toContain("- Do NOT fix a reported bug before a test reproduces it");
   });
+
+  // AC-STE-817.4/.5 — Core Principle 4: no step of the proof asks for a
+  // commit the operator has not approved. HEAD is the code before an
+  // uncommitted fix, so a detached worktree of HEAD needs no new ref.
+  test("the fix made before its test no longer asks for a commit", () => {
+    expect(read(DEBUG)).not.toContain("commit a fix that is not committed yet");
+  });
+
+  test("an uncommitted fix is proved in a detached worktree of HEAD", () => {
+    expect(read(DEBUG)).toContain("For a fix that is not committed yet");
+    expect(uncommittedFixPath(read(DEBUG))).toContain("`git worktree add --detach <dir> HEAD`");
+  });
+
+  test("an uncommitted fix's test is copied in and run RED at its assertion first", () => {
+    const path = uncommittedFixPath(read(DEBUG));
+    const add = path.indexOf("`git worktree add --detach <dir> HEAD`");
+    const copyTest = path.indexOf("copy the test in");
+    const red = path.indexOf("RED at its assertion");
+    expect(add).toBeGreaterThanOrEqual(0);
+    expect(copyTest).toBeGreaterThan(add);
+    expect(red).toBeGreaterThan(copyTest);
+  });
+
+  test("an uncommitted fix's changed paths, untracked ones included, go in after the RED", () => {
+    const path = uncommittedFixPath(read(DEBUG));
+    const red = path.indexOf("RED at its assertion");
+    const copyFix = path.indexOf("every path the fix changed, untracked ones included");
+    const green = path.indexOf("GREEN", copyFix);
+    expect(red).toBeGreaterThanOrEqual(0);
+    expect(copyFix).toBeGreaterThan(red);
+    expect(green).toBeGreaterThan(copyFix);
+  });
+
+  test("an uncommitted fix's worktree is removed after the GREEN", () => {
+    const path = uncommittedFixPath(read(DEBUG));
+    const copyFix = path.indexOf("every path the fix changed, untracked ones included");
+    const green = path.indexOf("GREEN", copyFix);
+    const remove = path.indexOf("`git worktree remove --force <dir>`", green);
+    expect(green).toBeGreaterThanOrEqual(0);
+    expect(remove).toBeGreaterThan(green);
+  });
+
+  test("an uncommitted fix's paths come from git status, deletions and renames applied", () => {
+    const path = uncommittedFixPath(read(DEBUG));
+    expect(path).toContain("each non-test path `git status --porcelain` lists");
+    expect(path).toContain("a path the fix deleted is deleted there too, and so is the old name of a path it renamed");
+  });
+
+  test("the proof line names HEAD and the working tree for an uncommitted fix", () => {
+    expect(read(DEBUG)).toContain(
+      "In the proof line below, this path's `<pre-fix>` is `HEAD` and its `<fix>` is `the working tree`.",
+    );
+  });
+
+  test("the uncommitted-fix path never tells the agent to commit", () => {
+    const path = uncommittedFixPath(read(DEBUG));
+    expect(path).toContain("`git worktree add --detach <dir> HEAD`");
+    expect(path).not.toMatch(/\bgit commit\b|\bcommit (it|the fix)\b/);
+  });
 });
+
+/**
+ * /debug's path for a fix that is not committed yet: from its opening phrase
+ * through the first `git worktree remove --force <dir>` after a GREEN, or to
+ * the next `## ` heading. Empty when the phrase is absent.
+ */
+function uncommittedFixPath(md: string): string {
+  const start = md.indexOf("For a fix that is not committed yet");
+  if (start < 0) return "";
+  const heading = md.indexOf("\n## ", start);
+  const end = heading < 0 ? md.length : heading;
+  const green = md.indexOf("GREEN", start);
+  const remove = green < 0 || green > end ? -1 : md.indexOf("`git worktree remove --force <dir>`", green);
+  return md.slice(start, remove < 0 || remove > end ? end : remove + "`git worktree remove --force <dir>`".length);
+}
 
 describe("the docs — what proves a Regression: criterion", () => {
   test("resolver-entry § Bug FR body states the proof", () => {
