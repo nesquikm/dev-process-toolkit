@@ -33,9 +33,9 @@ export interface TimelineRound {
   tool_use_id: string;
   skill: string;
   status: "ok" | "failed" | "unparsed";
-  /** STE-714 D5 answered no: never observable. */
-  tree_changed: null;
-  tree_disposition: "not-observable";
+  /** STE-795: a parsed TDD round's claim (`files:` non-empty); null when not observable. */
+  tree_changed: boolean | null;
+  tree_disposition: "claimed" | "not-observable";
   /** STE-714 D3 answered no: never observable. */
   tokens: "not-observable";
 }
@@ -92,11 +92,26 @@ async function roundStatus(skill: string, text: string): Promise<TimelineRound["
     const p = parseTddSpecReviewBlock(ex.body);
     return p.ok ? p.block.status : "unparsed";
   }
+  const block = await parsedTddResult(text);
+  return block ? block.status : "unparsed";
+}
+
+/** A write-test / implement / refactor round's parsed `tdd-result` block, or null when it does not parse. */
+async function parsedTddResult(text: string) {
   const { extractTddResultBlock, parseTddResultBlock } = await import("./tdd_result");
   const ex = extractTddResultBlock(text);
-  if (!ex.ok) return "unparsed";
+  if (!ex.ok) return null;
   const p = parseTddResultBlock(ex.body);
-  return p.ok ? p.block.status : "unparsed";
+  return p.ok ? p.block : null;
+}
+
+/** STE-795: a write-test / implement / refactor round's claimed tree change, by its parsed `files:` list. */
+async function roundClaim(skill: string, text: string): Promise<Pick<TimelineRound, "tree_changed" | "tree_disposition">> {
+  const notObservable = { tree_changed: null, tree_disposition: "not-observable" } as const;
+  if (skill === "dev-process-toolkit:spec-review-audit" || skill === "dev-process-toolkit:tdd-spec-review") return notObservable;
+  const block = await parsedTddResult(text);
+  if (!block) return notObservable;
+  return { tree_changed: block.files.length > 0, tree_disposition: "claimed" };
 }
 
 function parseLine(line: string): unknown {
@@ -304,8 +319,7 @@ export async function buildTimeline(transcriptText: string, root: string, sessio
         tool_use_id: id,
         skill,
         status: await roundStatus(skill, text),
-        tree_changed: null,
-        tree_disposition: "not-observable",
+        ...(await roundClaim(skill, text)),
         tokens: "not-observable",
       });
     }

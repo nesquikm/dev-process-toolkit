@@ -284,11 +284,14 @@ describe("AC-STE-784.1 groups sort worst first, falling through null deltas", ()
     LONG,
   );
 
-  test("AC-STE-784.1 docs/retro-reference.md says waste reads skipped until TDD rounds record whether they changed a file", () => {
+  // Amended by AC-STE-795.5: TDD rounds now record their claimed file change, so the
+  // "waste reads skipped until rounds record ..." sentence this pinned became false.
+  // The waste row now says when a round counts as changing no file.
+  test("AC-STE-784.1 docs/retro-reference.md says when waste counts a round as changing no file", () => {
     const doc = readFileSync(RETRO_REFERENCE, "utf-8");
     const hit = doc
       .split("\n")
-      .find((l) => /waste/.test(l) && /skipped/.test(l) && /\buntil\b/.test(l) && /record/.test(l) && /chang/.test(l) && /round/.test(l));
+      .find((l) => /^\| `waste` \|/.test(l) && /changing no file/.test(l) && /claims an empty `files:` list/.test(l));
     expect(hit).toBeString();
   });
 });

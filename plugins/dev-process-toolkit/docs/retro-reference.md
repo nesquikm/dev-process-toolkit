@@ -21,6 +21,8 @@ Every rule maps to exactly one of `tripped`, `clear`, or `skipped: input not obs
 
 Thresholds are constants in code, never settings knobs.
 
+**Rounds are claims.** For `zero_yield_round`, the round record is the round's claim, not a measured diff: a `tdd-write-test`, `tdd-implement` or `tdd-refactor` round whose result parses as a `tdd-result` block records `tree_changed` from whether its `files:` list is empty, with `tree_disposition: "claimed"`, and every other round reads `tree_changed: null` with `tree_disposition: "not-observable"`. The reason is that forked rounds run in the background on the shared working tree, never commit, and are folded from the transcript at session end, so a measured per-round diff would need a tree snapshot at both edges of each fork, which nothing takes.
+
 ## Report
 
 One file, `.dpt/ledger/retro/<scope-slug>-<UTC yyyymmddThhmmssZ>.json`, schema `dpt-retro/1`. Sessions appear only as `s<N>` aliases with a 16-hex digest; the report holds no absolute path, raw command, cwd or branch name. `suggested_severity` is `low` for one tripped rule and `medium` for two or more, never `high`.
@@ -41,7 +43,7 @@ Size is the added plus deleted lines of the commits whose footer carries `Refs: 
 
 | id | per run | input |
 |---|---|---|
-| `waste` | reruns on an unchanged key plus rounds that changed no file (the `gate_rerun_unchanged_key` and `zero_yield_round` rules; not observable unless both are). Waste reads skipped until TDD rounds record whether they changed a file | `tracking.gate_outcomes` and `tracking.tool_calls` |
+| `waste` | reruns on an unchanged key plus rounds that changed no file (the `gate_rerun_unchanged_key` and `zero_yield_round` rules; not observable unless both are). A round counts as changing no file when its `tdd-result` claims an empty `files:` list (see the claim note under v1 rules) | `tracking.gate_outcomes` and `tracking.tool_calls` |
 | `tokens` | claimed output tokens per changed line | `tracking.token_stats` |
 | `time` | the run's median gate wall time | `tracking.gate_outcomes` and `tracking.tool_calls` |
 
