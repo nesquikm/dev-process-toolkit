@@ -35,7 +35,7 @@ import { cwdToSlug } from "./find_current_session";
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
 import { TOOLKIT_LABELS } from "./container_ownership";
-import { exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets, type OwnershipRoute } from "./join_consent_ownership";
+import { EPIC_EDIT_INPUT_KEYS, exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets, type OwnershipRoute } from "./join_consent_ownership";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
 import { listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
 import { isCanonicalContainerListing, milestoneIdFromEpicKey, milestoneIdFromLinearMilestone, normalizeMilestoneTitle } from "./milestone_token";
@@ -2219,8 +2219,6 @@ function sameContainer(a: { project: string; title: string }, b: { project: stri
   return normalizeMilestoneTitle(a.title) === normalizeMilestoneTitle(b.title) && sameName(a.project, b.project);
 }
 
-/** STE-729 AC.3 — the only top-level keys an Epic edit may carry (no `update` block). Twin: `EPIC_EDIT_INPUT_KEYS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
-const EPIC_EDIT_INPUT_KEYS: ReadonlySet<string> = new Set(["cloudId", "issueIdOrKey", "fields", "contentFormat", "responseContentFormat"]);
 /** STE-729 AC.3 — the only fields an Epic edit may change. Twin: `EPIC_EDIT_FIELDS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
 const EPIC_EDIT_FIELDS: ReadonlySet<string> = new Set(["description", "summary"]);
 /** STE-729 AC.3 — the envelope keys only, and `fields` holds description and/or summary and nothing else. Twin: `isTextOnlyEdit` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */

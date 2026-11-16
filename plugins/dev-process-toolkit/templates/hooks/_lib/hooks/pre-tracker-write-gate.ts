@@ -37,7 +37,7 @@ import { decideTicketOwnership, readTrackedBindings } from "../../../../adapters
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
 import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
-import { exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
+import { EPIC_EDIT_INPUT_KEYS, exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
@@ -437,6 +437,7 @@ const BUN_WORD = `(?:^|\\s)(?:[^\\s"'=]*/)?bun\\b`;
 const DECIDING_MODULE_PATTERNS = Object.entries(RECEIPT_WRITING_SUBCOMMANDS).map(([m, sub]) => {
   const mod = m.replace(/\./g, "\\.");
   return {
+    module: m,
     // `bun … <module>` then an optional closing quote, whitespace, and the
     // receipt subcommand (any argument for a module with no subcommand).
     direct: new RegExp(`${BUN_WORD}.*${mod}["']?\\s+${sub === null ? "\\S" : `${sub}\\b`}`),
@@ -444,8 +445,9 @@ const DECIDING_MODULE_PATTERNS = Object.entries(RECEIPT_WRITING_SUBCOMMANDS).map
   };
 });
 
-function rejectedDecidingCommand(command: string): boolean {
-  if (invokedDecidingModule(command) !== null) return false;
+/** The deciding modules a rejected command ran (`[]` when it is accepted or runs none). */
+function rejectedDecidingModules(command: string): string[] {
+  if (invokedDecidingModule(command) !== null) return [];
   // Only a segment that RUNS a deciding module under `bun` counts; one that
   // merely names it (`grep`, `rg`, `echo`) runs nothing and is not reported.
   // STE-650 AC.12 — a backslash-newline continuation is one line, a
@@ -455,7 +457,7 @@ function rejectedDecidingCommand(command: string): boolean {
     .replace(/\\\r?\n/g, " ")
     .replace(/(?:^|(?<=[\s;&|(]))(?:\S*\/)?(?:ba|z|da)?sh\s+-c\s+(["'])([\s\S]*?)\1/g, (_m, _q, body: string) => ` ${body}`);
   const segments = unwrapped.split(/;|&&|\|\||\||\n/).filter((seg) => !/^\s*(?:echo|printf)\b/.test(seg));
-  return DECIDING_MODULE_PATTERNS.some(({ direct, assigned }) => {
+  return DECIDING_MODULE_PATTERNS.filter(({ direct, assigned }) => {
     if (segments.some((seg) => direct.test(seg))) return true;
     return segments.some((seg, i) => {
       const name = assigned.exec(seg)?.[1];
@@ -463,7 +465,7 @@ function rejectedDecidingCommand(command: string): boolean {
       const viaVar = new RegExp(`${BUN_WORD}.*(?:\\$${name}\\b|"\\$${name}"|\\$\\{${name}\\})`);
       return segments.slice(i + 1).some((later) => viaVar.test(later));
     });
-  });
+  }).map(({ module }) => module);
 }
 
 /**
@@ -552,7 +554,12 @@ export function announcedReceipts(lines: string[], sessionId: string): Announcem
 export function scanAnnouncements(lines: string[], sessionId: string): AnnouncementScan {
   const announcingBash = new Map<string, string>(); // tool_use id → the deciding module it ran
   const out: Announcement[] = [];
-  const rejected: string[] = [];
+  // STE-797 AC.4 — a rejected command whose every module a later accepted run
+  // of that module re-ran is superseded and left out of `rejected`. "Ran" is
+  // read off the accepted run's result: a success or an `Exit code N` error
+  // executed; a denied call or one with no result yet supersedes nothing.
+  const pending: Array<{ cmd: string; modules: Set<string> }> = [];
+  const acceptedAt = new Map<string, number>(); // accepted tool_use id → pending entries before it
   const foreign: Array<{ path: string; session: string }> = [];
   // STE-696 — a call or result written twice under one id is read once: the
   // first result copy decides, so one deciding run announces one receipt.
@@ -563,9 +570,20 @@ export function scanAnnouncements(lines: string[], sessionId: string): Announcem
       const cmd = b.input?.command;
       if (typeof cmd !== "string") continue;
       const module = invokedDecidingModule(cmd);
-      if (module !== null) announcingBash.set(b.id, module);
-      else if (rejectedDecidingCommand(cmd)) rejected.push(cmd);
+      if (module !== null) {
+        announcingBash.set(b.id, module);
+        acceptedAt.set(b.id, pending.length);
+      } else {
+        const modules = rejectedDecidingModules(cmd);
+        if (modules.length > 0) pending.push({ cmd, modules: new Set(modules) });
+      }
     } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+      const before = acceptedAt.get(b.tool_use_id);
+      if (before !== undefined && (b.is_error !== true || /^Exit code \d+/.test(resultText(b.content)))) {
+        const module = announcingBash.get(b.tool_use_id)!;
+        for (const p of pending.slice(0, before)) p.modules.delete(module);
+        acceptedAt.delete(b.tool_use_id);
+      }
       if (b.is_error === true || !announcingBash.has(b.tool_use_id)) continue;
       const found = resultText(b.content)
         .split("\n")
@@ -584,6 +602,7 @@ export function scanAnnouncements(lines: string[], sessionId: string): Announcem
       }
     }
   }
+  const rejected = pending.filter((p) => p.modules.size > 0).map((p) => p.cmd);
   return { announcements: out, rejected, foreign };
 }
 
@@ -1875,9 +1894,6 @@ function epicClosed(call: TrackerCall, ctx: OwnershipContext, root: string, key:
 
 /** STE-729 — the Epic edit: the ONE module whose `epic-edit` receipt permits a description/summary edit. */
 const EPIC_EDIT_MODULE = "epic_edit.ts";
-
-/** STE-729 AC.3 — the only top-level keys an Epic edit may carry (no `update` block). */
-const EPIC_EDIT_INPUT_KEYS: ReadonlySet<string> = new Set(["cloudId", "issueIdOrKey", "fields", "contentFormat", "responseContentFormat"]);
 
 /** STE-729 AC.3 — the only fields an Epic edit may change. */
 const EPIC_EDIT_FIELDS: ReadonlySet<string> = new Set(["description", "summary"]);
