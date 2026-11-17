@@ -20,7 +20,7 @@ import { firstCopies, type FirstCopy } from "../../../templates/hooks/_lib/sessi
 import { checkRegisterPreconditions, registerCapture } from "./capture_registration";
 import { sessionTranscriptPath } from "./find_current_session";
 import { perQuestionConsent } from "./join_consent_ownership";
-import { loadProjectSection, SETTINGS_FILE, settingsWriteSource } from "./project_settings";
+import { loadProjectSection, SETTINGS_FILE, SettingsShapeError, settingsWriteSource } from "./project_settings";
 import { writeProjectSettings } from "./project_settings_writer";
 import { OPTIMIZATION_KNOBS } from "./optimizations_config";
 import { parseRetroReport, type RetroReport } from "./retro_report";
@@ -420,8 +420,12 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
   }
   let root: string;
   let lines: string[];
+  // The settings bytes the proposal is recomputed from; the write refuses if they change before it lands.
+  let writeOpts: { expectSha256?: string };
   try {
     root = realpathSync(projectRoot);
+    const readBytes = bytesOrNull(join(projectRoot, SETTINGS_FILE));
+    writeOpts = readBytes === null ? {} : { expectSha256: createHash("sha256").update(readBytes).digest("hex") };
     lines = proposeLines(projectRoot, readFileSync(reportPath, "utf-8"));
   } catch (e) {
     throw asRefusal(e, "the proposal could not be recomputed", reask, ctx);
@@ -498,8 +502,17 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
 
   const paths = [join(projectRoot, SETTINGS_FILE), join(projectRoot, ".gitignore"), join(projectRoot, LOCAL_SETTINGS_PATH)];
   const prior = paths.map((p) => bytesOrNull(p));
+  const changes = rows.map((r) => {
+    const from = currentValue(projectRoot, r.key);
+    return { key: r.key, from: from === undefined ? "absent" : from, to: r.value };
+  });
+  // Only a step that ran is rolled back, so a rollback never writes over a file this apply did
+  // not change: a settings write the writer refused (another writer's lock, changed bytes) left
+  // the file as that other writer has it, and every such refusal is a SettingsShapeError.
+  const touched = paths.map(() => false);
   const restore = () => {
     paths.forEach((p, i) => {
+      if (!touched[i]) return;
       const b = prior[i]!;
       if (b === null) rmSync(p, { force: true });
       else writeFileSync(p, b);
@@ -507,15 +520,23 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
   };
   try {
     // 2. Write each row's key.
-    writeProjectSettings(projectRoot, settingsUpdate(rows));
+    try {
+      writeProjectSettings(projectRoot, settingsUpdate(rows), writeOpts);
+      touched[0] = true;
+    } catch (e) {
+      touched[0] = !(e instanceof SettingsShapeError);
+      throw e;
+    }
     // 3. Append the printed .gitignore line.
     if (addIgnore) {
       const gi = paths[1]!;
+      touched[1] = true;
       const text = existsSync(gi) ? readFileSync(gi, "utf-8") : "";
       writeFileSync(gi, `${text}${text === "" || text.endsWith("\n") ? "" : "\n"}${LOCAL_SETTINGS_PATH}\n`);
     }
     // 4. Register the capture hook.
     if (toolCalls) {
+      touched[2] = true;
       const refusals = registerCapture(projectRoot);
       if (refusals.length > 0) throw new RetroApplyRefusal(refusals[0]!);
     }
@@ -535,6 +556,25 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
       );
     }
     throw asRefusal(e, "the settings change could not be applied", reask, ctx);
+  }
+  // 5. Every step succeeded: record what changed.
+  try {
+    writeReceipt(root, {
+      kind: "retro-change",
+      adapter: null,
+      container: null,
+      subject: "dev-process-toolkit:retro",
+      decision: "apply",
+      evidence: { digest, applied_at: new Date().toISOString(), changes },
+    });
+  } catch (e) {
+    // The change is applied and the approval is spent, so a retry would find nothing to change.
+    throw asRefusal(
+      e,
+      "the settings change is applied, but its retro-change receipt could not be written",
+      `no retry is needed; record the change by hand if a later revert must check it: changes=${JSON.stringify(changes)}`,
+      ctx,
+    );
   }
   return { keys };
 }

@@ -74,7 +74,9 @@ describe("AC-STE-728.6 apply changes only the proposed keys", () => {
 
       const snap = snapshot(root);
       const receipts = receiptFiles(root, a.session);
-      expect(receipts).toHaveLength(1);
+      // Amended by AC-STE-815.1: a successful apply also leaves its retro-change receipt.
+      expect(receipts).toHaveLength(2);
+      expect(retroApplyReceipts(root, a.session)).toHaveLength(1);
       const added = Object.keys(snap).filter((k) => !(k in before)).sort();
       expect(added).toEqual([...receipts, ...(dptGitignore ? [] : [join(".dpt", ".gitignore")])].sort());
       const changed = Object.keys(before).filter((k) => snap[k] !== before[k]);
