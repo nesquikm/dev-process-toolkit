@@ -286,13 +286,13 @@ describe("AC-STE-735.3 — header and gate-check line 149 say the probe is scaff
 
   test("gate-check SKILL.md line 149 is still probe #62, edited in place", () => {
     const lines = readFileSync(GATE_CHECK_SKILL, "utf-8").split("\n");
-    expect(lines[148]!.startsWith("62. **`spawn_pattern_allowlist`**")).toBe(true);
-    expect(lines[149]!.startsWith("63. ")).toBe(true);
+    expect(lines[149]!.startsWith("62. **`spawn_pattern_allowlist`**")).toBe(true); // Amended by AC-STE-825.3 (M_d1e7b1): line 149 -> 150
+    expect(lines[150]!.startsWith("63. ")).toBe(true); // Amended by AC-STE-825.3 (M_d1e7b1)
     expect(lines.filter((l) => l.includes("`spawn_pattern_allowlist`")).length).toBe(1);
   });
 
   test("gate-check SKILL.md line 149 states the scaffold scope and drops the old vacuity clause", () => {
-    const line = readFileSync(GATE_CHECK_SKILL, "utf-8").split("\n")[148]!;
+    const line = readFileSync(GATE_CHECK_SKILL, "utf-8").split("\n")[149]!; // Amended by AC-STE-825.3 (M_d1e7b1): line 149 -> 150
     expect(scopedSentence(line)).toBeDefined();
     expect(line).not.toContain("Vacuous when a surface's file is absent (toolkit consumers ship neither)");
     expect(line).toContain("tests/m_b2fdc0-ste-735-scaffold-scope.test.ts");

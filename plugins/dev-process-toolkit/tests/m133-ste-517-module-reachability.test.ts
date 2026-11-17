@@ -708,7 +708,7 @@ describe("AC-STE-648.9 — the line-120 correction leaves orderedUnreachable at 
   });
 
   test("AC-STE-648.9 CONTROL: gate-check SKILL.md line 120 carries no module path for the branch-gate module", () => {
-    const line = readFileSync(gateCheckSkillMd, "utf-8").split("\n")[120 - 1]!;
+    const line = readFileSync(gateCheckSkillMd, "utf-8").split("\n")[121 - 1]!; // Amended by AC-STE-825.3 (M_d1e7b1): probe #41 moved 120 -> 121
     expect(line).toMatch(/^41\. \*\*`spec_research_result_shape`\*\*/);
     expect(line).not.toContain("commit_producing_skill_branch_gate.ts");
   });

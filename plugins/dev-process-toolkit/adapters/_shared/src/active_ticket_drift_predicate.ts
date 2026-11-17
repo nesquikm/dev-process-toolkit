@@ -15,6 +15,7 @@
 // | done          | any          | any              | archived    | vacuous (probe #27 owns) |
 // | backlog/etc.  | any          | any              | any         | fail (M23 drift) |
 // | in_progress   | != current   | any              | any         | fail (M23 drift) |
+// | initial       | any          | no checked task names the FR; no lock names it | any | pass (not started — STE-825) |
 //
 // When the fully-checked exemption fires, the probe additionally emits an
 // advisory — `M<N> plan fully checked but not archived — run /spec-archive
@@ -32,8 +33,40 @@ export interface TicketSummaryLike {
 }
 
 export interface StatusMapping {
+  initial?: string;
   in_progress: string;
   done: string;
+}
+
+/** The FR's tracker id, its minted `id:` when it has one, and the ids held in the lock store (`readLockIds`). */
+export interface FrRef {
+  trackerId: string;
+  /** The FR's frontmatter `id:` — locks are filed under it, not under the tracker id. */
+  frId?: string;
+  lockIds: readonly string[];
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * STE-825 not-started carve-out. True iff the ticket's status maps to the
+ * `initial` role, no checked task line of the FR's plan names its tracker
+ * id, and no lock entry names the FR. Without `frRef` nothing is provable.
+ */
+export function notStartedExempt(
+  summary: TicketSummaryLike,
+  planTaskState: PlanTaskState,
+  statusMapping: StatusMapping,
+  frRef?: FrRef,
+): boolean {
+  if (!frRef || !frRef.trackerId || statusMapping.initial == null) return false;
+  if (summary.status !== statusMapping.initial) return false;
+  // Bounded by alphanumerics on both sides: `fix-STE-825` and `STE-825-2` name STE-825, `STE-8250` does not.
+  const named = new RegExp(`(^|[^A-Za-z0-9])${escapeRe(frRef.trackerId)}(?![0-9A-Za-z])`);
+  if ((planTaskState.checkedTaskLines ?? []).some((line) => named.test(line))) return false;
+  return !frRef.lockIds.some((id) => id === frRef.trackerId || (frRef.frId !== undefined && id === frRef.frId));
 }
 
 /**
@@ -112,9 +145,11 @@ export function activeTicketDriftPasses(
   planTaskState: PlanTaskState,
   statusMapping: StatusMapping,
   currentUser: string,
+  frRef?: FrRef,
 ): boolean {
   return (
     inProgressMatches(summary, currentUser) ||
+    notStartedExempt(summary, planTaskState, statusMapping, frRef) ||
     singleFrCleanExempt(summary, planTaskState, statusMapping) ||
     fullyCheckedSingleFrExempt(summary, planTaskState, statusMapping)
   );

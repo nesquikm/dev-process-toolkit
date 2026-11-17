@@ -54,7 +54,7 @@ codename: Read Back
   verify: contract tests on SKILL, reference and key registry
 - [x] STE-745: lead-in template + caps in /implement; 15a grades the whole final message
   verify: template sentences fit the cap; model report exits 0; old cut drops an exempt section
-- [ ] STE-825: probe #14 not-started carve-out; commit gate refuses a recorded fail outcome
+- [x] STE-825: probe #14 not-started carve-out; commit gate refuses a recorded fail outcome
   verify: each single-condition failure still fails; fail/pass-after-fail/foreign-checkout hook tests
 - [ ] STE-791: narrow `cd` receipt form; spec-deletion pass; smoke driver evidence docs
   verify: one negative test per rejected shape; outside-specs deletion gets no pass

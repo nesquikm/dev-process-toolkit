@@ -13,6 +13,7 @@
 // Trunk is the M_d1b4b7 merge commit 13fdf144, whose gate-check SKILL.md equals
 // v3.0.0 (6c62b32c) on every line from 10 on.
 
+import { undoSte825 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1)
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -34,7 +35,7 @@ function atCommit(sha: string, rel: string): string {
   return g.stdout;
 }
 
-const now = (): string => readFileSync(join(REPO, GATE_CHECK), "utf-8");
+const now = (): string => undoSte825(readFileSync(join(REPO, GATE_CHECK), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts)
 const trunk = (): string => atCommit(TRUNK, GATE_CHECK);
 const steTokens = (s: string): number => (s.match(/STE-\d+/g) ?? []).length;
 
@@ -74,7 +75,8 @@ describe("AC-STE-723.7 row 90 is registered as an ordered, reachable line", () =
     "AC-STE-723.7 probe #81 classifies the row-90 reference as ordered and grades it reachable, and stays ok",
     async () => {
       const report = await runModuleReachabilityProbe(REPO);
-      const lineNo = now().split("\n").findIndex((l) => l.startsWith("90. ")) + 1;
+      // Amended by AC-STE-825.3 (M_d1e7b1): probe #81 reads the real file, so the row is located there, not in the undone text.
+      const lineNo = readFileSync(join(REPO, GATE_CHECK), "utf-8").split("\n").findIndex((l) => l.startsWith("90. ")) + 1;
       expect(lineNo).toBeGreaterThan(0);
       const recs = report.records.filter(
         (r) => r.surface === GATE_CHECK && r.line === lineNo && r.module.includes("optimizations_config.ts"),

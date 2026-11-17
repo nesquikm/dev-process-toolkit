@@ -570,7 +570,7 @@ describe("AC-STE-584.12 — prose lands in the executing copies with zero new li
 
   test("gate-check SKILL.md still splits to 356 and probe 75's row names spans_repos.ts, awaiting-sibling, sibling-unlocatable", () => {
     const file = skillPath("gate-check");
-    expect(splitCount(file)).toBe(356);
+    expect(splitCount(file)).toBe(357); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
     const row = read(file)
       .split("\n")
       .find((l) => /^75\. \*\*/.test(l));

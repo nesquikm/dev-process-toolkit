@@ -22,10 +22,13 @@ export interface PlanTaskState {
   totalTasks: number;
   uncheckedTasks: number;
   planStatus: PlanStatus;
+  /** Every checked (`- [x]`) task line of the plan, verbatim (STE-825). */
+  checkedTaskLines?: string[];
 }
 
 const TASK_LINE_RE = /^\s*-\s*\[[ x]\]\s/;
 const UNCHECKED_RE = /^\s*-\s*\[ \]\s/;
+const CHECKED_RE = /^\s*-\s*\[x\]\s/;
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -54,18 +57,20 @@ export async function readPlanTaskState(
   }
 
   if (path === null) {
-    return { totalTasks: 0, uncheckedTasks: 0, planStatus: "missing" };
+    return { totalTasks: 0, uncheckedTasks: 0, planStatus: "missing", checkedTaskLines: [] };
   }
 
   const content = await readFile(path, "utf-8");
   const lines = content.split("\n");
   let total = 0;
   let unchecked = 0;
+  const checkedTaskLines: string[] = [];
   for (const line of lines) {
     if (TASK_LINE_RE.test(line)) {
       total += 1;
       if (UNCHECKED_RE.test(line)) unchecked += 1;
+      if (CHECKED_RE.test(line)) checkedTaskLines.push(line);
     }
   }
-  return { totalTasks: total, uncheckedTasks: unchecked, planStatus: status };
+  return { totalTasks: total, uncheckedTasks: unchecked, planStatus: status, checkedTaskLines };
 }

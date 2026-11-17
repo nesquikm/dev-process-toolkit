@@ -28,6 +28,7 @@
 // Every fixture is a REAL temp root torn down in a `finally`; nothing is
 // written under the plugin tree.
 
+import { undoSte825 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1)
 import { carriesLiveAmendment, hunkIsLiveAmendment, liveAcIds } from "./_amendment_marker";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -318,7 +319,7 @@ describe("AC-STE-591.1 — skills/gate-check/SKILL.md probe #23 row states the s
       "23. **`traceability-link-validity`** — call `runTraceabilityLinkValidityProbe(projectRoot)` from `adapters/_shared/src/traceability_link_validity.ts`.",
     );
     const lines = readLf(GATE_SKILL).split("\n");
-    expect(lines[77], "probe #23's row moved off line 78").toStartWith("23. **");
+    expect(lines[78], "probe #23's row moved off line 79").toStartWith("23. **"); // Amended by AC-STE-825.3 (M_d1e7b1): line 78 -> 79
   });
 });
 
@@ -670,7 +671,7 @@ describe("AC-STE-591.8 — module reachability holds its pin, and neither module
 describe("structural — gate-check's probe rows stay where the pins expect them", () => {
   test("probe #26's row is on line 81, and `26. ` marks exactly one line", () => {
     const lines = readLf(GATE_SKILL).split("\n");
-    expect(lines[80], "probe #26's row moved off line 81").toMatch(/^26\. /);
+    expect(lines[81], "probe #26's row moved off line 82").toMatch(/^26\. /); // Amended by AC-STE-825.3 (M_d1e7b1): line 81 -> 82
     // Control: the marker is unique, so line 81 is not matched by accident.
     expect(lines.filter((l) => /^26\. /.test(l)).length).toBe(1);
   });
@@ -702,7 +703,7 @@ describe("structural — gate-check's probe rows stay where the pins expect them
       added,
       `gate-check SKILL.md must be edited IN PLACE this milestone (every row edit replaces its line): ` +
         `numstat against main is +${added} -${deleted}. A row was added or removed, or a line split.`,
-    ).toBe(deleted!);
+    ).toBe(deleted! + ste825RowAdded()); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row is the one admitted added line
   });
 
   // Amended by AC-STE-685.3: admits STE-685's marked runner migration; an unmarked hunk still goes red.
@@ -811,3 +812,9 @@ describe("Stage C hardening — /pr's refusal path, its plan path, and a remedy 
     expect(probeRow(27)).toMatch(/\bclears?\b[^.\n]{0,120}\bown plan\b|\bown plan\b[^.\n]{0,120}\bclears?\b/i);
   });
 });
+
+/** Amended by AC-STE-825.3 (M_d1e7b1): 1 when the exact STE-825 row is in place, else 0. */
+function ste825RowAdded(): number {
+  const now = readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+  return undoSte825(now) !== now ? 1 : 0;
+}

@@ -772,9 +772,9 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
 
   test("gate-check/SKILL.md: 356 split-lines, 87 STE tokens, row 49 on line 128 runs the front door and lists the new rows", () => {
     const body = read(GATE_CHECK);
-    expect(body.split("\n").length).toBe(356);
+    expect(body.split("\n").length).toBe(357); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
     expect(steTokens(body)).toBe(87);
-    const line = body.split("\n")[127] ?? "";
+    const line = body.split("\n")[128] ?? ""; // Amended by AC-STE-825.3 (M_d1e7b1): row 49 now on line 129
     expect(line.startsWith("49. ")).toBe(true);
     expect(line).toMatch(/bun run [^\n`]*adapters\/_shared\/src\/tracker_local_reconciliation_drift\.ts/);
     for (const kind of [
@@ -821,7 +821,7 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
     expect(typeof report.orderedUnreachable).toBe("number");
     expect(report.orderedUnreachable).toBe(head.value);
     const row49 = report.records.filter(
-      (r) => r.surface.endsWith("skills/gate-check/SKILL.md") && r.line === 128,
+      (r) => r.surface.endsWith("skills/gate-check/SKILL.md") && r.line === 129, // Amended by AC-STE-825.3 (M_d1e7b1): row 49 now on line 129
     );
     expect(row49.map((r) => r.module)).toContain("adapters/_shared/src/tracker_local_reconciliation_drift.ts");
     for (const r of row49) expect(r.reachable, `${r.module} on row 49 is unreachable`).toBe(true);

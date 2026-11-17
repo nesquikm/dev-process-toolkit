@@ -350,10 +350,11 @@ describe("AC-STE-543.1 — walks both sections across active AND archived specs"
     // what lets those two keep saying `no git, no network`.
     const lines = read(GATE_CHECK_SKILL).split("\n");
     // SKILL.md:155 and :156 (1-indexed) — measured today.
-    expect(lines[154]).toMatch(/^68\. \*\*`migration_coverage`\*\*/);
-    expect(lines[154]).toContain("no git, no network");
-    expect(lines[155]).toMatch(/^69\. \*\*`upgrade_staleness`\*\*/);
-    expect(lines[155]).toContain("no git, no network");
+    // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row moved both down one (156, 157).
+    expect(lines[155]).toMatch(/^68\. \*\*`migration_coverage`\*\*/);
+    expect(lines[155]).toContain("no git, no network"); // Amended by AC-STE-825.3 (M_d1e7b1)
+    expect(lines[156]).toMatch(/^69\. \*\*`upgrade_staleness`\*\*/); // Amended by AC-STE-825.3 (M_d1e7b1)
+    expect(lines[156]).toContain("no git, no network"); // Amended by AC-STE-825.3 (M_d1e7b1)
   });
 
   test("the module exports a PROBE_ID and a runnable probe", () => {

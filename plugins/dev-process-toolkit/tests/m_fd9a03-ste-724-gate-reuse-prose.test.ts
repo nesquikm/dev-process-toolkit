@@ -228,7 +228,7 @@ describe("AC-STE-724.13 ## Commands names `reuse: on` and the front door; the pa
 
   test("AC-STE-724.13 the file measures exactly 356 split-lines and 87 STE-<n> tokens", () => {
     const body = gcNow();
-    expect(body.split("\n").length).toBe(356);
+    expect(body.split("\n").length).toBe(357); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
     expect((body.match(/STE-\d+/g) ?? []).length).toBe(87);
   });
 

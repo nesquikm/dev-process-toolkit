@@ -148,7 +148,7 @@ describe("AC-STE-608.11 — structural pins are unmoved (controls)", () => {
 // ===========================================================================
 
 describe("AC-STE-608.16 — gate-check row 73 (line 160) is rewritten in place", () => {
-  const row = () => lines(GATE_CHECK)[159] ?? "";
+  const row = () => lines(GATE_CHECK)[160] ?? ""; // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
 
   test("row 73 names the Linear arm and its epoch", () => {
     expect(row().startsWith("73. **`plan_identity_mode_conditional`**")).toBe(true);
@@ -161,7 +161,7 @@ describe("AC-STE-608.16 — gate-check row 73 (line 160) is rewritten in place",
   });
 
   test("(control) gate-check/SKILL.md keeps 356 split-lines and 87 STE tokens", () => {
-    expect(lines(GATE_CHECK).length).toBe(356);
+    expect(lines(GATE_CHECK).length).toBe(357); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
     expect(steTokens(read(GATE_CHECK))).toBe(87);
   });
 });

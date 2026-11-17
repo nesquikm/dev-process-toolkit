@@ -607,7 +607,8 @@ export type GateEvidenceReason =
   | "announcement-foreign-store"
   | "run-announced-many"
   | "run-announced-none"
-  | "nothing-announced";
+  | "nothing-announced"
+  | "gate-failed";
 
 export interface GateEvidence {
   /** False ONLY when the leg applies and is not satisfied. */
@@ -812,7 +813,7 @@ type AnnouncementDrop = "tampered" | "unreadable" | "foreign-store";
 /** What `announcedRoots` measured: what survived, and why the rest did not. */
 interface AnnouncedReading {
   /** The roots this session announced a still-intact receipt for, in order. */
-  kept: Array<{ root: string; line: number }>;
+  kept: Array<{ root: string; line: number; digest: string; path: string }>;
   /**
    * One entry per announcement the filter rejected, with its cause AND the
    * file it named. The path is carried because a report that says a receipt
@@ -833,7 +834,7 @@ function announcedRoots(
   announcements: readonly ReceiptAnnouncement[],
   sessionId: string,
 ): AnnouncedReading {
-  const kept: Array<{ root: string; line: number }> = [];
+  const kept: Array<{ root: string; line: number; digest: string; path: string }> = [];
   const dropped: Array<{ drop: AnnouncementDrop; line: number; path: string }> = [];
   for (const a of announcements) {
     const root = announcedRoot(a.path, sessionId);
@@ -852,7 +853,7 @@ function announcedRoots(
       dropped.push({ drop: "tampered", line: a.line, path: a.path });
       continue;
     }
-    kept.push({ root, line: a.line });
+    kept.push({ root, line: a.line, digest: a.digest, path: resolve(a.path) });
   }
   return {
     kept: kept.sort((x, y) => x.line - y.line),
@@ -1117,6 +1118,12 @@ export function gateReceiptEvidence(
     if (inside.length === 0) continue;
     const first = inside[0]!;
     if (first.root === real) {
+      // STE-825 — the latest run this window announced for this checkout is
+      // the one that vouches; a recorded `fail` outcome for it refuses.
+      const latest = inside.filter((a) => a.root === real).pop()!;
+      if (recordedVerdict(root, sessionId, subject, latest.digest) === "fail") {
+        return { ok: false, reason: "gate-failed", claimant: null, named: latest.path, ...here, tampered };
+      }
       // PERMITTED — and the tamper goes with it rather than being discarded
       // here, which is the whole of HIGH-3. Refusing would be a false positive:
       // a genuine announcement in this window vouches for this checkout, so the
@@ -1187,6 +1194,25 @@ export function gateReceiptEvidence(
   if (incomplete.some((r) => r.outcome === "errored")) return miss("run-errored");
   if (incomplete.some((r) => r.outcome === "unresolved")) return miss("run-unresolved");
   return miss("nothing-announced");
+}
+
+/** STE-825 — the verdict this session recorded for the run receipt `runDigest`, or null when none. Never throws. */
+// Fails open on purpose, like every other leg of this guard: a store it cannot read, or a
+// decision that is not a string, reads as "no outcome recorded" and grades the run as before.
+// The CLI records one outcome per run, so the store holds at most one match. Reading it without
+// an announcement can only ADD a refusal (a planted `fail`), never permit a commit.
+function recordedVerdict(root: string, sessionId: string, subject: string, runDigest: string): string | null {
+  let verdict: string | null = null;
+  try {
+    for (const s of sessionReceiptFiles(root, sessionId)) {
+      if (s.record.kind === GATE_OUTCOME_KIND && s.record.subject === subject && s.record.evidence?.run === runDigest) {
+        verdict = typeof s.record.decision === "string" ? s.record.decision : null;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return verdict;
 }
 
 /** The two sentences a failed repository-scoped leg refuses with, and where. */
@@ -1444,6 +1470,12 @@ const MISS_PROSE: Readonly<
     `the ${w.subject} gate receipt under ${w.where} is vouched for by nothing: ` +
     `no command in this session was read as a run of the ${w.subject} receipt ` +
     `front door, so no run announced a receipt for any checkout, ${NOTHING_SHOWS}`,
+
+  // STE-825 — the run that vouches for this checkout recorded a `fail` outcome:
+  // the gate ran, and it failed.
+  "gate-failed": (w) =>
+    `the ${w.subject} run that vouches for it, ${w.named}, recorded a failed ` +
+    `outcome, so the gate ran against that checkout and did not pass.`,
 };
 
 /**
@@ -1504,7 +1536,10 @@ export function gateReceiptMiss(
         ? `this action writes to ${root}, and `
         : `this action writes to ${root}, a toolkit-managed checkout, and `) +
       MISS_PROSE[evidence.reason as keyof typeof MISS_PROSE](words),
-    how: `${remedyCommand(subject, root)}, then retry this action.`,
+    how:
+      evidence.reason === "gate-failed"
+        ? `fix what failed the gate, or re-run it: ${remedyCommand(subject, root)}, then retry this action.`
+        : `${remedyCommand(subject, root)}, then retry this action.`,
     root,
     reason: evidence.reason,
     tampered: evidence.tampered.length > 0,
