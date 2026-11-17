@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.7.0 — "Red Before Green"** (M_353741, one external contribution and the commit it no longer asks for. A bug FR's regression test is proved RED on the code before the fix and GREEN on it, and the audits mark a bug test that cannot fail first as partial. `/debug` proves an uncommitted fix in a throwaway worktree of HEAD instead of committing it)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.8.0 — "Black Box"** (M_c46877, self-tuning milestone B: instruments only. Each run records the settings it started under, token rows are claimed by the FR whose run spent them, forked child skills included, and `/retro --trend` reports one run per FR and skill with its own signals; a `/retro` settings change leaves a receipt that a revert is checked against)
 
 ## Core Philosophy
 

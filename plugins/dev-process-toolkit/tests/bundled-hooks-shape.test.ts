@@ -131,11 +131,13 @@ describe("AC-STE-289.1 / AC-STE-289.6 — bundled hooks.json shape", () => {
 
   // STE-607 pin move (1 of 3): total 4 → 5 — `pre-tracker-write-gate` joins
   // PreToolUse (UserPromptSubmit unchanged at 1).
-  test("hooks.json carries exactly 5 total hook entries", () => {
+  // Amended by AC-STE-810.4: total 5 → 7 — `run-start-snapshot` joins
+  // PreToolUse (matcher `Skill`) and UserPromptSubmit.
+  test("hooks.json carries exactly 7 total hook entries", () => {
     const parsed = readHooksJson();
     const pre = flattenEvent(parsed.hooks?.PreToolUse);
     const ups = flattenEvent(parsed.hooks?.UserPromptSubmit);
-    expect(pre.length + ups.length).toBe(5);
+    expect(pre.length + ups.length).toBe(7);
   });
 
   // STE-607 pin move (2 of 3): PreToolUse 3 → 4 entries.
@@ -143,23 +145,31 @@ describe("AC-STE-289.1 / AC-STE-289.6 — bundled hooks.json shape", () => {
   // three commit/PR gates stay under `Bash`; the fourth entry,
   // `pre-tracker-write-gate`, sits under the tracker-write MCP matcher
   // (`^mcp__.+__(…)$`, graded in tests/hook-modules-pre-tracker-write-gate.test.ts).
-  test("PreToolUse has 4 hooks: 3 under matcher `Bash`, 1 (`pre-tracker-write-gate`) under an `mcp__` matcher", () => {
+  // Amended by AC-STE-810.4: PreToolUse 4 → 5 — `run-start-snapshot` sits
+  // under matcher `Skill`.
+  test("PreToolUse has 5 hooks: 3 under matcher `Bash`, 1 (`pre-tracker-write-gate`) under an `mcp__` matcher, 1 (`run-start-snapshot`) under `Skill`", () => {
     const parsed = readHooksJson();
     const pre = flattenEvent(parsed.hooks?.PreToolUse);
-    expect(pre.length).toBe(4);
+    expect(pre.length).toBe(5);
     const bash = pre.filter((e) => e.matcher === "Bash");
-    const other = pre.filter((e) => e.matcher !== "Bash");
+    const skill = pre.filter((e) => e.matcher === "Skill");
+    const other = pre.filter((e) => e.matcher !== "Bash" && e.matcher !== "Skill");
     expect(bash.length).toBe(3);
+    expect(skill.length).toBe(1);
+    expect(skill[0]!.command.endsWith("/run-start-snapshot.sh")).toBe(true);
     expect(other.length).toBe(1);
     expect(other[0]!.command.endsWith("/pre-tracker-write-gate.sh")).toBe(true);
     expect(other[0]!.matcher.startsWith("^mcp__")).toBe(true);
   });
 
-  test("UserPromptSubmit has 1 hook under matcher `*`", () => {
+  // Amended by AC-STE-810.4: UserPromptSubmit 1 → 2 — `run-start-snapshot`
+  // joins the brainstorm reminder; both under matcher `*`.
+  test("UserPromptSubmit has 2 hooks under matcher `*`", () => {
     const parsed = readHooksJson();
     const ups = flattenEvent(parsed.hooks?.UserPromptSubmit);
-    expect(ups.length).toBe(1);
-    expect(ups[0]!.matcher).toBe("*");
+    expect(ups.length).toBe(2);
+    expect(ups.map((e) => e.matcher)).toEqual(["*", "*"]);
+    expect(ups.some((e) => e.command.endsWith("/run-start-snapshot.sh"))).toBe(true);
   });
 
   test("every command field starts with the literal `${CLAUDE_PLUGIN_ROOT}` token prefix", () => {

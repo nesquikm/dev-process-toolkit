@@ -6,7 +6,7 @@
 // A run is one archived FR with token-ledger rows claimed by its id. Runs are
 // grouped by (skill, changelog_category, size bucket) and each group keeps its
 // newest N runs. Writes exactly one file:
-// `.dpt/ledger/retro/trend-<UTC yyyymmddThhmmssZ>.json` (schema `dpt-retro-trend/1`).
+// `.dpt/ledger/retro/trend-<UTC yyyymmddThhmmssZ>.json` (schema `dpt-retro-trend/2`).
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -18,10 +18,11 @@ import { DEFAULT_RETRO_PRIORITY, loadProjectSection, type RetroMetric } from "./
 import { RETRO_RULES, evaluateRetroRules, type RetroInputs } from "./retro_rules";
 import { REVIEW_FINDINGS_KIND } from "./review_findings_receipt";
 import { aliasFor, createAliasMap, sessionDigest } from "./session_aliases";
+import { readRunStarts, type RunStartRow } from "./run_start_ledger";
 import { readLedgerRows } from "./token_usage";
 import { readSessionReceipts } from "./tracker_receipts";
 
-export const TREND_SCHEMA = "dpt-retro-trend/1";
+export const TREND_SCHEMA = "dpt-retro-trend/2";
 /** The default window: the newest N runs of each group. */
 export const TREND_DEFAULT_LAST = 20;
 /** A group with fewer runs than this reads `insufficient: <n> runs` in every cell. */
@@ -71,8 +72,17 @@ export function parseTrendArgs(args: string[]): { last: number } {
   return { last };
 }
 
-interface Run {
+export interface Run {
+  /** The archived FR id. */
   id: string;
+  /** True when any of this skill's claimed rows is an incomplete fork row (`complete: false`). */
+  incomplete: boolean;
+  /**
+   * AC-STE-812.6: "incomplete", "parent-only" (no fork row in any of its sessions) or
+   * "parent+fork" (fork capture ran in its sessions). It describes capture, not the sum:
+   * a run's tokens are its own skill's rows only, so forked children are runs of their own.
+   */
+  tokensScope: "incomplete" | "parent-only" | "parent+fork";
   /** False when git could not be read, so the run's size is unknown. */
   sized: boolean;
   skill: string;
@@ -81,6 +91,8 @@ interface Run {
   lastCommitAt: number;
   sessions: string[];
   outputTokens: number;
+  /** The STE-810 settings hash this run started under, or "settings unknown" (AC-STE-813.2). */
+  settings: string;
   /** Epoch ms of the archive file's `archived_at`; NaN when absent or unreadable. */
   archivedAt: number;
 }
@@ -161,23 +173,76 @@ function refsCommits(projectRoot: string): Map<string, RefsTotals> | null {
   return out;
 }
 
-function collectRuns(projectRoot: string): Run[] {
+export const SETTINGS_UNKNOWN = "settings unknown";
+
+/** The settings hash of the earliest run-start row matching `match`, or null when none does. */
+function earliestHash(starts: RunStartRow[], match: (r: RunStartRow) => boolean): string | null {
+  // A row whose started_at is not a date has no place in "earliest", so it is no candidate.
+  let best: RunStartRow | null = null;
+  let bestAt = Number.POSITIVE_INFINITY;
+  for (const r of starts) {
+    const at = Date.parse(r.started_at);
+    if (!match(r) || !Number.isFinite(at) || at >= bestAt) continue;
+    best = r;
+    bestAt = at;
+  }
+  return best === null ? null : typeof best.settings_hash === "string" ? best.settings_hash : SETTINGS_UNKNOWN;
+}
+
+/** AC-STE-813.2: an FR + skill match first, then a session + skill match, else unknown. */
+function settingsFor(starts: RunStartRow[], fr: string, skill: string, sessions: string[]): string {
+  return (
+    earliestHash(starts, (r) => r.skill === skill && r.fr === fr) ??
+    // The session fallback takes only rows naming no FR: a row naming another FR is that
+    // run's settings, and settings can change between two runs of one session.
+    earliestHash(starts, (r) => r.skill === skill && (r.fr === null || r.fr === undefined || r.fr === "") && sessions.includes(r.session_id)) ??
+    SETTINGS_UNKNOWN
+  );
+}
+
+/** AC-STE-813.3: the window's runs per settings value, most runs first, ties by hash. */
+function settingsCounts(window: Run[]): { hash: string; runs: number }[] {
+  const counts = new Map<string, number>();
+  for (const r of window) counts.set(r.settings, (counts.get(r.settings) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([hash, runs]) => ({ hash, runs }))
+    .sort((a, b) => b.runs - a.runs || (a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : 0));
+}
+
+/** One run per (archived FR, skill) among the FR's claimed ledger rows (AC-STE-813.1). */
+export function collectRuns(projectRoot: string): Run[] {
   // Index the ledger once by claiming FR instead of filtering it per FR.
   const byFr = new Map<string, ReturnType<typeof readLedgerRows>>();
+  // Sessions holding any fork row, claimed or not (AC-STE-812.6).
+  const forkSessions = new Set<string>();
   for (const r of readLedgerRows(projectRoot)) {
+    if ((r as { scope?: unknown }).scope === "fork" && typeof r.session_id === "string") forkSessions.add(r.session_id);
     const by = (r as { claimed_by?: unknown }).claimed_by;
     if (typeof by === "string") byFr.set(by, [...(byFr.get(by) ?? []), r]);
   }
   const commits = refsCommits(projectRoot);
   const runs: Run[] = [];
+  const starts = readRunStarts(projectRoot);
   for (const fr of archivedFrs(projectRoot)) {
     const claimed = byFr.get(fr.id) ?? [];
     if (claimed.length === 0) continue;
-    const skill = String((claimed[0] as { skill?: unknown }).skill ?? "unknown");
-    const sessions = [...new Set(claimed.map((r) => r.session_id).filter((s): s is string => typeof s === "string"))];
+    const bySkill = new Map<string, typeof claimed>();
+    for (const r of claimed) {
+      const skill = String((r as { skill?: unknown }).skill ?? "unknown");
+      const rows = bySkill.get(skill);
+      if (rows) rows.push(r);
+      else bySkill.set(skill, [r]);
+    }
+    // The FR's changed lines are shared by all of its runs.
     const c = commits?.get(fr.id) ?? noRefs();
-    const outputTokens = claimed.reduce((n, r) => n + (typeof r.output_tokens === "number" ? r.output_tokens : 0), 0);
-    runs.push({ id: fr.id, sized: commits !== null, skill, category: fr.category, lines: c.lines, lastCommitAt: c.last, sessions, outputTokens, archivedAt: fr.archivedAt });
+    for (const [skill, rows] of bySkill) {
+      const sessions = [...new Set(rows.map((r) => r.session_id).filter((s): s is string => typeof s === "string"))];
+      const outputTokens = rows.reduce((n, r) => n + (typeof r.output_tokens === "number" ? r.output_tokens : 0), 0);
+      const incomplete = rows.some((r) => (r as { complete?: unknown }).complete === false);
+      const settings = settingsFor(starts, fr.id, skill, sessions);
+      const tokensScope = incomplete ? "incomplete" : sessions.some((s) => forkSessions.has(s)) ? "parent+fork" : "parent-only";
+      runs.push({ id: fr.id, incomplete, tokensScope, sized: commits !== null, skill, category: fr.category, lines: c.lines, lastCommitAt: c.last, sessions, outputTokens, settings, archivedAt: fr.archivedAt });
+    }
   }
   return runs;
 }
@@ -231,7 +296,8 @@ function postMergeFixes(run: Run, commits: Commit[] | null): number | null {
 
 /** The subject grammar the `commit-msg` hook enforces (templates/git-hooks/commit-msg.sh). */
 const CONVENTIONAL_SUBJECT_RE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: .+/;
-const NOT_CONVENTIONAL_NOTE = "skipped: not observable (history is not Conventional Commits)";
+const NOT_CONVENTIONAL_WHY = "not observable (history is not Conventional Commits)";
+const NOT_CONVENTIONAL_NOTE = `skipped: ${NOT_CONVENTIONAL_WHY}`;
 
 /**
  * False when fewer than half of the commit subjects dated inside the window's
@@ -261,7 +327,13 @@ function reviewFindings(projectRoot: string, session: string): { reviewer?: unkn
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 /** The four pooled quality signals over a group's window. */
-function signalValues(projectRoot: string, window: Run[], commits: Commit[] | null): Record<string, number | null> {
+function signalValues(
+  projectRoot: string,
+  window: Run[],
+  commits: Commit[] | null,
+  // Per-run values (AC-STE-814.3): a spec-review receipt observes a run only when it counts that run's FR.
+  perRun = false,
+): Record<string, number | null> {
   let pass = 0;
   let fail = 0;
   let gaps = 0;
@@ -286,8 +358,8 @@ function signalValues(projectRoot: string, window: Run[], commits: Commit[] | nu
       for (const ev of reviewFindings(projectRoot, s)) {
         const counts = (ev.counts ?? {}) as Record<string, unknown>;
         if (ev.reviewer === "spec-review") {
-          sawSpecReview = true;
           const row = counts[run.id] as { partial?: unknown; missing?: unknown } | undefined;
+          if (!perRun || row) sawSpecReview = true;
           if (row) gaps += num(row.partial) + num(row.missing);
         } else if (ev.reviewer === "code-review") {
           sawCodeReview = true;
@@ -353,12 +425,35 @@ function median(xs: number[]): number | null {
   return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
+/** Why one run's value `id` has no observable input (AC-STE-814.3). */
+function unobservedWhy(id: string, run: Run, commits: Commit[] | null): string {
+  switch (id) {
+    case "waste":
+      return "not observable (no gate run or TDD round recorded)";
+    case "tokens":
+      return run.incomplete ? "fork tokens incomplete" : "not observable (no changed lines)";
+    case "time":
+    case "gate_failure_rate":
+      return "not observable (no gate run)";
+    case "spec_review_gaps_per_fr":
+      return "not observable (no spec-review receipt counting this FR)";
+    case "code_review_concerns_per_100_lines":
+      return run.lines > 0 ? "not observable (no code-review receipt)" : "not observable (no changed lines)";
+    case "post_merge_fixes":
+      if (commits === null) return "not observable (git history unreadable)";
+      if (!conventionalHistory([run], commits)) return NOT_CONVENTIONAL_WHY;
+      return "not observable (archived_at is not a date)";
+    default:
+      return "not observable";
+  }
+}
+
 /** Per-run waste / tokens / time (null = not observable for that run). */
-function runValues(projectRoot: string, run: Run): Record<RetroMetric, number | null> {
+function runValues(projectRoot: string, run: Run, off: Set<TrackingKey>): Record<RetroMetric, number | null> {
   const inputs: RetroInputs = {
     sessions: run.sessions.map((s) => ({ session_id: s, timeline: readTimeline(projectRoot, s), capture_rows: [] })),
     token_rows: [],
-    tracking: { token_stats: true, tool_calls: true, gate_outcomes: true },
+    tracking: { token_stats: !off.has("token_stats"), tool_calls: !off.has("tool_calls"), gate_outcomes: !off.has("gate_outcomes") },
   };
   const reruns = ruleValue(inputs, "gate_rerun_unchanged_key");
   const zeroYield = ruleValue(inputs, "zero_yield_round");
@@ -414,9 +509,14 @@ function trackingOff(projectRoot: string): Set<TrackingKey> {
   return new Set(keys.filter((k) => tr[k]?.enabled !== true));
 }
 
+/** The off tracking keys among those value `id` reads. */
+function offKeysFor(off: Set<TrackingKey>, id: string): TrackingKey[] {
+  return (INPUT_KEY[id] ?? []).filter((k) => off.has(k));
+}
+
 /** `skipped: not observable (tracking.<key> is off)` naming every off key the cell reads, else null. */
 function offNote(off: Set<TrackingKey>, id: string): string | null {
-  const keys = (INPUT_KEY[id] ?? []).filter((k) => off.has(k)).map((k) => `tracking.${k}`);
+  const keys = offKeysFor(off, id).map((k) => `tracking.${k}`);
   if (keys.length === 0) return null;
   return `skipped: not observable (${keys.join(" and ")} ${keys.length === 1 ? "is" : "are"} off)`;
 }
@@ -424,6 +524,52 @@ function offNote(off: Set<TrackingKey>, id: string): string | null {
 /** The `retro.priority` order; a loader refusal propagates (NFR-10), never a silent default. */
 function priorityOf(projectRoot: string): RetroMetric[] {
   return [...(loadProjectSection(projectRoot, "retro")?.priority ?? DEFAULT_RETRO_PRIORITY)];
+}
+
+/**
+ * One `runs_detail` entry: the run's identity plus its own metrics and signals
+ * (AC-STE-814.1), each null with a note when its switch is off (AC-STE-814.2) or
+ * its input is not observable (AC-STE-814.3). `own` reuses the group's per-run
+ * values when they were already computed.
+ */
+function runDetail(
+  projectRoot: string,
+  r: Run,
+  off: Set<TrackingKey>,
+  commits: Commit[] | null,
+  aliases: ReturnType<typeof createAliasMap>,
+  own: Record<RetroMetric, number | null> = runValues(projectRoot, r, off),
+) {
+  // The pooled signals over a one-run window.
+  const sig = signalValues(projectRoot, [r], commits, true);
+  const notes: string[] = [];
+  const gated = (id: string, v: number | null | undefined): number | null => {
+    const offKeys = offKeysFor(off, id);
+    for (const k of offKeys) notes.push(`${id}: tracking.${k} is off`);
+    if (offKeys.length > 0) return null;
+    // Never 0 for an unobserved value: null, with a note naming why.
+    const value = v ?? null;
+    if (value === null) notes.push(`${id}: ${unobservedWhy(id, r, commits)}`);
+    return value;
+  };
+  // An incomplete fork row's token total is parent-only (STE-812): not observable.
+  const tokens = r.incomplete ? null : own.tokens;
+  const fixes = conventionalHistory([r], commits) ? sig.post_merge_fixes : null;
+  return {
+    fr: r.id,
+    skill: r.skill,
+    settings: r.settings,
+    tokens_scope: r.tokensScope,
+    sessions: r.sessions.map((s) => aliasFor(aliases, s)),
+    metrics: { waste: gated("waste", own.waste), tokens: gated("tokens", tokens), time: gated("time", own.time) },
+    signals: {
+      gate_failure_rate: gated("gate_failure_rate", sig.gate_failure_rate),
+      spec_review_gaps_per_fr: gated("spec_review_gaps_per_fr", sig.spec_review_gaps_per_fr),
+      code_review_concerns_per_100_lines: gated("code_review_concerns_per_100_lines", sig.code_review_concerns_per_100_lines),
+      post_merge_fixes: gated("post_merge_fixes", fixes),
+    },
+    notes,
+  };
 }
 
 export function buildTrendReport(projectRoot: string, last: number) {
@@ -446,17 +592,26 @@ export function buildTrendReport(projectRoot: string, last: number) {
     for (const r of window) for (const s of r.sessions) if (!seenSessions.has(s)) (seenSessions.add(s), sessionIds.push(s));
     const note = window.length < TREND_MIN_RUNS ? `insufficient: ${window.length} runs` : null;
     const values = note === null ? signalValues(projectRoot, window, commits) : null;
-    const perRun = note === null ? window.map((r) => runValues(projectRoot, r)) : [];
+    const perRun = note === null ? window.map((r) => runValues(projectRoot, r, off)) : [];
     return {
       skill,
       category,
       size,
       runs: window.length,
+      runs_detail: window.map((r, i) => runDetail(projectRoot, r, off, commits, aliases, perRun[i])),
+      settings: settingsCounts(window),
       metrics: priority.map((id) => {
         if (note !== null) return emptyMetric(id, note);
         const skipped = offNote(off, id);
         if (skipped !== null) return emptyMetric(id, skipped);
-        return metricCell(id, perRun.map((v) => v[id]));
+        const cell = metricCell(id, perRun.map((v) => v[id]));
+        if (id !== "tokens") return cell;
+        // AC-STE-812.6: a parent-only or incomplete total is never shown silently.
+        const parentOnly = window.filter((r) => r.tokensScope === "parent-only").length;
+        const incomplete = window.filter((r) => r.tokensScope === "incomplete").length;
+        if (parentOnly === 0 && incomplete === 0) return cell;
+        const includes = `includes ${parentOnly} parent-only and ${incomplete} incomplete runs`;
+        return { ...cell, note: cell.note === null ? includes : `${cell.note}; ${includes}` };
       }),
       signals: ["gate_failure_rate", "spec_review_gaps_per_fr", "code_review_concerns_per_100_lines", "post_merge_fixes"].map((id) => {
         if (values === null) return { id, value: null, note };

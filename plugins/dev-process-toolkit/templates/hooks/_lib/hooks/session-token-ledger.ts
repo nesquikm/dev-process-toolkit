@@ -17,10 +17,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { readTokenStatsConfig } from "../../../../adapters/_shared/src/token_stats_config.ts";
+import { readRunStarts } from "../../../../adapters/_shared/src/run_start_ledger.ts";
 import {
+  attributeLine,
   parseTranscriptTokenUsage,
+  parseTranscriptTokenUsageByRun,
   writeSessionRows,
 } from "../../../../adapters/_shared/src/token_usage.ts";
+import { forkChildRows } from "../../../../adapters/_shared/src/fork_child_tokens.ts";
 import { findCheckoutRoot, parseHookPayload, type HookPayload } from "../session.ts";
 
 const SRC = resolve(import.meta.dir, "..", "..", "..", "..", "adapters", "_shared", "src");
@@ -78,14 +82,36 @@ function tokenLedger(payload: HookPayload): void {
     return;
   }
 
-  const rows = parseTranscriptTokenUsage(payload.transcript_path);
+  // The payload's session_id is authoritative for the replace key.
+  const sessionId =
+    typeof payload.session_id === "string" ? payload.session_id : "";
+  // STE-811 — attribute each usage line to the run that produced it, from
+  // this session's run starts only; none ⇒ the unattributed parse.
+  // A run-start ledger that cannot be read never costs the session its token
+  // rows: it reads as no starts, which is the unattributed parse.
+  let starts: ReturnType<typeof readRunStarts> = [];
+  try {
+    starts = readRunStarts(projectRoot, sessionId);
+  } catch {
+    starts = [];
+  }
+  const rows =
+    starts.length > 0
+      ? parseTranscriptTokenUsageByRun(payload.transcript_path, starts)
+      : parseTranscriptTokenUsage(payload.transcript_path);
   if (rows.length > 0) {
-    // The payload's session_id is authoritative for the replace key.
-    const sessionId =
-      typeof payload.session_id === "string" ? payload.session_id : "";
     for (const row of rows) {
       row.session_id = sessionId;
     }
+  }
+  // STE-812 — forked child skills' rows follow the parent rows; a failure
+  // here never costs the session its parent rows.
+  try {
+    rows.push(...forkChildRows(payload.transcript_path, sessionId, (skill, ts) => attributeLine(skill, ts, starts)));
+  } catch {
+    // fail-open by design
+  }
+  if (rows.length > 0) {
     writeSessionRows(projectRoot, sessionId, rows);
   }
 }

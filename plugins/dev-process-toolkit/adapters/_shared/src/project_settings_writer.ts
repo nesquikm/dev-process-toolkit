@@ -7,7 +7,8 @@
 // are edited in place; only a create (`{ create: true }`) serializes a whole
 // file, in the fixed key order and in block style.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
@@ -145,6 +146,27 @@ function locate(lines: string[], indent: number): Entry[] {
 function opensBlock(line: string): boolean {
   const rest = line.slice(line.indexOf(":") + 1).trim();
   return rest === "" || rest.startsWith("#");
+}
+
+/** A copy of `m` without each dotted key in `remove`, dropping every parent mapping a removal leaves empty. */
+function removeKeys(m: Obj, remove: readonly string[]): Obj {
+  if (remove.length === 0) return m;
+  const out = structuredClone(m);
+  for (const dotted of remove) {
+    const parts = dotted.split(".");
+    const chain: Obj[] = [out];
+    for (const part of parts.slice(0, -1)) {
+      const next = chain[chain.length - 1]![part];
+      if (!isObj(next)) break;
+      chain.push(next);
+    }
+    const leaf = parts[parts.length - 1]!;
+    // A missing leaf removes nothing, so it empties no parent that was already empty.
+    if (chain.length !== parts.length || !(leaf in chain[chain.length - 1]!)) continue;
+    delete chain[chain.length - 1]![leaf];
+    for (let i = chain.length - 1; i > 0 && Object.keys(chain[i]!).length === 0; i--) delete chain[i - 1]![parts[i - 1]!];
+  }
+  return out;
 }
 
 function editMap(lines: string[], indent: number, path: string, before: Obj, after: Obj): string[] {
@@ -293,8 +315,104 @@ export function syncTrackingStub(projectRoot: string, render: string): void {
   if (next !== text) writeFileSync(path, next);
 }
 
-export function writeProjectSettings(projectRoot: string, update: Obj, opts: { create?: boolean } = {}): void {
+/** A lock younger than this is held by a live writer; an older one was left by a dead writer and is replaced. */
+const LOCK_STALE_MS = 30_000;
+
+function lockHeld(ageMs: number | null): SettingsShapeError {
+  const age = ageMs === null ? "it was just taken" : `${Math.round(ageMs / 1000)} s old`;
+  return new SettingsShapeError(
+    `${SETTINGS_FILE}.lock is held by another writer (${age}); the writer changes the settings file one writer at a time`,
+    `wait for the other writer to finish, or remove ${SETTINGS_FILE}.lock if no writer is running, then re-run.`,
+    `file=${SETTINGS_FILE}.lock, age_ms=${ageMs === null ? "unknown" : Math.round(ageMs)}`,
+  );
+}
+
+const textOrNull = (file: string): string | null => {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+};
+
+/** Create `lock` with O_EXCL holding `token`; false when it already exists. A failed token write removes the lock. */
+function createLock(lock: string, token: string): boolean {
+  let fd: number;
+  try {
+    fd = openSync(lock, "wx");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw e;
+  }
+  try {
+    writeFileSync(fd, token);
+  } catch (e) {
+    closeSync(fd);
+    rmSync(lock, { force: true });
+    throw e;
+  }
+  closeSync(fd);
+  return true;
+}
+
+/**
+ * Run `fn` holding `<path>.lock` (AC-STE-815.4). The lock is created with O_EXCL and carries a
+ * random token, so on exit this call removes it only while it still holds that token. A lock
+ * whose mtime is within 30 s of now, either side, is held and refused. An older one, or one
+ * dated further in the future (a skewed clock), is stale: it is renamed aside, which only one
+ * writer can win, and re-checked to be the same file before it is dropped, so a writer never
+ * removes a fresh lock another writer took in the meantime.
+ */
+export function withSettingsLock<T>(path: string, fn: () => T): T {
+  const lock = `${path}.lock`;
+  mkdirSync(dirname(lock), { recursive: true });
+  const token = `${process.pid} ${randomBytes(8).toString("hex")}\n`;
+  if (!createLock(lock, token)) {
+    let seen: ReturnType<typeof statSync> | null = null;
+    try {
+      seen = statSync(lock);
+    } catch {
+      // gone since the open: take it below
+    }
+    if (seen !== null) {
+      const age = Date.now() - seen.mtimeMs;
+      if (Math.abs(age) < LOCK_STALE_MS) throw lockHeld(age);
+      const aside = `${lock}.stale-${randomBytes(6).toString("hex")}`;
+      try {
+        renameSync(lock, aside);
+      } catch {
+        throw lockHeld(null); // another writer moved it first
+      }
+      const moved = statSync(aside);
+      if (moved.ino !== seen.ino || moved.mtimeMs !== seen.mtimeMs) {
+        // Not the stale lock judged above: another writer replaced it. Put it back, never over a lock.
+        try {
+          linkSync(aside, lock);
+        } catch {
+          // a third writer holds the lock now; theirs stands
+        }
+        rmSync(aside, { force: true });
+        throw lockHeld(null);
+      }
+      rmSync(aside, { force: true });
+    }
+    if (!createLock(lock, token)) throw lockHeld(null);
+  }
+  try {
+    return fn();
+  } finally {
+    if (textOrNull(lock) === token) rmSync(lock, { force: true });
+  }
+}
+
+export function writeProjectSettings(projectRoot: string, update: Obj, opts: { create?: boolean; expectSha256?: string; remove?: readonly string[] } = {}): void {
   const path = join(projectRoot, SETTINGS_FILE);
+  // A write that will refuse for a missing file takes no lock, so it creates no specs directory.
+  if (opts.create !== true && !existsSync(path)) return writeProjectSettingsLocked(projectRoot, path, update, opts);
+  withSettingsLock(path, () => writeProjectSettingsLocked(projectRoot, path, update, opts));
+}
+
+function writeProjectSettingsLocked(projectRoot: string, path: string, update: Obj, opts: { create?: boolean; expectSha256?: string; remove?: readonly string[] }): void {
   const exists = existsSync(path);
   if (exists && isForeignSettingsFile(projectRoot)) {
     throw new SettingsShapeError(
@@ -319,9 +437,22 @@ export function writeProjectSettings(projectRoot: string, update: Obj, opts: { c
     if (created !== "") syncTrackingStub(projectRoot, created);
     return;
   }
-  const text = readFileSync(path, "utf8");
+  const bytes = readFileSync(path);
+  if (opts.expectSha256 !== undefined) {
+    // The caller's view of the file is stale when its bytes changed since it read them.
+    const actual = createHash("sha256").update(bytes).digest("hex");
+    const expected = opts.expectSha256;
+    if (actual !== expected) {
+      throw new SettingsShapeError(
+        `${SETTINGS_FILE} changed since it was read (expected sha256 ${expected}, found sha256 ${actual}); the writer never writes over bytes its caller did not read`,
+        "re-read the settings file and re-run.",
+        `file=${SETTINGS_FILE}, expected=${expected}, actual=${actual}`,
+      );
+    }
+  }
+  const text = bytes.toString("utf8");
   const before = parseRaw(text);
-  const after = mergeUpdate(before, update);
+  const after = removeKeys(mergeUpdate(before, update), opts.remove ?? []);
   if (deepEqual(before, after)) return;
   validateSettingsShape(after);
   // Edit CR-free lines and rejoin with the file's own line ending, so a CRLF file stays
@@ -337,7 +468,7 @@ export function writeProjectSettings(projectRoot: string, update: Obj, opts: { c
     throw new SettingsShapeError(
       `${SETTINGS_FILE} cannot take this update in place without changing what it means`,
       `edit ${SETTINGS_FILE} by hand (plain unquoted keys; drop a mapping that would be left empty), then re-run.`,
-      `file=${SETTINGS_FILE}, keys=${Object.keys(update).join(",")}`,
+      `file=${SETTINGS_FILE}, keys=${Object.keys(update).join(",")}, remove=${(opts.remove ?? []).join(",")}`,
     );
   }
   writeFileSync(path, next);

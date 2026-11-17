@@ -9,6 +9,7 @@
 // the render is byte-stable for a given ledger input.
 
 import {
+  DESIGN_BUCKET,
   readLedgerRows,
   rewriteLedgerRows,
   type TokenLedgerRow,
@@ -197,8 +198,8 @@ const BRAINSTORM_SKILL = "dev-process-toolkit:brainstorm";
 /** Skill whose presence in a session marks it as having written its own specs. */
 const SPEC_WRITE_SKILL = "dev-process-toolkit:spec-write";
 
-/** Milestone-rollup bucket for brainstorm rows never claimed by any FR. */
-const DESIGN_BUCKET = "design/exploration";
+/** Milestone-rollup bucket for brainstorm rows never claimed by any FR (one home: ./token_usage). */
+export { DESIGN_BUCKET } from "./token_usage";
 
 /** Ledger `skill` value for unattributed orchestrator (main-loop) rows. */
 const MAIN_LOOP_LABEL = "(main-loop)";
@@ -326,6 +327,10 @@ export function filterRowsForFR(
       selected.push(row);
       continue;
     }
+
+    // STE-811 — a run claim is settled: never demoted or re-claimed by
+    // another FR, even when its session is in that FR's lineage.
+    if (row.claim_source === "run") continue;
 
     // Off-lineage rows are never touched, claimed or not.
     if (!lineage.has(row.session_id)) continue;

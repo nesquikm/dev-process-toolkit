@@ -148,7 +148,7 @@ export function round(skill: string, changed: boolean | null): Record<string, un
     skill,
     status: "ok",
     tree_changed: changed,
-    tree_disposition: changed === null ? "not-observable" : "observed",
+    tree_disposition: changed === null ? "not-observable" : "claimed", // AC-STE-795.4: the shipped observable value
     tokens: "not-observable",
   };
 }

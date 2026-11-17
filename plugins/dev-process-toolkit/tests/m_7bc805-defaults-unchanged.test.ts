@@ -303,9 +303,27 @@ describe("AC-STE-717.13 named difference: the teammate's capture-registration ro
 // hooks.json, and the modelled tool-call rows of AC-STE-715.15
 // ---------------------------------------------------------------------------
 
+/**
+ * Amended by AC-STE-810.4 (M_c46877): hooks.json with the `run-start-snapshot`
+ * entries (PreToolUse `Skill`, UserPromptSubmit) removed, and any group that
+ * removal leaves empty dropped — parsed, so the comparison is on structure.
+ */
+function withoutRunStart(text: string): unknown {
+  const json = JSON.parse(text) as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command?: string }> }>> };
+  for (const [ev, groups] of Object.entries(json.hooks)) {
+    json.hooks[ev] = groups
+      .map((g) => ({ ...g, hooks: g.hooks.filter((h) => !(h.command ?? "").endsWith("/run-start-snapshot.sh")) }))
+      .filter((g) => g.hooks.length > 0);
+  }
+  return json;
+}
+
 describe("AC-STE-717.13 hooks.json and modelled tool calls", () => {
-  test("hooks/hooks.json is byte-identical to v3.0.0", () => {
-    expect(readFileSync(join(PLUGIN_ROOT, "hooks", "hooks.json"), "utf-8")).toBe(atV300(`${PLUGIN_REL}/hooks/hooks.json`));
+  // Amended by AC-STE-810.4 (M_c46877): STE-810 adds the run-start hook; every other entry still equals v3.0.0.
+  test("hooks/hooks.json equals v3.0.0 apart from the STE-810 run-start entries", () => {
+    expect(withoutRunStart(readFileSync(join(PLUGIN_ROOT, "hooks", "hooks.json"), "utf-8"))).toEqual(
+      withoutRunStart(atV300(`${PLUGIN_REL}/hooks/hooks.json`)),
+    );
   });
 
   // The AC-STE-715.15 modeller, re-run on the finished milestone.

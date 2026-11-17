@@ -522,6 +522,21 @@ function verdict(r: { notes: string[]; violations: unknown[] }): string {
   return r.notes.length > 0 ? "GATE PASSED WITH NOTES" : "GATE PASSED";
 }
 
+/**
+ * Amended by AC-STE-810.4 (M_c46877): hooks.json with the `run-start-snapshot`
+ * entries (PreToolUse `Skill`, UserPromptSubmit) removed, and any group that
+ * removal leaves empty dropped — parsed, so the comparison is on structure.
+ */
+function withoutRunStart(text: string): unknown {
+  const json = JSON.parse(text) as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command?: string }> }>> };
+  for (const [ev, groups] of Object.entries(json.hooks)) {
+    json.hooks[ev] = groups
+      .map((g) => ({ ...g, hooks: g.hooks.filter((h) => !(h.command ?? "").endsWith("/run-start-snapshot.sh")) }))
+      .filter((g) => g.hooks.length > 0);
+  }
+  return json;
+}
+
 describe("AC-STE-716.21 the teammate row", () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
   afterEach(() => {
@@ -547,7 +562,10 @@ describe("AC-STE-716.21 the teammate row", () => {
     expect(verdict(base)).toBe("GATE PASSED");
     expect(snapshot(teammate)).toEqual(before);
     expect(existsSync(join(teammate, ".claude", "settings.local.json"))).toBe(false);
-    expect(readFileSync(join(PLUGIN_ROOT, "hooks", "hooks.json"), "utf-8")).toBe(atV300(`${PLUGIN_REL}/hooks/hooks.json`));
+    // Amended by AC-STE-810.4 (M_c46877): equal to v3.0.0 apart from the STE-810 run-start entries.
+    expect(withoutRunStart(readFileSync(join(PLUGIN_ROOT, "hooks", "hooks.json"), "utf-8"))).toEqual(
+      withoutRunStart(atV300(`${PLUGIN_REL}/hooks/hooks.json`)),
+    );
   }, T);
 
   test("the session-token-ledger hook writes no timeline file on the teammate tree", () => {

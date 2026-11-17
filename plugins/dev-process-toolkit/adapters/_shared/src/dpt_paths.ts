@@ -132,6 +132,17 @@ function assertPathSafeSessionId(sessionId: string): void {
 }
 
 /**
+ * Run-start ledger: `<projectRoot>/.dpt/ledger/run-starts.jsonl` (STE-810).
+ *
+ * One append-only file of `dpt-run-start/1` rows, one per skill start, each
+ * carrying the settings snapshot that run started under. The only composer of
+ * the path, so `run_start.ts` carries no `.dpt` literal (AC-STE-382.1).
+ */
+export function runStartLedgerPath(projectRoot: string): string {
+  return join(dptRoot(projectRoot), "ledger", "run-starts.jsonl");
+}
+
+/**
  * Tracker-write receipts: `<projectRoot>/.dpt/ledger/receipts/<sessionId>` (STE-602).
  *
  * The ONLY composer of the receipts path (AC-STE-602.7). It sits under

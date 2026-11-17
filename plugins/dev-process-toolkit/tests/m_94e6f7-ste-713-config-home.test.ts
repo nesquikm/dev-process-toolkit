@@ -306,19 +306,24 @@ describe("AC-STE-713.5 test pin sweep", () => {
 // ---------------------------------------------------------------------------
 
 /** The count pins of tests/bundled-hooks-shape.test.ts at dbdb9572. */
+// Amended by AC-STE-810.4 (M_c46877): total 5 → 7, PreToolUse 4 → 5, UserPromptSubmit 1 → 2,
+// and the `Skill` group pin — the run-start hook's registration.
 const BUNDLED_HOOK_COUNT_PINS: readonly string[] = [
-  "    expect(pre.length + ups.length).toBe(5);",
-  "    expect(pre.length).toBe(4);",
+  "    expect(pre.length + ups.length).toBe(7);",
+  "    expect(pre.length).toBe(5);",
   "    expect(bash.length).toBe(3);",
+  "    expect(skill.length).toBe(1);",
   "    expect(other.length).toBe(1);",
-  "    expect(ups.length).toBe(1);",
+  "    expect(ups.length).toBe(2);",
 ];
 /** The hook-count sentences of docs/hooks-reference.md at dbdb9572. */
+// Amended by AC-STE-810.4 (M_c46877): 6 → 7 hooks — run-start-snapshot is the seventh script.
 const HOOKS_REFERENCE_COUNT_PINS: readonly string[] = [
-  "The 6 hooks fire across every project where the `dev-process-toolkit` plugin is enabled at user scope.",
-  "to stop all 6 hooks from firing.",
+  "The 7 hooks fire across every project where the `dev-process-toolkit` plugin is enabled at user scope.",
+  "to stop all 7 hooks from firing.",
 ];
-const HOOKS_JSON_COMMANDS_AT_TRUNK = 7;
+// Amended by AC-STE-810.4 (M_c46877): 7 → 9 — the run-start hook registers on PreToolUse `Skill` and UserPromptSubmit.
+const HOOKS_JSON_COMMANDS_AT_TRUNK = 9;
 
 describe("AC-STE-713.7 hook count pins", () => {
   test("AC-.7 hook count pins in tests/bundled-hooks-shape.test.ts are unchanged", () => {

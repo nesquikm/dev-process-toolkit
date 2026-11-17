@@ -13,6 +13,9 @@
 // `exit_code`), D3 no (per-round `tokens` is "not-observable"), D5 no
 // (`tree_changed` null with `tree_disposition: "not-observable"` on every
 // round). The tokens and tree cases read the decision row and take its branch.
+// Amended by AC-STE-795.1: a tdd-write-test / tdd-implement / tdd-refactor
+// round whose `tdd-result` block parses records its claim instead —
+// `tree_changed` is `files:` non-empty, with `tree_disposition: "claimed"`.
 //
 // A forked Skill call's tool_result is only the background stub; its result
 // block arrives as a `<task-notification>` naming the call's id. A round's
@@ -269,16 +272,18 @@ interface RoundCase {
   status: "ok" | "failed" | "unparsed";
   /** What tree_changed would be if D5 were yes. */
   treeIfObservable: boolean | null;
+  /** Amended by AC-STE-795.1: the parsed TDD block's claim (`files:` non-empty), or null when there is none. */
+  claimed: boolean | null;
 }
 
 const ROUND_CASES: RoundCase[] = [
-  { id: "toolu_R1", skill: "dev-process-toolkit:tdd-write-test", status: "ok", treeIfObservable: true },
-  { id: "toolu_R2", skill: "dev-process-toolkit:tdd-implement", status: "failed", treeIfObservable: false },
-  { id: "toolu_R3", skill: "dev-process-toolkit:spec-review-audit", status: "failed", treeIfObservable: null },
-  { id: "toolu_R4", skill: "dev-process-toolkit:spec-review-audit", status: "ok", treeIfObservable: null },
-  { id: "toolu_R5", skill: "dev-process-toolkit:tdd-refactor", status: "unparsed", treeIfObservable: null },
-  { id: "toolu_R6", skill: "dev-process-toolkit:tdd-spec-review", status: "ok", treeIfObservable: null },
-  { id: "toolu_R7", skill: "dev-process-toolkit:tdd-implement", status: "unparsed", treeIfObservable: null },
+  { id: "toolu_R1", skill: "dev-process-toolkit:tdd-write-test", status: "ok", treeIfObservable: true, claimed: true },
+  { id: "toolu_R2", skill: "dev-process-toolkit:tdd-implement", status: "failed", treeIfObservable: false, claimed: true },
+  { id: "toolu_R3", skill: "dev-process-toolkit:spec-review-audit", status: "failed", treeIfObservable: null, claimed: null },
+  { id: "toolu_R4", skill: "dev-process-toolkit:spec-review-audit", status: "ok", treeIfObservable: null, claimed: null },
+  { id: "toolu_R5", skill: "dev-process-toolkit:tdd-refactor", status: "unparsed", treeIfObservable: null, claimed: null },
+  { id: "toolu_R6", skill: "dev-process-toolkit:tdd-spec-review", status: "ok", treeIfObservable: null, claimed: null },
+  { id: "toolu_R7", skill: "dev-process-toolkit:tdd-implement", status: "unparsed", treeIfObservable: null, claimed: null },
 ];
 
 function roundsFixture(): { root: string; transcript: string } {
@@ -344,6 +349,10 @@ function roundsFailures(t: Timeline, d5: boolean): string[] {
     if (r.status !== c.status) out.push(`${c.id}.status ${r.status} != ${c.status}`);
     if (d5 && c.treeIfObservable !== null) {
       if (r.tree_changed !== c.treeIfObservable) out.push(`${c.id}.tree_changed ${r.tree_changed}`);
+    } else if (c.claimed !== null) {
+      // Amended by AC-STE-795.1: a parsed TDD round records its claim.
+      if (r.tree_changed !== c.claimed) out.push(`${c.id}.tree_changed ${JSON.stringify(r.tree_changed)} != ${c.claimed}`);
+      if (r.tree_disposition !== "claimed") out.push(`${c.id}.tree_disposition ${JSON.stringify(r.tree_disposition)} != "claimed"`);
     } else {
       if (r.tree_changed !== null) out.push(`${c.id}.tree_changed ${JSON.stringify(r.tree_changed)} != null`);
       if (r.tree_disposition !== "not-observable") out.push(`${c.id}.tree_disposition ${JSON.stringify(r.tree_disposition)}`);
@@ -385,14 +394,16 @@ describe("AC-STE-717.3 › rounds", () => {
     expect(roundsFailures(t, D5)).toEqual([]);
   }, T);
 
-  test(`rounds: tree_changed per D5 (${D5 ? "yes" : "no"}) — ${D5 ? "true / false from the digests, null + not-observable on a missing post" : "null + not-observable on every round, digests or not"}`, () => {
+  test(`rounds: tree_changed per D5 (${D5 ? "yes" : "no"}) — ${D5 ? "true / false from the digests, null + not-observable on a missing post" : "null + not-observable on every round without a parsed TDD claim, digests or not"}`, () => {
     const { root, transcript } = roundsFixture();
     const t = timelineOf(transcript, root);
     for (const r of t.rounds) {
+      // Amended by AC-STE-795.1: a parsed TDD round (R1, R2) records its claim, not null.
+      const claimed = ROUND_CASES.find((c) => c.id === r.tool_use_id)?.claimed ?? null;
       if (!D5) expect({ id: r.tool_use_id, tree_changed: r.tree_changed, tree_disposition: r.tree_disposition }).toEqual({
         id: r.tool_use_id,
-        tree_changed: null,
-        tree_disposition: "not-observable",
+        tree_changed: claimed,
+        tree_disposition: claimed === null ? "not-observable" : "claimed",
       });
     }
     const r3 = t.rounds.find((r) => r.tool_use_id === "toolu_R3");

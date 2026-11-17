@@ -13,20 +13,21 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { firstCopies, type FirstCopy } from "../../../templates/hooks/_lib/session";
+import { receiptsRoot } from "./dpt_paths";
 import { checkRegisterPreconditions, registerCapture } from "./capture_registration";
 import { sessionTranscriptPath } from "./find_current_session";
 import { perQuestionConsent } from "./join_consent_ownership";
-import { loadProjectSection, SETTINGS_FILE, settingsWriteSource } from "./project_settings";
+import { loadProjectSection, SETTINGS_FILE, SettingsShapeError, settingsSectionValue, settingsWriteSource } from "./project_settings";
 import { writeProjectSettings } from "./project_settings_writer";
 import { OPTIMIZATION_KNOBS } from "./optimizations_config";
 import { parseRetroReport, type RetroReport } from "./retro_report";
 import { EMPTY_SCOPE_REASON } from "./retro_scope";
 import { bunInvocation, realpathOr } from "./shell_invocations";
-import { readSessionReceipts, writeReceipt } from "./tracker_receipts";
+import { readSessionReceipts, writeReceipt, type Receipt } from "./tracker_receipts";
 
 export interface ProposalTrigger {
   /** The rule ids whose skip can justify the row. */
@@ -154,6 +155,19 @@ function currentValue(projectRoot: string, key: string): unknown {
 }
 
 /**
+ * The key's value as the settings file holds it, `undefined` when the file does not set it.
+ * Unlike `currentValue` it never reads a loader default: a change receipt records what the
+ * file said, and a revert must put back exactly that, so an unset key stays unset (the same
+ * raw read STE-810's settings snapshot uses).
+ */
+function rawValue(projectRoot: string, key: string): unknown {
+  const [section, ...rest] = key.split(".");
+  let v: unknown = settingsSectionValue(projectRoot, section!)?.value;
+  for (const part of rest) v = v !== null && typeof v === "object" ? (v as Record<string, unknown>)[part] : undefined;
+  return v;
+}
+
+/**
  * True when `git check-ignore` reports the local settings file ignored by the
  * repository's own rules. The operator's personal excludes file is switched off
  * (`core.excludesFile=/dev/null`): a rule only one machine carries does not keep
@@ -218,6 +232,108 @@ export function proposeLines(projectRoot: string, reportText: string): string[] 
   return [...lines, `digest=${proposalDigest(projectRoot, lines)}`];
 }
 
+// -------------------------------------------------------------------- revert
+
+interface RecordedChange {
+  key: string;
+  from: unknown;
+  to: unknown;
+}
+
+/** Every `retro-change` receipt in the tree, across every session directory. */
+function changeReceipts(projectRoot: string): Receipt[] {
+  const dir = receiptsRoot(projectRoot);
+  if (!existsSync(dir)) return [];
+  const out: Receipt[] = [];
+  for (const session of readdirSync(dir)) {
+    let receipts: Receipt[];
+    try {
+      receipts = readSessionReceipts(projectRoot, session).receipts;
+    } catch {
+      continue; // a directory name that is not a path-safe session id holds no receipts
+    }
+    out.push(...receipts.filter((r) => r.kind === "retro-change"));
+  }
+  return out;
+}
+
+/** The change for `key` in the newest `retro-change` receipt (by `applied_at`) that has one, with that `applied_at`. */
+function newestChangeFor(projectRoot: string, key: string): { change: RecordedChange; appliedAt: string } | null {
+  let best: { change: RecordedChange; appliedAt: string } | null = null;
+  let bestAt = Number.NEGATIVE_INFINITY;
+  let bestSession = "";
+  for (const receipt of changeReceipts(projectRoot)) {
+    const ev = receipt.evidence as { applied_at?: unknown; changes?: unknown } | null;
+    // An applied_at that is not a date never wins: it would sort above every real one.
+    if (typeof ev?.applied_at !== "string" || !Number.isFinite(Date.parse(ev.applied_at)) || !Array.isArray(ev.changes)) continue;
+    const change = (ev.changes as RecordedChange[]).find((c) => c !== null && typeof c === "object" && c.key === key);
+    if (change === undefined) continue;
+    const at = Date.parse(ev.applied_at);
+    // Equal times fall to the larger session id, so the pick never depends on directory order.
+    const tie = best !== null && at === bestAt && receipt.sessionId > bestSession;
+    if (best === null || at > bestAt || tie) {
+      best = { change, appliedAt: ev.applied_at };
+      bestAt = at;
+      bestSession = receipt.sessionId;
+    }
+  }
+  return best;
+}
+
+/**
+ * The lines `propose-revert` prints, digest last: `revert <key>: <to> -> <from>`
+ * from the newest `retro-change` receipt with a change for `key`, when the key
+ * still holds that change's `to`. Throws a `RetroApplyRefusal` (NFR-10)
+ * otherwise. Reads only; writes nothing.
+ */
+export function proposeRevertLines(projectRoot: string, key: string): string[] {
+  return revertProposal(projectRoot, key).lines;
+}
+
+/** The revert proposal and the one receipt change it was computed from, resolved once. */
+function revertProposal(projectRoot: string, key: string): { lines: string[]; found: { change: RecordedChange; appliedAt: string } } {
+  const ctx = `root=${projectRoot}, verb=propose-revert, key=${key}`;
+  // Only a proposable key, on a settings-file tree, is revertable: the same table and home a forward change uses.
+  if (!PROPOSABLE_SETTINGS.some((r) => r.key === key)) {
+    throw RetroApplyRefusal.of(
+      `${key} is not a proposable setting, so no retro change can have set it.`,
+      `revert one of: ${PROPOSABLE_SETTINGS.map((r) => r.key).join(", ")}.`,
+      ctx,
+    );
+  }
+  if (settingsWriteSource(projectRoot) !== "settings") {
+    throw RetroApplyRefusal.of(
+      `this tree keeps its settings outside ${SETTINGS_FILE}, so a retro revert has nothing to write.`,
+      "run /dev-process-toolkit:upgrade to move the settings into the settings file, then re-run.",
+      ctx,
+    );
+  }
+  const found = newestChangeFor(projectRoot, key);
+  if (found === null) {
+    throw RetroApplyRefusal.of(
+      `no retro-change receipt in this tree records a change for ${key}, so there is nothing to revert.`,
+      "revert only a change a retro apply recorded; change the setting by hand otherwise.",
+      ctx,
+    );
+  }
+  const cur = rawValue(projectRoot, key);
+  const current = cur === undefined ? "absent" : cur;
+  // "absent" in a receipt is the unset sentinel: it matches only a key the file does not hold.
+  const holds = found.change.to === "absent" ? cur === undefined : cur !== undefined && Bun.deepEquals(cur, found.change.to);
+  if (!holds) {
+    throw RetroApplyRefusal.of(
+      `${key} is ${JSON.stringify(current)}, not the ${JSON.stringify(found.change.to)} the newest retro-change receipt (applied_at=${found.appliedAt}) set (edited since).`,
+      "leave the hand edit, or set the key back by hand.",
+      ctx,
+    );
+  }
+  // Values print as JSON so a boolean and its string spelling never read alike; "absent" prints bare.
+  const show = (v: unknown) => (v === "absent" ? "absent" : JSON.stringify(v));
+  const lines = [`revert ${key}: ${show(found.change.to)} -> ${show(found.change.from)}`];
+  // The digest also binds the receipt reverted, so a newer change landing after the approval is refused.
+  return { lines: [...lines, `digest=${proposalDigest(projectRoot, [...lines, `receipt=${found.appliedAt}`])}`], found };
+}
+
 // --------------------------------------------------------------------- apply
 
 /** The option label an approving answer selects, exactly. */
@@ -246,7 +362,7 @@ export class RetroApplyRefusal extends Error {
  * by the `bunInvocation` grammar `announcesGateReceipt` uses. An `echo`, a
  * `cd … &&` chain, a relative path or a same-named file elsewhere runs nothing.
  */
-export function runsRetroProposal(command: string, verb: "propose" | "apply"): boolean {
+export function runsRetroProposal(command: string, verb: "propose" | "apply" | "propose-revert" | "apply-revert"): boolean {
   const run = bunInvocation(command);
   return run !== null && run.module === OWN_MODULE && run.args[0] === verb;
 }
@@ -330,7 +446,13 @@ function bashCommand(use: Block | undefined): string | undefined {
  * Steps 1 and 2 of the gate: every answer, in transcript order, that approves
  * `digest` after a real propose whose result printed `lines` (digest last).
  */
-function approvals(copies: FirstCopy[], uses: ReadonlyMap<string, Block>, lines: readonly string[], digest: string): Approval[] {
+function approvals(
+  copies: FirstCopy[],
+  uses: ReadonlyMap<string, Block>,
+  lines: readonly string[],
+  digest: string,
+  verb: "propose" | "propose-revert" = "propose",
+): Approval[] {
   const useOf = (c: FirstCopy) =>
     c.block.type === "tool_result" && c.block.tool_use_id !== "" ? uses.get(c.block.tool_use_id as string) : undefined;
   const digestLine = `digest=${digest}`;
@@ -340,7 +462,7 @@ function approvals(copies: FirstCopy[], uses: ReadonlyMap<string, Block>, lines:
     const use = useOf(c);
     if (c.block.is_error === true) return;
     const command = bashCommand(use);
-    if (command === undefined || !runsRetroProposal(command, "propose")) return;
+    if (command === undefined || !runsRetroProposal(command, verb)) return;
     const printed = textLines(resultText(c.block.content));
     if (!printed.includes(digestLine)) return;
     // The question is graded against the lines this result printed, never recomputed;
@@ -406,29 +528,19 @@ function settingsUpdate(rows: readonly ProposableSetting[]): Record<string, unkn
 }
 
 /**
- * `apply <projectRoot> <report-file> <digest>`: recompute the proposal, verify
- * this session's transcript approval, consume it (receipt, then the fixed
- * consumption line), then check, write, append and register. Returns the keys
- * written; throws a `RetroApplyRefusal` (NFR-10) otherwise. Never exits.
+ * The approval gate `apply` and `apply-revert` share: find this session's
+ * approval of `digest` after a real `verb` call printing `lines`, refuse when
+ * none is left unconsumed, then consume it (receipt, then the fixed line).
  */
-export function apply(projectRoot: string, reportPath: string, digest: string): { keys: string[] } {
-  const ctx = `root=${projectRoot}, verb=apply, digest=${digest}`;
-  const reask = "re-run /dev-process-toolkit:retro so propose prints a fresh digest, and approve that one.";
-  const session = process.env.CLAUDE_CODE_SESSION_ID;
-  if (session === undefined || session === "") {
-    throw RetroApplyRefusal.of("CLAUDE_CODE_SESSION_ID is unset, so no session transcript can show an approval.", "run apply from the Claude Code session that asked the question.", ctx);
-  }
-  let root: string;
-  let lines: string[];
-  try {
-    root = realpathSync(projectRoot);
-    lines = proposeLines(projectRoot, readFileSync(reportPath, "utf-8"));
-  } catch (e) {
-    throw asRefusal(e, "the proposal could not be recomputed", reask, ctx);
-  }
-  if (lines.length === 0 || lines[lines.length - 1] !== `digest=${digest}`) {
-    throw RetroApplyRefusal.of("the digest no longer matches the proposal for this tree (stale, or printed for another root).", reask, ctx);
-  }
+function consumeApproval(
+  session: string,
+  root: string,
+  lines: readonly string[],
+  digest: string,
+  verb: "propose" | "propose-revert",
+  ctx: string,
+  reask: string,
+): void {
   const transcript = sessionTranscriptPath(session, process.cwd());
   if (transcript === null) {
     throw RetroApplyRefusal.of("this session's transcript was not found, so no approval can be verified.", "run apply from the Claude Code session that asked the question.", `${ctx}, session=${session}`);
@@ -440,7 +552,7 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
     throw asRefusal(e, "the session transcript could not be read", reask, ctx);
   }
   const uses = toolUses(copies);
-  const found = approvals(copies, uses, lines, digest);
+  const found = approvals(copies, uses, lines, digest, verb);
   if (found.length === 0) {
     throw RetroApplyRefusal.of(
       `the transcript holds no real propose printing digest=${digest} followed by a question repeating every printed line answered "${APPLY_LABEL}".`,
@@ -482,6 +594,102 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
     throw asRefusal(e, "the retro-apply receipt could not be written", "fix this session's receipt store (tracker_receipts.ts names its directory), then re-run propose and ask again.", ctx);
   }
   process.stdout.write(`${CONSUMED_PREFIX}${digest}\n`);
+}
+
+/** Write options pinning the settings bytes as read now; the write refuses if they change before it lands. */
+function settingsSnapshot(projectRoot: string): { expectSha256?: string } {
+  const readBytes = bytesOrNull(join(projectRoot, SETTINGS_FILE));
+  return readBytes === null ? {} : { expectSha256: createHash("sha256").update(readBytes).digest("hex") };
+}
+
+/** The session id an apply runs under; refuses when it is unset. */
+function requireSession(ctx: string): string {
+  const session = process.env.CLAUDE_CODE_SESSION_ID;
+  if (session === undefined || session === "") {
+    throw RetroApplyRefusal.of("CLAUDE_CODE_SESSION_ID is unset, so no session transcript can show an approval.", "run apply from the Claude Code session that asked the question.", ctx);
+  }
+  return session;
+}
+
+/**
+ * `apply-revert <projectRoot> <key> <digest>`: recompute `propose-revert`,
+ * verify and consume this session's approval as `apply` does, then set `key`
+ * back to the recorded `from` — removing it (and each parent it empties) when
+ * `from` is "absent". Never writes a default. Throws a `RetroApplyRefusal`.
+ */
+export function applyRevert(projectRoot: string, key: string, digest: string): void {
+  const ctx = `root=${projectRoot}, verb=apply-revert, key=${key}, digest=${digest}`;
+  const reask = "re-run propose-revert so it prints a fresh digest, and approve that one.";
+  const session = requireSession(ctx);
+  let root: string;
+  let lines: string[];
+  let found: { change: RecordedChange; appliedAt: string };
+  let writeOpts: { expectSha256?: string };
+  try {
+    root = realpathSync(projectRoot);
+    writeOpts = settingsSnapshot(projectRoot);
+    // One resolution: the receipt the approved lines (and their digest) name is the one applied.
+    ({ lines, found } = revertProposal(projectRoot, key));
+  } catch (e) {
+    throw asRefusal(e, "the revert proposal could not be recomputed", reask, ctx);
+  }
+  if (lines[lines.length - 1] !== `digest=${digest}`) {
+    throw RetroApplyRefusal.of("the digest no longer matches the revert proposal for this tree (stale, or printed for another root).", reask, ctx);
+  }
+  const from = found.change.from;
+  consumeApproval(session, root, lines, digest, "propose-revert", ctx, reask);
+  try {
+    if (from === "absent") writeProjectSettings(projectRoot, {}, { ...writeOpts, remove: [key] });
+    else writeProjectSettings(projectRoot, settingsUpdate([{ key, value: from } as ProposableSetting]), writeOpts);
+  } catch (e) {
+    throw asRefusal(e, "the revert could not be applied", reask, ctx);
+  }
+  // The revert landed: record it as its own change, pointing at the receipt it reverted.
+  const changes = [{ key, from: found.change.to, to: from }];
+  try {
+    writeReceipt(root, {
+      kind: "retro-change",
+      adapter: null,
+      container: null,
+      subject: "dev-process-toolkit:retro",
+      decision: "apply",
+      evidence: { digest, applied_at: new Date().toISOString(), changes, revert_of: found.appliedAt },
+    });
+  } catch (e) {
+    throw asRefusal(
+      e,
+      "the revert is applied, but its retro-change receipt could not be written",
+      `no retry is needed; record the change by hand: changes=${JSON.stringify(changes)}`,
+      ctx,
+    );
+  }
+}
+
+/**
+ * `apply <projectRoot> <report-file> <digest>`: recompute the proposal, verify
+ * this session's transcript approval, consume it (receipt, then the fixed
+ * consumption line), then check, write, append and register. Returns the keys
+ * written; throws a `RetroApplyRefusal` (NFR-10) otherwise. Never exits.
+ */
+export function apply(projectRoot: string, reportPath: string, digest: string): { keys: string[] } {
+  const ctx = `root=${projectRoot}, verb=apply, digest=${digest}`;
+  const reask = "re-run /dev-process-toolkit:retro so propose prints a fresh digest, and approve that one.";
+  const session = requireSession(ctx);
+  let root: string;
+  let lines: string[];
+  // The settings bytes the proposal is recomputed from; the write refuses if they change before it lands.
+  let writeOpts: { expectSha256?: string };
+  try {
+    root = realpathSync(projectRoot);
+    writeOpts = settingsSnapshot(projectRoot);
+    lines = proposeLines(projectRoot, readFileSync(reportPath, "utf-8"));
+  } catch (e) {
+    throw asRefusal(e, "the proposal could not be recomputed", reask, ctx);
+  }
+  if (lines.length === 0 || lines[lines.length - 1] !== `digest=${digest}`) {
+    throw RetroApplyRefusal.of("the digest no longer matches the proposal for this tree (stale, or printed for another root).", reask, ctx);
+  }
+  consumeApproval(session, root, lines, digest, "propose", ctx, reask);
 
   const rows = PROPOSABLE_SETTINGS.filter((r) => lines.includes(`set ${r.key}: ${r.value}`));
   const keys = rows.map((r) => r.key);
@@ -498,8 +706,17 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
 
   const paths = [join(projectRoot, SETTINGS_FILE), join(projectRoot, ".gitignore"), join(projectRoot, LOCAL_SETTINGS_PATH)];
   const prior = paths.map((p) => bytesOrNull(p));
+  const changes = rows.map((r) => {
+    const from = rawValue(projectRoot, r.key);
+    return { key: r.key, from: from === undefined ? "absent" : from, to: r.value };
+  });
+  // Only a step that ran is rolled back, so a rollback never writes over a file this apply did
+  // not change: a settings write the writer refused (another writer's lock, changed bytes) left
+  // the file as that other writer has it, and every such refusal is a SettingsShapeError.
+  const touched = paths.map(() => false);
   const restore = () => {
     paths.forEach((p, i) => {
+      if (!touched[i]) return;
       const b = prior[i]!;
       if (b === null) rmSync(p, { force: true });
       else writeFileSync(p, b);
@@ -507,15 +724,23 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
   };
   try {
     // 2. Write each row's key.
-    writeProjectSettings(projectRoot, settingsUpdate(rows));
+    try {
+      writeProjectSettings(projectRoot, settingsUpdate(rows), writeOpts);
+      touched[0] = true;
+    } catch (e) {
+      touched[0] = !(e instanceof SettingsShapeError);
+      throw e;
+    }
     // 3. Append the printed .gitignore line.
     if (addIgnore) {
       const gi = paths[1]!;
+      touched[1] = true;
       const text = existsSync(gi) ? readFileSync(gi, "utf-8") : "";
       writeFileSync(gi, `${text}${text === "" || text.endsWith("\n") ? "" : "\n"}${LOCAL_SETTINGS_PATH}\n`);
     }
     // 4. Register the capture hook.
     if (toolCalls) {
+      touched[2] = true;
       const refusals = registerCapture(projectRoot);
       if (refusals.length > 0) throw new RetroApplyRefusal(refusals[0]!);
     }
@@ -536,6 +761,25 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
     }
     throw asRefusal(e, "the settings change could not be applied", reask, ctx);
   }
+  // 5. Every step succeeded: record what changed.
+  try {
+    writeReceipt(root, {
+      kind: "retro-change",
+      adapter: null,
+      container: null,
+      subject: "dev-process-toolkit:retro",
+      decision: "apply",
+      evidence: { digest, applied_at: new Date().toISOString(), changes },
+    });
+  } catch (e) {
+    // The change is applied and the approval is spent, so a retry would find nothing to change.
+    throw asRefusal(
+      e,
+      "the settings change is applied, but its retro-change receipt could not be written",
+      `no retry is needed; record the change by hand if a later revert must check it: changes=${JSON.stringify(changes)}`,
+      ctx,
+    );
+  }
   return { keys };
 }
 
@@ -550,6 +794,33 @@ if (import.meta.main) {
       apply(rootArg, reportArg, digestArg);
     } catch (e) {
       process.stderr.write(`${asRefusal(e, "apply failed", "re-run propose and ask again.", "verb=apply").message}\n`);
+      code = 1;
+    }
+    process.exit(code);
+  }
+  if (verb === "apply-revert") {
+    let code = 0;
+    try {
+      const keyArg = reportArg; // apply-revert's second argument is the key, not a report file
+      if (rootArg === undefined || keyArg === undefined || digestArg === undefined) {
+        throw RetroApplyRefusal.of("apply-revert needs <projectRoot> <key> <digest>.", "run: bun run retro_proposal.ts apply-revert <projectRoot> <key> <digest>", "verb=apply-revert");
+      }
+      applyRevert(rootArg, keyArg, digestArg);
+    } catch (e) {
+      process.stderr.write(`${asRefusal(e, "apply-revert failed", "re-run propose-revert and ask again.", "verb=apply-revert").message}\n`);
+      code = 1;
+    }
+    process.exit(code);
+  }
+  if (verb === "propose-revert") {
+    let code = 0;
+    try {
+      if (rootArg === undefined || reportArg === undefined) {
+        throw RetroApplyRefusal.of("propose-revert needs <projectRoot> <key>.", "run: bun run retro_proposal.ts propose-revert <projectRoot> <key>", "verb=propose-revert");
+      }
+      console.log(proposeRevertLines(rootArg, reportArg).join("\n"));
+    } catch (e) {
+      process.stderr.write(`${asRefusal(e, "propose-revert failed", "fix the cause, then re-run propose-revert.", "verb=propose-revert").message}\n`);
       code = 1;
     }
     process.exit(code);

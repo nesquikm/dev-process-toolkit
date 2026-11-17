@@ -4,13 +4,16 @@
 // `<projectRoot>/.dpt/ledger/token-ledger.jsonl` (re-pointed into the
 // consolidated `.dpt` tree by AC-STE-382.4; the path is composed by
 // `dpt_paths`); each line is one
-// `token-ledger/v1` aggregate for a `(session_id, skill, model)` triple,
+// `token-ledger/v1` aggregate for a `(session_id, skill, model)` triple —
+// or, since STE-811, a `(session_id, skill, model, FR)` quadruple for lines a
+// recorded run start attributes (`claimed_by` + `claim_source: "run"`) —
 // where `skill` is the transcript's `attributionSkill` string or the
 // literal sentinel `(main-loop)`.
 //
 // Write semantics (`writeSessionRows`): read ledger → drop rows matching
 // `session_id` → append fresh rows, each carrying the `claimed_by` of the
-// dropped row with the same skill and model (STE-698) → write. Append-only
+// dropped row with the same skill and model (STE-698; run-claimed rows, fresh
+// or prior, take no part in that carry — STE-811) → write. Append-only
 // across sessions, replace within a session (so a SessionEnd re-fire never
 // duplicates), and a claim made mid-session survives the re-derive.
 
@@ -24,6 +27,14 @@ import {
 import { dirname } from "node:path";
 
 import { ledgerPath as dptLedgerPath } from "./dpt_paths";
+import type { RunStartRow } from "./run_start_ledger";
+
+/**
+ * The `claimed_by` sentinel for a row shared by two FRs of one session, booked
+ * to the milestone design bucket rather than to either FR (STE-396). Its one
+ * home is here, so a reader of the ledger needs no import of the renderer.
+ */
+export const DESIGN_BUCKET = "design/exploration";
 
 /** Schema discriminator carried on every ledger line. */
 export const TOKEN_LEDGER_SCHEMA = "token-ledger/v1";
@@ -43,6 +54,12 @@ export interface TokenLedgerRow {
   message_count: number;
   /** Tracker ID of the FR that claimed this row (brainstorm→FR bridging, STE-345). */
   claimed_by?: string;
+  /** STE-811 — `"run"` when `claimed_by` came from the run that produced the row. */
+  claim_source?: "run";
+  /** STE-812 — `"fork"` on a row read from a forked child skill's own transcript. */
+  scope?: "fork";
+  /** STE-812 — on a fork row: false unless the child's meta.json says `finished: true`. */
+  complete?: boolean;
 }
 
 /**
@@ -64,7 +81,17 @@ export function ledgerPath(projectRoot: string): string {
  * are not: each fresh row inherits the `claimed_by` of the dropped row with
  * the same skill and model (a design-bucket demotion included), because the
  * transcript the rows are re-derived from knows nothing of claims (STE-698).
+ * Run-claimed rows (`claim_source: "run"`, STE-811) are exempt both ways: a
+ * fresh one keeps its own claim, and a prior one is never carried.
  */
+/**
+ * The STE-698 carry key: one prior claim per (scope, skill, model). STE-812 fork rows
+ * share skill and model with parent rows, so scope keeps the two from trading claims.
+ */
+function carryKey(row: TokenLedgerRow): string {
+  return `${row.scope ?? ""}\u0000${row.skill}\u0000${row.model}`;
+}
+
 export function writeSessionRows(
   projectRoot: string,
   sessionId: string,
@@ -81,18 +108,21 @@ export function writeSessionRows(
   const existing = all.filter((row) => row.session_id !== sessionId);
 
   // STE-698: carry each prior row's claim onto the fresh row of the same
-  // session, skill and model — the re-derive must not erase a claim. A fresh
+  // session, scope, skill and model — the re-derive must not erase a claim. A fresh
   // row with no prior twin stays unclaimed, and other sessions' claims are
-  // never consulted. The ledger holds one row per (session, skill, model), so
-  // each key names at most one prior claim.
+  // never consulted. The ledger holds one row per (session, scope, skill, model), so
+  // each key names at most one prior claim. STE-811: the carry applies to
+  // unattributed rows only — a run claim is re-derived from the run starts,
+  // so it is neither carried from nor overwritten.
   const claims = new Map<string, string>();
   for (const row of all) {
-    if (row.session_id === sessionId && row.claimed_by !== undefined) {
-      claims.set(`${row.skill}\u0000${row.model}`, row.claimed_by);
+    if (row.session_id === sessionId && row.claimed_by !== undefined && row.claim_source !== "run") {
+      claims.set(carryKey(row), row.claimed_by);
     }
   }
   const fresh = rows.map((row) => {
-    const claim = claims.get(`${row.skill}\u0000${row.model}`);
+    if (row.claim_source === "run") return row;
+    const claim = claims.get(carryKey(row));
     return claim === undefined ? row : { ...row, claimed_by: claim };
   });
 
@@ -191,6 +221,72 @@ function tokenField(usage: Record<string, unknown>, field: string): number {
 export function parseTranscriptTokenUsage(
   transcriptPath: string,
 ): TokenLedgerRow[] {
+  return aggregateTranscript(transcriptPath, () => null);
+}
+
+/** Epoch ms of an ISO timestamp, or NaN. */
+function epoch(iso: unknown): number {
+  return typeof iso === "string" ? Date.parse(iso) : Number.NaN;
+}
+
+/**
+ * STE-811 (AC-STE-811.1) — the FR a usage line belongs to: the `fr` of the
+ * latest same-skill run start at or before the line; when that `fr` is null,
+ * the latest non-null `fr` (any skill) started between that run and the line.
+ * `(main-loop)` lines and lines with no such run are unattributed (`null`).
+ */
+// Precondition: `starts` holds ONE session's run starts (the hook passes
+// readRunStarts(root, sessionId)); this function never compares session ids.
+/** A start's `fr` names an FR only as a non-empty string; anything else claims nothing. */
+function namesFr(fr: unknown): fr is string {
+  return typeof fr === "string" && fr !== "";
+}
+
+export function attributeLine(skill: string, timestamp: unknown, starts: RunStartRow[]): string | null {
+  if (skill === MAIN_LOOP_SENTINEL) return null;
+  const t = epoch(timestamp);
+  if (Number.isNaN(t)) return null;
+  const run = latestStart(starts, (s, st) => s.skill === skill && st <= t);
+  if (run === null) return null;
+  if (namesFr(run.fr)) return run.fr;
+  const from = epoch(run.started_at);
+  const inherited = latestStart(starts, (s, st) => namesFr(s.fr) && st >= from && st <= t)?.fr;
+  return namesFr(inherited) ? inherited : null;
+}
+
+/** The latest-started row matching `keep` (ties go to the later row), or null. */
+function latestStart(
+  starts: RunStartRow[],
+  keep: (start: RunStartRow, startedAt: number) => boolean,
+): RunStartRow | null {
+  let best: RunStartRow | null = null;
+  let bestAt = Number.NEGATIVE_INFINITY;
+  for (const s of starts) {
+    const st = epoch(s.started_at);
+    if (!keep(s, st) || st < bestAt) continue;
+    best = s;
+    bestAt = st;
+  }
+  return best;
+}
+
+/**
+ * STE-811 — the parser above, with each usage line attributed to the run that
+ * produced it (`attributeLine`): one row per (skill, model, FR) carrying
+ * `claimed_by` + `claim_source: "run"`, one per (skill, model) for the rest.
+ * `starts` are the session's run-start rows.
+ */
+export function parseTranscriptTokenUsageByRun(
+  transcriptPath: string,
+  starts: RunStartRow[],
+): TokenLedgerRow[] {
+  return aggregateTranscript(transcriptPath, (skill, ts) => attributeLine(skill, ts, starts));
+}
+
+function aggregateTranscript(
+  transcriptPath: string,
+  frOf: (skill: string, timestamp: unknown) => string | null,
+): TokenLedgerRow[] {
   if (!existsSync(transcriptPath)) {
     return [];
   }
@@ -232,7 +328,8 @@ export function parseTranscriptTokenUsage(
         ? entry.attributionSkill
         : MAIN_LOOP_SENTINEL;
 
-    const key = `${skill}\u0000${model}`;
+    const fr = frOf(skill, entry.timestamp);
+    const key = `${skill}\u0000${model}\u0000${fr ?? ""}`;
     let row = buckets.get(key);
     if (!row) {
       row = {
@@ -251,6 +348,10 @@ export function parseTranscriptTokenUsage(
         cache_creation_input_tokens: 0,
         message_count: 0,
       };
+      if (fr !== null) {
+        row.claimed_by = fr;
+        row.claim_source = "run";
+      }
       buckets.set(key, row);
     }
 
