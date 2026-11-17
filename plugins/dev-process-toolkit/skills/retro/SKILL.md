@@ -1,6 +1,6 @@
 ---
 name: retro
-description: Grade a finished run against the toolkit's retro rules — slow gate runs, gate reruns on an unchanged key, zero-yield TDD rounds, cost per changed line — and write one report under `.dpt/ledger/retro/`. Never changes a gate, threshold, receipt, ledger row, tracked file or tracker. One exception: a settings change applied on explicit approval, plus the one retro-apply receipt consuming it.
+description: Grade a finished run against the toolkit's retro rules — slow gate runs, gate reruns on an unchanged key, zero-yield TDD rounds, cost per changed line — and write one report under `.dpt/ledger/retro/`. Never changes a gate, threshold, receipt, ledger row, tracked file or tracker. One exception: a settings change, or its revert, applied on explicit approval, plus the retro-apply receipt consuming the approval and the retro-change receipt recording what changed.
 argument-hint: '[<milestone> | <fr-id>]'
 ---
 
@@ -60,9 +60,17 @@ bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/retro_proposal.ts apply <proj
 
 Relay any refusal from stderr verbatim. A refused apply consumes the approval: fix the cause, then re-run propose and ask again. The approval check and write order live in `docs/retro-reference.md`.
 
+When the operator asks to undo an earlier retro change, propose the revert of that one key:
+
+```bash
+bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/retro_proposal.ts propose-revert <projectRoot> <key>
+```
+
+It reads the change's `retro-change` receipt and prints `revert <key>: <to> -> <from>` and a `digest=` line. It refuses when no receipt records the key, or when the key was edited by hand since. Ask the same question with the same two options, repeating every printed line; only an explicit approval calls `apply-revert <projectRoot> <key> <digest>`. Never propose a revert the operator did not ask for.
+
 ## Rules
 
-- Never change a gate, a threshold, a receipt, a ledger row, a tracked file or a tracker. The one exception: the change `apply` makes on explicit approval (the settings keys, any printed `.gitignore` line, the capture-hook registration in `.claude/settings.local.json`), plus its one consuming `retro-apply` receipt.
+- Never change a gate, a threshold, a receipt, a ledger row, a tracked file or a tracker. The one exception: the change `apply` makes on explicit approval (the settings keys, any printed `.gitignore` line, the capture-hook registration in `.claude/settings.local.json`), plus its consuming `retro-apply` receipt and the `retro-change` receipt recording what changed. A revert applied through `apply-revert` on explicit approval is the same exception.
 - Never refuse on `retro.enabled`.
 - Never compose a rule's value in prose; every value comes from the report file.
 
