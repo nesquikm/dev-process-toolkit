@@ -640,11 +640,11 @@ describe("AC-STE-461.14 — the driver edit stays inside every recorded budget",
     expect(() => assertAnchorUnique(read(SMOKE_SKILL))).not.toThrow();
   });
 
-  test("skills/implement/SKILL.md stays within the 358-line cap, with its headroom recorded", () => {
+  test("skills/implement/SKILL.md stays within the 362-line cap, with its headroom recorded", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     const body = read(IMPLEMENT_SKILL);
     // Counted the way the enforcing gate counts it — `split("\n").length`.
     const lines = body.split("\n").length;
-    expect(lines).toBeLessThanOrEqual(358);
+    expect(lines).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
     // NOT `toBe(341)`. The AC is a cap plus recorded headroom, and pinning the
     // whole file exactly would red this test — whose message names STE-461 —
     // for any future unrelated line. What IS this FR's property is that the

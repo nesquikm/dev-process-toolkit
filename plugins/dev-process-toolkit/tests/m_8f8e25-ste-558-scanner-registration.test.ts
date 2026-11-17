@@ -504,8 +504,8 @@ describe("AC-STE-558.3 — both scanners are numbered registrations", () => {
     }
   });
 
-  test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
-    const SKILL_LINE_CAP = 358;
+  test("gate-check SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(read(GATE_CHECK_SKILL).split("\n").length).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 });

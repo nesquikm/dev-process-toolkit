@@ -640,10 +640,10 @@ describe("AC-STE-551.7 — the standalone paths are unchanged", () => {
     expect([...run.operatorTurns].sort()).toEqual([...CHAIN_REACHED_IDS].sort()); // Amended by AC-STE-712.4 (M_94e6f7)
   });
 
-  test("the two capped surfaces stay at or under the 358-line cap", () => {
+  test("the two capped surfaces stay at or under the 362-line cap", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 362 -> 362.
     // Measured with `split("\n")` — `wc -l` reports one fewer.
-    expect(lineCount(skillBody("implement"))).toBeLessThanOrEqual(358);
-    expect(lineCount(skillBody("spec-write"))).toBeLessThanOrEqual(358);
+    expect(lineCount(skillBody("implement"))).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
+    expect(lineCount(skillBody("spec-write"))).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });
 
@@ -1233,10 +1233,10 @@ describe("AC-STE-551.3 round 2 — no driven clause orders a step the chain name
     }
   });
 
-  test("the two capped surfaces are still at or under 358 lines after the reword", () => {
+  test("the two capped surfaces are still at or under 362 lines after the reword", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 362 -> 362.
     // The fix is a REWORD, not an addition: both surfaces sit exactly at the
     // cap, so a clause that could only be satisfied by a new line is not a fix.
-    expect(lineCount(skillBody("implement"))).toBeLessThanOrEqual(358);
-    expect(lineCount(skillBody("spec-write"))).toBeLessThanOrEqual(358);
+    expect(lineCount(skillBody("implement"))).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
+    expect(lineCount(skillBody("spec-write"))).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });

@@ -765,7 +765,7 @@ describe("AC-STE-606.10 — budgets", () => {
 
   test("skills/implement/SKILL.md: exactly 358 split-lines and 41 STE tokens", () => {
     const body = read(join(PLUGIN_ROOT, "skills", "implement", "SKILL.md"));
-    expect(body.split("\n").length).toBe(358);
+    expect(body.split("\n").length).toBe(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
     expect(steTokens(body)).toBe(41);
   });
 

@@ -301,7 +301,7 @@ function unmarkedHunks(diff: string): string[] {
   ).map((h) => h.split("\n")[0]!);
 }
 
-const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6|690\.1|690\.2|692\.\d+|693\.6|712\.4|712\.7|722\.9|723\.7)\b/; // Amended by AC-STE-722.9 (M_d1b4b7); Amended by AC-STE-723.7 (M_fd9a03)
+const ADMITTED_MARKER = /Amended by AC-STE-(?:609\.\d+|658\.7|659\.3|670\.4|673\.6|680\.6|690\.1|690\.2|692\.\d+|693\.6|712\.4|712\.7|722\.9|723\.7|745\.1)\b/; // Amended by AC-STE-722.9 (M_d1b4b7); Amended by AC-STE-723.7 (M_fd9a03); Amended by AC-STE-745.1 (M_d1e7b1)
 
 /** The suite's working-tree bytes equal `ref`'s committed bytes. */
 function expectUnedited(suite: string, ref: "main" | "HEAD"): void {
@@ -496,7 +496,7 @@ describe("AC-STE-590.3 — skills/implement/SKILL.md Phase 5 runs the front door
   });
 
   test("the file measures exactly 358 split-lines", () => {
-    expect(splitCount(IMPLEMENT_SKILL)).toBe(358);
+    expect(splitCount(IMPLEMENT_SKILL)).toBe(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
   });
 
   test("tests/implement-phase5-milestone-close.test.ts is unedited against main", () => {

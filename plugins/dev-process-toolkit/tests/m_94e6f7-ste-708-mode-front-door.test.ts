@@ -100,7 +100,7 @@ const TRUNK_CALL_TARGETS: Readonly<Record<string, readonly string[]>> = {
   "spec-archive": ["sibling_release.ts"],
   "deliver": ["deliver_decision.ts", "deliver_worker_name.ts", "driven_run_signal.ts", "gate_capture.ts", "resume_gate_render.ts", "spawn_receipt.ts"],
 };
-const SKILL_LINE_CAP_AT_TRUNK = 358;
+const SKILL_LINE_CAP_AT_TRUNK = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
 
 // The gate-check rows (AC-STE-713.11): the same trunk pins, for the file STE-713 edits.
 const TRUNK_GATE_CHECK_PROBE_STEP =

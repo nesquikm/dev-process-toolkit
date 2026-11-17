@@ -14,7 +14,7 @@ import { join } from "node:path";
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const SKILL_PATH = join(PLUGIN_ROOT, "skills", "spec-write", "SKILL.md");
 const NFR1_TEST = join(PLUGIN_ROOT, "tests", "skill-nfr-1-length.test.ts");
-const SPEC_WRITE_LINE_CAP = 358;
+const SPEC_WRITE_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
 
 const skill = readFileSync(SKILL_PATH, "utf-8");
 

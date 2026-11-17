@@ -38,8 +38,8 @@ const PINNED = "134fe2e6";
 const MERGED_TRUNK = "24e25900";
 
 // Amended by AC-STE-712.4 (M_94e6f7): the admitted markers — STE-670.4, and STE-712.4, the later spec-mandated amendment.
-const ADMITTED_MARKERS = /Amended by AC-STE-(?:670\.4|712\.4)\b/; // Amended by AC-STE-712.4 (M_94e6f7)
-const LATER_MARKER = /Amended by AC-STE-712\.4\b/; // Amended by AC-STE-712.4 (M_94e6f7)
+const ADMITTED_MARKERS = /Amended by AC-STE-(?:670\.4|712\.4|745\.1)\b/; // Amended by AC-STE-712.4 (M_94e6f7); Amended by AC-STE-745.1 (M_d1e7b1)
+const LATER_MARKER = /Amended by AC-STE-(?:712\.4|745\.1)\b/; // Amended by AC-STE-712.4 (M_94e6f7); Amended by AC-STE-745.1 (M_d1e7b1): the NFR-1 358 -> 362 raise
 
 const git = (args: string[], cwd = REPO_ROOT) =>
   spawnSync("git", args, { cwd, encoding: "utf-8" });

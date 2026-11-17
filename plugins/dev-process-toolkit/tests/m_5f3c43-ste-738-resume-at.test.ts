@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { formatHaltReport } from "../adapters/_shared/src/tdd_halt_report";
-import { HINT_INDEX, STEP_14_APPEND, STEP_14_INDEX, STEP_8_APPEND, STEP_8_INDEX, undoAdmissions, undoSte745, undoSte835, STE_745_STEP_14_APPEND, STE_835_PARAGRAPH, STE_835_POINTER } from "./_m_5f3c43_ste738_implement_admissions";
+import { HINT_INDEX, STEP_14_APPEND, STEP_14_INDEX, STEP_8_APPEND, STEP_8_INDEX, undoAdmissions, undoSte745, undoSte835, STE_745_STEP_14_APPEND, STE_745_LEAD_IN_BLOCK, STE_835_PARAGRAPH, STE_835_POINTER } from "./_m_5f3c43_ste738_implement_admissions";
 
 const PLUGIN = join(import.meta.dir, "..");
 const read = (rel: string): string => readFileSync(join(PLUGIN, rel), "utf8");
@@ -243,5 +243,21 @@ describe("AC-STE-745.1 — the STE-745 admission refuses by name", () => {
     const reworded = [...cur];
     reworded[k] = reworded[k]!.replace("at most three sentences", "at most four sentences");
     expect(err(reworded)).toBe("step 14 does not end with its STE-745 lead-in append exactly once");
+  });
+
+  test("a removed, moved or edited lead-in template block is refused", () => {
+    const why = "the STE-745 lead-in template block is not carried exactly once, in place before the stage-status-block fence";
+    const at = cur.indexOf(STE_745_LEAD_IN_BLOCK[0]!);
+    expect(at).toBeGreaterThan(0);
+    const gone = [...cur];
+    gone.splice(at, STE_745_LEAD_IN_BLOCK.length);
+    expect(err(gone)).toBe(why);
+    const moved = [...cur];
+    moved.splice(at, STE_745_LEAD_IN_BLOCK.length);
+    moved.splice(100, 0, ...STE_745_LEAD_IN_BLOCK);
+    expect(err(moved)).toBe(why);
+    const edited = [...cur];
+    edited[at + 1] = `${edited[at + 1]} Then commit.`;
+    expect(err(edited)).toBe(why);
   });
 });

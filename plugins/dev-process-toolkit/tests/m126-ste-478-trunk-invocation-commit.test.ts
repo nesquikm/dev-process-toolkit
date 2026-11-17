@@ -891,10 +891,10 @@ describe("AC-STE-478.5 — the regression fails when the commit is skipped OR th
 // ---------------------------------------------------------------------------
 
 describe("M126 / STE-478 — shipped-surface budget guards", () => {
-  test("skills/spec-write/SKILL.md stays within the NFR-1 line cap (358)", () => {
+  test("skills/spec-write/SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // Measured at 358/358 before this FR: every § 7a / § 7 clause it adds must
     // extend an EXISTING line. A new line breaches the cap.
-    expect(skill().split("\n").length).toBeLessThanOrEqual(358);
+    expect(skill().split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 
   test("the skills/ STE-token ceiling (246) is not breached by the new prose", () => {

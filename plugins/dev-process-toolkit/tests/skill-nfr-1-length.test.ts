@@ -15,7 +15,7 @@ const skillsDir = join(pluginRoot, "skills");
 // Cap bumped 351 -> 352 (M100/STE-373 deps-research skip-token § 7 row) ->
 // 354 (M100/STE-374 report-issue evidence-gate § 7 rows): contract-locked
 // prose pressure in spec-write.
-const SKILL_LINE_CAP = 358;
+const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
 
 const skills = readdirSync(skillsDir).filter((name) => {
   const full = join(skillsDir, name);

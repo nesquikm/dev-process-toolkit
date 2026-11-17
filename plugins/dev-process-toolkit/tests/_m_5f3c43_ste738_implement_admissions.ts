@@ -112,18 +112,31 @@ export function undoSte835(lines: readonly string[]): { lines: string[] } | { er
 export function currentIndex(preSte835Index: number): number {
   // Derived from the paragraph's position: its blank line takes the first moved index.
   const firstMoved = STE_835_PARAGRAPH_INDEX - 1;
-  return preSte835Index >= firstMoved ? preSte835Index + 2 : preSte835Index;
+  const after835 = preSte835Index >= firstMoved ? preSte835Index + 2 : preSte835Index;
+  // Amended by AC-STE-745.1 (M_d1e7b1): the STE-745 block adds 4 more lines from its opening fence on.
+  return after835 >= STE_745_BLOCK_INDEX ? after835 + STE_745_LEAD_IN_BLOCK.length : after835;
 }
 
-// Amended by AC-STE-745.1 (M_d1e7b1): step 14 gains the lead-in budget and its
-// literal template, appended to the end of its own line. `undoSte745` strips
-// exactly that text and must run before every other undo step.
+// Amended by AC-STE-745.1 (M_d1e7b1): step 14 gains the lead-in budget,
+// appended to the end of its own line, and its literal template as a fenced
+// block (plus one blank line) right before the stage-status-block fence.
+// `undoSte745` reverses both by exact bytes and position, and must run before
+// every other undo step. NFR-1 was raised 358 -> 362 to fit the fence.
 export const STE_745_STEP_14_APPEND =
-  " **The lead-in budget:** at most three sentences, each at most 20 words (`PLAIN_SENTENCE_WORD_CAP`), counted inside the stage's whole-report line cap; write it from the template at the end of this step, filling each `<...>` placeholder (`docs/implement-reference.md` \u00a7 Step 14 Lead-in). Lead-in template: `<fr-id> is built and the gate is green. The status block below lists every AC, file and check. Reply yes to commit, or name what to change.`";
+  " **The lead-in budget:** at most three sentences, each at most 20 words (`PLAIN_SENTENCE_WORD_CAP`), counted inside the stage's whole-report line cap; write it from the template below, filling each `<...>` placeholder (`docs/implement-reference.md` \u00a7 Step 14 Lead-in).";
+export const STE_745_LEAD_IN_BLOCK: readonly string[] = ["    ```implement-lead-in", "    <fr-id> is built and the gate is green. The status block below lists every AC, file and check. Reply yes to commit, or name what to change.", "    ```", ""];
+/** Current index of the block's opening fence line. */
+export const STE_745_BLOCK_INDEX = 284;
 
-/** The lines with the STE-745 step-14 append undone, or the reason it is not carried exactly once. */
+/** The lines with both STE-745 edits undone, or the reason they are not carried exactly once in place. */
 export function undoSte745(lines: readonly string[]): { lines: string[] } | { error: string } {
   const out = [...lines];
+  const opens = out.map((l, i) => (l === STE_745_LEAD_IN_BLOCK[0] ? i : -1)).filter((i) => i >= 0);
+  if (opens.length !== 1 || opens[0] !== STE_745_BLOCK_INDEX
+      || STE_745_LEAD_IN_BLOCK.some((l, d) => out[STE_745_BLOCK_INDEX + d] !== l)) {
+    return { error: "the STE-745 lead-in template block is not carried exactly once, in place before the stage-status-block fence" };
+  }
+  out.splice(STE_745_BLOCK_INDEX, STE_745_LEAD_IN_BLOCK.length);
   const at = out.findIndex((l) => l.startsWith("14. **Report**"));
   const line = at < 0 ? "" : out[at]!;
   if (at < 0 || !line.endsWith(STE_745_STEP_14_APPEND) || line.split(STE_745_STEP_14_APPEND).length !== 2) {
@@ -131,4 +144,13 @@ export function undoSte745(lines: readonly string[]): { lines: string[] } | { er
   }
   out[at] = line.slice(0, -STE_745_STEP_14_APPEND.length);
   return { lines: out };
+}
+
+/** The text with the exact STE-745 lead-in block removed where it sits, else unchanged. */
+export function withoutSte745Block(text: string): string {
+  const lines = text.split("\n");
+  const ok = STE_745_LEAD_IN_BLOCK.every((l, d) => lines[STE_745_BLOCK_INDEX + d] === l);
+  if (!ok) return text;
+  lines.splice(STE_745_BLOCK_INDEX, STE_745_LEAD_IN_BLOCK.length);
+  return lines.join("\n");
 }

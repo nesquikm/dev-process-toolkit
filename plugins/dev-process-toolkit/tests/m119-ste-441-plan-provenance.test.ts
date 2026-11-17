@@ -972,7 +972,7 @@ describe("AC-STE-441.10 — gate-check SKILL.md probe #73 documents the four cla
   test("the rewritten row adds no line and no STE-N token", () => {
     // `skills/` sits at 246/246 STE tokens with zero headroom, and this SKILL
     // is capped at 358 lines by `tests/skill-nfr-1-length.test.ts`.
-    expect(read(GATE_CHECK_SKILL).split("\n").length).toBeLessThanOrEqual(358);
+    expect(read(GATE_CHECK_SKILL).split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(row()).not.toMatch(/\bAC-STE-\d+/);
     expect(row()).not.toMatch(/\bSTE-\d+/);
   });

@@ -155,7 +155,7 @@ const ALL_TOKENS = [
 const REGISTRY_LENGTH_AFTER_THIS_FR = 49; // Amended by AC-STE-835.2 (M_d1e7b1): spec_research_skipped_no_tech and implement_spec_conflict_escalated registered, 47 -> 49.
 
 /** The NFR line cap on `/implement`'s SKILL.md. Zero-ish headroom by design. */
-const IMPLEMENT_SKILL_LINE_CAP = 358;
+const IMPLEMENT_SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
 
 // ---------------------------------------------------------------------------
 // Shapes. Declared locally so this file compiles before the module exists.

@@ -347,7 +347,7 @@ describe("AC-STE-713.7 hook count pins", () => {
 // AC-STE-713.8 — NFR-1 cap
 // ---------------------------------------------------------------------------
 
-const SKILL_LINE_CAP_AT_TRUNK = 358;
+const SKILL_LINE_CAP_AT_TRUNK = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
 
 describe("AC-STE-713.8 NFR-1 cap", () => {
   test("AC-.8 SKILL_LINE_CAP in tests/skill-nfr-1-length.test.ts is not raised", () => {

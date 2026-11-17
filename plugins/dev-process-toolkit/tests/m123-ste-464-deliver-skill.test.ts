@@ -421,10 +421,10 @@ describe("AC-STE-464.9 — docs/deliver-reference.md carries the narrative; the 
   // the global cap (the "NFR-1:" label says so), not a deliberate tighter
   // budget for deliver, so it tracks the enforced number; the five M129
   // suites already pin this same file at 358.
-  test("NFR-1: skills/deliver/SKILL.md is ≤ 358 lines (disk-derived)", () => {
+  test("NFR-1: skills/deliver/SKILL.md is ≤ 362 lines (disk-derived)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     const lineCount = deliver().split("\n").length;
     expect(lineCount).toBeGreaterThan(0);
-    expect(lineCount).toBeLessThanOrEqual(358);
+    expect(lineCount).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });
 

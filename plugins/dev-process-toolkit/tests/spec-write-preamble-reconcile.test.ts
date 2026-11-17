@@ -62,13 +62,13 @@ describe("AC-STE-284.3 + AC-STE-578.1: § 0.5 Tracker-local reconciliation secti
     expect(body).not.toMatch(/STE-135/);
   });
 
-  test("NFR-1: SKILL.md ≤ 358 lines (preamble addition stays within budget)", () => {
+  test("NFR-1: SKILL.md ≤ 362 lines (preamble addition stays within budget)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // This pin used to allow 360 — LOOSER than the contract, so it was a
     // hole rather than a false red: two lines past NFR-1 would have passed
     // here while `tests/skill-nfr-1-length.test.ts` failed. NFR-1 is 358
     // (`specs/requirements.md`, and the one `const SKILL_LINE_CAP = 358;`).
     // Repointed by M_8f8e25/STE-558.
-    const SKILL_LINE_CAP = 358;
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     const body = readFileSync(SKILL_PATH, "utf-8");
     const lineCount = body.split("\n").length;
     expect(lineCount).toBeLessThanOrEqual(SKILL_LINE_CAP);

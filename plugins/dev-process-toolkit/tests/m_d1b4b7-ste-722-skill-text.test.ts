@@ -110,14 +110,14 @@ function appendedToLine297(body: string): { appended: string } | { error: string
 describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
   test("AC-.8 skills/implement/SKILL.md measures 358 split-lines and 41 STE-<n> tokens", () => {
     const body = read(IMPLEMENT_SKILL);
-    expect(body.split("\n").length).toBe(358);
+    expect(body.split("\n").length).toBe(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
     expect((body.match(/STE-\d+/g) ?? []).length).toBe(41);
   });
 
   test("AC-.8 SKILL_LINE_CAP is not raised", () => {
     const m = /const SKILL_LINE_CAP = (\d+);/.exec(read(join(PLUGIN, "tests", "skill-nfr-1-length.test.ts")));
     expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(358);
+    expect(Number(m![1])).toBe(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
   });
 
   test("AC-.8 the line-budget exact-count pins carry no AC-STE-722 amendment (they pass with no edit)", () => {
@@ -131,7 +131,7 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     ]) {
       expect({ f, amended: read(join(PLUGIN, "tests", f)).includes("AC-STE-722") }).toEqual({ f, amended: false });
     }
-    expect(read(join(PLUGIN, "tests", "m143-ste-553-one-review-instruction.test.ts"))).toContain("BASELINE_LINES = 358");
+    expect(read(join(PLUGIN, "tests", "m143-ste-553-one-review-instruction.test.ts"))).toContain("BASELINE_LINES = 362"); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
   });
 
   test("AC-.8 a diff against the v3.0.0 bytes changes only line 297, by appended text", () => {

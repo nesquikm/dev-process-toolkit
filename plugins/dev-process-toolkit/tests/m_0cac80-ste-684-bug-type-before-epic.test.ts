@@ -33,7 +33,7 @@ const pluginRoot = join(import.meta.dir, "..");
 const MODULE = join(pluginRoot, "adapters", "_shared", "src", "bug_tracker_type.ts");
 const SKILL = join(pluginRoot, "skills", "spec-write", "SKILL.md");
 const RESOLVER_ENTRY = join(pluginRoot, "docs", "resolver-entry.md");
-const SKILL_LINE_CAP = 358;
+const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
 
 const read = (p: string) => readFileSync(p, "utf-8");
 

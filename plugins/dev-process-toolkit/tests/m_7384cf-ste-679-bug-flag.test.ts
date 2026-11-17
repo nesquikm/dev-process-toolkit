@@ -524,8 +524,8 @@ describe("AC-STE-679.8 — skill hint, adapter docs, line cap", () => {
     expect(read(LINEAR_ADAPTER)).toContain("linear_bug_label");
   });
 
-  test("skills/spec-write/SKILL.md stays within its 358-line cap", () => {
-    expect(read(SKILL).split("\n").length).toBeLessThanOrEqual(358);
+  test("skills/spec-write/SKILL.md stays within its 362-line cap", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(read(SKILL).split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });
 

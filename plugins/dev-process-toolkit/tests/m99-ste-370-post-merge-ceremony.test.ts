@@ -221,7 +221,7 @@ describe("STE-370 — NFR-1 pressure point stays green on the edited skills", ()
   // NFR-1 cap (it is not a tighter per-file budget), so it tracks that cap;
   // `tests/skill-nfr-1-length.test.ts` moved 351 -> 352 -> 354 -> 358 while
   // this copy stayed put, which is the drift AC-STE-536.4 cites.
-  const SKILL_LINE_CAP = 358;
+  const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
 
   test.each([
     ["pr", prSkillPath],

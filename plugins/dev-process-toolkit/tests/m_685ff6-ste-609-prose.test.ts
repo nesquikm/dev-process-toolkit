@@ -374,7 +374,7 @@ describe("AC-STE-609.9 — the close-offer sentence in skills/implement/SKILL.md
   });
 
   test("(control) the file stays at exactly 358 split-lines and the offer line still names spans_repos", () => {
-    expect(splitCount(readFileSync(IMPLEMENT_SKILL, "utf-8"))).toBe(358);
+    expect(splitCount(readFileSync(IMPLEMENT_SKILL, "utf-8"))).toBe(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
     expect(offerLine()).toContain("spans_repos");
   });
 });

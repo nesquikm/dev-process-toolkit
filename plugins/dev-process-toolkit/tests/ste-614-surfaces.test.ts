@@ -116,8 +116,8 @@ describe("AC-STE-614.11 — each gate skill orders the front door exactly once",
     expect(readAtBase("skills/gate-check/SKILL.md")).not.toContain(hint!);
   });
 
-  test("gate-check's SKILL.md measures at most 358 split-lines", () => {
-    expect(read("skills/gate-check/SKILL.md").split("\n").length).toBeLessThanOrEqual(358);
+  test("gate-check's SKILL.md measures at most 362 split-lines", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(read("skills/gate-check/SKILL.md").split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 
   for (const [rel] of SKILLS.slice(1)) {

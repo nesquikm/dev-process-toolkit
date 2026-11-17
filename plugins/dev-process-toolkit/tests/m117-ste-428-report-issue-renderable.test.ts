@@ -1090,8 +1090,8 @@ describeIfSmoke("AC-STE-428.4 — Phase 8 exercises /report-issue in dry-run", (
 // ===========================================================================
 
 describe("STE-428 — budgets", () => {
-  test("skills/report-issue/SKILL.md stays within the NFR-1 line cap (358)", () => {
-    expect(REPORT_ISSUE.split("\n").length).toBeLessThanOrEqual(358);
+  test("skills/report-issue/SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(REPORT_ISSUE.split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 
   test("the SKILL's internal-namespace token count does not increase", () => {

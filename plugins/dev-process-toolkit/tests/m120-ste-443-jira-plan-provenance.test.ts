@@ -1125,7 +1125,7 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
   test("GUARD — the rewritten row adds no line and no STE-N token", () => {
     // `skills/` sits at its STE-token ceiling with zero headroom, and this
     // SKILL is capped at 358 lines by `tests/skill-nfr-1-length.test.ts`.
-    expect(skill().split("\n").length).toBeLessThanOrEqual(358);
+    expect(skill().split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(row73()).not.toMatch(/\bAC-STE-\d+/);
     expect(row73()).not.toMatch(/\bSTE-\d+/);
   });

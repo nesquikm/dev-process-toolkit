@@ -576,7 +576,7 @@ describe("AC-STE-712.8 docs/skill-anatomy.md discovery of /upgrade", () => {
 // ===========================================================================
 
 describe("AC-STE-712.9 NFR-1 cap holds with the offer in place", () => {
-  const CAP = 358;
+  const CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
   const lineCount = (text: string): number => text.split("\n").length;
 
   test("AC-.9 SKILL_LINE_CAP is not raised", () => {

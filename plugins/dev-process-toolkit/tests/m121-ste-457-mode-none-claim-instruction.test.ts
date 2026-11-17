@@ -441,14 +441,14 @@ describe("AC-STE-457.3 — proof-of-release is the durable witness PLUS the abse
 });
 
 describe("AC-STE-457.4 — both caps hold, each on its OWN measurement", () => {
-  test("skills/implement/SKILL.md stays inside the 358-line cap", () => {
+  test("skills/implement/SKILL.md stays inside the 362-line cap", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     const body = read(IMPLEMENT_SKILL);
     expect(body).not.toBeNull();
     // Counted the way the enforcing cap counts it — `split("\n").length`, which
     // is `wc -l` + 1 on a trailing-newline file. Measuring it any other way
     // reports a number the gate does not use.
     const lines = body!.split("\n").length;
-    expect(lines).toBeLessThanOrEqual(358);
+    expect(lines).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
     // NOT `toBe(342)`. The first draft pinned the whole file's line count
     // exactly, which is stricter than the AC (≤ 358, with 16 lines of
     // authorized headroom) and would red THIS test — whose message names

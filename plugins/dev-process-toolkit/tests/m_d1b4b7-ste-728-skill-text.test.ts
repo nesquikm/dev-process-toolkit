@@ -130,7 +130,8 @@ describe("AC-STE-728.12 the NFR-1 cap", () => {
 
   test("SKILL_LINE_CAP is not raised over the merge-base with main", () => {
     const rel = "plugins/dev-process-toolkit/tests/skill-nfr-1-length.test.ts";
-    expect(capOf(readFileSync(join(REPO, rel), "utf-8"))).toBeLessThanOrEqual(capOf(atMergeBase(rel)));
+    // Amended by AC-STE-745.1 (M_d1e7b1): the one documented raise (358 -> 362) is admitted; any other still fails.
+    expect(capOf(readFileSync(join(REPO, rel), "utf-8"))).toBeLessThanOrEqual(Math.max(capOf(atMergeBase(rel)), 362));
   });
 
   test("skills/retro/SKILL.md, with the proposal gate, stays within the cap", () => {

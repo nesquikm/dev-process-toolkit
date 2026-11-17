@@ -918,12 +918,12 @@ describe("AC-STE-528.6 — the order stands in step 0, before any branch decisio
     );
   });
 
-  test("skills/implement/SKILL.md stays within the NFR-1 line cap (358)", () => {
+  test("skills/implement/SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // HEADROOM RECORDED: 354 today, cap 358. Deconditioning frees INLINE bytes
     // in the 0.b″ bullet, not whole lines, while a fenced command block costs 5
     // in a list context. Lines must be given back elsewhere in this file — most
     // plausibly to `docs/implement-reference.md`, which has no cap pin.
-    expect(read(IMPLEMENT_SKILL).split("\n").length).toBeLessThanOrEqual(358);
+    expect(read(IMPLEMENT_SKILL).split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
   });
 });
 
@@ -997,7 +997,7 @@ describe("AC-STE-528.7 — `/gate-check` orders the capture on a clean trunk", (
     expect(text, "there is no silent branch").not.toMatch(/silent/i);
   });
 
-  test("skills/gate-check/SKILL.md stays within its pinned line cap (358)", () => {
+  test("skills/gate-check/SKILL.md stays within its pinned line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // There is only ONE cap: NFR-1’s 358, declared at
     // `tests/skill-nfr-1-length.test.ts`. This leg used to restate a TIGHTER
     // 354 — a superseded historical value (351 -> 352 -> 354 -> 358) — and so
@@ -1005,7 +1005,7 @@ describe("AC-STE-528.7 — `/gate-check` orders the capture on a clean trunk", (
     // M_8f8e25/STE-558. Headroom is still narrow: a fenced command block
     // costs 5 lines, so lines may have to come back from somewhere in this
     // file (or move to `docs/gate-check-tracker-mode.md`).
-    const SKILL_LINE_CAP = 358;
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(read(GATE_CHECK_SKILL).split("\n").length).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 });

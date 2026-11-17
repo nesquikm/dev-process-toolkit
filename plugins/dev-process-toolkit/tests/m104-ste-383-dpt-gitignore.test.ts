@@ -620,11 +620,11 @@ describe("AC-STE-383.6 — the invalid git command is corrected while sweeping",
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-383.7 — no meta-test regresses on the surfaces this FR edits", () => {
-  test("skills/setup/SKILL.md stays within the NFR-1 line cap (358)", () => {
+  test("skills/setup/SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // The FR removes one step's prose and adds another's; the file sat at 353
     // of 354 before it. Net growth of two lines breaches the cap.
     const lines = readSkill().split("\n").length;
-    expect(lines).toBeLessThanOrEqual(358);
+    expect(lines).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 
   test("the skills/ STE-token ceiling (246) is not breached by the new /setup prose", () => {

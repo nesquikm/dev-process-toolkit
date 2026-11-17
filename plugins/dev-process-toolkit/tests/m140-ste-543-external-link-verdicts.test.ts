@@ -1033,7 +1033,7 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     expect(skill).not.toContain("registering probe #90 will turn probe #81 red");
   });
 
-  test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
+  test("gate-check SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // NFR-1 is 358 — specs/requirements.md:17, and the number the seven
     // sibling `const SKILL_LINE_CAP = 358;` declarations enforce. This leg
     // originally pinned 354 while CALLING it the NFR-1 cap: 354 is a
@@ -1042,7 +1042,7 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     // contract and would have redded a legitimate future registration while
     // citing an NFR that permits it. Measured 352 at HEAD, 354 after this
     // FR's registration row.
-    const SKILL_LINE_CAP = 358;
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(read(GATE_CHECK_SKILL).split("\n").length).toBeLessThanOrEqual(
       SKILL_LINE_CAP,
     );

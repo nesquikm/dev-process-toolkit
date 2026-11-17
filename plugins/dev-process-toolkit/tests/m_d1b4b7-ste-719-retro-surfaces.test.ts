@@ -36,8 +36,8 @@ describe("AC-STE-719.1 skills/retro/SKILL.md", () => {
     expect(fm).toContain("argument-hint: '[<milestone> | <fr-id>]'");
   });
 
-  test("is at most 358 lines (the NFR-1 cap)", () => {
-    expect(read(RETRO_SKILL).split("\n").length).toBeLessThanOrEqual(358);
+  test("is at most 362 lines (the NFR-1 cap)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(read(RETRO_SKILL).split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 
   test("runs the front door and its overflow lives in docs/retro-reference.md", () => {

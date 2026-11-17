@@ -115,18 +115,9 @@ function headingSection(body: string, start: RegExp): string {
   return lines.slice(idx, end).join("\n");
 }
 
-// The template in `text`: the body of the ONE ```implement-lead-in fence,
-// indentation stripped — or, on /implement's step 14, the ONE inline span after
-// "Lead-in template:". Fails when there is none, or more than one.
-// Amended by AC-STE-745.1 (M_d1e7b1): /implement/SKILL.md sits at NFR-1's 358
-// cap and step 14 is one paragraph, so the skill carries the template inline;
-// the reference doc keeps the fence. The template's text is compared either way.
+// The body of the ONE ```implement-lead-in fence in `text`, indentation
+// stripped. Fails when there is none, or more than one.
 function leadInTemplate(text: string, where: string): string[] {
-  const inline = [...text.matchAll(/Lead-in template: `([^`]+)`/g)];
-  if (inline.length > 0 && !/```implement-lead-in/.test(text)) {
-    expect(inline.length, `${where} carries exactly one inline lead-in template`).toBe(1);
-    return [inline[0]![1]!.trim()];
-  }
   const lines = text.split("\n");
   const openers = lines
     .map((l, i) => (/^[ \t]*```implement-lead-in[ \t]*$/.test(l) ? i : -1))

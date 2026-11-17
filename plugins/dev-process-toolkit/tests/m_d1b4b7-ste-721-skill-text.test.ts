@@ -227,14 +227,14 @@ describe("AC-STE-721.8 report_issue_retro_seeded: the /spec-write § 7 map only"
     expect(r.violations.map((v) => v.note)).toEqual([]);
   });
 
-  test("skills/spec-write/SKILL.md gains no line and no STE token against trunk, and stays at most 358 split-lines", () => {
+  test("skills/spec-write/SKILL.md gains no line and no STE token against trunk, and stays at most 362 split-lines", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     const cur = read("skills/spec-write/SKILL.md");
     const base = atRev(TRUNK_SHA, "plugins/dev-process-toolkit/skills/spec-write/SKILL.md");
     // Amended by AC-STE-752.1 (M_d1e7b1): reference shapes moved to docs/spec-write-reference.md
     // (NFR-1 overflow) and STE-752 added its skip-token bullet and § 7 row: trunk minus 21.
     // Amended by AC-STE-835.2 (M_d1e7b1): plus the STE-835 § 7 row, so trunk minus 20.
     expect(cur.split("\n").length).toBe(base.split("\n").length - 20);
-    expect(cur.split("\n").length).toBeLessThanOrEqual(358);
+    expect(cur.split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(steTokens(cur)).toBe(steTokens(base));
   });
 

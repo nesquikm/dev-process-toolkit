@@ -123,7 +123,7 @@ describe("AC-STE-319.1 — NFR-1 line cap citations track the enforced cap (358)
       /Skill file cap/.test(l),
     );
     expect(designInvariantsLine).toBeDefined();
-    expect(designInvariantsLine!).toMatch(/358/);
+    expect(designInvariantsLine!).toMatch(/362/); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(designInvariantsLine!).not.toMatch(/300 lines/);
   });
 
