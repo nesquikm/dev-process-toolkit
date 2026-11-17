@@ -52,7 +52,7 @@ codename: Read Back
   verify: contract tests on both agent files and the skill
 - [x] STE-835: Phase 3 FR conflict escalates with `implement_spec_conflict_escalated`
   verify: contract tests on SKILL, reference and key registry
-- [ ] STE-745: lead-in template + caps in /implement; 15a grades the whole final message
+- [x] STE-745: lead-in template + caps in /implement; 15a grades the whole final message
   verify: template sentences fit the cap; model report exits 0; old cut drops an exempt section
 - [ ] STE-825: probe #14 not-started carve-out; commit gate refuses a recorded fail outcome
   verify: each single-condition failure still fails; fail/pass-after-fail/foreign-checkout hook tests

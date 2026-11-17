@@ -114,3 +114,21 @@ export function currentIndex(preSte835Index: number): number {
   const firstMoved = STE_835_PARAGRAPH_INDEX - 1;
   return preSte835Index >= firstMoved ? preSte835Index + 2 : preSte835Index;
 }
+
+// Amended by AC-STE-745.1 (M_d1e7b1): step 14 gains the lead-in budget and its
+// literal template, appended to the end of its own line. `undoSte745` strips
+// exactly that text and must run before every other undo step.
+export const STE_745_STEP_14_APPEND =
+  " **The lead-in budget:** at most three sentences, each at most 20 words (`PLAIN_SENTENCE_WORD_CAP`), counted inside the stage's whole-report line cap; write it from the template at the end of this step, filling each `<...>` placeholder (`docs/implement-reference.md` \u00a7 Step 14 Lead-in). Lead-in template: `<fr-id> is built and the gate is green. The status block below lists every AC, file and check. Reply yes to commit, or name what to change.`";
+
+/** The lines with the STE-745 step-14 append undone, or the reason it is not carried exactly once. */
+export function undoSte745(lines: readonly string[]): { lines: string[] } | { error: string } {
+  const out = [...lines];
+  const at = out.findIndex((l) => l.startsWith("14. **Report**"));
+  const line = at < 0 ? "" : out[at]!;
+  if (at < 0 || !line.endsWith(STE_745_STEP_14_APPEND) || line.split(STE_745_STEP_14_APPEND).length !== 2) {
+    return { error: "step 14 does not end with its STE-745 lead-in append exactly once" };
+  }
+  out[at] = line.slice(0, -STE_745_STEP_14_APPEND.length);
+  return { lines: out };
+}

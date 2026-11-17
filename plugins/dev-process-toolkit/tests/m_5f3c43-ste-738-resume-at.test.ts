@@ -9,7 +9,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { formatHaltReport } from "../adapters/_shared/src/tdd_halt_report";
-import { HINT_INDEX, STEP_14_APPEND, STEP_14_INDEX, STEP_8_APPEND, STEP_8_INDEX, undoAdmissions, undoSte835, STE_835_PARAGRAPH, STE_835_POINTER } from "./_m_5f3c43_ste738_implement_admissions";
+import { HINT_INDEX, STEP_14_APPEND, STEP_14_INDEX, STEP_8_APPEND, STEP_8_INDEX, undoAdmissions, undoSte745, undoSte835, STE_745_STEP_14_APPEND, STE_835_PARAGRAPH, STE_835_POINTER } from "./_m_5f3c43_ste738_implement_admissions";
 
 const PLUGIN = join(import.meta.dir, "..");
 const read = (rel: string): string => readFileSync(join(PLUGIN, rel), "utf8");
@@ -81,7 +81,8 @@ describe("AC-STE-738.13 — /implement accepts --resume-at and passes it to /tdd
   // Kills: step 14 left with no route to the e2e advisories → follow_ups rule.
   test("step 14 states each e2e advisory as a follow_ups row, and the reference section carries that rule", () => {
     expect(IMPLEMENT.split("\n")[281]!.startsWith("14. **Report**")).toBe(true); // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
-    expect(IMPLEMENT.split("\n")[281]!.endsWith(STEP_14_APPEND)).toBe(true); // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
+    // Amended by AC-STE-745.1 (M_d1e7b1): the STE-745 lead-in append now follows the pointer on the same line.
+    expect(IMPLEMENT.split("\n")[281]!.endsWith(`${STEP_14_APPEND}${STE_745_STEP_14_APPEND}`)).toBe(true);
     const start = REFERENCE.indexOf("\n## Phase 4 End-to-End Authoring Hook\n");
     const next = REFERENCE.indexOf("\n## ", start + 1);
     const section = REFERENCE.slice(start, next < 0 ? undefined : next);
@@ -132,7 +133,10 @@ describe("AC-STE-738.13 — every surface naming the resume command names one th
 describe("AC-STE-738.13 — the admissions refuse by name, before any hash", () => {
   // Amended by AC-STE-835.1 (M_d1e7b1): these admissions index the pre-STE-835 layout, so the
   // STE-835 edits are undone first; a file that does not carry them exactly once fails here.
-  const s835 = undoSte835(IMPLEMENT.split("\n"));
+  // Amended by AC-STE-745.1 (M_d1e7b1): the STE-745 step-14 append is undone first.
+  const s745 = undoSte745(IMPLEMENT.split("\n"));
+  if ("error" in s745) throw new Error(s745.error);
+  const s835 = undoSte835(s745.lines);
   if ("error" in s835) throw new Error(s835.error);
   const lines = s835.lines;
   const reason = (edited: string[]): string | null => {
@@ -217,5 +221,27 @@ describe("AC-STE-835.1 — the STE-835 admission refuses by name", () => {
     const twice = [...cur];
     twice.splice(p, 0, STE_835_POINTER);
     expect(err(twice)).toBe("the STE-835 Architecture Note pointer is not carried exactly once");
+  });
+});
+
+// Amended by AC-STE-745.1 (M_d1e7b1). Kills: the STE-745 admission widened past its exact bytes.
+describe("AC-STE-745.1 — the STE-745 admission refuses by name", () => {
+  const cur = IMPLEMENT.split("\n");
+  const err = (edited: string[]): string | null => {
+    const r = undoSte745(edited);
+    return "error" in r ? r.error : null;
+  };
+  test("the current file undoes cleanly; a dropped, doubled or reworded append is refused", () => {
+    expect(err(cur)).toBeNull();
+    const k = cur.findIndex((l) => l.startsWith("14. **Report**"));
+    const dropped = [...cur];
+    dropped[k] = dropped[k]!.slice(0, -STE_745_STEP_14_APPEND.length);
+    expect(err(dropped)).toBe("step 14 does not end with its STE-745 lead-in append exactly once");
+    const doubled = [...cur];
+    doubled[k] = `${doubled[k]}${STE_745_STEP_14_APPEND}`;
+    expect(err(doubled)).toBe("step 14 does not end with its STE-745 lead-in append exactly once");
+    const reworded = [...cur];
+    reworded[k] = reworded[k]!.replace("at most three sentences", "at most four sentences");
+    expect(err(reworded)).toBe("step 14 does not end with its STE-745 lead-in append exactly once");
   });
 });

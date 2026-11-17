@@ -38,7 +38,7 @@ import {
 // Amended by AC-STE-738.13 (operator ruling 2026-11-12, v3.5.0 fix round): lines 4, 92
 // and 280 carry the /implement --resume-at admissions; each is undone before the hash.
 // Amended by AC-STE-788.1 (M_870603): line 102's step-11 gate-check line is undone by undoSte788 before the hash.
-import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_14_APPEND, STEP_8_APPEND, undoAdmissions, undoSte788, undoSte835, currentIndex } from "./_m_5f3c43_ste738_implement_admissions";
+import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_14_APPEND, STEP_8_APPEND, undoAdmissions, undoSte788, undoSte745, undoSte835, currentIndex } from "./_m_5f3c43_ste738_implement_admissions";
 
 afterAll(cleanupTemps);
 
@@ -69,7 +69,10 @@ const DELIVER_DECLINE = "Decline: print `Run: /dev-process-toolkit:retro <milest
 /** Line 297's appended text, or a reason it is not an in-place append to the v3.0.0 bytes. */
 function appendedToLine297(body: string): { appended: string } | { error: string } {
   // Amended by AC-STE-835.1 (M_d1e7b1): the STE-835 paragraph and Architecture Note move are undone first.
-  const s835 = undoSte835(body.split("\n"));
+  // Amended by AC-STE-745.1 (M_d1e7b1): the STE-745 step-14 append is undone before everything.
+  const s745 = undoSte745(body.split("\n"));
+  if ("error" in s745) return s745;
+  const s835 = undoSte835(s745.lines);
   if ("error" in s835) return s835;
   const lines = s835.lines;
   if (lines.length !== 358) return { error: `split-lines ${lines.length} != 358` };

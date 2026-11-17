@@ -253,6 +253,14 @@ The skill carries the condensed entry; this section is the operational mirror.
 
 Then call `Provider.releaseLock(id)` for each released FR.
 
+## Step 14 Lead-in
+
+The prose lead-in above the `stage-status-block` fence is at most three sentences, each at most 20 words (`PLAIN_SENTENCE_WORD_CAP`). It sits inside the stage's whole-report line cap (`STAGE_REPORT_LINE_CAP`), never beside it. Per-item content rides inside the fence as `summary:` rows, not in the lead-in. Use this literal template, filling each `<...>` placeholder:
+
+```implement-lead-in
+<fr-id> is built and the gate is green. The status block below lists every AC, file and check. Reply yes to commit, or name what to change.
+```
+
 ## Step 14 Verification Evidence
 
 `/implement`'s step-14 report carries the same machine-derived evidence rows the `deliver-stage-result` fence carries, so a standalone run — a single-FR run, or an `/implement M<N>` an operator types by hand — evidences its work exactly as an orchestrated one does. Before this contract those counts existed only when a stage ran underneath the `/deliver` orchestrator: the guarantee was a property of one invocation path rather than of the work.
