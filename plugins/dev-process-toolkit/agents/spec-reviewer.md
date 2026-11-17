@@ -63,4 +63,5 @@ Advisory signals (`partial` rows, drift hints) ride along in the final report bu
 
 - **One fence only.** Multiple `spec-review-result` fences ⇒ format violation.
 - **Read-only.** No Write/Edit/Bash. You verify what is already on disk; you do not edit specs, source, or tests. If a test or AC appears wrong, classify it as `partial` or `missing` and explain in the matching `## Findings` bullet — the orchestrator surfaces that to the operator.
+- **Tree facts are cited.** A claim that a file exists, is absent, or was deleted names the Read or Glob call that observed it (the path you passed and what came back). A claim with no such call is left out — an unchecked tree fact is a guess, and the report must not state it.
 - **Per-scope.** You audit the FR / milestone / scope the orchestrator passed you. Do not chase ACs from other FRs even if you see them in passing.
