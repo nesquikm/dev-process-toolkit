@@ -152,7 +152,7 @@ const ALL_TOKENS = [
  * design, so every later registration moves it here as well; what it forbids
  * is a SILENT move, not a declared one.
  */
-const REGISTRY_LENGTH_AFTER_THIS_FR = 47;
+const REGISTRY_LENGTH_AFTER_THIS_FR = 48; // Amended by AC-STE-752.3 (M_d1e7b1): spec_research_skipped_no_tech registered, 47 -> 48.
 
 /** The NFR line cap on `/implement`'s SKILL.md. Zero-ish headroom by design. */
 const IMPLEMENT_SKILL_LINE_CAP = 358;

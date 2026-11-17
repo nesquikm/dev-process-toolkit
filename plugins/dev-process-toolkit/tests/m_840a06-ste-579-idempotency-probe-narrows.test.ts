@@ -326,7 +326,7 @@ describe("AC-STE-579.2 — repo_tag is documented on all three surfaces", () => 
     // it never reached the executing site. Nothing in the AC set obliged it
     // there, so a green suite defended the gap. This is the assertion that
     // closes it.
-    const executing = read(SPEC_WRITE_SKILL).split("\n")[108] ?? "";
+    const executing = read(SPEC_WRITE_SKILL).split("\n")[86] ?? ""; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
 
     expect(
       executing,
@@ -352,7 +352,7 @@ describe("AC-STE-579.2 — repo_tag is documented on all three surfaces", () => 
     // copying the wrong key declares a label set nothing forwards, which makes
     // the repo_tag conjunct inert — the precise failure precondition 2 of the
     // repoint contract exists to prevent, arriving through the executing copy.
-    const executing = read(SPEC_WRITE_SKILL).split("\n")[108] ?? "";
+    const executing = read(SPEC_WRITE_SKILL).split("\n")[86] ?? ""; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
     expect(executing, "the executing line must name `default_labels`").toContain("default_labels");
     expect(
       executing.includes("defaultLabels"),
@@ -367,7 +367,7 @@ describe("AC-STE-579.2 — repo_tag is documented on all three surfaces", () => 
     // exact-title language would have stayed green, leaving this FR's own subject
     // unasserted on the single site that executes. The adapter docs are reference;
     // this line is what the LLM runs.
-    const executing = read(SPEC_WRITE_SKILL).split("\n")[108] ?? "";
+    const executing = read(SPEC_WRITE_SKILL).split("\n")[86] ?? ""; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
 
     expect(
       executing,
@@ -885,18 +885,18 @@ describe("AC-STE-579.9 — spec-write/SKILL.md stays exactly where it is", () =>
       lines.length,
       "line 109 is a one-line-for-one-line rewrite; NFR-1's cap on this file is enforced " +
         "by a test that pins the split-line count",
-    ).toBe(358);
+    ).toBe(337); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 
   test("the milestone-attachment paragraph is still at line 111", () => {
     const lines = read(SPEC_WRITE_SKILL).split("\n");
-    expect(lines[110]).toContain("**Milestone attachment");
+    expect(lines[88]).toContain("**Milestone attachment"); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
     // …and line 109 sits ABOVE it, still carrying the idempotency contract.
-    expect(lines[108]).toContain("Idempotency hardening on Gateway-Timeout retry");
+    expect(lines[86]).toContain("Idempotency hardening on Gateway-Timeout retry"); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 
   test("line 109 names NO module path — the reachability pin is down-only", () => {
-    const line109 = read(SPEC_WRITE_SKILL).split("\n")[108]!;
+    const line109 = read(SPEC_WRITE_SKILL).split("\n")[86]!; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
     expect(
       line109.match(/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\.ts\b/),
       "naming a `<dir>/<file>.ts` on an ORDERED line raises ORDERED_UNREACHABLE_PIN " +
@@ -1000,7 +1000,7 @@ describe("AC-STE-579.11 — the registry takes the key, and every pin moves with
     // 45 when STE-579 landed its key; 47 since M_0c14d0 registered the
     // design-reference hand-off XOR pair. The pin is absolute by design, so a
     // later registration moves it here too — what it forbids is a SILENT move.
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(47);
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(48); // Amended by AC-STE-752.3 (M_d1e7b1): spec_research_skipped_no_tech registered, 47 -> 48.
   });
 
   test("the m84 TITLE literal moved off 44, and tracks the live registry", () => {
@@ -1073,8 +1073,8 @@ describe("AC-STE-579.12 — the directive lands, the rendering stays singular", 
 
   test("the directive sits on line 109 — the in-place rewrite, not a new line", () => {
     const lines = read(SPEC_WRITE_SKILL).split("\n");
-    expect(lines[108]).toContain(`MUST emit \`${NEW_KEY}\``);
-    expect(lines.length).toBe(358);
+    expect(lines[86]).toContain(`MUST emit \`${NEW_KEY}\``); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+    expect(lines.length).toBe(337); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 
   test("the MUST-emit directive for this key appears EXACTLY once", () => {
@@ -1095,13 +1095,13 @@ describe("AC-STE-579.12 — the directive lands, the rendering stays singular", 
 
   test("the single rendering is the row already at SKILL.md:311", () => {
     const lines = read(SPEC_WRITE_SKILL).split("\n");
-    expect(lines[310]).toMatch(new RegExp(`^\\| \`${NEW_KEY}\` \\|`));
+    expect(lines[288]).toMatch(new RegExp(`^\\| \`${NEW_KEY}\` \\|`)); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
     // No second row anywhere else in the file.
     const all = lines
       .map((l, i) => [i + 1, l] as const)
       .filter(([, l]) => new RegExp(`^\\| \`${NEW_KEY}\` \\|`).test(l))
       .map(([n]) => n);
-    expect(all).toEqual([311]);
+    expect(all).toEqual([289]); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 });
 

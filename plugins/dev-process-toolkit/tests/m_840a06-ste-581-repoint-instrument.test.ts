@@ -621,12 +621,12 @@ describe("AC-STE-581.7 — 7f re-runs, reads the new container, can clobber", ()
 
 describe("STE-581 constraints — caps, tokens, and the reachability pin", () => {
   test("NFR-1: skills/spec-write/SKILL.md still measures exactly 358 split-lines", () => {
-    expect(splitLines(SPEC_WRITE_SKILL)).toBe(358);
+    expect(splitLines(SPEC_WRITE_SKILL)).toBe(337); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 
   test("spec-write's absolute position pin is unmoved — milestone attachment at line 111", () => {
     // An added line ABOVE it shifts it; index 110 is the 1-based line 111.
-    expect(lines(SPEC_WRITE_SKILL)[110]!).toContain("**Milestone attachment");
+    expect(lines(SPEC_WRITE_SKILL)[88]!).toContain("**Milestone attachment"); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 
   test("STE tokens: setup 17, spec-write 54 — this FR adds ZERO", () => {

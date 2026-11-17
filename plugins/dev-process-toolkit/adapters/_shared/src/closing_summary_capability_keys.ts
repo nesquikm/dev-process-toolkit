@@ -76,6 +76,9 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "spec_research_invoked",
   "spec_research_no_matches",
   "spec_research_shape_violation",
+  // The spec-research fork's legal-skip disposition: a `--no-tech` run has no
+  // `## Technical Design` interview to seed, so the fork is not invoked.
+  "spec_research_skipped_no_tech",
   "deps_research_invoked",
   "deps_research_no_matches",
   "deps_research_shape_violation",
@@ -219,6 +222,7 @@ export const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   spec_research_invoked: "spec-write",
   spec_research_no_matches: "spec-write",
   spec_research_shape_violation: "spec-write",
+  spec_research_skipped_no_tech: "spec-write",
   deps_research_invoked: "spec-write",
   deps_research_no_matches: "spec-write",
   deps_research_shape_violation: "spec-write",

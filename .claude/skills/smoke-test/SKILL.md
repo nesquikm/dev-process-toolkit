@@ -1323,7 +1323,7 @@ Each step is a fresh `claude -p` spawn using the existing heredoc-on-stdin patte
 
 **Assertions (per step):**
 
-- Step 1: FR file exists at `../dpt-test-project-linear/specs/frs/<id>.md` with `grep -F 'needs_technical_review: true' ../dpt-test-project-linear/specs/frs/<id>.md` exit 0 (frontmatter flag set).
+- Step 1: FR file exists at `../dpt-test-project-linear/specs/frs/<id>.md` with `grep -F 'needs_technical_review: true' ../dpt-test-project-linear/specs/frs/<id>.md` exit 0 (frontmatter flag set); `bun "${CAP_ASSERT}" present /tmp/dpt-smoke-linear-no-tech-step-1.log spec_research_skipped_no_tech` exit 0 (the `--no-tech` run skipped the spec-research fork and said so in the child's assistant text).
 - Step 2: `bun "${CAP_ASSERT}" present /tmp/dpt-smoke-linear-no-tech-step-2.log implement_refused_needs_technical_review` exit 0 (capability row emitted in the child's assistant text); `git -C ../dpt-test-project-linear log --oneline --since '<step-2-start>'` returns no rows (no commit landed during step 2).
 - Step 3: `grep -F 'needs_technical_review: true' ../dpt-test-project-linear/specs/frs/<id>.md` exit 1 (flag cleared after re-invoke without `--no-tech`).
 - Step 4: `git -C ../dpt-test-project-linear log --oneline --since '<step-4-start>'` returns ≥ 1 row (implementation commit landed); `test ! -f ../dpt-test-project-linear/specs/frs/archive/<id>.md` must exit 0 — the single-FR form silent-skips Phase 5, so the FR stays at `status: active` and no archive file is written (see the group-4 archival note above; a non-zero exit here means step 4 archived something it must not have); `mcp__linear__get_issue STE-<id>` returns `status: "Done"`.

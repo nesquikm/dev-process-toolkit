@@ -509,7 +509,7 @@ describe("AC-STE-444.5 — the correction is a byte-trade, not an expansion", ()
     const gcIdx = read(GATE_CHECK_SKILL)
       .split("\n")
       .findIndex((l) => PROBE_26_MARKER.test(l));
-    expect(swIdx + 1, "the milestone-attachment paragraph moved off line 111").toBe(111);
+    expect(swIdx + 1, "the milestone-attachment paragraph moved off line 111").toBe(89); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
     expect(gcIdx + 1, "probe #26's row moved off line 81").toBe(81);
   });
 

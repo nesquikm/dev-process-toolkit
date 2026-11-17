@@ -46,7 +46,7 @@ codename: Read Back
 
 ### Tasks
 
-- [ ] STE-752: `spec_research_skipped_no_tech` in spec-write, brainstorm, the key registry and the smoke --no-tech capture
+- [x] STE-752: `spec_research_skipped_no_tech` in spec-write, brainstorm, the key registry and the smoke --no-tech capture
   verify: registry and contract tests red before, green after
 - [x] STE-826: spec auditors cite the read behind a file-existence claim; /spec-review re-checks claims
   verify: contract tests on both agent files and the skill

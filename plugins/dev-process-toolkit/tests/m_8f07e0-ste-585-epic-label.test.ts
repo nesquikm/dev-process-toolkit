@@ -349,7 +349,7 @@ describe("AC-STE-585.10 — no new capability key", () => {
     // here too (45 -> 47, M_0c14d0's design-reference pair). What the pin
     // forbids is a SILENT move, and what THIS AC claims is that STE-585 added
     // no key of its own — which the two named below carry.
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(47);
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(48); // Amended by AC-STE-752.3 (M_d1e7b1): spec_research_skipped_no_tech registered, 47 -> 48.
     expect([...CANONICAL_CAPABILITY_KEYS]).toContain("design_references_passed");
     expect([...CANONICAL_CAPABILITY_KEYS]).toContain("design_references_none_cited");
   });

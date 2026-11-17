@@ -28,6 +28,7 @@
 // Every fixture is a REAL temp root torn down in a `finally`; nothing is
 // written under the plugin tree.
 
+import { carriesLiveAmendment, hunkIsLiveAmendment, liveAcIds } from "./_amendment_marker";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -220,7 +221,11 @@ function isLoadBudgetHunk(hunk: string): boolean {
 function expectUneditedBeyondMarked(path: string, ref: string, marker: RegExp): void {
   const proc = spawnSync("git", ["diff", "-U0", ref, "--", path], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(proc.status, proc.stderr).toBe(0);
-  const hunks = proc.stdout.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ ") && !isLoadBudgetHunk(h)).join("");
+  // Amended by AC-STE-752.1 (M_d1e7b1): a hunk carrying a marker that names a LIVE AC id is
+  // admitted too (`carriesLiveAmendment`); a bare or dangling marker still reads as an edit.
+  const live = liveAcIds(join(PLUGIN_ROOT, "..", ".."));
+  const liveHunk = (h: string): boolean => hunkIsLiveAmendment(h, live);
+  const hunks = proc.stdout.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ ") && !isLoadBudgetHunk(h) && !liveHunk(h)).join("");
   expect(unmarkedHunks(hunks, marker), `${path} has unmarked edits against ${ref}`).toEqual([]);
   const tracked = spawnSync("git", ["cat-file", "-e", `${ref}:./${path}`], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(tracked.status, `${path} is not tracked on ${ref}`).toBe(0);
@@ -703,6 +708,14 @@ describe("structural — gate-check's probe rows stay where the pins expect them
   // Amended by AC-STE-685.3: admits STE-685's marked runner migration; an unmarked hunk still goes red.
   test("tests/m120-ste-444-jira-binding-prose.test.ts is unedited against main beyond STE-685's marked amendments", () => {
     expectUneditedBeyondMarked("tests/m120-ste-444-jira-binding-prose.test.ts", "main", STE685_MARKER);
+  });
+
+  // Amended by AC-STE-752.1 (M_d1e7b1): the live-AC admission names a written AC or admits nothing.
+  test("MUTATION: a live-AC marker admits a hunk, a dangling or bare one does not", () => {
+    const live = liveAcIds(join(PLUGIN_ROOT, "..", ".."));
+    expect(carriesLiveAmendment("+x // Amended by AC-STE-752.1 (M_d1e7b1)", live)).toBe(true);
+    expect(carriesLiveAmendment("+x // Amended by AC-STE-99999.1", live)).toBe(false);
+    expect(carriesLiveAmendment("+x // Amended by", live)).toBe(false);
   });
 
   // Amended by AC-STE-685.3: the admission stays falsifiable on a synthetic diff, so it holds after merge too.
