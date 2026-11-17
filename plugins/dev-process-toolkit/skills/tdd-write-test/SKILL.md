@@ -23,8 +23,37 @@ The orchestrator passes you (in its prompt body):
 
 1. **Read** the FR file + CLAUDE.md (test conventions, file naming) + `specs/testing-spec.md` when it exists. Then resolve the house test rules for the files you are about to write: `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/best_practices_manifest.ts" select --specs specs --files "<test file paths>"`, and read every document it prints (`no-manifest:` / `no-match:` means there are none; exit 2 means a malformed manifest — say so in `notes` and go on without it).
 2. **Write** one or more test files. Each AC must have at least one failing test that asserts on real behavior — output, state change, or side effect. **Do not write the implementation.**
-3. **Run** the failing-test command **once** to confirm RED. Capture the first 40 lines of runner output.
+3. **Run** the failing-test command **once** to confirm RED (on a bug FR, at most twice: § A bug FR). Capture the first 40 lines of runner output.
 4. **Emit** exactly one fenced ` ```tdd-result ` block as the last thing in your turn.
+
+## A bug FR (`kind: bug`)
+
+When the FR's frontmatter carries `kind: bug`, the code your tests run against still has the bug, so this RED is the regression proof: the one run that can show a test catches the bug, not just the absence of the fix. Sort each AC into one of three kinds first:
+
+- **A bug case** is an AC the bug breaks: the `Regression:` one, and any other AC the FR's Actual shows failing today. Its test drives the condition the FR's Steps to reproduce name and asserts the Expected result, not that the fix's new code ran. It uses only API that exists before the fix, no function, parameter, key or file the fix is about to add, so it runs unchanged on the code before the fix and on the fix. It goes RED at the assertion that encodes the bug, the way the FR's Actual describes: RED from a missing symbol, a compile error, setup or a lookup on the way does not count here, since such a test cannot run on the code before the fix. A `Regression:` AC that names its test (`<test file> › <test name>`) gets it at that path, under that name.
+- **New behavior the fix adds** (a helper, a parameter, a message the FR asks for) does not exist yet, so the Actual cannot show it failing. Its test follows the ordinary rules, RED from a missing symbol included, and the implementer's defect check guards it.
+- **Unchanged behavior** the bug leaves intact passes before the fix by design and needs no RED.
+
+**Record one `notes` line per AC**, in the block form `notes: |`, each from this closed set:
+
+- `regression: <AC-id> <test name> red at <assertion> on <ref>` — a bug case RED at its assertion;
+- `regression: <AC-id> n/a — new behavior the fix adds`;
+- `regression: <AC-id> n/a — guards unchanged behavior`;
+- `regression: <AC-id> not proved — <reason>` — a bug case whose test is GREEN now (the bug does not reproduce that way, or the fix is already in the working tree) or RED only before its assertion. When a turn is left, rewrite such a test once and run the command again first.
+
+`<ref>` is `git rev-parse --short HEAD`, or `no-commit` in a repository without one, plus `+uncommitted` when `git status --porcelain` lists a source file you did not write; read both in the same Bash call as the test run. A `not proved` line does not fail the run: return `status: ok` when the run is otherwise sound, and `/implement` step 14 lists the AC as unproved. A fix made before its test is proved by rolling the fix back: `/debug` § A reported bug.
+
+**Record the Stage RED snapshot** once the run shows at least one bug case RED at its assertion, and only then, in a Bash call of its own after that run. Such a run was on the code with the bug, so its tree is the code before the fix, and the implementer's defect check undoes the fix from it. A run where every bug case is GREEN (the audit's retry round, a fix already in the tree) leaves the snapshot as it is. `<prefix>` is the part of the AC ids between `AC-` and the last `.`:
+
+```bash
+g=$(git rev-parse --absolute-git-dir); d="$g/dpt-red-base"; f="$d/<prefix>"; i="$d/<prefix>.index"
+h=$(git rev-parse -q --verify HEAD || echo none)
+mkdir -p "$d" && rm -f "$f" "$i" && { [ "$h" = none ] || GIT_INDEX_FILE="$i" git read-tree HEAD; } \
+  && GIT_INDEX_FILE="$i" git add -A && t=$(GIT_INDEX_FILE="$i" git write-tree) && echo "$h $t" > "$f"
+rm -f "$i"
+```
+
+The file holds the `HEAD` it was taken on and the tree. The old file goes first, so a snapshot that fails to build leaves none behind rather than a stale one. A temporary index takes untracked files too and leaves your index alone.
 
 ## Hand-off contract (mandatory final fence)
 
@@ -55,5 +84,5 @@ notes: optional one-liner
 - **Independent expected values.** Never compute the expectation through the code path under test — the same helper, the same lookup table, the same localization bundle. That asserts the code equals itself. Anchor on a literal, a fixture or a stable key.
 - **Bounded waits.** Wait on a condition with a timeout and a message naming what was awaited; never a fixed sleep. Never repeat the action under test (a call, a request, a user action) until the assertion passes — that hides the bug. Re-issuing a read to observe an eventually consistent store is polling, and it is bounded and named.
 - **One independent check per test.** Split independent checks so the first failure does not mask the rest; a linear flow where step N needs step N-1 stays one test.
-- **RED from a missing symbol is accepted, and proves little.** It shows the code is absent, not that the assertion guards the behavior. The implementer's defect check proves that after GREEN, so an assertion that only a missing symbol could fail will halt the cycle there.
+- **RED from a missing symbol is accepted, and proves little** (not for a bug case on a bug FR, where it does not count: § A bug FR). It shows the code is absent, not that the assertion guards the behavior. The implementer's defect check proves that after GREEN, so an assertion that only a missing symbol could fail will halt the cycle there.
 - **Honor isolation.** The orchestrator's retry prompt (if any) injects only raw failing-test output, no analysis. Do not solicit hints from outside the AC text and the test framework.

@@ -67,9 +67,14 @@ function resumeCommand(report: HaltReport, at: string = report.ac ?? "<AC-id>"):
  * resumes where it stopped. A first-pass Stage GREEN halt resumes at its AC.
  * A refactorer halt resumes at `refactor`. An audit halt resumes at `audit`:
  * any spec-reviewer halt, and an implementer halt in the audit retry round.
- * A test-writer halt has nothing implemented yet, so a re-run is the remedy.
+ * A test-writer halt in Stage RED has nothing implemented yet, so a re-run is
+ * the remedy; one in the audit retry round comes after every test is GREEN, so
+ * it resumes at `audit` too.
  */
 function resumeSentence(report: HaltReport): string {
+  if (report.role === "test-writer" && report.auditRound) {
+    return `The halt came in the audit retry round, after every test was GREEN, so a re-run would halt again: write the missing test by hand, then resume with ${resumeCommand(report, "audit")}.`;
+  }
   if (report.mode === "spec-gap") {
     return `After the audit, every test is GREEN: implement the ACs it reports missing, or correct the FR, then resume with ${resumeCommand(report, "audit")}.`;
   }
@@ -86,6 +91,22 @@ function resumeSentence(report: HaltReport): string {
     return `The ACs before this one are GREEN: fix what stopped the implementer, then resume at its AC with ${resumeCommand(report)}.`;
   }
   return "";
+}
+
+/**
+ * A false-RED test-writer halt the report cannot place. The orchestrator sets
+ * `auditRound` for implementer halts, so a test-writer that found nothing to
+ * fail in the audit retry round reaches here too, and so does a bug FR whose
+ * fix was already in the working tree at Stage RED. A plain re-run halts again
+ * in both: name the way out of each beside the re-run clause.
+ */
+function falseRedExits(report: HaltReport): string {
+  if (report.role !== "test-writer" || report.mode !== "A" || report.auditRound) return "";
+  return (
+    " A re-run halts again when nothing can fail. If every test was already GREEN after REFACTOR (the audit retry round), " +
+    `write the missing test by hand and resume with ${resumeCommand(report, "audit")}. ` +
+    "On a bug FR whose fix is already in the working tree, take the fix out and re-run, so Stage RED runs on the code before the fix."
+  );
 }
 
 export function formatHaltReport(report: HaltReport): string {
@@ -154,7 +175,8 @@ export function formatHaltReport(report: HaltReport): string {
           "Re-run /dev-process-toolkit:tdd against the FR after fixing the " +
           "identified failure mode (test-writer false-RED, implementer GREEN " +
           "miss, refactorer regression, format drift, subagent maxTurns, or " +
-          "spec-review reporting unimplemented acceptance criteria).",
+          "spec-review reporting unimplemented acceptance criteria)." +
+          falseRedExits(report),
   );
   lines.push(
     `Context: skill=tdd, mode=${report.mode}, role=${report.role}` +

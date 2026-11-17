@@ -1,6 +1,6 @@
 ---
 name: debug
-description: Structured debugging protocol for failed gate checks, failing tests, or unexpected behavior. Use when /gate-check or /tdd fails and the cause is unclear. Phases: Root Cause → Pattern Analysis → Hypothesis Testing → Implementation.
+description: Structured debugging protocol for failed gate checks, failing tests, unexpected behavior, or a reported bug. Use when /gate-check or /tdd fails and the cause is unclear, or when a reported bug (a symptom, a ticket, a bug FR) needs its cause found and a test that proves the fix. Phases: Root Cause → Pattern Analysis → Hypothesis Testing → Implementation.
 argument-hint: '<failing test, error message, or symptom>'
 ---
 
@@ -57,6 +57,16 @@ Once the root cause is confirmed:
 2. **Run the gate check after the fix** — Read the full output. Report the actual result (e.g., "47 tests, 0 failures, 0 errors").
 3. **Check for related issues** — Did this fix reveal another failure? Address it before declaring done.
 
+## A reported bug
+
+When `$ARGUMENTS` is a bug someone reported (a symptom, a ticket, a bug FR) rather than a red test or gate, the bug is fixed only when a test catches it: RED on the code before the fix, at the assertion that encodes the bug, and GREEN on the fix. A test that passes today proves nothing about the bug.
+
+- **A bug FR (`kind: bug`)** — Phases 1–3 find the root cause and leave no fix behind: revert Phase 3's edits one by one (`git checkout -- <file>` only for a file that was clean before Phase 3, never the whole tree) and write the cause under the FR's `### Root cause`. The fix itself goes through `/implement <FR-id>`, whose `/tdd` writes a test for every bug case and proves it RED before the fix. Do not fix it in Phase 4 first.
+- **No FR** — Phase 4 starts with the test: drive the condition the report names, assert what should happen instead, and run it. It must go RED at that assertion, through API that exists before the fix; RED from a missing symbol proves nothing here. Then fix, and see it GREEN.
+- **A fix made before its test** (yours, or one under review) — prove the test by rolling the fix back. For a fix that is not committed yet, HEAD lacks both the fix and any other uncommitted work. A file holding both the fix and other uncommitted work cannot be split: say so and ask the operator to commit or set aside the other work first. `<dir>` is a fresh directory outside the working tree from `mktemp -d`; run `git worktree add --detach <dir> HEAD`, and stop if `add` fails. In `<dir>`, copy in every path `git status --porcelain --untracked-files=all` lists that is neither the fix nor the test: the other uncommitted work, deletions and renames applied (a deleted path is deleted there too, and so is the old name of a renamed one), parent directories created. Install or link the dependencies and regenerate whatever those paths feed, then copy the test in and run it: RED at its assertion. Then copy in the fix's paths, regenerate again, and run the test: GREEN. The other uncommitted paths copied in are named in the change description. Whatever the outcome, finish with `git worktree remove --force <dir>`. In the proof line below, this path's `<pre-fix>` is `HEAD` plus the other uncommitted work and its `<fix>` is `the working tree`. For a committed fix, `<pre-fix>` is the commit before the fix: `<fix>^` when the fix is one commit, a squash-merged one included, the merge commit's first parent for a merged branch, and `git merge-base origin/<base> <fix>` only when the whole branch is the fix. Work in a throwaway worktree, `git worktree add --detach <dir> <fix>`, with the test copied in when `<fix>` does not hold it: for each non-test path in `git diff --name-status --no-renames <pre-fix> <fix>`, `M` or `D` → `git checkout <pre-fix> -- <path>`, `A` → `git rm -q <path>`; regenerate whatever those paths feed. Run the test: RED at its assertion. `git reset --hard HEAD` brings the fix back; regenerate again, so no build output still holds the code before the fix, and run the test: GREEN. Then `git worktree remove --force <dir>`. GREEN on the rolled-back code means the test catches nothing: rewrite it.
+
+Put one line per bug case in the change description: `regression: <test> red at <assertion> on <pre-fix> → green on <fix>`.
+
 ## The 3-Fix Rule
 
 If you have attempted 3 different fixes and the test still fails:
@@ -79,4 +89,5 @@ Continuing past 3 failed fixes without changing your mental model burns time and
 - Do NOT increase `sleep()` durations to fix flaky tests — find the condition and wait for it
 - Do NOT park or delete a flaky test to get the suite green — it is a bug in the test or the code
 - Do NOT claim the issue is fixed without running the gate and reading the actual output
+- Do NOT fix a reported bug before a test reproduces it, or call a fix that came first done before rolling it back has turned that test RED
 - After 3 failed fixes, escalate — do not attempt fix #4
