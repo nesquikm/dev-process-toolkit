@@ -60,5 +60,5 @@ codename: Read Back
   verify: one negative test per rejected shape; outside-specs deletion gets no pass
 - [x] STE-756: `gate_probe_rows.ts` + `gate_probe_runner.ts`, `probe-row` expectation, fixtures 3c/9a/9b/2a/2c re-keyed
   verify: runner set equals registry project-root-only set; prose-only capture fails 3c; probe #81 green
-- [ ] STE-824: smoke harness fixes 1b/5b, group 2, Phase 4, 3a/3b, 13a, group 14, Phase 0.5, child-spawn; missing capture exits 2
+- [x] STE-824: smoke harness fixes 1b/5b, group 2, Phase 4, 3a/3b, 13a, group 14, Phase 0.5, child-spawn; missing capture exits 2
   verify: contract test per AC; CLI test for missing capture

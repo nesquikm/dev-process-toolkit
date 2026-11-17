@@ -330,6 +330,20 @@ export function probeRowVerdict(
   };
 }
 
+/**
+ * STE-824: a missing capture is not an empty one. Scoring it as empty let
+ * `absent` pass on a run that never wrote its log, so the CLI refuses it as a
+ * usage error (exit 2, one stderr line). An EXISTING empty file still scores.
+ */
+async function readCaptureOrExit(capturePath: string): Promise<string> {
+  const file = Bun.file(capturePath);
+  if (!(await file.exists())) {
+    console.error(`capability_row_assert: capture file not found: ${capturePath}`);
+    process.exit(2);
+  }
+  return await file.text();
+}
+
 if (import.meta.main && process.argv[2] === "probe-row") {
   const [, capturePath, nText, ...verdicts] = process.argv.slice(2);
   if (
@@ -342,8 +356,7 @@ if (import.meta.main && process.argv[2] === "probe-row") {
     console.error("usage: bun capability_row_assert.ts probe-row <capture.log> <N> <pass|notes|fail|vacuous…>");
     process.exit(2);
   }
-  const file = Bun.file(capturePath);
-  const ndjson = (await file.exists()) ? await file.text() : "";
+  const ndjson = await readCaptureOrExit(capturePath);
   const verdict = probeRowVerdict(ndjson, Number(nText), verdicts);
   console.log(verdict.line);
   process.exit(verdict.exitCode);
@@ -362,11 +375,7 @@ if (import.meta.main) {
     );
     process.exit(2);
   }
-  const file = Bun.file(capturePath);
-  // A missing capture is a real smoke signal, not a crash: score it as an
-  // empty capture and let the expectation decide (chain-integrity detection
-  // is assertChainIntegrity's job, not this runner's).
-  const ndjson = (await file.exists()) ? await file.text() : "";
+  const ndjson = await readCaptureOrExit(capturePath);
   const verdict = capabilityVerdict(
     ndjson,
     keys,
