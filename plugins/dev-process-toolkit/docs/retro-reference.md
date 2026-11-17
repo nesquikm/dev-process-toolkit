@@ -35,9 +35,11 @@ One file, `.dpt/ledger/retro/<scope-slug>-<UTC yyyymmddThhmmssZ>.json`, schema `
 
 ## Trend
 
-`retro.ts <root> --trend [--last N]` routes to `retro_trend.ts` and writes one `.dpt/ledger/retro/trend-<stamp>.json` (schema `dpt-retro-trend/1`). A run is one archived FR with token-ledger rows claimed by its id; runs group by (skill, `changelog_category`, size bucket) and each group keeps its newest N runs. N defaults to `TREND_DEFAULT_LAST` (20) and must be a positive integer; anything else, `--last` with no value or given twice, any other argument, or a `retro.priority` the loader refuses, is refused in the NFR-10 shape and writes nothing.
+`retro.ts <root> --trend [--last N]` routes to `retro_trend.ts` and writes one `.dpt/ledger/retro/trend-<stamp>.json` (schema `dpt-retro-trend/2`). A run is one (archived FR, skill): an archived FR with token-ledger rows claimed by its id makes one run for each skill on those rows; runs group by (skill, `changelog_category`, size bucket) and each group keeps its newest N runs. N defaults to `TREND_DEFAULT_LAST` (20) and must be a positive integer; anything else, `--last` with no value or given twice, any other argument, or a `retro.priority` the loader refuses, is refused in the NFR-10 shape and writes nothing.
 
-Size is the added plus deleted lines of the commits whose footer carries `Refs: <FR id>`: S under 100, M 100 to 500, L over 500. A run's skill is the skill on its first claimed ledger row, and an FR with no `changelog_category` groups under `unknown`. When git cannot be read, no run can be sized and every group's size reads `unknown`.
+Size is the added plus deleted lines of the commits whose footer carries `Refs: <FR id>`: S under 100, M 100 to 500, L over 500. A run's tokens and sessions come from its own skill's claimed rows only, and an FR with no `changelog_category` groups under `unknown`. When git cannot be read, no run can be sized and every group's size reads `unknown`.
+
+**Settings.** Each run carries the `settings_hash` it started under, read from the run-start ledger (see Run-start ledger): the earliest row whose FR and skill match the run's, else the earliest row whose session is one of the run's sessions and whose skill matches, else `settings unknown`; a matching row with no `settings_hash` also reads `settings unknown`. Each group carries two keys for it: `runs_detail`, one entry per run in the window (FR id, skill, settings, session aliases), and `settings`, the window's runs counted per settings value, most runs first, ties by hash ascending.
 
 **Metrics** (one cell each, columns in `retro.priority` order). Each shows the window median of the per-run values and `delta`, the newer half's median minus the older half's:
 

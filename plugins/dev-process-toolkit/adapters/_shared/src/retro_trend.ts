@@ -6,7 +6,7 @@
 // A run is one archived FR with token-ledger rows claimed by its id. Runs are
 // grouped by (skill, changelog_category, size bucket) and each group keeps its
 // newest N runs. Writes exactly one file:
-// `.dpt/ledger/retro/trend-<UTC yyyymmddThhmmssZ>.json` (schema `dpt-retro-trend/1`).
+// `.dpt/ledger/retro/trend-<UTC yyyymmddThhmmssZ>.json` (schema `dpt-retro-trend/2`).
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -18,10 +18,11 @@ import { DEFAULT_RETRO_PRIORITY, loadProjectSection, type RetroMetric } from "./
 import { RETRO_RULES, evaluateRetroRules, type RetroInputs } from "./retro_rules";
 import { REVIEW_FINDINGS_KIND } from "./review_findings_receipt";
 import { aliasFor, createAliasMap, sessionDigest } from "./session_aliases";
+import { readRunStarts, type RunStartRow } from "./run_start_ledger";
 import { readLedgerRows } from "./token_usage";
 import { readSessionReceipts } from "./tracker_receipts";
 
-export const TREND_SCHEMA = "dpt-retro-trend/1";
+export const TREND_SCHEMA = "dpt-retro-trend/2";
 /** The default window: the newest N runs of each group. */
 export const TREND_DEFAULT_LAST = 20;
 /** A group with fewer runs than this reads `insufficient: <n> runs` in every cell. */
@@ -71,8 +72,11 @@ export function parseTrendArgs(args: string[]): { last: number } {
   return { last };
 }
 
-interface Run {
+export interface Run {
+  /** The archived FR id. */
   id: string;
+  /** True when any of this skill's claimed rows is an incomplete fork row (`complete: false`). */
+  incomplete: boolean;
   /** False when git could not be read, so the run's size is unknown. */
   sized: boolean;
   skill: string;
@@ -81,6 +85,8 @@ interface Run {
   lastCommitAt: number;
   sessions: string[];
   outputTokens: number;
+  /** The STE-810 settings hash this run started under, or "settings unknown" (AC-STE-813.2). */
+  settings: string;
   /** Epoch ms of the archive file's `archived_at`; NaN when absent or unreadable. */
   archivedAt: number;
 }
@@ -161,7 +167,42 @@ function refsCommits(projectRoot: string): Map<string, RefsTotals> | null {
   return out;
 }
 
-function collectRuns(projectRoot: string): Run[] {
+export const SETTINGS_UNKNOWN = "settings unknown";
+
+/** The settings hash of the earliest run-start row matching `match`, or null when none does. */
+function earliestHash(starts: RunStartRow[], match: (r: RunStartRow) => boolean): string | null {
+  // A row whose started_at is not a date has no place in "earliest", so it is no candidate.
+  let best: RunStartRow | null = null;
+  let bestAt = Number.POSITIVE_INFINITY;
+  for (const r of starts) {
+    const at = Date.parse(r.started_at);
+    if (!match(r) || !Number.isFinite(at) || at >= bestAt) continue;
+    best = r;
+    bestAt = at;
+  }
+  return best === null ? null : typeof best.settings_hash === "string" ? best.settings_hash : SETTINGS_UNKNOWN;
+}
+
+/** AC-STE-813.2: an FR + skill match first, then a session + skill match, else unknown. */
+function settingsFor(starts: RunStartRow[], fr: string, skill: string, sessions: string[]): string {
+  return (
+    earliestHash(starts, (r) => r.skill === skill && r.fr === fr) ??
+    earliestHash(starts, (r) => r.skill === skill && sessions.includes(r.session_id)) ??
+    SETTINGS_UNKNOWN
+  );
+}
+
+/** AC-STE-813.3: the window's runs per settings value, most runs first, ties by hash. */
+function settingsCounts(window: Run[]): { hash: string; runs: number }[] {
+  const counts = new Map<string, number>();
+  for (const r of window) counts.set(r.settings, (counts.get(r.settings) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([hash, runs]) => ({ hash, runs }))
+    .sort((a, b) => b.runs - a.runs || (a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : 0));
+}
+
+/** One run per (archived FR, skill) among the FR's claimed ledger rows (AC-STE-813.1). */
+export function collectRuns(projectRoot: string): Run[] {
   // Index the ledger once by claiming FR instead of filtering it per FR.
   const byFr = new Map<string, ReturnType<typeof readLedgerRows>>();
   for (const r of readLedgerRows(projectRoot)) {
@@ -170,14 +211,26 @@ function collectRuns(projectRoot: string): Run[] {
   }
   const commits = refsCommits(projectRoot);
   const runs: Run[] = [];
+  const starts = readRunStarts(projectRoot);
   for (const fr of archivedFrs(projectRoot)) {
     const claimed = byFr.get(fr.id) ?? [];
     if (claimed.length === 0) continue;
-    const skill = String((claimed[0] as { skill?: unknown }).skill ?? "unknown");
-    const sessions = [...new Set(claimed.map((r) => r.session_id).filter((s): s is string => typeof s === "string"))];
+    const bySkill = new Map<string, typeof claimed>();
+    for (const r of claimed) {
+      const skill = String((r as { skill?: unknown }).skill ?? "unknown");
+      const rows = bySkill.get(skill);
+      if (rows) rows.push(r);
+      else bySkill.set(skill, [r]);
+    }
+    // The FR's changed lines are shared by all of its runs.
     const c = commits?.get(fr.id) ?? noRefs();
-    const outputTokens = claimed.reduce((n, r) => n + (typeof r.output_tokens === "number" ? r.output_tokens : 0), 0);
-    runs.push({ id: fr.id, sized: commits !== null, skill, category: fr.category, lines: c.lines, lastCommitAt: c.last, sessions, outputTokens, archivedAt: fr.archivedAt });
+    for (const [skill, rows] of bySkill) {
+      const sessions = [...new Set(rows.map((r) => r.session_id).filter((s): s is string => typeof s === "string"))];
+      const outputTokens = rows.reduce((n, r) => n + (typeof r.output_tokens === "number" ? r.output_tokens : 0), 0);
+      const incomplete = rows.some((r) => (r as { complete?: unknown }).complete === false);
+      const settings = settingsFor(starts, fr.id, skill, sessions);
+      runs.push({ id: fr.id, incomplete, sized: commits !== null, skill, category: fr.category, lines: c.lines, lastCommitAt: c.last, sessions, outputTokens, settings, archivedAt: fr.archivedAt });
+    }
   }
   return runs;
 }
@@ -452,6 +505,8 @@ export function buildTrendReport(projectRoot: string, last: number) {
       category,
       size,
       runs: window.length,
+      runs_detail: window.map((r) => ({ fr: r.id, skill: r.skill, settings: r.settings, sessions: r.sessions.map((s) => aliasFor(aliases, s)) })),
+      settings: settingsCounts(window),
       metrics: priority.map((id) => {
         if (note !== null) return emptyMetric(id, note);
         const skipped = offNote(off, id);

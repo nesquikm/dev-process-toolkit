@@ -23,8 +23,9 @@
 //   NFR-10 `Refusing:` / `Remedy:` / `Context:` lines on stderr and writes
 //   nothing.
 //
-//   The report (schema `dpt-retro-trend/1`) carries at least:
-//     schema    "dpt-retro-trend/1"
+//   The report (schema `dpt-retro-trend/1`; Amended by AC-STE-813.5: now
+//   `dpt-retro-trend/2`) carries at least:
+//     schema    "dpt-retro-trend/2"
 //     last      the window N
 //     priority  the retro.priority order the columns follow
 //     sessions  [{ alias: "s<N>", digest: <16 hex> }]  — one per run session
@@ -131,7 +132,8 @@ const PROPOSAL_MOD = join(SRC, "retro_proposal.ts");
 const ALIAS_MOD = join(SRC, "session_aliases.ts");
 const RETRO_SKILL = join(PLUGIN_ROOT, "skills", "retro", "SKILL.md");
 
-const SCHEMA = "dpt-retro-trend/1";
+// Amended by AC-STE-813.5: the schema moved from dpt-retro-trend/1 to /2.
+const SCHEMA = "dpt-retro-trend/2";
 const SKIPPED_PREFIX = "skipped: not observable";
 const TREND_NAME_RE = /^trend-\d{8}T\d{6}Z\.json$/;
 const NFR10_RE = /^Refusing: .+\nRemedy: .+\nContext: .+/m;
@@ -1003,7 +1005,7 @@ describe("AC-STE-776.7 the trend writes one report and nothing else", () => {
   );
 
   test(
-    "AC-.7 schema is dpt-retro-trend/1",
+    "AC-.7 schema is dpt-retro-trend/2 (Amended by AC-STE-813.5)",
     () => {
       expect(defaultTrend().report.schema).toBe(SCHEMA);
     },
