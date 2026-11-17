@@ -728,7 +728,7 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
 
   test("spec-write/SKILL.md: 358 split-lines, 54 STE tokens", () => {
     const body = read(SPEC_WRITE);
-    expect(body.split("\n").length).toBe(337); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+    expect(body.split("\n").length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
     expect(steTokens(body)).toBe(54);
   });
 
@@ -802,7 +802,7 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
   });
 
   test("the canonical capability-key set stays at 47", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(48); // Amended by AC-STE-752.3 (M_d1e7b1): spec_research_skipped_no_tech registered, 47 -> 48.
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(49); // Amended by AC-STE-835.2 (M_d1e7b1): spec_research_skipped_no_tech and implement_spec_conflict_escalated registered, 47 -> 49.
   });
 
   test("reachability: row 49's two references are reachable; the new pin is one prepended ledger entry naming STE-605 (no raise)", async () => {

@@ -212,6 +212,8 @@ Each round has three sequential stages. **Complete each stage before starting th
 
    i. **After any fix** — re-run the full gate fresh, cite actual numbers (e.g., "47 tests, 0 failures, 0 errors"). Never claim clean from memory. A command the gate reports as `(reused)` counts as fresh: its key was recomputed on the spot, and its numbers are the stored run's. After any fix the tree differs, so the key differs and the command runs. Only if the `/gate-check` receipt call printed `review_findings: on`, write each Stage B pass's returned review to a temp file and record its counts with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts" record "<checkout root>" code-review "<that file>"`.
 
+   **Spec conflict.** A review finding that conflicts with the FR's Acceptance Criteria, Technical Design or Testing section never edits the FR file — not to fix the finding, not to make the spec agree with the code. The round ends there as an escalation to the operator that names the FR section and the finding. On that path /implement **MUST emit `implement_spec_conflict_escalated`** as a literal backticked token.
+
 ## Phase 4: Report & Handoff
 
 Four labeled sub-steps in order: **Phase 4a** (gate-check passed — no new logic), **Phase 4b** (doc fragment hook; writes `docs/.pending/<fr-id>.md` when docs generation is enabled), **Phase 4c** (report at step 14 + human approval at step 15), **Phase 4d** (Close procedure: commit → `Provider.releaseLock` → `Provider.getTicketStatus`).
@@ -352,6 +354,4 @@ If you hear yourself thinking any of these, stop and apply the rule anyway:
 - "This is too simple to need a failing test first" / "I'll test after, it's almost done" → write the test first
 - "It should work now" → "should" is not a gate result; "The spec says X but Y works better" / "Just one small edge case" → update the spec first, backfill now
 
-## Architecture Note
-
-This skill runs in-process in the main session — deliberately **not** `context: fork`. Phase 3 Stage B spawns the `code-reviewer` subagent via the `Agent` tool, and Claude Code forbids nested subagent spawns. The review-fix loop additionally requires findings to flow back to the same implementer that wrote the code. Full rationale: `docs/patterns.md` § Pattern: `/implement` Runs In-Process.
+Architecture note (why this skill runs in-process, not forked): `docs/implement-reference.md` § Architecture Note.

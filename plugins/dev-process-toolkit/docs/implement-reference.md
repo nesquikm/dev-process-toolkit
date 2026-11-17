@@ -40,6 +40,14 @@ These are illustrative — use the patterns in your project's CLAUDE.md as the a
 - **Go:** verify every returned `error` is checked; check that deferred `Close()` calls are paired with error handling; confirm context cancellation propagates through goroutines.
 - **Rust:** verify `Result` is not discarded with `let _ = ...`; check that `?` propagates errors to the right boundary; confirm `panic!` is only used for truly unreachable states.
 
+## Phase 3 Spec conflict
+
+A self-review finding that conflicts with the FR's Acceptance Criteria, Technical Design or Testing section never edits the FR file — not to fix the finding, not to make the spec agree with the code. The round ends there as an escalation to the operator that names the FR section and the finding, and /implement emits `implement_spec_conflict_escalated`.
+
+This is the Phase 3 case of the rule that spec changes need approval (§ Spec Deviation Check, the `contradicts` row). It is not the Phase 2 `underspecified` backfill, which adds edge cases to the cross-cutting specs and never rewrites an FR's approved sections.
+
+The reason: the tracker ticket's description was written from the FR when the spec was approved. An FR edited mid-run leaves the tracker description stale, and the operator approves a commit whose spec no longer matches the ticket they signed off on. Only the operator decides which side changes.
+
 ## Defect checks, resuming a halt and parked tests
 
 Guidance `skills/implement/SKILL.md` does not carry inline (its lines are frozen by AC-STE-722.8); each paragraph names the skill step it extends.
@@ -515,3 +523,9 @@ Refs: STE-<N>
 ### Step 14 approval-gate render
 
 Alongside the AC checklist and gate output, the report must include the proposed `<type>(<scope>): <title>`. The user can redirect type/scope before approval (e.g., "use `chore` not `feat` — this is non-functional"). The commit-msg hook is the deterministic backstop if drift slips through.
+
+## Architecture Note
+
+Moved here from `skills/implement/SKILL.md` under NFR-1's overflow rule.
+
+This skill runs in-process in the main session — deliberately **not** `context: fork`. Phase 3 Stage B spawns the `code-reviewer` subagent via the `Agent` tool, and Claude Code forbids nested subagent spawns. The review-fix loop additionally requires findings to flow back to the same implementer that wrote the code. Full rationale: `docs/patterns.md` § Pattern: `/implement` Runs In-Process.

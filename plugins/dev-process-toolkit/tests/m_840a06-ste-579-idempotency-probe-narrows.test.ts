@@ -885,7 +885,7 @@ describe("AC-STE-579.9 — spec-write/SKILL.md stays exactly where it is", () =>
       lines.length,
       "line 109 is a one-line-for-one-line rewrite; NFR-1's cap on this file is enforced " +
         "by a test that pins the split-line count",
-    ).toBe(337); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+    ).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
   });
 
   test("the milestone-attachment paragraph is still at line 111", () => {
@@ -1000,7 +1000,7 @@ describe("AC-STE-579.11 — the registry takes the key, and every pin moves with
     // 45 when STE-579 landed its key; 47 since M_0c14d0 registered the
     // design-reference hand-off XOR pair. The pin is absolute by design, so a
     // later registration moves it here too — what it forbids is a SILENT move.
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(48); // Amended by AC-STE-752.3 (M_d1e7b1): spec_research_skipped_no_tech registered, 47 -> 48.
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(49); // Amended by AC-STE-835.2 (M_d1e7b1): spec_research_skipped_no_tech and implement_spec_conflict_escalated registered, 47 -> 49.
   });
 
   test("the m84 TITLE literal moved off 44, and tracks the live registry", () => {
@@ -1074,7 +1074,7 @@ describe("AC-STE-579.12 — the directive lands, the rendering stays singular", 
   test("the directive sits on line 109 — the in-place rewrite, not a new line", () => {
     const lines = read(SPEC_WRITE_SKILL).split("\n");
     expect(lines[86]).toContain(`MUST emit \`${NEW_KEY}\``); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
-    expect(lines.length).toBe(337); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+    expect(lines.length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
   });
 
   test("the MUST-emit directive for this key appears EXACTLY once", () => {

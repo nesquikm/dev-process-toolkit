@@ -189,6 +189,7 @@ const EXPECTED_SET_A: ReadonlySet<string> = new Set([
   // /spec-write SKILL.md's step 2.5 token list (mirrored in /brainstorm § 1.5),
   // keeping Set A = discovered directives.
   "spec_research_skipped_no_tech", // Amended by AC-STE-752.3 (M_d1e7b1).
+  "implement_spec_conflict_escalated", // Amended by AC-STE-835.2 (M_d1e7b1): /implement's Phase 3 spec-conflict escalation; owner implement, § 7 row in /spec-write.
 ]);
 
 // Keys explicitly excluded from registration — they appear only as table-
@@ -311,8 +312,8 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
   // hand-off XOR pair: design_references_passed / design_references_none_cited,
   // the two /implement Phase 4b″ dispositions) → 48 (M_d1e7b1/STE-752
   // spec_research_skipped_no_tech, the legal --no-tech skip of spec-research).
-  test("CANONICAL_CAPABILITY_KEYS length is exactly 48", () => { // Amended by AC-STE-752.3 (M_d1e7b1): spec_research_skipped_no_tech registered, 47 -> 48.
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(48); // Amended by AC-STE-752.3 (M_d1e7b1): spec_research_skipped_no_tech registered, 47 -> 48.
+  test("CANONICAL_CAPABILITY_KEYS length is exactly 49", () => { // Amended by AC-STE-835.2 (M_d1e7b1): spec_research_skipped_no_tech and implement_spec_conflict_escalated registered, 47 -> 49.
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(49); // Amended by AC-STE-835.2 (M_d1e7b1): spec_research_skipped_no_tech and implement_spec_conflict_escalated registered, 47 -> 49.
   });
 
   test("CANONICAL_CAPABILITY_KEYS contains every key in Set A", () => {
@@ -352,7 +353,7 @@ describe("AC-STE-320.3 — closing_summary_capability_keys.ts pins Set A byte-fo
     while ((match = re.exec(body)) !== null) {
       discovered.add(match[1]!);
     }
-    expect(discovered.size).toBe(48); // Amended by AC-STE-752.3 (M_d1e7b1): spec_research_skipped_no_tech registered, 47 -> 48.
+    expect(discovered.size).toBe(49); // Amended by AC-STE-835.2 (M_d1e7b1): spec_research_skipped_no_tech and implement_spec_conflict_escalated registered, 47 -> 49.
     for (const key of EXPECTED_SET_A) {
       expect(discovered.has(key)).toBe(true);
     }

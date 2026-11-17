@@ -91,7 +91,7 @@ const ADAPTERS_ROOT = join(PLUGIN_ROOT, "adapters");
 const sharedSrc = (name: string): string => join(ADAPTERS_ROOT, "_shared", "src", name);
 
 /** NFR-1. `body.split("\n").length` — `wc -l` plus one. EXACT, not a bound. */
-const SKILL_SPLIT_LINES = 337; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+const SKILL_SPLIT_LINES = 338; // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
 /** The milestone-attachment paragraph. 0-based; line 111 in an editor. */
 const MILESTONE_ANCHOR_INDEX = 88; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
 const MILESTONE_ANCHOR =

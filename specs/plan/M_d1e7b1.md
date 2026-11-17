@@ -50,7 +50,7 @@ codename: Read Back
   verify: registry and contract tests red before, green after
 - [x] STE-826: spec auditors cite the read behind a file-existence claim; /spec-review re-checks claims
   verify: contract tests on both agent files and the skill
-- [ ] STE-835: Phase 3 FR conflict escalates with `implement_spec_conflict_escalated`
+- [x] STE-835: Phase 3 FR conflict escalates with `implement_spec_conflict_escalated`
   verify: contract tests on SKILL, reference and key registry
 - [ ] STE-745: lead-in template + caps in /implement; 15a grades the whole final message
   verify: template sentences fit the cap; model report exits 0; old cut drops an exempt section

@@ -67,7 +67,7 @@ const STE_580_SUITE_REL = "tests/m_840a06-ste-580-second-repo-joins.test.ts";
 const STE_580_SUITE = join(pluginRoot, STE_580_SUITE_REL);
 
 /** Measured: `body.split("\n").length`. The rewrite is in place. */
-const SPLIT_LINES = 337; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+const SPLIT_LINES = 338; // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
 /** Measured: sixteen `<dir>/<file>.ts` paths on line 177; re-measured by AC-STE-608.11 at eighteen (its two decision front door commands). */
 const MODULE_PATHS_ON_LINE_177 = 18;
 /** Measured: STE tokens in the file, and across skills/**\/*.md. */
@@ -663,7 +663,7 @@ describe("AC-STE-592.5 — the STE-580 suite stays green, its constants unedited
     const movedPin = (l: string): string =>
       l
         .replace(/\[(175|176|177|110)\]/g, (_m, n: string) => `[${({ "175": 153, "176": 154, "177": 155, "110": 88 } as Record<string, number>)[n]}]`)
-        .replace(/= 358;/, "= 337;");
+        .replace(/= 358;/, "= 338;");
     // Exact: the added line is the removed line re-pinned (it must actually move an
     // index or the count) plus one trailing live-AC marker comment, nothing else.
     // Each marked added line answers for exactly one removal (consumed on match).
@@ -690,7 +690,8 @@ describe("AC-STE-592.5 — the STE-580 suite stays green, its constants unedited
   test("the suite's constants are still the ones it shipped with", () => {
     const body = read(STE_580_SUITE);
     // Amended by AC-STE-752.1 (M_d1e7b1): 358 -> 337, reference shapes moved out.
-    expect(body).toContain("const SPLIT_LINES_AT_HEAD = 337;");
+    // Amended by AC-STE-835.2 (M_d1e7b1): 337 -> 338, the STE-835 § 7 row.
+    expect(body).toContain("const SPLIT_LINES_AT_HEAD = 338;");
     expect(body).toContain("const LINE_177_LEN_AT_HEAD = 9675;");
     expect(body).toContain("const MODULE_PATHS_ON_LINE_177_AT_HEAD = 18;");
     expect(body).toContain(`const HEAD_TAIL = "${STE_580_TAIL}";`);

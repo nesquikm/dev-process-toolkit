@@ -122,7 +122,7 @@ describe("AC-STE-608.11 — the adapters no longer say a normalized match joins 
 
 describe("AC-STE-608.11 — structural pins are unmoved (controls)", () => {
   test("(control) spec-write/SKILL.md is 358 split-lines", () => {
-    expect(lines(SPEC_WRITE).length).toBe(337); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+    expect(lines(SPEC_WRITE).length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
   });
 
   test("(control) line 177 is one line with blank neighbours", () => {

@@ -65,3 +65,52 @@ export function undoSte788(lines: readonly string[]): { lines: string[] } | { er
   out[STEP_11_INDEX] = STEP_11_OLD;
   return { lines: out };
 }
+
+
+// Amended by AC-STE-835.1 (M_d1e7b1): two more edits ride the same freezes.
+// (a) Phase 3 gains one paragraph, the spec-conflict escalation (AC-STE-835.1/.2),
+//     inserted with the blank line above it; (b) the reference-only Architecture
+//     Note moved to docs/implement-reference.md under NFR-1's overflow rule,
+//     leaving one pointer line in its place. `undoSte835` reverses both by exact
+//     bytes and position, and must run FIRST: every other admission indexes the
+//     pre-STE-835 layout.
+export const STE_835_PARAGRAPH =
+  "   **Spec conflict.** A review finding that conflicts with the FR's Acceptance Criteria, Technical Design or Testing section never edits the FR file \u2014 not to fix the finding, not to make the spec agree with the code. The round ends there as an escalation to the operator that names the FR section and the finding. On that path /implement **MUST emit `implement_spec_conflict_escalated`** as a literal backticked token.";
+export const STE_835_POINTER =
+  "Architecture note (why this skill runs in-process, not forked): `docs/implement-reference.md` \u00a7 Architecture Note.";
+export const STE_835_ARCH_NOTE_BODY =
+  "This skill runs in-process in the main session \u2014 deliberately **not** `context: fork`. Phase 3 Stage B spawns the `code-reviewer` subagent via the `Agent` tool, and Claude Code forbids nested subagent spawns. The review-fix loop additionally requires findings to flow back to the same implementer that wrote the code. Full rationale: `docs/patterns.md` \u00a7 Pattern: `/implement` Runs In-Process.";
+
+/** Current index of the STE-835 paragraph: right after step i (index 212) and its new blank (213). */
+export const STE_835_PARAGRAPH_INDEX = 214;
+
+/** The lines with both STE-835 edits undone, or the reason they are not carried exactly once in place. */
+export function undoSte835(lines: readonly string[]): { lines: string[] } | { error: string } {
+  const out = [...lines];
+  const at = out.indexOf(STE_835_PARAGRAPH);
+  if (at < 1 || out.lastIndexOf(STE_835_PARAGRAPH) !== at || out[at - 1] !== "") {
+    return { error: "the STE-835 Phase 3 paragraph is not carried exactly once, after one blank line" };
+  }
+  if (at !== STE_835_PARAGRAPH_INDEX) {
+    return { error: `the STE-835 Phase 3 paragraph sits at index ${at}, not ${STE_835_PARAGRAPH_INDEX} (after step i)` };
+  }
+  out.splice(at - 1, 2);
+  const p = out.indexOf(STE_835_POINTER);
+  if (p < 0 || out.lastIndexOf(STE_835_POINTER) !== p) {
+    return { error: "the STE-835 Architecture Note pointer is not carried exactly once" };
+  }
+  // The pointer replaced the note in place: it is the file's last non-empty line.
+  const lastText = out.map((l, i) => (l.trim() === "" ? -1 : i)).reduce((a, b) => Math.max(a, b), -1);
+  if (p !== lastText) {
+    return { error: "the STE-835 Architecture Note pointer is not the file's last line" };
+  }
+  out.splice(p, 1, "## Architecture Note", "", STE_835_ARCH_NOTE_BODY);
+  return { lines: out };
+}
+
+/** Where a pre-STE-835 line index sits in the current file: the paragraph and its blank land at indexes 213-214. */
+export function currentIndex(preSte835Index: number): number {
+  // Derived from the paragraph's position: its blank line takes the first moved index.
+  const firstMoved = STE_835_PARAGRAPH_INDEX - 1;
+  return preSte835Index >= firstMoved ? preSte835Index + 2 : preSte835Index;
+}

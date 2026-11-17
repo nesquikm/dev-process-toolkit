@@ -865,7 +865,7 @@ describe("AC-STE-616.16 — no new probe, capability key or smoke leg", () => {
       // Amended by M_94e6f7/STE-706: the ledger head moved 119 -> 117.
       // Amended by M_7bc805/STE-717: the ledger head moved 117 -> 116.
       // Amended by M_d1b4b7/STE-719: the ledger head moved 116 -> 115.
-      expect(JSON.parse(p.stdout.trim())).toEqual({ keys: 48, legs: ["linear", "jira", "none"], head: { value: 115, commit: "0e072c3" } }); // Amended by AC-STE-752.3 (M_d1e7b1): spec_research_skipped_no_tech registered, 47 -> 48.
+      expect(JSON.parse(p.stdout.trim())).toEqual({ keys: 49, legs: ["linear", "jira", "none"], head: { value: 115, commit: "0e072c3" } }); // Amended by AC-STE-835.2 (M_d1e7b1): spec_research_skipped_no_tech and implement_spec_conflict_escalated registered, 47 -> 49.
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

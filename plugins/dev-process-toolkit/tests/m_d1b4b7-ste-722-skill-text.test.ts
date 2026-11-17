@@ -38,7 +38,7 @@ import {
 // Amended by AC-STE-738.13 (operator ruling 2026-11-12, v3.5.0 fix round): lines 4, 92
 // and 280 carry the /implement --resume-at admissions; each is undone before the hash.
 // Amended by AC-STE-788.1 (M_870603): line 102's step-11 gate-check line is undone by undoSte788 before the hash.
-import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_14_APPEND, STEP_8_APPEND, undoAdmissions, undoSte788 } from "./_m_5f3c43_ste738_implement_admissions";
+import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_14_APPEND, STEP_8_APPEND, undoAdmissions, undoSte788, undoSte835, currentIndex } from "./_m_5f3c43_ste738_implement_admissions";
 
 afterAll(cleanupTemps);
 
@@ -68,7 +68,10 @@ const DELIVER_DECLINE = "Decline: print `Run: /dev-process-toolkit:retro <milest
 
 /** Line 297's appended text, or a reason it is not an in-place append to the v3.0.0 bytes. */
 function appendedToLine297(body: string): { appended: string } | { error: string } {
-  const lines = body.split("\n");
+  // Amended by AC-STE-835.1 (M_d1e7b1): the STE-835 paragraph and Architecture Note move are undone first.
+  const s835 = undoSte835(body.split("\n"));
+  if ("error" in s835) return s835;
+  const lines = s835.lines;
   if (lines.length !== 358) return { error: `split-lines ${lines.length} != 358` };
   const line = lines[V300_LINE_297_INDEX]!;
   const base = line.slice(0, V300_LINE_297_LENGTH);
@@ -133,6 +136,8 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     expect(r).not.toHaveProperty("error");
   });
 
+  // Amended by AC-STE-835.1 (M_d1e7b1): the controls below mutate the CURRENT file, so each pre-STE-835 index is mapped through currentIndex.
+  const at = currentIndex;
   test("AC-.8 control: the grader rejects an added line and an edit elsewhere", () => {
     const body = read(IMPLEMENT_SKILL);
     const lines = body.split("\n");
@@ -147,14 +152,14 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     const lines = read(IMPLEMENT_SKILL).split("\n");
     expect(appendedToLine297(lines.join("\n"))).not.toHaveProperty("error");
     const prefix = [...lines];
-    const l = prefix[V300_STEP_I_INDEX]!;
-    prefix[V300_STEP_I_INDEX] = `${l.slice(0, 10)}${l[10] === "x" ? "y" : "x"}${l.slice(11)}`;
+    const l = prefix[at(V300_STEP_I_INDEX)]!;
+    prefix[at(V300_STEP_I_INDEX)] = `${l.slice(0, 10)}${l[10] === "x" ? "y" : "x"}${l.slice(11)}`;
     expect(appendedToLine297(prefix.join("\n"))).toHaveProperty("error");
     const appendedToStepI = [...lines];
-    appendedToStepI[V300_STEP_I_INDEX] = `${appendedToStepI[V300_STEP_I_INDEX]} extra clause.`;
+    appendedToStepI[at(V300_STEP_I_INDEX)] = `${appendedToStepI[at(V300_STEP_I_INDEX)]} extra clause.`;
     expect(appendedToLine297(appendedToStepI.join("\n"))).not.toHaveProperty("error");
     const third = [...lines];
-    third[V300_STEP_I_INDEX + 1] = `${third[V300_STEP_I_INDEX + 1]}x`;
+    third[at(V300_STEP_I_INDEX + 1)] = `${third[at(V300_STEP_I_INDEX + 1)]}x`;
     expect(appendedToLine297(third.join("\n"))).toHaveProperty("error");
   });
 
@@ -164,19 +169,19 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     expect(appendedToLine297(lines.join("\n"))).not.toHaveProperty("error");
     for (const i of [V300_LINE_268_INDEX - 1, V300_LINE_268_INDEX + 1]) {
       const neighbour = [...lines];
-      neighbour[i] = `${neighbour[i]}x`;
+      neighbour[at(i)] = `${neighbour[at(i)]}x`;
       expect({ i, r: appendedToLine297(neighbour.join("\n")) }).toHaveProperty("r.error");
     }
     const otherEdit = [...lines];
-    otherEdit[V300_LINE_268_INDEX] = otherEdit[V300_LINE_268_INDEX]!.replace("**Procedure summary.**", "**Procedure summary:**");
-    expect(otherEdit[V300_LINE_268_INDEX]).not.toBe(lines[V300_LINE_268_INDEX]);
+    otherEdit[at(V300_LINE_268_INDEX)] = otherEdit[at(V300_LINE_268_INDEX)]!.replace("**Procedure summary.**", "**Procedure summary:**");
+    expect(otherEdit[at(V300_LINE_268_INDEX)]).not.toBe(lines[at(V300_LINE_268_INDEX)]);
     expect(appendedToLine297(otherEdit.join("\n"))).toHaveProperty("error");
     const reverted = [...lines];
-    reverted[V300_LINE_268_INDEX] = reverted[V300_LINE_268_INDEX]!.replace(V300_LINE_268_ORDER_NEW, V300_LINE_268_ORDER_OLD);
-    expect(reverted[V300_LINE_268_INDEX]).not.toBe(lines[V300_LINE_268_INDEX]);
+    reverted[at(V300_LINE_268_INDEX)] = reverted[at(V300_LINE_268_INDEX)]!.replace(V300_LINE_268_ORDER_NEW, V300_LINE_268_ORDER_OLD);
+    expect(reverted[at(V300_LINE_268_INDEX)]).not.toBe(lines[at(V300_LINE_268_INDEX)]);
     expect(appendedToLine297(reverted.join("\n"))).toHaveProperty("error");
     const doubled = [...lines];
-    doubled[V300_LINE_268_INDEX] = `${doubled[V300_LINE_268_INDEX]} ${V300_LINE_268_ORDER_NEW}`;
+    doubled[at(V300_LINE_268_INDEX)] = `${doubled[at(V300_LINE_268_INDEX)]} ${V300_LINE_268_ORDER_NEW}`;
     expect(appendedToLine297(doubled.join("\n"))).toHaveProperty("error");
   });
 
@@ -187,21 +192,21 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     for (const i of ADMITTED_INDEXES) {
       for (const n of [i - 1, i + 1]) {
         const neighbour = [...lines];
-        neighbour[n] = `${neighbour[n]}x`;
+        neighbour[at(n)] = `${neighbour[at(n)]}x`;
         expect({ n, r: appendedToLine297(neighbour.join("\n")) }).toHaveProperty("r.error");
       }
       const extra = [...lines];
-      extra[i] = `x${extra[i]}`;
+      extra[at(i)] = `x${extra[at(i)]}`;
       expect({ i, r: appendedToLine297(extra.join("\n")) }).toHaveProperty("r.error");
     }
     // Amended by AC-STE-788.1 (M_870603): the step-11 line gets the same neighbour and extra-edit control.
     for (const n of [STEP_11_INDEX - 1, STEP_11_INDEX + 1]) {
       const neighbour = [...lines];
-      neighbour[n] = `${neighbour[n]}x`;
+      neighbour[at(n)] = `${neighbour[at(n)]}x`;
       expect({ n, r: appendedToLine297(neighbour.join("\n")) }).toHaveProperty("r.error");
     }
     const extra11 = [...lines];
-    extra11[STEP_11_INDEX] = `x${extra11[STEP_11_INDEX]}`;
+    extra11[at(STEP_11_INDEX)] = `x${extra11[at(STEP_11_INDEX)]}`;
     expect(appendedToLine297(extra11.join("\n"))).toHaveProperty("error");
     const hintGone = [...lines];
     hintGone[3] = hintGone[3]!.replace(" [--resume-at <AC-id>|refactor|audit]", "");
@@ -212,14 +217,14 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     expect(appendedToLine297(hintChanged.join("\n"))).toHaveProperty("error");
     for (const [i, suffix] of [[91, STEP_8_APPEND], [279, STEP_14_APPEND]] as const) {
       const dropped = [...lines];
-      dropped[i] = dropped[i]!.slice(0, -suffix.length);
+      dropped[at(i)] = dropped[at(i)]!.slice(0, -suffix.length);
       expect({ i, r: appendedToLine297(dropped.join("\n")) }).toHaveProperty("r.error");
       const doubled = [...lines];
-      doubled[i] = `${doubled[i]}${suffix}`;
+      doubled[at(i)] = `${doubled[at(i)]}${suffix}`;
       expect({ i, r: appendedToLine297(doubled.join("\n")) }).toHaveProperty("r.error");
       const reworded = [...lines];
-      reworded[i] = reworded[i]!.replace(suffix, suffix.replace("`docs/implement-reference.md`", "`docs/implement.md`"));
-      expect(reworded[i]).not.toBe(lines[i]);
+      reworded[at(i)] = reworded[at(i)]!.replace(suffix, suffix.replace("`docs/implement-reference.md`", "`docs/implement.md`"));
+      expect(reworded[at(i)]).not.toBe(lines[at(i)]);
       expect({ i, r: appendedToLine297(reworded.join("\n")) }).toHaveProperty("r.error");
     }
   });
@@ -237,7 +242,7 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     expect(appended).toContain("§ Retro offer");
     expect(appended).not.toMatch(/STE-\d+/);
     // The upgrade offer's omission clause precedes the appended text.
-    const line = read(IMPLEMENT_SKILL).split("\n")[V300_LINE_297_INDEX]!;
+    const line = read(IMPLEMENT_SKILL).split("\n")[currentIndex(V300_LINE_297_INDEX)]!; // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
     expect(line.indexOf(DRIVEN_OMISSION_CLAUSE)).toBeLessThan(line.indexOf(IMPLEMENT_ANCHOR));
   });
 

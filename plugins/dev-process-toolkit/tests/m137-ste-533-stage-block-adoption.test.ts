@@ -739,6 +739,8 @@ const BASELINE_FAMILIES: readonly (readonly [string, string])[] = [
   // listed here so the whole-set coverage leg below stays exhaustive rather
   // than silently tolerating an unlisted key.
   ["design_references", "design_references_passed"],
+  // Amended by AC-STE-835.2 (M_d1e7b1): /implement's Phase 3 spec-conflict escalation — a new family.
+  ["implement_spec_conflict", "implement_spec_conflict_escalated"],
 ] as const;
 
 /** The canonical key count measured on 2026-08-31, before the rewrite. */

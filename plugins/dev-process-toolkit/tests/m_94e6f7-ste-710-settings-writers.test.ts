@@ -1260,10 +1260,10 @@ describe("AC-STE-710.20 the set verb", () => {
   const IMPLEMENT = join(PLUGIN, "skills", "implement", "SKILL.md");
   const VERB_RE = /\bset verification\.verify_skill\b/;
   const IMPLEMENT_LINES: [number, string][] = [
-    [230, "2. **Discover (fallback)**"],
-    [231, "3. **Ambiguous**"],
-    [232, "4. **None**"],
-    [244, "**Capability tokens"],
+    [232, "2. **Discover (fallback)**"], // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
+    [233, "3. **Ambiguous**"], // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
+    [234, "4. **None**"], // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
+    [246, "**Capability tokens"], // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
   ];
 
   for (const [n, anchor] of IMPLEMENT_LINES) {
