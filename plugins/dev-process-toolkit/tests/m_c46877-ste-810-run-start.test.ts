@@ -567,6 +567,18 @@ describe("AC-STE-810.5 the any-switch gate", () => {
     }
   }, T);
 
+  // PR #142 review round 2: a top-level flow mapping has no `tracking:` line at all.
+  test("a settings file whose top level is one flow mapping with a switch on records", () => {
+    for (const [label, body] of [
+      ["gate-top-flow", '{schema_version: 1, min_dpt_version: "3.0.0", tracking: {token_stats: {enabled: true}}}\n'],
+      ["gate-top-flow-ml", '# settings\n{\n  schema_version: 1,\n  min_dpt_version: "3.0.0",\n  tracking: {token_stats: {enabled: true}}\n}\n'],
+    ] as const) {
+      const root = makeCheckout(label, body);
+      const r = runHook(skillPayload(root, "dev-process-toolkit:implement", ""));
+      expect({ label, code: r.exitCode, wrote: existsSync(ledgerFile(root)) }).toEqual({ label, code: 0, wrote: true });
+    }
+  }, T);
+
   test("a flow-style tracking section with a switch on records", () => {
     const root = makeCheckout("gate-flow", `${SETTINGS_HEAD}tracking: {token_stats: {enabled: true}}\n`);
     const r = runHook(skillPayload(root, "dev-process-toolkit:implement", ""));

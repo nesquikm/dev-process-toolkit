@@ -64,9 +64,14 @@ function trackingLineOn(root: string): boolean {
   // a `true` in any case (True, TRUE, a quoted key, `!!bool true`) or a YAML alias (`*x`,
   // whose anchor may be a true anywhere) defers. `yes` and `on` stay strings in Bun.YAML.
   let inTracking = false;
+  let first = true;
   for (const raw of text.split("\n")) {
     const line = raw.replace(/\s+#.*$/, "").replace(/^\s*#.*$/, "").trimEnd();
     if (line.trim() === "") continue;
+    // A file whose top level is one flow mapping (`{schema_version: 1, tracking: {...}}`)
+    // has no `tracking:` line to find, so the fast path cannot say "off": defer.
+    if (first && line.trimStart().startsWith("{")) return true;
+    first = false;
     if (line.length - line.trimStart().length === 0) inTracking = /^["']?tracking["']?\s*:/.test(line);
     if (inTracking && (/\btrue\b/i.test(line) || /(^|[\s:,[{])\*[^\s,\]}]/.test(line))) return true;
   }
