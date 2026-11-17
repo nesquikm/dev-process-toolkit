@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.8.0] — 2026-11-17 — "Black Box"
+
+### Added
+
+- A toolkit run records the settings it started under (STE-810). Each skill start appends one `dpt-run-start/1` row to `.dpt/ledger/run-starts.jsonl`. The row holds the session, skill, FR, a snapshot of every proposable setting (an unset key reads `"absent"`), the plugin version, the capture registration, and the sha256 of all three. A new `run-start-snapshot` hook writes it on PreToolUse `Skill` and on a UserPromptSubmit that names a toolkit command. It writes nothing when no tracking switch is on, and it fails open.
+- Token rows are claimed by the FR whose run produced them (STE-811). The ledger hook splits a session's rows at each recorded run start and claims each part for that run's FR (`claim_source: "run"`). A run claim is settled: it is never demoted to the design bucket, never re-claimed and never carried. Totals per (skill, model) are unchanged, and a session with no run starts writes the same rows as before. `claim_coverage.ts` reports how much of the ledger is claimed.
+- Forked child skills' tokens reach the ledger (STE-812). The hook joins each `subagents/agent-<id>` transcript to the parent's `status: "forked"` Skill result. It writes the child's rows per (skill, model, FR) with `scope: "fork"`, and with `complete: false` while the child is still running. The layout is undocumented upstream, so any surprise writes nothing for that child and leaves the parent rows byte-identical. `cost_per_changed_line` reads only parent-visible rows. The trend never shows a partial total silently: each run carries `tokens_scope` (`incomplete`, `parent-only` or `parent+fork`), and a group's tokens cell names how many of its runs are parent-only or incomplete.
+- The trend reports each run's own quality signals (STE-814). Every `runs_detail` entry carries its own metrics, signals and notes, computed from that run alone under the project's real tracking switches. A value whose switch is off reads `null` with `<id>: tracking.<key> is off`. A value with nothing to observe reads `null` with a reason, never 0. A shared session feeds every run that claims it, so per-run values do not add up to the pooled cells, which are unchanged.
+- A settings change leaves a receipt, and one writer changes the file at a time (STE-815). A successful `/retro` apply writes a `retro-change` receipt listing each key with its old and new value; a failed apply writes none. `writeProjectSettings` takes `specs/settings.yaml.lock` (O_EXCL, a random owner token, stale after 30 s either side of now). It refuses a write over bytes its caller did not read (`expectSha256`), and removes only its own lock. A rollback restores only what a step wrote. A test pins which modules may import the writer.
+- A settings change is reverted only against its receipt (STE-816). `propose-revert <root> <key>` proposes the way back from the newest `retro-change` receipt for the key, but only while the file still holds what that change wrote. A hand edit since then refuses. `apply-revert <root> <key> <digest>` goes through the same one-approval-one-apply gate as `apply`. It removes a key that was absent, and every parent it empties, instead of writing a default, and leaves its own receipt with `revert_of`. Reverting `tracking.tool_calls.enabled` changes the switch and nothing else.
+
+### Changed
+
+- The trend's run is one FR and one skill, with its settings (STE-813). `/retro --trend` used to label an FR with the skill of its first ledger row; every skill that claimed rows for an FR is now its own run. Each run names the settings hash it started under (FR match, then a session match on a start row naming no FR, else `settings unknown`). Each group gains `runs_detail` and a per-hash `settings` count. Settings never decide the grouping. The report schema is now `dpt-retro-trend/2`.
+
+### Fixed
+
+- TDD rounds say what they claim to have changed (STE-795). A TDD round's tree change came from the fork's own `tdd-result` block, but was labelled `observed`. It is now `tree_disposition: "claimed"`, and spec-review rounds read not observable.
+
+Milestone M_c46877, self-tuning milestone B: instruments only. Nothing here changes a setting, a default or a gate.
+
+Total test count at release: 24162 tests, 0 failures, 0 errors.
+
 ## [3.7.0] — 2026-11-17 — "Red Before Green"
 
 ### Added
