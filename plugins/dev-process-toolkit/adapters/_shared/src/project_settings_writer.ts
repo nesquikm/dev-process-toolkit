@@ -148,6 +148,27 @@ function opensBlock(line: string): boolean {
   return rest === "" || rest.startsWith("#");
 }
 
+/** A copy of `m` without each dotted key in `remove`, dropping every parent mapping a removal leaves empty. */
+function removeKeys(m: Obj, remove: readonly string[]): Obj {
+  if (remove.length === 0) return m;
+  const out = structuredClone(m);
+  for (const dotted of remove) {
+    const parts = dotted.split(".");
+    const chain: Obj[] = [out];
+    for (const part of parts.slice(0, -1)) {
+      const next = chain[chain.length - 1]![part];
+      if (!isObj(next)) break;
+      chain.push(next);
+    }
+    const leaf = parts[parts.length - 1]!;
+    // A missing leaf removes nothing, so it empties no parent that was already empty.
+    if (chain.length !== parts.length || !(leaf in chain[chain.length - 1]!)) continue;
+    delete chain[chain.length - 1]![leaf];
+    for (let i = chain.length - 1; i > 0 && Object.keys(chain[i]!).length === 0; i--) delete chain[i - 1]![parts[i - 1]!];
+  }
+  return out;
+}
+
 function editMap(lines: string[], indent: number, path: string, before: Obj, after: Obj): string[] {
   let out = [...lines];
   const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
@@ -384,14 +405,14 @@ export function withSettingsLock<T>(path: string, fn: () => T): T {
   }
 }
 
-export function writeProjectSettings(projectRoot: string, update: Obj, opts: { create?: boolean; expectSha256?: string } = {}): void {
+export function writeProjectSettings(projectRoot: string, update: Obj, opts: { create?: boolean; expectSha256?: string; remove?: readonly string[] } = {}): void {
   const path = join(projectRoot, SETTINGS_FILE);
   // A write that will refuse for a missing file takes no lock, so it creates no specs directory.
   if (opts.create !== true && !existsSync(path)) return writeProjectSettingsLocked(projectRoot, path, update, opts);
   withSettingsLock(path, () => writeProjectSettingsLocked(projectRoot, path, update, opts));
 }
 
-function writeProjectSettingsLocked(projectRoot: string, path: string, update: Obj, opts: { create?: boolean; expectSha256?: string }): void {
+function writeProjectSettingsLocked(projectRoot: string, path: string, update: Obj, opts: { create?: boolean; expectSha256?: string; remove?: readonly string[] }): void {
   const exists = existsSync(path);
   if (exists && isForeignSettingsFile(projectRoot)) {
     throw new SettingsShapeError(
@@ -431,7 +452,7 @@ function writeProjectSettingsLocked(projectRoot: string, path: string, update: O
   }
   const text = bytes.toString("utf8");
   const before = parseRaw(text);
-  const after = mergeUpdate(before, update);
+  const after = removeKeys(mergeUpdate(before, update), opts.remove ?? []);
   if (deepEqual(before, after)) return;
   validateSettingsShape(after);
   // Edit CR-free lines and rejoin with the file's own line ending, so a CRLF file stays
@@ -447,7 +468,7 @@ function writeProjectSettingsLocked(projectRoot: string, path: string, update: O
     throw new SettingsShapeError(
       `${SETTINGS_FILE} cannot take this update in place without changing what it means`,
       `edit ${SETTINGS_FILE} by hand (plain unquoted keys; drop a mapping that would be left empty), then re-run.`,
-      `file=${SETTINGS_FILE}, keys=${Object.keys(update).join(",")}`,
+      `file=${SETTINGS_FILE}, keys=${Object.keys(update).join(",")}, remove=${(opts.remove ?? []).join(",")}`,
     );
   }
   writeFileSync(path, next);
