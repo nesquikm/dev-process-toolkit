@@ -341,6 +341,33 @@ describe("AC-STE-813.1 a run is one (archived FR, skill)", () => {
 describe("AC-STE-813.2 each run names the settings it started under", () => {
   // STE-813 review (Pass 2): a run-start row whose started_at is not a date is never
   // "earliest" — first in the file, it must not beat a later-listed valid row.
+  // Orchestrator review of STE-813 (amended AC-STE-813.2): the session fallback takes only
+  // start rows naming no FR. Two FRs ran in one session under different settings; the row
+  // naming the OTHER FR must never lend its hash, so this run reads "settings unknown".
+  test(
+    "the session fallback never takes a start row naming a different FR",
+    () => {
+      const root = buildFixture("other-fr-session");
+      const p = join(root, ".dpt", "ledger", "run-starts.jsonl");
+      const other = JSON.stringify(startRow(implSession(2), IMPL, FRS[0]!, at(4, 1), H3));
+      writeFileSync(p, readFileSync(p, "utf-8") + other + "\n");
+      expect(entryFor(group(runTrend(root).report, IMPL), FRS[2]!).settings).toBe(UNKNOWN);
+    },
+    LONG,
+  );
+
+  test(
+    "the session fallback still takes a same-session start row whose fr is empty",
+    () => {
+      const root = buildFixture("empty-fr-session");
+      const p = join(root, ".dpt", "ledger", "run-starts.jsonl");
+      const blank = JSON.stringify(startRow(implSession(2), IMPL, "", at(4, 1), H2));
+      writeFileSync(p, readFileSync(p, "utf-8") + blank + "\n");
+      expect(entryFor(group(runTrend(root).report, IMPL), FRS[2]!).settings).toBe(H2);
+    },
+    LONG,
+  );
+
   test(
     "a start whose started_at is not a date never wins the earliest pick",
     () => {

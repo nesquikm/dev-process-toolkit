@@ -187,7 +187,9 @@ function earliestHash(starts: RunStartRow[], match: (r: RunStartRow) => boolean)
 function settingsFor(starts: RunStartRow[], fr: string, skill: string, sessions: string[]): string {
   return (
     earliestHash(starts, (r) => r.skill === skill && r.fr === fr) ??
-    earliestHash(starts, (r) => r.skill === skill && sessions.includes(r.session_id)) ??
+    // The session fallback takes only rows naming no FR: a row naming another FR is that
+    // run's settings, and settings can change between two runs of one session.
+    earliestHash(starts, (r) => r.skill === skill && (r.fr === null || r.fr === undefined || r.fr === "") && sessions.includes(r.session_id)) ??
     SETTINGS_UNKNOWN
   );
 }
@@ -284,7 +286,8 @@ function postMergeFixes(run: Run, commits: Commit[] | null): number | null {
 
 /** The subject grammar the `commit-msg` hook enforces (templates/git-hooks/commit-msg.sh). */
 const CONVENTIONAL_SUBJECT_RE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: .+/;
-const NOT_CONVENTIONAL_NOTE = "skipped: not observable (history is not Conventional Commits)";
+const NOT_CONVENTIONAL_WHY = "not observable (history is not Conventional Commits)";
+const NOT_CONVENTIONAL_NOTE = `skipped: ${NOT_CONVENTIONAL_WHY}`;
 
 /**
  * False when fewer than half of the commit subjects dated inside the window's
@@ -314,7 +317,13 @@ function reviewFindings(projectRoot: string, session: string): { reviewer?: unkn
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 /** The four pooled quality signals over a group's window. */
-function signalValues(projectRoot: string, window: Run[], commits: Commit[] | null): Record<string, number | null> {
+function signalValues(
+  projectRoot: string,
+  window: Run[],
+  commits: Commit[] | null,
+  // Per-run values (AC-STE-814.3): a spec-review receipt observes a run only when it counts that run's FR.
+  perRun = false,
+): Record<string, number | null> {
   let pass = 0;
   let fail = 0;
   let gaps = 0;
@@ -339,8 +348,8 @@ function signalValues(projectRoot: string, window: Run[], commits: Commit[] | nu
       for (const ev of reviewFindings(projectRoot, s)) {
         const counts = (ev.counts ?? {}) as Record<string, unknown>;
         if (ev.reviewer === "spec-review") {
-          sawSpecReview = true;
           const row = counts[run.id] as { partial?: unknown; missing?: unknown } | undefined;
+          if (!perRun || row) sawSpecReview = true;
           if (row) gaps += num(row.partial) + num(row.missing);
         } else if (ev.reviewer === "code-review") {
           sawCodeReview = true;
@@ -406,12 +415,35 @@ function median(xs: number[]): number | null {
   return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
+/** Why one run's value `id` has no observable input (AC-STE-814.3). */
+function unobservedWhy(id: string, run: Run, commits: Commit[] | null): string {
+  switch (id) {
+    case "waste":
+      return "not observable (no gate run or TDD round recorded)";
+    case "tokens":
+      return run.incomplete ? "not observable (incomplete fork row, STE-812)" : "not observable (no changed lines)";
+    case "time":
+    case "gate_failure_rate":
+      return "not observable (no gate run)";
+    case "spec_review_gaps_per_fr":
+      return "not observable (no spec-review receipt counting this FR)";
+    case "code_review_concerns_per_100_lines":
+      return run.lines > 0 ? "not observable (no code-review receipt)" : "not observable (no changed lines)";
+    case "post_merge_fixes":
+      if (commits === null) return "not observable (git history unreadable)";
+      if (!conventionalHistory([run], commits)) return NOT_CONVENTIONAL_WHY;
+      return "not observable (archived_at is not a date)";
+    default:
+      return "not observable";
+  }
+}
+
 /** Per-run waste / tokens / time (null = not observable for that run). */
-function runValues(projectRoot: string, run: Run): Record<RetroMetric, number | null> {
+function runValues(projectRoot: string, run: Run, off: Set<TrackingKey>): Record<RetroMetric, number | null> {
   const inputs: RetroInputs = {
     sessions: run.sessions.map((s) => ({ session_id: s, timeline: readTimeline(projectRoot, s), capture_rows: [] })),
     token_rows: [],
-    tracking: { token_stats: true, tool_calls: true, gate_outcomes: true },
+    tracking: { token_stats: !off.has("token_stats"), tool_calls: !off.has("tool_calls"), gate_outcomes: !off.has("gate_outcomes") },
   };
   const reruns = ruleValue(inputs, "gate_rerun_unchanged_key");
   const zeroYield = ruleValue(inputs, "zero_yield_round");
@@ -467,9 +499,14 @@ function trackingOff(projectRoot: string): Set<TrackingKey> {
   return new Set(keys.filter((k) => tr[k]?.enabled !== true));
 }
 
+/** The off tracking keys among those value `id` reads. */
+function offKeysFor(off: Set<TrackingKey>, id: string): TrackingKey[] {
+  return (INPUT_KEY[id] ?? []).filter((k) => off.has(k));
+}
+
 /** `skipped: not observable (tracking.<key> is off)` naming every off key the cell reads, else null. */
 function offNote(off: Set<TrackingKey>, id: string): string | null {
-  const keys = (INPUT_KEY[id] ?? []).filter((k) => off.has(k)).map((k) => `tracking.${k}`);
+  const keys = offKeysFor(off, id).map((k) => `tracking.${k}`);
   if (keys.length === 0) return null;
   return `skipped: not observable (${keys.join(" and ")} ${keys.length === 1 ? "is" : "are"} off)`;
 }
@@ -477,6 +514,51 @@ function offNote(off: Set<TrackingKey>, id: string): string | null {
 /** The `retro.priority` order; a loader refusal propagates (NFR-10), never a silent default. */
 function priorityOf(projectRoot: string): RetroMetric[] {
   return [...(loadProjectSection(projectRoot, "retro")?.priority ?? DEFAULT_RETRO_PRIORITY)];
+}
+
+/**
+ * One `runs_detail` entry: the run's identity plus its own metrics and signals
+ * (AC-STE-814.1), each null with a note when its switch is off (AC-STE-814.2) or
+ * its input is not observable (AC-STE-814.3). `own` reuses the group's per-run
+ * values when they were already computed.
+ */
+function runDetail(
+  projectRoot: string,
+  r: Run,
+  off: Set<TrackingKey>,
+  commits: Commit[] | null,
+  aliases: ReturnType<typeof createAliasMap>,
+  own: Record<RetroMetric, number | null> = runValues(projectRoot, r, off),
+) {
+  // The pooled signals over a one-run window.
+  const sig = signalValues(projectRoot, [r], commits, true);
+  const notes: string[] = [];
+  const gated = (id: string, v: number | null | undefined): number | null => {
+    const offKeys = offKeysFor(off, id);
+    for (const k of offKeys) notes.push(`${id}: tracking.${k} is off`);
+    if (offKeys.length > 0) return null;
+    // Never 0 for an unobserved value: null, with a note naming why.
+    const value = v ?? null;
+    if (value === null) notes.push(`${id}: ${unobservedWhy(id, r, commits)}`);
+    return value;
+  };
+  // An incomplete fork row's token total is parent-only (STE-812): not observable.
+  const tokens = r.incomplete ? null : own.tokens;
+  const fixes = conventionalHistory([r], commits) ? sig.post_merge_fixes : null;
+  return {
+    fr: r.id,
+    skill: r.skill,
+    settings: r.settings,
+    sessions: r.sessions.map((s) => aliasFor(aliases, s)),
+    metrics: { waste: gated("waste", own.waste), tokens: gated("tokens", tokens), time: gated("time", own.time) },
+    signals: {
+      gate_failure_rate: gated("gate_failure_rate", sig.gate_failure_rate),
+      spec_review_gaps_per_fr: gated("spec_review_gaps_per_fr", sig.spec_review_gaps_per_fr),
+      code_review_concerns_per_100_lines: gated("code_review_concerns_per_100_lines", sig.code_review_concerns_per_100_lines),
+      post_merge_fixes: gated("post_merge_fixes", fixes),
+    },
+    notes,
+  };
 }
 
 export function buildTrendReport(projectRoot: string, last: number) {
@@ -499,13 +581,13 @@ export function buildTrendReport(projectRoot: string, last: number) {
     for (const r of window) for (const s of r.sessions) if (!seenSessions.has(s)) (seenSessions.add(s), sessionIds.push(s));
     const note = window.length < TREND_MIN_RUNS ? `insufficient: ${window.length} runs` : null;
     const values = note === null ? signalValues(projectRoot, window, commits) : null;
-    const perRun = note === null ? window.map((r) => runValues(projectRoot, r)) : [];
+    const perRun = note === null ? window.map((r) => runValues(projectRoot, r, off)) : [];
     return {
       skill,
       category,
       size,
       runs: window.length,
-      runs_detail: window.map((r) => ({ fr: r.id, skill: r.skill, settings: r.settings, sessions: r.sessions.map((s) => aliasFor(aliases, s)) })),
+      runs_detail: window.map((r, i) => runDetail(projectRoot, r, off, commits, aliases, perRun[i])),
       settings: settingsCounts(window),
       metrics: priority.map((id) => {
         if (note !== null) return emptyMetric(id, note);

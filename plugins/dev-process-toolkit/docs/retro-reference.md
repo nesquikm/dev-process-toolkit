@@ -39,7 +39,9 @@ One file, `.dpt/ledger/retro/<scope-slug>-<UTC yyyymmddThhmmssZ>.json`, schema `
 
 Size is the added plus deleted lines of the commits whose footer carries `Refs: <FR id>`: S under 100, M 100 to 500, L over 500. A run's tokens and sessions come from its own skill's claimed rows only, and an FR with no `changelog_category` groups under `unknown`. When git cannot be read, no run can be sized and every group's size reads `unknown`.
 
-**Settings.** Each run carries the `settings_hash` it started under, read from the run-start ledger (see Run-start ledger): the earliest row whose FR and skill match the run's, else the earliest row whose session is one of the run's sessions and whose skill matches, else `settings unknown`; a matching row with no `settings_hash` also reads `settings unknown`. Each group carries two keys for it: `runs_detail`, one entry per run in the window (FR id, skill, settings, session aliases), and `settings`, the window's runs counted per settings value, most runs first, ties by hash ascending.
+**Settings.** Each run carries the `settings_hash` it started under, read from the run-start ledger (see Run-start ledger): the earliest row whose FR and skill match the run's, else the earliest row whose session is one of the run's sessions, whose skill matches and which names no FR (a row naming another FR is that run's settings, never this one's), else `settings unknown`; a matching row with no `settings_hash` also reads `settings unknown`. Each group carries two keys for it: `runs_detail`, one entry per run in the window (FR id, skill, settings, session aliases), and `settings`, the window's runs counted per settings value, most runs first, ties by hash ascending.
+
+**Per-run values.** Each `runs_detail` entry also carries that run's own `metrics` (`waste`, `tokens`, `time`) and `signals` (`gate_failure_rate`, `spec_review_gaps_per_fr`, `code_review_concerns_per_100_lines`, `post_merge_fixes`), computed from the run's own sessions and from the receipts and commits naming its FR, and `notes`, a list of strings. A per-run value whose input tracking switch is off is `null`, and `notes` holds `<id>: tracking.<key> is off` for each such switch; the project's real switches are read, none is assumed on. A value with no observable input (no receipt of its kind, no gate run, git unreadable, a non-Conventional history) is `null` with a note naming why, never `0`, and `tokens` is `null` for a run holding an incomplete fork row.
 
 **Metrics** (one cell each, columns in `retro.priority` order). Each shows the window median of the per-run values and `delta`, the newer half's median minus the older half's:
 
@@ -55,7 +57,7 @@ Size is the added plus deleted lines of the commits whose footer carries `Refs: 
 
 **Order.** Groups sort worst first by the `delta` of the first-ranked metric; a group with no number there sorts after one with a number, and when that `delta` is null for both groups compared, the next ranked metric decides, and so on.
 
-**Sharing.** A session claimed by several FRs belongs to each of their runs, but the pooled signals count its gate runs and receipts once per window, so a shared session is never counted twice. The per-run metrics still read the session for each run that claims it.
+**Sharing.** A session claimed by several FRs belongs to each of their runs, but the pooled signals count its gate runs and receipts once per window, so a shared session is never counted twice. The per-run metrics still read the session for each run that claims it. A shared session feeds each run's own values too, its gate runs and code-review receipts counted in every run that claims it, so per-run values are not additive: summing them over a group's runs can exceed the pooled value.
 
 The trend report writes no receipt, settings or proposal, and `retro_proposal.ts` refuses it (its schema is not `dpt-retro/1`).
 
