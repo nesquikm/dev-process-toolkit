@@ -448,7 +448,7 @@ export interface UnreachablePinMove {
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
     value: 54,
-    commit: "uncommitted",
+    commit: "868007b",
     rationale:
       "STE-756: the gate probe runner `gate_probe_runner.ts` (which has a " +
       "front door) statically imports every project-root probe module the " +
