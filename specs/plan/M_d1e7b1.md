@@ -56,7 +56,7 @@ codename: Read Back
   verify: template sentences fit the cap; model report exits 0; old cut drops an exempt section
 - [x] STE-825: probe #14 not-started carve-out; commit gate refuses a recorded fail outcome
   verify: each single-condition failure still fails; fail/pass-after-fail/foreign-checkout hook tests
-- [ ] STE-791: narrow `cd` receipt form; spec-deletion pass; smoke driver evidence docs
+- [x] STE-791: narrow `cd` receipt form; spec-deletion pass; smoke driver evidence docs
   verify: one negative test per rejected shape; outside-specs deletion gets no pass
 - [ ] STE-756: `gate_probe_rows.ts` + `gate_probe_runner.ts`, `probe-row` expectation, fixtures 3c/9a/9b/2a/2c re-keyed
   verify: runner set equals registry project-root-only set; prose-only capture fails 3c; probe #81 green

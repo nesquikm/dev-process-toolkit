@@ -243,6 +243,14 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
 
 1. Create `../dpt-test-project-<tracker>` and run `bun init -y`.
 2. Remove `bun init`'s stub `CLAUDE.md` (the plugin's `/setup` will overwrite it; cleaner to start blank).
+
+   **Gate evidence before the scaffold commit (STE-791).** The commit gate grades the driver's commits too.
+   Run `/dev-process-toolkit:gate-check <abs path of ../dpt-test-project-<tracker>>` first, through the Skill tool.
+   Then make the standalone receipt call for that checkout, as its own Bash call:
+   `bun run "${PLUGIN_DIR}/adapters/_shared/src/gate_receipt.ts" gate-check "<abs path of ../dpt-test-project-<tracker>>"`.
+   Do not put `cd … &&` in front of it, and do not chain anything after it.
+   Do this once per checkout: a receipt for one checkout does not vouch for another.
+
 3. `cd ../dpt-test-project-<tracker> && git init -q && git add -A && git commit -q -m "chore: bun init scaffold"`.
 4. **Tracker workspace setup** — branches on `--tracker`:
 
@@ -403,6 +411,12 @@ Skills to run, in order:
    **In both modes, the prompt MUST acknowledge the pre-existing `.claude/settings.json` and `.mcp.json`** (Phase 1 step 6) and instruct the child to take the idempotent-merge branch — do not blindly let it try to overwrite, since the sensitive-path classification block (see Phase 0 — Pre-approval gate) aborts the chain when the child attempts a fresh write. The canonical pre-baked prompt body is inlined into the Phase 2 child-spawn heredoc below (§ STE-185); do not write it to a file on disk.
 
    **Post-step master-merge (STE-295 AC.3).** After the `/setup` child returns, the test project sits on the `chore/setup-bootstrap` branch with the toolkit scaffold (CLAUDE.md, `specs/` tree, `.claude/` config) committed there but NOT on `master`/`main`. Before spawning step 2 (`/spec-write`), the driver MUST merge `chore/setup-bootstrap` → master so the scaffold lands on the trunk:
+
+   **Gate evidence before the merge (STE-791).** The merge is a commit, so the gate grades it.
+   Run `/dev-process-toolkit:gate-check <abs path of ../dpt-test-project-<tracker>>` again, through the Skill tool.
+   Then make the standalone receipt call for that checkout, as its own Bash call:
+   `bun run "${PLUGIN_DIR}/adapters/_shared/src/gate_receipt.ts" gate-check "<abs path of ../dpt-test-project-<tracker>>"`.
+   No `cd … &&` prefix, and nothing chained after it.
 
    ```bash
    git -C ../dpt-test-project-<tracker> checkout master \
@@ -2373,6 +2387,18 @@ A non-zero exit → hard-fail the smoke run with the canonical diagnostic `STE-2
 **Persist path (STE-487).** Capture fixture artifacts under `/tmp/dpt-smoke-<tracker>-phase9/<fixture-name>-<YYYY-MM-DD>.log` for replay — the leg is a DIRECTORY segment, which separates two concurrent legs exactly as strongly as a filename segment would while keeping the literal readable to STE-423's `dpt-smoke-`-prefix scan (that scan reads up to the next `/`). The `<tracker>` segment is not decoration and the choice is not a judgement call — the 2026-08-16 three-leg run is an A/B control taken inside one run. Group 8a's `tests/fixtures/nested-spawn/8a-<tracker>-<YYYY-MM-DD>.log` kept all three legs' captures at three distinct mtimes; this phase's then-current date-only shape under `tests/fixtures/capability-rows/` — fixture name plus calendar day, no leg — kept exactly five files, all stamped 22:21 — one leg's set, with two legs' evidence overwritten by whichever leg finished last. The only difference between the surviving three and the destroyed two was the segment. The `/tmp` root is the second half: the old shape wrote into the **toolkit repo**, leaving ~2 MB of untracked, un-ignored files that would trip the next run's own pre-flight #4 (*Uncommitted changes in the toolkit repo*). Writing outside the repo settles that without an ignore rule, and an ignore rule is the worse instrument here anyway — it would have to be narrow enough to spare the six committed capability-row fixtures sharing that directory (the STE-425 lesson: a `*` that crosses a `/` takes the committed evidence with it). `tests/fixtures/capability-rows/` keeps only those six committed reproducers; Phase 9 no longer writes there at all. Enforcement is `adapters/_shared/src/harness_artifact_paths.ts`, which enumerates every per-run artifact path literal in BOTH harness SKILLs and exits non-zero on any that omits the segment.
 
 **Manifest self-check (STE-487).** A persist convention is a claim about paths, and STE-423 is the standing proof that a path claim goes unenforced until something reads it — its scan asserted the segment on every path a leg writes and could not see this phase's class at all. So the leg records the paths it actually persisted, one resolved path per line, and runs the enumerating check over that record: `bun "${PLUGIN_DIR:-$(git rev-parse --show-toplevel)/plugins/dev-process-toolkit}/adapters/_shared/src/harness_artifact_paths.ts" /tmp/dpt-smoke-<tracker>-phase9/artifact-manifest-<YYYY-MM-DD>.log` exit 0 — every path this leg wrote carries its resolved leg, checked against what the run did rather than against what this section says. A non-zero exit → hard-fail with `STE-487 artifact-path regression: <path> carries no <tracker> segment`, quoting the offender lines the check writes to stderr. **Score it by exit code, never by a stdout count** (the STE-485 lesson): the check prints exactly one verdict line on both branches — `artifact-paths: ok scanned=<N> unscoped=0` or `artifact-paths: FAIL scanned=<N> unscoped=<M>` — so a count reads 1 whether the segment was there or not and the pair is vacuous by construction. Falsifiability: registered in `adapters/_shared/src/falsifiability_harness.ts` (`M127_REPAIRS`, id `STE-487`), scored `exit-code` against the shipped `linear` manifest capture, whose leg segment is the mutated subject.
+
+**Setup recipe (STE-791).** Each Phase 9 fixture needs a project to run in. Set it up with this written recipe, in order:
+
+1. Create the fixture project and run `bun init -y`.
+2. Run `git -C <fixture-dir> init -q` and `git -C <fixture-dir> add -A`.
+3. Run `/dev-process-toolkit:gate-check <fixture-dir>` through the Skill tool.
+4. Make the standalone receipt call, as its own Bash call: `bun run "${PLUGIN_DIR}/adapters/_shared/src/gate_receipt.ts" gate-check "<fixture-dir>"`.
+5. Run `git -C <fixture-dir> commit -q -m "chore: phase 9 fixture scaffold"`.
+6. For the seeded fixture, add the archived FR, then repeat steps 3 to 5 before its commit.
+
+`<fixture-dir>` is a literal absolute path. Each fixture project is its own checkout, so each one gets its own gate run and receipt.
+The recipe never sets `core.hooksPath`. Do not point git at another hooks directory to get a commit through; the commits must pass the gate.
 
 **Phase 9 fires after Phase 8** — both new phases run before tracker-agnostic teardown. The two phases are independent: a Phase 8 failure does not skip Phase 9, and vice versa, so the operator gets the full picture of both regression surfaces in one run.
 

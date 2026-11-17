@@ -27,7 +27,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { receiptsDir } from "./dpt_paths";
 import { nfr10Message } from "./dpt_version";
-import { bunInvocation, realpathOr } from "./shell_invocations";
+import { bunInvocation, realpathOr, simpleCommandWords } from "./shell_invocations";
 import { isToolkitManaged } from "./toolkit_managed";
 import { dptGitignorePath, writeDptGitignore } from "./setup/dpt_gitignore";
 import { announceReceipt, oneLine, readSessionReceipts, receiptDigest, writeReceipt } from "./tracker_receipts";
@@ -78,7 +78,9 @@ const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..");
  * <gate skill>` whose path realpaths to THIS file. So `echo bun run <front
  * door> …`, a trailing `# …` comment naming it, a `cd … &&` chain that could
  * print anything, and a same-named `gate_receipt.ts` somewhere this plugin does
- * not own all run nothing here, and announce nothing.
+ * not own all run nothing here, and announce nothing. One `cd` form is admitted
+ * (STE-791, `cdBunInvocation`): exactly `cd <absolute dir> && bun [run] <path>
+ * <gate skill> …`, the receipt call last, with no `$` or backtick anywhere.
  *
  * Scope, not reading, is what separates this from `invokedDecidingModule`: the
  * gate receipt is deliberately NOT one of the tracker gate's
@@ -86,16 +88,58 @@ const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..");
  * about a different module.
  */
 export function announcesGateReceipt(command: string): boolean {
-  const run = bunInvocation(command);
-  if (run === null || run.module !== OWN_FRONT_DOOR) return false;
+  return gateReceiptSubcommand(command) !== null;
+}
+
+/** The gate skill a receipt-announcing command names, or null when it announces nothing. */
+function gateReceiptSubcommand(command: string): GateSkillName | null {
+  const run = bunInvocation(command) ?? cdBunInvocation(command);
+  if (run === null || run.module !== OWN_FRONT_DOOR) return null;
   const subcommand = run.args[0];
-  return subcommand !== undefined && isGateSkillName(subcommand);
+  return subcommand !== undefined && isGateSkillName(subcommand) ? subcommand : null;
+}
+
+/**
+ * STE-791 — the ONE `cd` form a receipt call may take: `cd <dir> && bun [run]
+ * <path> <args…>`, the receipt call the last segment, `<dir>` a literal
+ * absolute directory with no option, `<path>` a literal path (a relative one
+ * resolved against `<dir>`). No expansion of any kind, the plugin-root variable
+ * included, and no newline anywhere. `<dir>` must be an existing directory, and a
+ * relative `<path>` is resolved against its REAL path: `bun` applies `..` to the
+ * physical directory the shell entered, so a lexical resolve through a symlinked
+ * `<dir>` would name one file while bun ran another. Deliberately local: `bunInvocation` and its other readers keep
+ * refusing the `cd` form.
+ */
+function cdBunInvocation(command: string): { module: string; args: string[] } | null {
+  if (/[$`\n\r]/.test(command)) return null;
+  const joint = command.indexOf("&&");
+  if (joint < 0) return null;
+  const cd = simpleCommandWords(command.slice(0, joint).trim());
+  const bun = simpleCommandWords(command.slice(joint + 2).trim());
+  if (cd === null || bun === null || cd.length !== 2 || cd[0] !== "cd") return null;
+  const dir = cd[1]!;
+  // Normal form only: the shell collapses `..` lexically before it enters the directory, while
+  // realpath follows symlinks first, so a `..` (or `.`, `//`, trailing slash) could make the two disagree.
+  if (!dir.startsWith("/") || resolve(dir) !== dir) return null;
+  let physical: string;
+  try {
+    if (!statSync(dir).isDirectory()) return null;
+    physical = realpathSync(dir);
+  } catch {
+    return null; // a directory the `cd` cannot enter runs nothing
+  }
+  if (bun[0] !== "bun") return null;
+  const at = bun[1] === "run" ? 2 : 1;
+  const target = bun[at];
+  if (target === undefined || target.startsWith("-")) return null;
+  return { module: realpathOr(resolve(physical, target)), args: bun.slice(at + 1) };
 }
 
 /**
  * STE-715 — whether a Bash command RAN this front door's `outcome` verb: one
  * plain `bun [run] <absolute path> outcome …` whose path realpaths to THIS file,
- * read by the same `bunInvocation` grammar `announcesGateReceipt` uses. An
+ * read by the plain `bunInvocation` grammar alone — never the `cd` form that
+ * `announcesGateReceipt` also admits (STE-791). An
  * outcome run is never a gate receipt announcement, so no evidence reader
  * counts it.
  */
@@ -110,8 +154,8 @@ export function runsGateOutcome(command: string): boolean {
  * own run may make this gate wait on a pending result.
  */
 export function announcesGateReceiptFor(command: string, subject: string): boolean {
-  if (!announcesGateReceipt(command)) return false;
-  return `${GATE_SKILL_NAMESPACE}:${bunInvocation(command)!.args[0]}` === subject;
+  const name = gateReceiptSubcommand(command);
+  return name !== null && gateSubject(name) === subject;
 }
 
 /**

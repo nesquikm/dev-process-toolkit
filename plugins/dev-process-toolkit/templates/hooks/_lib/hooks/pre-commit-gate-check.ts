@@ -102,11 +102,13 @@ if (
 // AC-STE-741.1 — the same pass for `git add <spec paths> && git commit`: the
 // add names literal existing spec files, the staged set plus them is
 // spec-only, and no tracked change outside them is left unstaged.
+// AC-STE-791.5 — `git rm <spec paths> && git commit` too, and a named spec
+// path whose file was deleted counts when git tracks it.
 if (
   !target.unplaced &&
   target.repoRoots.length === 1 &&
   target.addThenCommit !== null &&
-  isSpecOnlyAfterAdding(target.repoRoots[0]!, target.addThenCommit.dir, target.addThenCommit.paths)
+  isSpecOnlyAfterAdding(target.repoRoots[0]!, target.addThenCommit.dir, target.addThenCommit.paths, target.addThenCommit.verb)
 ) {
   process.exit(0);
 }

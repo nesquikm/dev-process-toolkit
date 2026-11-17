@@ -359,7 +359,8 @@ export class RetroApplyRefusal extends Error {
 /**
  * Whether a Bash command RAN this module's `verb`: one plain
  * `bun [run] <absolute path> <verb> …` whose path realpaths to this file, read
- * by the `bunInvocation` grammar `announcesGateReceipt` uses. An `echo`, a
+ * by the plain `bunInvocation` grammar (not the one `cd` form `announcesGateReceipt`
+ * also admits since STE-791). An `echo`, a
  * `cd … &&` chain, a relative path or a same-named file elsewhere runs nothing.
  */
 export function runsRetroProposal(command: string, verb: "propose" | "apply" | "propose-revert" | "apply-revert"): boolean {
