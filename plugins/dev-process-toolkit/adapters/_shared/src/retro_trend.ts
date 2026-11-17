@@ -77,6 +77,8 @@ export interface Run {
   id: string;
   /** True when any of this skill's claimed rows is an incomplete fork row (`complete: false`). */
   incomplete: boolean;
+  /** AC-STE-812.6: "incomplete", "parent-only" (no fork row in any of its sessions) or "parent+fork". */
+  tokensScope: "incomplete" | "parent-only" | "parent+fork";
   /** False when git could not be read, so the run's size is unknown. */
   sized: boolean;
   skill: string;
@@ -207,7 +209,10 @@ function settingsCounts(window: Run[]): { hash: string; runs: number }[] {
 export function collectRuns(projectRoot: string): Run[] {
   // Index the ledger once by claiming FR instead of filtering it per FR.
   const byFr = new Map<string, ReturnType<typeof readLedgerRows>>();
+  // Sessions holding any fork row, claimed or not (AC-STE-812.6).
+  const forkSessions = new Set<string>();
   for (const r of readLedgerRows(projectRoot)) {
+    if ((r as { scope?: unknown }).scope === "fork" && typeof r.session_id === "string") forkSessions.add(r.session_id);
     const by = (r as { claimed_by?: unknown }).claimed_by;
     if (typeof by === "string") byFr.set(by, [...(byFr.get(by) ?? []), r]);
   }
@@ -231,7 +236,8 @@ export function collectRuns(projectRoot: string): Run[] {
       const outputTokens = rows.reduce((n, r) => n + (typeof r.output_tokens === "number" ? r.output_tokens : 0), 0);
       const incomplete = rows.some((r) => (r as { complete?: unknown }).complete === false);
       const settings = settingsFor(starts, fr.id, skill, sessions);
-      runs.push({ id: fr.id, incomplete, sized: commits !== null, skill, category: fr.category, lines: c.lines, lastCommitAt: c.last, sessions, outputTokens, settings, archivedAt: fr.archivedAt });
+      const tokensScope = incomplete ? "incomplete" : sessions.some((s) => forkSessions.has(s)) ? "parent+fork" : "parent-only";
+      runs.push({ id: fr.id, incomplete, tokensScope, sized: commits !== null, skill, category: fr.category, lines: c.lines, lastCommitAt: c.last, sessions, outputTokens, settings, archivedAt: fr.archivedAt });
     }
   }
   return runs;
@@ -421,7 +427,7 @@ function unobservedWhy(id: string, run: Run, commits: Commit[] | null): string {
     case "waste":
       return "not observable (no gate run or TDD round recorded)";
     case "tokens":
-      return run.incomplete ? "not observable (incomplete fork row, STE-812)" : "not observable (no changed lines)";
+      return run.incomplete ? "fork tokens incomplete" : "not observable (no changed lines)";
     case "time":
     case "gate_failure_rate":
       return "not observable (no gate run)";
@@ -549,6 +555,7 @@ function runDetail(
     fr: r.id,
     skill: r.skill,
     settings: r.settings,
+    tokens_scope: r.tokensScope,
     sessions: r.sessions.map((s) => aliasFor(aliases, s)),
     metrics: { waste: gated("waste", own.waste), tokens: gated("tokens", tokens), time: gated("time", own.time) },
     signals: {
@@ -593,7 +600,14 @@ export function buildTrendReport(projectRoot: string, last: number) {
         if (note !== null) return emptyMetric(id, note);
         const skipped = offNote(off, id);
         if (skipped !== null) return emptyMetric(id, skipped);
-        return metricCell(id, perRun.map((v) => v[id]));
+        const cell = metricCell(id, perRun.map((v) => v[id]));
+        if (id !== "tokens") return cell;
+        // AC-STE-812.6: a parent-only or incomplete total is never shown silently.
+        const parentOnly = window.filter((r) => r.tokensScope === "parent-only").length;
+        const incomplete = window.filter((r) => r.tokensScope === "incomplete").length;
+        if (parentOnly === 0 && incomplete === 0) return cell;
+        const includes = `includes ${parentOnly} parent-only and ${incomplete} incomplete runs`;
+        return { ...cell, note: cell.note === null ? includes : `${cell.note}; ${includes}` };
       }),
       signals: ["gate_failure_rate", "spec_review_gaps_per_fr", "code_review_concerns_per_100_lines", "post_merge_fixes"].map((id) => {
         if (values === null) return { id, value: null, note };

@@ -56,6 +56,10 @@ export interface TokenLedgerRow {
   claimed_by?: string;
   /** STE-811 — `"run"` when `claimed_by` came from the run that produced the row. */
   claim_source?: "run";
+  /** STE-812 — `"fork"` on a row read from a forked child skill's own transcript. */
+  scope?: "fork";
+  /** STE-812 — on a fork row: false unless the child's meta.json says `finished: true`. */
+  complete?: boolean;
 }
 
 /**
@@ -80,6 +84,14 @@ export function ledgerPath(projectRoot: string): string {
  * Run-claimed rows (`claim_source: "run"`, STE-811) are exempt both ways: a
  * fresh one keeps its own claim, and a prior one is never carried.
  */
+/**
+ * The STE-698 carry key: one prior claim per (scope, skill, model). STE-812 fork rows
+ * share skill and model with parent rows, so scope keeps the two from trading claims.
+ */
+function carryKey(row: TokenLedgerRow): string {
+  return `${row.scope ?? ""}\u0000${row.skill}\u0000${row.model}`;
+}
+
 export function writeSessionRows(
   projectRoot: string,
   sessionId: string,
@@ -96,21 +108,21 @@ export function writeSessionRows(
   const existing = all.filter((row) => row.session_id !== sessionId);
 
   // STE-698: carry each prior row's claim onto the fresh row of the same
-  // session, skill and model — the re-derive must not erase a claim. A fresh
+  // session, scope, skill and model — the re-derive must not erase a claim. A fresh
   // row with no prior twin stays unclaimed, and other sessions' claims are
-  // never consulted. The ledger holds one row per (session, skill, model), so
+  // never consulted. The ledger holds one row per (session, scope, skill, model), so
   // each key names at most one prior claim. STE-811: the carry applies to
   // unattributed rows only — a run claim is re-derived from the run starts,
   // so it is neither carried from nor overwritten.
   const claims = new Map<string, string>();
   for (const row of all) {
     if (row.session_id === sessionId && row.claimed_by !== undefined && row.claim_source !== "run") {
-      claims.set(`${row.skill}\u0000${row.model}`, row.claimed_by);
+      claims.set(carryKey(row), row.claimed_by);
     }
   }
   const fresh = rows.map((row) => {
     if (row.claim_source === "run") return row;
-    const claim = claims.get(`${row.skill}\u0000${row.model}`);
+    const claim = claims.get(carryKey(row));
     return claim === undefined ? row : { ...row, claimed_by: claim };
   });
 

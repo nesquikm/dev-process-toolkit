@@ -631,7 +631,8 @@ describe("AC-STE-776.3 metrics per group", () => {
     "AC-.3 group implement/Added/S tokens per changed line: median 10, delta 6",
     () => {
       const m = metric(groupA(defaultTrend().report), "tokens");
-      expect({ median: m.median, delta: m.delta, note: m.note }).toEqual({ median: 10, delta: 6, note: null });
+      // Amended by AC-STE-812.6: a ledger with no fork row is parent-only, and the trend now says so.
+      expect({ median: m.median, delta: m.delta, note: m.note }).toEqual({ median: 10, delta: 6, note: "includes 5 parent-only and 0 incomplete runs" });
     },
     LONG,
   );

@@ -123,7 +123,7 @@ function evaluateZeroYieldRound(inputs: RetroInputs): RetroEvaluation {
 function evaluateCostPerChangedLine(inputs: RetroInputs): RetroEvaluation {
   const label = "parent-visible tokens";
   if (!inputs.tracking.token_stats) return skip(`${label}: no token-ledger rows (tracking.token_stats off)`);
-  const tokens = asRows(inputs.token_rows).filter((r) => typeof r.output_tokens === "number");
+  const tokens = asRows(inputs.token_rows).filter((r) => r.scope !== "fork" && typeof r.output_tokens === "number");
   if (tokens.length === 0) return skip(`${label}: no token-ledger row in scope`);
   const diffs = inputs.sessions
     .flatMap((s) => asRows(s.capture_rows))

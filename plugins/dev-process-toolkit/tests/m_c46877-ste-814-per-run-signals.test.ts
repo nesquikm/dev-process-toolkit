@@ -686,7 +686,8 @@ describe("AC-STE-814.4 a shared session counts for each run, and once for the gr
         return { median: m.median, delta: m.delta, note: m.note };
       };
       expect({ tokens: cell("tokens"), time: cell("time"), waste: cell("waste") }).toEqual({
-        tokens: { median: 15, delta: 12.5, note: null },
+        // Amended by AC-STE-812.6: a ledger with no fork row is parent-only, and the trend now says so.
+        tokens: { median: 15, delta: 12.5, note: "includes 5 parent-only and 0 incomplete runs" },
         time: { median: 100, delta: 362.5, note: null },
         waste: { median: 1, delta: -1, note: null },
       });

@@ -19,10 +19,12 @@ import { dirname, join, resolve } from "node:path";
 import { readTokenStatsConfig } from "../../../../adapters/_shared/src/token_stats_config.ts";
 import { readRunStarts } from "../../../../adapters/_shared/src/run_start_ledger.ts";
 import {
+  attributeLine,
   parseTranscriptTokenUsage,
   parseTranscriptTokenUsageByRun,
   writeSessionRows,
 } from "../../../../adapters/_shared/src/token_usage.ts";
+import { forkChildRows } from "../../../../adapters/_shared/src/fork_child_tokens.ts";
 import { findCheckoutRoot, parseHookPayload, type HookPayload } from "../session.ts";
 
 const SRC = resolve(import.meta.dir, "..", "..", "..", "..", "adapters", "_shared", "src");
@@ -101,6 +103,15 @@ function tokenLedger(payload: HookPayload): void {
     for (const row of rows) {
       row.session_id = sessionId;
     }
+  }
+  // STE-812 — forked child skills' rows follow the parent rows; a failure
+  // here never costs the session its parent rows.
+  try {
+    rows.push(...forkChildRows(payload.transcript_path, sessionId, (skill, ts) => attributeLine(skill, ts, starts)));
+  } catch {
+    // fail-open by design
+  }
+  if (rows.length > 0) {
     writeSessionRows(projectRoot, sessionId, rows);
   }
 }

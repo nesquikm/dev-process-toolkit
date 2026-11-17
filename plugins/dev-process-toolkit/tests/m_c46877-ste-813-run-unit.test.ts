@@ -306,8 +306,9 @@ describe("AC-STE-813.1 a run is one (archived FR, skill)", () => {
       const r = mixed().report;
       const impl = metric(group(r, IMPL), "tokens");
       const tdd = metric(group(r, TDD), "tokens");
-      expect({ median: impl.median, delta: impl.delta, note: impl.note }).toEqual({ median: 10, delta: 25, note: null });
-      expect({ median: tdd.median, delta: tdd.delta, note: tdd.note }).toEqual({ median: 15, delta: 0, note: null });
+      // Amended by AC-STE-812.6: a ledger with no fork row is parent-only, and the trend now says so.
+      expect({ median: impl.median, delta: impl.delta, note: impl.note }).toEqual({ median: 10, delta: 25, note: "includes 5 parent-only and 0 incomplete runs" });
+      expect({ median: tdd.median, delta: tdd.delta, note: tdd.note }).toEqual({ median: 15, delta: 0, note: "includes 4 parent-only and 1 incomplete runs" });
     },
     LONG,
   );
