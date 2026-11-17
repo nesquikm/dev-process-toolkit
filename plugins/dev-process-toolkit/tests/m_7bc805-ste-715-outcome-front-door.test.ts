@@ -21,7 +21,7 @@
 // plugin; the test separates them so a manifest the key cannot read does not
 // also turn the switch off through the loader's version-floor check.
 
-import { undoSte825 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1)
+import { undoGateCheckM_d1e7b1 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1)
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -489,14 +489,14 @@ describe("AC-STE-715.9 gate-check line 9", () => {
   });
 
   test("the line count and the STE-<n> token count are unchanged from v3.0.0", () => {
-    const now = undoSte825(readFileSync(SKILL("gate-check"), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts)
+    const now = undoGateCheckM_d1e7b1(readFileSync(SKILL("gate-check"), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     const then = atV300(GATE_CHECK_REL);
     expect(now.split("\n").length).toBe(then.split("\n").length);
     expect((now.match(/STE-\d+/g) ?? []).length).toBe((then.match(/STE-\d+/g) ?? []).length);
   });
 
   test("line 9 starts with its trunk text byte for byte, then carries exactly one appended sentence", () => {
-    const line = undoSte825(readFileSync(SKILL("gate-check"), "utf-8")).split("\n")[8]!; // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts)
+    const line = undoGateCheckM_d1e7b1(readFileSync(SKILL("gate-check"), "utf-8")).split("\n")[8]!; // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     expect(line.startsWith(TRUNK_LINE_9)).toBe(true);
     const tail = line.slice(TRUNK_LINE_9.length);
     expect(tail.startsWith(" ")).toBe(true);
@@ -607,14 +607,14 @@ describe("AC-STE-715.9 the AC-STE-618.8 freeze is re-based once, onto the line-9
 
   test("at KICKOFF line 9 already holds the edit: the freeze is green on today's file", () => {
     const then = spawnSync("git", ["show", `${kickoff()}:${GATE_CHECK_REL}`], { cwd: REPO_ROOT, encoding: "utf-8" }).stdout;
-    const now = undoSte825(readFileSync(SKILL("gate-check"), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts)
+    const now = undoGateCheckM_d1e7b1(readFileSync(SKILL("gate-check"), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     expect(then.split("\n")[8]).toBe(now.split("\n")[8]);
     expect(driftBeyond(then, now, PERMITTED)).toEqual([]);
   });
 
   test("NEIGHBOUR CONTROL: a changed line 10 still fails driftBeyond", () => {
     const then = spawnSync("git", ["show", `${kickoff()}:${GATE_CHECK_REL}`], { cwd: REPO_ROOT, encoding: "utf-8" }).stdout;
-    const lines = undoSte825(readFileSync(SKILL("gate-check"), "utf-8")).split("\n"); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts)
+    const lines = undoGateCheckM_d1e7b1(readFileSync(SKILL("gate-check"), "utf-8")).split("\n"); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     lines[9] = `${lines[9]} (edited)`;
     expect(driftBeyond(then, lines.join("\n"), PERMITTED)).toEqual(["line 10"]);
   });

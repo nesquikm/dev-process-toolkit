@@ -188,7 +188,7 @@ const DELEGATION_CARRIERS: readonly string[] = [
 ];
 
 /** NFR-1's shipped SKILL.md ceiling. Two carriers are skills and near it. */
-const SKILL_LINE_CAP = 358;
+const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
 
 // ===========================================================================
 // AC.3 — the shipped suites this FR is allowed to touch, and the ONLY two.

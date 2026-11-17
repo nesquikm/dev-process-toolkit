@@ -161,7 +161,7 @@ describe("AC-STE-608.16 — gate-check row 73 (line 160) is rewritten in place",
   });
 
   test("(control) gate-check/SKILL.md keeps 356 split-lines and 87 STE tokens", () => {
-    expect(lines(GATE_CHECK).length).toBe(357); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
+    expect(lines(GATE_CHECK).length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     expect(steTokens(read(GATE_CHECK))).toBe(87);
   });
 });

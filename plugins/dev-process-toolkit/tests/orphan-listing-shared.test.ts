@@ -772,7 +772,7 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
 
   test("gate-check/SKILL.md: 356 split-lines, 87 STE tokens, row 49 on line 128 runs the front door and lists the new rows", () => {
     const body = read(GATE_CHECK);
-    expect(body.split("\n").length).toBe(357); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
+    expect(body.split("\n").length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     expect(steTokens(body)).toBe(87);
     const line = body.split("\n")[128] ?? ""; // Amended by AC-STE-825.3 (M_d1e7b1): row 49 now on line 129
     expect(line.startsWith("49. ")).toBe(true);

@@ -7,7 +7,7 @@
 // `STE-<n>` tokens across `skills/`. The implement skill's 358 is the exact pin
 // the STE-584 and STE-590 suites already hold.
 
-import { undoSte825 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1)
+import { undoGateCheckM_d1e7b1 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1)
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -192,7 +192,7 @@ describe("AC-STE-609.9 — the probe #75 row in skills/gate-check/SKILL.md", () 
 
   test("(control) the skill's split-line count and every absolute probe-row position equal main's", () => {
     const onMain = git(REPO_ROOT, "show", `main:${GATE_SKILL_REL}`);
-    const now = undoSte825(readFileSync(GATE_SKILL, "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts)
+    const now = undoGateCheckM_d1e7b1(readFileSync(GATE_SKILL, "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     expect(probePositions(onMain).length).toBeGreaterThan(0);
     // Amended by AC-STE-659.3: probe #86 (`milestone_name_unasked`) registers on line 173; rows 1..85 hold main's positions.
     // Fixed by AC-STE-660.1: rows main lacks are derived from the two texts, so the control holds before and after the merge;

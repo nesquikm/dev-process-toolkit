@@ -28,7 +28,7 @@
 // Every fixture is a REAL temp root torn down in a `finally`; nothing is
 // written under the plugin tree.
 
-import { undoSte825 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1)
+import { undoGateCheckM_d1e7b1 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1)
 import { carriesLiveAmendment, hunkIsLiveAmendment, liveAcIds } from "./_amendment_marker";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -813,8 +813,8 @@ describe("Stage C hardening — /pr's refusal path, its plan path, and a remedy 
   });
 });
 
-/** Amended by AC-STE-825.3 (M_d1e7b1): 1 when the exact STE-825 row is in place, else 0. */
+/** Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1): the lines M_d1e7b1's exact admissions add (STE-825's row, STE-756's block), 0 when none is in place. */
 function ste825RowAdded(): number {
   const now = readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
-  return undoSte825(now) !== now ? 1 : 0;
+  return now.split("\n").length - undoGateCheckM_d1e7b1(now).split("\n").length;
 }

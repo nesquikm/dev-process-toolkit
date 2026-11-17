@@ -424,7 +424,7 @@ describe("AC-STE-648.5 — gate-check SKILL.md stops calling the branch-gate mod
 
   test("AC-STE-648.5 CONTROL: the SKILL still has 356 split-lines and 87 STE tokens", () => {
     const body = skill();
-    expect(body.split("\n").length).toBe(357); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
+    expect(body.split("\n").length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     expect((body.match(/STE-\d+/g) ?? []).length).toBe(87);
   });
 

@@ -931,7 +931,7 @@ describe("AC-STE-588.12 — skills/gate-check/SKILL.md probe #63 row", () => {
   // Amended by AC-STE-693.6: probe count 88 -> 89.
   test("edited in place: 356 split-lines, probe #26 on line 81, probe #63 on line 150, 89 rows", () => {
     const lines = body().split("\n");
-    expect(lines.length).toBe(357); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
+    expect(lines.length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     expect(lines[81]!).toMatch(/^26\. /); // Amended by AC-STE-825.3 (M_d1e7b1): now line 82
     expect(lines[150]!).toMatch(/^63\. \*\*/); // Amended by AC-STE-825.3 (M_d1e7b1): now line 151
     // Amended by AC-STE-659.3: probe count 85 -> 86.

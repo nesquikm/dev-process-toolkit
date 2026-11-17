@@ -298,9 +298,9 @@ describe("AC-STE-735.3 — header and gate-check line 149 say the probe is scaff
     expect(line).toContain("tests/m_b2fdc0-ste-735-scaffold-scope.test.ts");
   });
 
-  test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
+  test("gate-check SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     const n = readFileSync(GATE_CHECK_SKILL, "utf-8").split("\n").length;
-    expect(n).toBeLessThanOrEqual(358);
+    expect(n).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });
 

@@ -1192,7 +1192,7 @@ Stage it with `git add specs/frs/<TKR>-FIX-A.md`, then `git commit -q -m "chore(
 
 - Stage: write `specs/frs/<TKR>-FIX-A.md` from the canonical template above with `<KEY>` = the literal token `milestone_attach_skipped_adapter_limit`, then commit it.
 - Invoke + capture: `claude -p /dev-process-toolkit:gate-check` → `/tmp/dpt-smoke-<tracker>-ste221-positive.log`.
-- Assert (probe identifier): ``bun "${CAP_ASSERT}" any-of-token /tmp/dpt-smoke-<tracker>-ste221-positive.log tracker-project-milestone-attached tracker_project_milestone_attached`` exit 0 — probe #26 surfaced, named by its OWN identifier under either rendered spelling.
+- Assert (probe row): ``bun "${CAP_ASSERT}" probe-row /tmp/dpt-smoke-<tracker>-ste221-positive.log 26 notes`` exit 0 — probe #26 rendered its own row in the gate-check row grammar with the `notes` verdict the staged key downgrades it to (STE-756).
 - Assert (subject): ``bun "${CAP_ASSERT}" present-token /tmp/dpt-smoke-<tracker>-ste221-positive.log milestone_attach_skipped_adapter_limit`` exit 0 — probe #26 READ the `## Notes` token this sub-fixture staged and reported it back. This is the group's real subject, and it is the assertion the mode-none-shaped fixture was silently skipping: the key is assistant-0 in BOTH sibling captures, so it cannot pass for any other reason.
 - Cleanup: remove the temporary FR file and commit the removal, so probe #22 sees a clean tree for the next sub-fixture.
 
@@ -1208,8 +1208,8 @@ Stage it with `git add specs/frs/<TKR>-FIX-A.md`, then `git commit -q -m "chore(
 
 - Stage: same committed template but `<KEY>` = `milestone_attach_unavailable` (the STE-198 deprecated alias).
 - Invoke + capture as above → `/tmp/dpt-smoke-<tracker>-ste221-alias.log`.
-- Assert (probe identifier): ``bun "${CAP_ASSERT}" any-of-token /tmp/dpt-smoke-<tracker>-ste221-alias.log tracker-project-milestone-attached tracker_project_milestone_attached`` exit 0 — the same arm as its siblings, because the probe's name does not change between renderings while its row decoration does.
-- Assert (subject): ``bun "${CAP_ASSERT}" present-token /tmp/dpt-smoke-<tracker>-ste221-alias.log milestone_attach_unavailable`` exit 0 — the deprecated alias was read from `## Notes` and the missing binding downgraded (deprecation window honored per STE-214 AC.5). **Keying this on the literal `ADVISORY` is NOT the repair:** this capture carries zero `ADVISORY`, assistant AND raw — its downgrade renders as `(capability-gap downgrade)` plus the alias key — so swapping the broken regex for that literal would leave 2c red for a second, different wrong reason. When STE-198's rollover note flips, this sub-fixture re-keys onto probe #26's own failing row, the shape 2b asserts, and never onto the bare aggregate.
+- Assert (probe row): ``bun "${CAP_ASSERT}" probe-row /tmp/dpt-smoke-<tracker>-ste221-alias.log 26 notes`` exit 0 — probe #26 rendered its own row in the gate-check row grammar with the `notes` verdict the deprecated alias downgrades it to (STE-756).
+- Assert (subject): ``bun "${CAP_ASSERT}" present-token /tmp/dpt-smoke-<tracker>-ste221-alias.log milestone_attach_unavailable`` exit 0 — the deprecated alias was read from `## Notes` and the missing binding downgraded (deprecation window honored per STE-214 AC.5). **Keying this on the literal `ADVISORY` is NOT the repair:** this capture carries zero `ADVISORY`, assistant AND raw — its downgrade renders as `(capability-gap downgrade)` plus the alias key — so swapping the broken regex for that literal would leave 2c red for a second, different wrong reason. When STE-198's rollover note flips, the probe-row clause above changes its verdict from `notes` to `fail`. It never keys onto the bare aggregate.
 - Cleanup.
 
 **Diagnostic on any sub-fixture failure:**
@@ -1252,10 +1252,10 @@ System-under-test is `/gate-check` **probe #37** (`cross-cutting-spec-stale-file
 - Stage: pre-create a stale leaf in `specs/technical-spec.md` referencing a path that doesn't exist on disk (no `/implement` run). The leaf token MUST contain a `/` to qualify as a path-shaped reference (the probe filters bare-basename tokens by design — see F8 follow-up: a path like `src/staleref-fixture-3c.ts` qualifies; a bare `staleref-fixture-3c.ts` does not). **The leaf MUST sit inside a directory-tree fence — one opened bare (` ``` `), ` ```text `, or ` ```tree `.** Since M118/STE-433 the probe reads the fence info string and scans only those three; a leaf staged inside a language-tagged fence (` ```dart `, ` ```sh `, ` ```yaml `, …) yields zero violations and scores a correct probe as broken — the same failure shape as the STE-421 AC.4 spelling mismatch recorded in the assert below.
 - Invoke + capture: `claude -p /dev-process-toolkit:gate-check` → `/tmp/dpt-smoke-<tracker>-ste222-probe.log`.
 - Assert (probe identifier): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste222-probe.log cross-cutting-spec-stale-file-refs cross_cutting_spec_stale_file_refs` exit 0 — probe #37 surfaced under one of the two spellings the runtime is measured to render.
-- Assert (verdict): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste222-probe.log "GATE PASSED WITH NOTES" NOTES` exit 0 — the #37 row carried a notes-severity verdict, under one of the two wordings measured below.
+- Assert (verdict): `bun "${CAP_ASSERT}" probe-row /tmp/dpt-smoke-<tracker>-ste222-probe.log 37 notes` exit 0 — the runner's own #37 row carried the `notes` verdict; the rendered wording is not read (STE-756).
 - Cleanup.
 
-**Both clauses are `any-of` by contract, not as a hedge (STE-485).** `/gate-check` renders its verdict block as prose it composes per run, so the SPELLING of a probe id and the WORDING of a notes verdict are both leg-dependent. Measured assistant-scoped on the three 2026-08-16 conformance captures in which probe #37 genuinely fired against the planted leaf — shipped as reduced slices named `gate-check-probe37-<leg>.ndjson`, in the repo's `m127-falsifiability` fixture directory (committed inputs, not run outputs — the Phase 3 closing check never persists them):
+**The identifier clause is `any-of` by contract, not as a hedge (STE-485). The verdict clause is `probe-row` (STE-756): it reads the runner's #37 row, never the prose.** `/gate-check` renders its verdict block as prose it composes per run, so the SPELLING of a probe id and the WORDING of a notes verdict are both leg-dependent. Measured assistant-scoped on the three 2026-08-16 conformance captures in which probe #37 genuinely fired against the planted leaf — shipped as reduced slices named `gate-check-probe37-<leg>.ndjson`, in the repo's `m127-falsifiability` fixture directory (committed inputs, not run outputs — the Phase 3 closing check never persists them):
 
 ```text
 token / phrase                       linear   jira   none
@@ -1269,7 +1269,7 @@ GATE FAILED                             3       3      2
 #37                                     4       4      2
 ```
 
-Neither spelling is universal and neither verdict phrase is universal, so any SINGLE LITERAL scores a healthy probe run as broken on at least one leg in three. That has already happened twice on this one fixture, in opposite directions: the original clause pinned the hyphenated spelling, and STE-421 AC.4 replaced it with the underscored one — each time taking ONE LEG's rendering of an LLM-rendered surface as the runtime's contract. Writing down a third single literal would be the third drift here, so the clauses assert the measured set while still naming the spelling and the phrase the correction was about.
+Neither spelling is universal and neither verdict phrase is universal, so any SINGLE LITERAL scores a healthy probe run as broken on at least one leg in three. That has already happened twice on this one fixture, in opposite directions: the original clause pinned the hyphenated spelling, and STE-421 AC.4 replaced it with the underscored one — each time taking ONE LEG's rendering of an LLM-rendered surface as the runtime's contract. Writing down a third single literal would be the third drift here, so the identifier clause asserts the measured set of spellings, including the one the correction was about. The verdict clause names no phrase at all.
 
 **The underscored spelling is a real emission, at both layers.** `adapters/_shared/src/cross_cutting_spec_stale_file_refs.ts`'s `buildMessage` emits it as message TEXT twice per violation — the `cross_cutting_spec_stale_file_refs: ${reason}` head line and the `probe=…, severity=warning` context line — and the tracker-less leg's capture carries it assistant-scoped twice, in the rendered `#37` row and again in that leg's verdict summary. The hyphenated spelling is what the runtime rendered on the Linear and Jira legs. Both are emissions the runtime produces; neither is an artifact of the module's filename.
 
@@ -1529,7 +1529,7 @@ Registering it is also the only evidence the roster's `legs` field is genuinely 
 
 Both directions, because either alone is satisfiable by a probe that never fires at all.
 
-- **Control.** Leave the test project's own FR untouched (minted `id:`, no `tracker:` block — the artifact AC-STE-448.7 already verifies on this leg). Invoke `claude -p /dev-process-toolkit:gate-check` in `../dpt-test-project-none`, capture stdout to `/tmp/dpt-smoke-<tracker>-ste450-control.log`, and assert no `identity_mode_conditional` violation is reported.
+- **Control.** Leave the test project's own FR untouched (minted `id:`, no `tracker:` block — the artifact AC-STE-448.7 already verifies on this leg). Invoke `claude -p /dev-process-toolkit:gate-check` in `../dpt-test-project-none`, capture stdout to `/tmp/dpt-smoke-<tracker>-ste450-control.log`, and assert `bun "${CAP_ASSERT}" probe-row /tmp/dpt-smoke-<tracker>-ste450-control.log 13 pass vacuous` exit 0 — the runner's #13 row reported no `identity_mode_conditional` violation.
 - **Violation.** Stage one extra FR at `../dpt-test-project-none/specs/frs/<TAIL2>.md` carrying (i) a **freshly minted** `id:` — never a copy of an id already on disk, which would trip probe #13's cross-file duplicate-tail pass instead and score this assertion red for the wrong reason, (ii) the mode-invariant frontmatter keys `title` / `milestone` / `status` / `archived_at` / `created_at`, and (iii) a populated `tracker:` block. Invoke and capture to `/tmp/dpt-smoke-<tracker>-ste450-tracker-block.log`. The staged FR must drive the run to `GATE FAILED`; the two clauses below are how that outcome is scored.
 - Assert (probe identifier): `bun "${CAP_ASSERT}" any-of-token /tmp/dpt-smoke-<tracker>-ste450-tracker-block.log identity_mode_conditional identity-mode-conditional` exit 0 — probe #13 surfaced, named by its OWN identifier under either rendered spelling.
 
@@ -1538,7 +1538,7 @@ Both directions, because either alone is satisfiable by a probe that never fires
   **Two arms, not one, and this is fixture 3c's lesson applied before it bites rather than after.** `/gate-check` renders a probe id in either the hyphenated or the underscored spelling depending on the leg, so both are named and neither is satisfied by the other probe's row. Verified in both directions on the committed captures: 9a's pair exits 0 on the tracker-block capture and non-zero on the plan-stem one, and 9b's mirror pair does the reverse — the same property the row prefix was protecting, now protected by something the runtime cannot restyle.
 
   **The residual, stated rather than glossed.** These arms prove probe #13 was NAMED, not that it FAILED — a run rendering a passing #13 row would satisfy this clause. That is why it is paired with the verdict clause below rather than standing alone, and it is the same reason a bare `#13` is rejected as an arm: on its own it is satisfiable by a run in which nothing fired.
-- Assert (verdict): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste450-tracker-block.log "GATE FAILED" error-severity` exit 0 — the staged FR drove an error-severity failure, under one of the two wordings measured below.
+- Assert (verdict): `bun "${CAP_ASSERT}" probe-row /tmp/dpt-smoke-<tracker>-ste450-tracker-block.log 13 fail` exit 0 — the runner's own #13 row carried the `fail` verdict the staged FR drove; the rendered wording is not read (STE-756).
 - Cleanup: remove the staged FR.
 
 **Neither clause asks a capture to quote the probe's own sentence, and that is the whole repair (STE-488, and STE-485's layer lesson before it).** The canonical wording lives in exactly one place — `plugins/dev-process-toolkit/adapters/_shared/src/identity_mode_conditional.ts`, in the `buildMessage` call on probe #13's tracker-block arm, which emits `mode-none FR carries a tracker: block that should be absent (observed <actual>)`. A reader who wants that wording verbatim reads it THERE, at its one address, rather than interrogating a log for it. `/gate-check` does not pass the string through: it composes its verdict block as prose per run, so the probe's sentence is an input to the model's answer, not a substring of it. Measured on the real 2026-08-16 tracker-less capture, shipped reduced as `gate-check-ste450-tracker-block-none.ndjson` in the repo's `m127-falsifiability` fixture directory:
@@ -1555,7 +1555,7 @@ the module's own tracker-block sentence            0        2
 
 The retired clause demanded that last row be non-zero. It is **0 on the assistant surface of a capture in which probe #13 genuinely fired and genuinely reddened the gate** — the run staged the violation, the probe reported it, the gate failed, and the assertion still could not pass. Its two raw hits are the module layer showing through the transcript (a tool call reading source), never the rendered answer, which is precisely the confusion `capability_row_assert` exists to remove. An assertion that cannot pass on a correct run is not a strict check; it is a check of the wrong layer.
 
-**Both surviving clauses are `any-of` by contract, not as a hedge.** Sub-fixture 3c has now drifted three times on exactly this point — the SAME Jira leg rendered probe #37's id underscored 17 / hyphenated 0 on 2026-07-27 and underscored 0 / hyphenated 2 on 2026-08-16, a complete inversion — so re-keying onto a single NEW capture literal would only move the defect to a fresh address. `#13` is deliberately NOT an arm: `/gate-check` renders a numbered row for a probe that PASSES too, so an arm on the number alone would be satisfied by a run in which nothing fired.
+**The identifier clause is `any-of-token` by contract, not as a hedge. The verdict clause is `probe-row`: it reads the runner's #13 row and its verdict, never the prose.** Sub-fixture 3c has now drifted three times on exactly this point — the SAME Jira leg rendered probe #37's id underscored 17 / hyphenated 0 on 2026-07-27 and underscored 0 / hyphenated 2 on 2026-08-16, a complete inversion — so re-keying onto a single NEW capture literal would only move the defect to a fresh address. `#13` is deliberately NOT an arm: `/gate-check` renders a numbered row for a probe that PASSES too, so an arm on the number alone would be satisfied by a run in which nothing fired.
 
 Falsifiability: both clauses are registered in `adapters/_shared/src/falsifiability_harness.ts` (`M127_REPAIRS`, id `STE-488`) and scored by exit code — a `capability_row_assert` invocation prints a one-line verdict rather than a count, so count-scoring it is vacuous by construction.
 
@@ -1563,7 +1563,7 @@ Falsifiability: both clauses are registered in `adapters/_shared/src/falsifiabil
 
 ```
 STE-321 runtime regression: <9a-control | 9a-tracker-block>
-  expected: <no identity_mode_conditional violation | error-severity GATE FAILED naming the staged FR's tracker: block>
+  expected: <runner row #13 pass or vacuous | runner row #13 fail for the staged FR's tracker: block>
   actual:   <observed>
   stdout excerpt (last 20 lines):
     <tail -20 of the relevant log>
@@ -1573,17 +1573,17 @@ STE-321 runtime regression: <9a-control | 9a-tracker-block>
 
 The plan-side twin, and the half that an id-only check cannot reach: the filename stem is six of the recorded id's twenty-nine characters, so a plan can carry a perfectly valid `id:` under a stem derived from something else entirely and every id-shape check still passes.
 
-- **Control.** The run's own plan at `../dpt-test-project-none/specs/plan/M_<TAIL>.md` (or its `archive/` path) is left as-is; the control capture from 9a is reused rather than re-spawned. Assert no `plan_identity_mode_conditional` violation is reported.
+- **Control.** The run's own plan at `../dpt-test-project-none/specs/plan/M_<TAIL>.md` (or its `archive/` path) is left as-is; the control capture from 9a is reused rather than re-spawned. Assert `bun "${CAP_ASSERT}" probe-row /tmp/dpt-smoke-<tracker>-ste450-control.log 73 pass vacuous` exit 0 — the runner's #73 row reported no `plan_identity_mode_conditional` violation.
 - **Violation.** Stage one extra plan file whose stem is a **valid but different** minted key from the one its own frontmatter `id:` derives — mint a second id, name the file from the first, record the second. Invoke and capture to `/tmp/dpt-smoke-<tracker>-ste450-plan-stem.log`. The staged plan must drive the run to `GATE FAILED`; the two clauses below are how that outcome is scored.
 - Assert (probe identifier): `bun "${CAP_ASSERT}" any-of-token /tmp/dpt-smoke-<tracker>-ste450-plan-stem.log plan_identity_mode_conditional plan-identity-mode-conditional` exit 0 — probe #73 surfaced, named by its OWN identifier under either rendered spelling.
 
   Name-keyed and two-armed for the same reasons as 9a, and deliberately symmetric even though this arm is not itself substring-satisfiable — nothing in the runtime's vocabulary contains `plan_identity_mode_conditional` as a proper superstring, and the bare form was measured to exit 1 against 9a's capture, correctly. Keeping the shape uniform is the point: whoever adds the next probe id here does not have to re-check it for the substring hazard, because `any-of-token` supplies the boundary for every arm rather than for the ones someone remembered. Per-instance vigilance is what failed three times on fixture 3c and a fourth time on this row decoration.
-- Assert (verdict): `bun "${CAP_ASSERT}" any-of /tmp/dpt-smoke-<tracker>-ste450-plan-stem.log "GATE FAILED" error-severity` exit 0 — the staged plan drove an error-severity failure, under one of the two wordings measured below.
+- Assert (verdict): `bun "${CAP_ASSERT}" probe-row /tmp/dpt-smoke-<tracker>-ste450-plan-stem.log 73 fail` exit 0 — the runner's own #73 row carried the `fail` verdict the staged plan drove; the rendered wording is not read (STE-756).
 - Cleanup: remove the staged plan.
 
 Do NOT stage this violation by renaming a sequential `M<N>.md` into place: a sequential tracker-less plan introduced today is classified `fresh` by probe #73's git-provenance arm and fails for that reason instead, which is a different row with a different remedy and would score this assertion green-for-the-wrong-reason in reverse.
 
-**9b is re-keyed for 9a's reason, and its evidence is stronger still.** The canonical sentence lives in exactly one place — `plugins/dev-process-toolkit/adapters/_shared/src/plan_identity_mode_conditional.ts`, in the `buildMessage` call on probe #73's minted-stem arm, which emits `mode-none minted plan's id: does not derive its own filename (<id> derives <stem>, file is <basename>)`. That one address is where a reader who wants the wording verbatim goes. Measured on the real 2026-08-16 tracker-less capture, shipped reduced as `gate-check-ste450-plan-stem-none.ndjson` beside 9a's:
+**9b is re-keyed for 9a's reason, and its evidence is stronger still.** The canonical sentence lives in exactly one place — `plugins/dev-process-toolkit/adapters/_shared/src/plan_identity_mode_conditional.ts`, in the `buildMessage` call on probe #73's minted-stem arm, which emits `mode-none minted plan's id: does not derive its own filename (<id> derives <stem>, file is <basename>)`. That one address is where a reader who wants the wording verbatim goes. Measured on the real 2026-08-16 tracker-less capture, shipped reduced as `gate-check-ste450-plan-stem-none.ndjson` beside 9a's. The table is history: the verdict clause now reads the runner's #73 row, not these words:
 
 ```text
 token / phrase                                assistant   raw
@@ -1603,7 +1603,7 @@ That last row is **zero even raw** — on the very capture where this probe fire
 
 ```
 STE-321 runtime regression: <9b-control | 9b-plan-stem>
-  expected: <no plan_identity_mode_conditional violation | error-severity GATE FAILED naming the staged plan's non-deriving id>
+  expected: <runner row #73 pass or vacuous | runner row #73 fail for the staged plan's non-deriving id>
   actual:   <observed>
   stdout excerpt (last 20 lines):
     <tail -20 of the relevant log>

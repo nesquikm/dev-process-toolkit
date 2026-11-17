@@ -179,6 +179,10 @@ Run these deterministic layout-invariant probes in addition to the normal gate:
 
 Full details: `docs/layout-reference.md` § `/gate-check`.
 
+Run `bun "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_probe_runner.ts" "<projectRoot>"` as its own Bash call, with nothing before or after it, and quote its rows verbatim. Never retype or reword a row. Each row has one shape: `probe #<N> <probe-id>: <verdict> (<count>)`. The verdict is one of `pass`, `notes`, `fail` or `vacuous`.
+
+The runner does not call every probe. The tracker and MCP probes, such as #8, #14 and #26, and the prose-defined probes are run by the model. The model renders each of their rows in the same grammar.
+
 ### Conformance-probes summary line
 
 After all conformance probes complete, render a single roll-up summary line in the canonical shape:

@@ -103,7 +103,9 @@ const ENTRY_POINT_NO_IMPORTER_SEVEN = [
  * named on `/deliver`'s own surface, which is exactly the class the second
  * clause of the original AND-rule was written to keep exposed.
  */
-const NO_ENTRY_POINT_ORPHAN = M("auto_approve_marker");
+// Amended by AC-STE-756.10 (M_d1e7b1): auto_approve_marker is now imported by the gate probe runner;
+// ac_lint (probe #7, called with specsDir, so never in the runner) is the measured orphan now.
+const NO_ENTRY_POINT_ORPHAN = M("ac_lint"); // Amended by AC-STE-756.10 (M_d1e7b1)
 
 /** A shipped module that carries an entry point (this milestone's front door). */
 const REACHABLE_EXAMPLE = M("deliver_decision");
@@ -576,7 +578,7 @@ describe("AC-STE-517.10 — nothing found vs nothing looked at", () => {
     const body = [
       `${phrase} \`${src("deliver_decision.ts")}\` first.`,
       "",
-      `Then the taxonomy in \`${src("auto_approve_marker.ts")}\`.`,
+      `Then the taxonomy in \`${src("ac_lint.ts")}\`.`, // Amended by AC-STE-756.10 (M_d1e7b1): auto_approve_marker is runner-reachable now
       "",
     ].join("\n");
 
@@ -585,7 +587,7 @@ describe("AC-STE-517.10 — nothing found vs nothing looked at", () => {
       expect(records.length).toBe(2);
       expect(records.map((r) => [r.line, r.module, r.refClass, r.reachable])).toEqual([
         [1, src("deliver_decision.ts"), "ordered", true],
-        [3, src("auto_approve_marker.ts"), "descriptive", false],
+        [3, src("ac_lint.ts"), "descriptive", false], // Amended by AC-STE-756.10 (M_d1e7b1)
       ]);
     });
   });

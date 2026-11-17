@@ -35,3 +35,31 @@ export function undoSte825(text: string): string {
 export function currentGateCheckLine(oldLine: number): number {
   return oldLine >= STE_825_ROW_LINE ? oldLine + 1 : oldLine;
 }
+
+/**
+ * STE-756 (M_d1e7b1) — the probe-runner paragraphs AC-STE-756.6 inserts after the
+ * "Full details" line: four lines (two paragraphs, each followed by a blank line).
+ * Amended by AC-STE-756.6 (M_d1e7b1)
+ */
+export const STE_756_BLOCK_LINE = 182;
+export const STE_756_BLOCK: readonly string[] = ["Run `bun \"${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_probe_runner.ts\" \"<projectRoot>\"` as its own Bash call, with nothing before or after it, and quote its rows verbatim. Never retype or reword a row. Each row has one shape: `probe #<N> <probe-id>: <verdict> (<count>)`. The verdict is one of `pass`, `notes`, `fail` or `vacuous`.", "", "The runner does not call every probe. The tracker and MCP probes, such as #8, #14 and #26, and the prose-defined probes are run by the model. The model renders each of their rows in the same grammar.", ""];
+
+/** The file with the STE-756 block taken out, or the input unchanged if it is not byte-for-byte in place. */
+export function undoSte756(text: string): string {
+  const lines = text.split("\n");
+  const at = STE_756_BLOCK_LINE - 1;
+  if (STE_756_BLOCK.some((l, i) => lines[at + i] !== l)) return text;
+  lines.splice(at, STE_756_BLOCK.length);
+  return lines.join("\n");
+}
+
+/** Every M_d1e7b1 admission to gate-check/SKILL.md undone, later edits first. Amended by AC-STE-756.6 (M_d1e7b1) */
+export function undoGateCheckM_d1e7b1(text: string): string {
+  return undoSte825(undoSte756(text));
+}
+
+/** Where a pre-M_d1e7b1 1-based line of gate-check/SKILL.md sits now (both insertions). */
+export function currentGateCheckLineM_d1e7b1(oldLine: number): number {
+  const after825 = currentGateCheckLine(oldLine);
+  return after825 >= STE_756_BLOCK_LINE ? after825 + STE_756_BLOCK.length : after825;
+}

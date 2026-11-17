@@ -10,14 +10,16 @@ import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { STE_825_EDITS, STE_825_ROW, STE_825_ROW_LINE, currentGateCheckLine, undoSte825 } from "./_m_d1e7b1_ste825_gate_check";
+import { STE_756_BLOCK, STE_756_BLOCK_LINE, STE_825_EDITS, STE_825_ROW, STE_825_ROW_LINE, currentGateCheckLine, currentGateCheckLineM_d1e7b1, undoGateCheckM_d1e7b1, undoSte756, undoSte825 } from "./_m_d1e7b1_ste825_gate_check";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REL = "plugins/dev-process-toolkit/skills/gate-check/SKILL.md";
 /** The last commit before the STE-825 edit (the STE-745 follow-up). */
 const PRE_EDIT = "8a5a273f";
 
-const now = (): string => readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+// Amended by AC-STE-756.6 (M_d1e7b1): the STE-825 legs read the file with the later STE-756 block taken out.
+const raw = (): string => readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+const now = (): string => undoSte756(raw());
 const preEdit = (): string => {
   const r = spawnSync("git", ["show", `${PRE_EDIT}:${REL}`], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(r.status, r.stderr).toBe(0);
@@ -57,5 +59,38 @@ describe("AC-STE-825.3 — undoSte825 admits exactly probe #14's edit", () => {
 
   test("currentGateCheckLine moves exactly the lines at and after the row", () => {
     expect([currentGateCheckLine(61), currentGateCheckLine(62), currentGateCheckLine(81)]).toEqual([61, 63, 82]);
+  });
+});
+
+/** The last commit before the STE-756 block (the STE-791 commit). Amended by AC-STE-756.6 (M_d1e7b1) */
+const PRE_756 = "f160c61b";
+const pre756 = (): string => {
+  const r = spawnSync("git", ["show", `${PRE_756}:${REL}`], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
+  expect(r.status, r.stderr).toBe(0);
+  return r.stdout;
+};
+
+describe("AC-STE-756.6 — undoSte756 admits exactly the probe-runner block", () => {
+  test("undoing the block yields the pre-block file byte for byte; both undone yields the pre-M_d1e7b1 file", () => {
+    expect(undoSte756(raw()) === pre756()).toBe(true);
+    expect(undoGateCheckM_d1e7b1(raw()) === preEdit()).toBe(true);
+    expect(raw().split("\n").slice(STE_756_BLOCK_LINE - 1, STE_756_BLOCK_LINE - 1 + STE_756_BLOCK.length)).toEqual([...STE_756_BLOCK]);
+  });
+
+  test("CONTROL: a drifted block line is not undone, and a change beside the block survives", () => {
+    for (let i = 0; i < STE_756_BLOCK.length; i++) {
+      const l = raw().split("\n");
+      l[STE_756_BLOCK_LINE - 1 + i] = `${l[STE_756_BLOCK_LINE - 1 + i]}.`;
+      expect(undoSte756(l.join("\n"))).toBe(l.join("\n"));
+    }
+    const beside = raw().split("\n");
+    beside[STE_756_BLOCK_LINE - 2] = `${beside[STE_756_BLOCK_LINE - 2]}x`; // the blank line above the block
+    const undone = undoSte756(beside.join("\n")).split("\n");
+    const before = pre756().split("\n");
+    expect(undone.map((l, i) => (l === before[i] ? -1 : i + 1)).filter((n) => n > 0)).toEqual([STE_756_BLOCK_LINE - 1]);
+  });
+
+  test("currentGateCheckLineM_d1e7b1 moves lines past each insertion", () => {
+    expect([currentGateCheckLineM_d1e7b1(61), currentGateCheckLineM_d1e7b1(62), currentGateCheckLineM_d1e7b1(180), currentGateCheckLineM_d1e7b1(181), currentGateCheckLineM_d1e7b1(247)]).toEqual([61, 63, 181, 186, 252]);
   });
 });

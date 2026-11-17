@@ -239,14 +239,17 @@ export const M127_REPAIRS: readonly RepairEntry[] = [
     scoreBy: "exit-code",
     clauses: [
       {
-        // The verdict half. `NOTES` is the subject because it is the substring
-        // every rendered notes verdict on every leg carries — including inside
-        // `GATE PASSED WITH NOTES` — so removing it retires the whole any-of.
+        // The verdict half. Amended by AC-STE-756.8 (M_d1e7b1): it is now `probe-row … 37 notes`,
+        // which reads the runner's #37 row, not the prose. The genuine [Amended by AC-STE-756.8 (M_d1e7b1)]
+        // 2026-08-16 captures carry no runner row, so this clause names its own [Amended by AC-STE-756.8 (M_d1e7b1)]
+        // capture. The subject is the row's id and verdict; removing it leaves [Amended by AC-STE-756.8 (M_d1e7b1)]
+        // no #37 row to parse, so the clause goes red. [Amended by AC-STE-756.8 (M_d1e7b1)]
         site: {
           section: "Sub-fixture 3c",
-          select: '"GATE PASSED WITH NOTES" NOTES',
+          select: "ste222-probe.log 37 notes", // Amended by AC-STE-756.8 (M_d1e7b1)
         },
-        subject: "NOTES",
+        subject: "cross-cutting-spec-stale-file-refs: notes", // Amended by AC-STE-756.8 (M_d1e7b1)
+        capture: "gate-check-ste222-runner-row-none.ndjson", // Amended by AC-STE-756.8 (M_d1e7b1)
         threshold: 1,
         scoreBy: "exit-code",
         label: "verdict",
@@ -331,9 +334,10 @@ export const M127_REPAIRS: readonly RepairEntry[] = [
     //
     // The two identifier clauses take a single subject: the hyphenated arm is
     // measured 0 on this leg, so removing the underscored spelling retires the
-    // whole any-of. The two verdict clauses cannot — `"GATE FAILED"` and
-    // `error-severity` share no substring — so they remove BOTH arms through
-    // `removeAll`, each component still via `removeSubject`.
+    // whole any-of. [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // Amended by AC-STE-756.8 (M_d1e7b1): the two verdict clauses are now `probe-row … 13 fail`
+    // and `probe-row … 73 fail`. They read the runner's own row, so each names [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // a runner capture, and its subject is that row's id and verdict. [Amended by AC-STE-756.8 (M_d1e7b1)]
     id: "STE-488",
     site: {
       section: "Sub-fixture 9a",
@@ -353,10 +357,10 @@ export const M127_REPAIRS: readonly RepairEntry[] = [
       {
         site: {
           section: "Sub-fixture 9a",
-          select: 'ste450-tracker-block.log "GATE FAILED"',
+          select: "ste450-tracker-block.log 13 fail", // Amended by AC-STE-756.8 (M_d1e7b1)
         },
-        subject: "GATE FAILED",
-        mutate: removeAll(["GATE FAILED", "error-severity"]),
+        subject: "identity-mode-conditional: fail", // Amended by AC-STE-756.8 (M_d1e7b1)
+        capture: "gate-check-ste450-tracker-block-runner-none.ndjson", // Amended by AC-STE-756.8 (M_d1e7b1)
         threshold: 1,
         scoreBy: "exit-code",
         label: "9a-verdict",
@@ -379,11 +383,10 @@ export const M127_REPAIRS: readonly RepairEntry[] = [
       {
         site: {
           section: "Sub-fixture 9b",
-          select: 'ste450-plan-stem.log "GATE FAILED"',
+          select: "ste450-plan-stem.log 73 fail", // Amended by AC-STE-756.8 (M_d1e7b1)
         },
-        subject: "GATE FAILED",
-        mutate: removeAll(["GATE FAILED", "error-severity"]),
-        capture: "gate-check-ste450-plan-stem-none.ndjson",
+        subject: "plan_identity_mode_conditional: fail", // Amended by AC-STE-756.8 (M_d1e7b1)
+        capture: "gate-check-ste450-plan-stem-runner-none.ndjson", // Amended by AC-STE-756.8 (M_d1e7b1)
         threshold: 1,
         scoreBy: "exit-code",
         label: "9b-verdict",

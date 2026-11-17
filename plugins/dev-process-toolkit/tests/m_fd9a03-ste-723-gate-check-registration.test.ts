@@ -13,7 +13,7 @@
 // Trunk is the M_d1b4b7 merge commit 13fdf144, whose gate-check SKILL.md equals
 // v3.0.0 (6c62b32c) on every line from 10 on.
 
-import { undoSte825 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1)
+import { undoGateCheckM_d1e7b1 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1)
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -35,7 +35,7 @@ function atCommit(sha: string, rel: string): string {
   return g.stdout;
 }
 
-const now = (): string => undoSte825(readFileSync(join(REPO, GATE_CHECK), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts)
+const now = (): string => undoGateCheckM_d1e7b1(readFileSync(join(REPO, GATE_CHECK), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
 const trunk = (): string => atCommit(TRUNK, GATE_CHECK);
 const steTokens = (s: string): number => (s.match(/STE-\d+/g) ?? []).length;
 
