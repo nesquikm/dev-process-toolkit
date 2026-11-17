@@ -354,6 +354,25 @@ describe("AC-STE-812.2 child rows per (skill, model, FR), claimed as run claims"
 // ===========================================================================
 
 describe("AC-STE-812.3 an unfinished child is marked complete: false", () => {
+  // Amended by the PR #142 review (AC-STE-812.4 had these two skip the child): a meta
+  // file that cannot be read says nothing about whether the child finished, so the child's
+  // tokens are written and marked incomplete. Dropping them made a parent-only total look
+  // complete, which is the silent-incomplete case AC-STE-812.6 forbids.
+  for (const [name, mutate] of [
+    ["unreadable (a directory)", (l: { subagents: string }) => { rmSync(agentFile(l.subagents, B, ".meta.json")); mkdirSync(agentFile(l.subagents, B, ".meta.json")); }],
+    ["malformed (not JSON)", (l: { subagents: string }) => writeFileSync(agentFile(l.subagents, B, ".meta.json"), "{ not json\n")],
+    ["a JSON array", (l: { subagents: string }) => writeFileSync(agentFile(l.subagents, B, ".meta.json"), "[]\n")],
+  ] as const) {
+    test(
+      `a child whose meta.json is ${name} writes complete: false, never drops the child`,
+      () => {
+        const { root } = capture(`meta-bad-${name.replace(/[^a-z]+/gi, "-")}`, mutate);
+        expect(childRows(root)).toEqual(sortRows([A_OPUS("STE-901"), A_SONNET("STE-901"), B_OPUS("STE-901", false)]));
+      },
+      T,
+    );
+  }
+
   test(
     "a child whose meta.json is missing writes complete: false; its finished sibling complete: true",
     () => {
@@ -470,8 +489,6 @@ const BREAK_A: [string, Mutation][] = [
   ["an unreadable marker (a directory)", (l) => { rmSync(agentFile(l.subagents, A, ".forked-skill.json")); mkdirSync(agentFile(l.subagents, A, ".forked-skill.json")); }],
   ["a malformed marker (not JSON)", (l) => writeFileSync(agentFile(l.subagents, A, ".forked-skill.json"), "{ not json\n")],
   ["a marker that is a JSON array", (l) => writeFileSync(agentFile(l.subagents, A, ".forked-skill.json"), "[]\n")],
-  ["an unreadable meta file (a directory)", (l) => { rmSync(agentFile(l.subagents, A, ".meta.json")); mkdirSync(agentFile(l.subagents, A, ".meta.json")); }],
-  ["a malformed meta file (not JSON)", (l) => writeFileSync(agentFile(l.subagents, A, ".meta.json"), "{ not json\n")],
   ["an unreadable child transcript (a directory)", (l) => { rmSync(agentFile(l.subagents, A, ".jsonl")); mkdirSync(agentFile(l.subagents, A, ".jsonl")); }],
   ["a malformed child transcript (no JSON line)", (l) => writeFileSync(agentFile(l.subagents, A, ".jsonl"), "not json\nstill not json\n")],
   ["a parent Skill result whose status is not forked", (l) => editParentResult(l.transcript, A, (o) => { o.toolUseResult.status = "completed"; })],

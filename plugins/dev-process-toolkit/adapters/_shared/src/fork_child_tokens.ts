@@ -66,13 +66,13 @@ function markerSkill(file: string): string | null {
 }
 
 /**
- * True when the child's `meta.json` records `finished: true` (AC-STE-812.3); false when
- * it is missing. Null when it exists but is unreadable or malformed (AC-STE-812.4).
+ * True only when the child's `meta.json` records `finished: true` (AC-STE-812.3). Missing,
+ * unreadable or malformed all read false: a meta file nobody can read does not say the
+ * child finished, so its tokens are kept and marked incomplete rather than dropped, which
+ * would make the run's parent-only total look complete (PR #142 review).
  */
-function finished(file: string): boolean | null {
-  if (!existsSync(file)) return false;
-  const meta = jsonObject(file);
-  return meta === null ? null : meta.finished === true;
+function finished(file: string): boolean {
+  return jsonObject(file)?.finished === true;
 }
 
 /** Fold `row`'s token counts into `into` (same skill, model and FR). */
@@ -106,7 +106,6 @@ export function forkChildRows(transcriptPath: string, sessionId: string, attribu
       const child = join(subagents, `agent-${id}.jsonl`);
       if (skill === null || !existsSync(child)) continue;
       const complete = finished(join(subagents, `agent-${id}.meta.json`));
-      if (complete === null) continue;
       const fr = attribute(skill, ts);
       // Read the whole child before folding any of it, so a child that throws adds nothing.
       const lines = parseTranscriptTokenUsage(child);

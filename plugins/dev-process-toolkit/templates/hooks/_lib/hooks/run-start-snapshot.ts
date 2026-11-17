@@ -58,14 +58,17 @@ function trackingLineOn(root: string): boolean {
   } catch {
     return false;
   }
-  // Any line inside the top-level `tracking` section — block or flow, at any depth —
-  // that names `enabled: true` defers to the real parser; nothing else can.
+  // This is a "maybe on" test, never an "off" verdict: it may defer to the real parser
+  // for a file that turns out off, but must never skip one the parser reads as on. So any
+  // line inside the top-level `tracking` section — block or flow, at any depth — that holds
+  // a `true` in any case (True, TRUE, a quoted key, `!!bool true`) or a YAML alias (`*x`,
+  // whose anchor may be a true anywhere) defers. `yes` and `on` stay strings in Bun.YAML.
   let inTracking = false;
   for (const raw of text.split("\n")) {
     const line = raw.replace(/\s+#.*$/, "").replace(/^\s*#.*$/, "").trimEnd();
     if (line.trim() === "") continue;
-    if (line.length - line.trimStart().length === 0) inTracking = /^tracking:/.test(line);
-    if (inTracking && /enabled:\s*true\b/.test(line)) return true;
+    if (line.length - line.trimStart().length === 0) inTracking = /^["']?tracking["']?\s*:/.test(line);
+    if (inTracking && (/\btrue\b/i.test(line) || /(^|[\s:,[{])\*[^\s,\]}]/.test(line))) return true;
   }
   return false;
 }

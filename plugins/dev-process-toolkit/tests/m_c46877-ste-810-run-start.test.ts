@@ -549,6 +549,24 @@ describe("AC-STE-810.5 the any-switch gate", () => {
     }
   }, T);
 
+  // PR #142 review: the fast path may say "maybe on" and defer, never "off" for a file the
+  // real parser reads as on. YAML reads True/TRUE and a quoted key as the same true.
+  test("a capitalised true or a quoted enabled key, block or flow, records", () => {
+    for (const [label, body] of [
+      ["gate-cap-true", "tracking:\n  token_stats:\n    enabled: True\n"],
+      ["gate-upper-true", "tracking:\n  token_stats:\n    enabled: TRUE\n"],
+      ["gate-dq-flow", 'tracking: {"token_stats": {"enabled": true}}\n'],
+      ["gate-sq-block", "tracking:\n  token_stats:\n    'enabled': true\n"],
+      ["gate-quoted-section", '"tracking":\n  token_stats:\n    enabled: true\n'],
+      ["gate-bool-tag", "tracking:\n  token_stats:\n    enabled: !!bool true\n"],
+      ["gate-alias", "on_flag: &on true\ntracking:\n  token_stats:\n    enabled: *on\n"],
+    ] as const) {
+      const root = makeCheckout(label, `${SETTINGS_HEAD}${body}`);
+      const r = runHook(skillPayload(root, "dev-process-toolkit:implement", ""));
+      expect({ label, code: r.exitCode, wrote: existsSync(ledgerFile(root)) }).toEqual({ label, code: 0, wrote: true });
+    }
+  }, T);
+
   test("a flow-style tracking section with a switch on records", () => {
     const root = makeCheckout("gate-flow", `${SETTINGS_HEAD}tracking: {token_stats: {enabled: true}}\n`);
     const r = runHook(skillPayload(root, "dev-process-toolkit:implement", ""));

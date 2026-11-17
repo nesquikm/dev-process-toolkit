@@ -21,7 +21,7 @@ import { receiptsRoot } from "./dpt_paths";
 import { checkRegisterPreconditions, registerCapture } from "./capture_registration";
 import { sessionTranscriptPath } from "./find_current_session";
 import { perQuestionConsent } from "./join_consent_ownership";
-import { loadProjectSection, SETTINGS_FILE, SettingsShapeError, settingsWriteSource } from "./project_settings";
+import { loadProjectSection, SETTINGS_FILE, SettingsShapeError, settingsSectionValue, settingsWriteSource } from "./project_settings";
 import { writeProjectSettings } from "./project_settings_writer";
 import { OPTIMIZATION_KNOBS } from "./optimizations_config";
 import { parseRetroReport, type RetroReport } from "./retro_report";
@@ -155,6 +155,19 @@ function currentValue(projectRoot: string, key: string): unknown {
 }
 
 /**
+ * The key's value as the settings file holds it, `undefined` when the file does not set it.
+ * Unlike `currentValue` it never reads a loader default: a change receipt records what the
+ * file said, and a revert must put back exactly that, so an unset key stays unset (the same
+ * raw read STE-810's settings snapshot uses).
+ */
+function rawValue(projectRoot: string, key: string): unknown {
+  const [section, ...rest] = key.split(".");
+  let v: unknown = settingsSectionValue(projectRoot, section!)?.value;
+  for (const part of rest) v = v !== null && typeof v === "object" ? (v as Record<string, unknown>)[part] : undefined;
+  return v;
+}
+
+/**
  * True when `git check-ignore` reports the local settings file ignored by the
  * repository's own rules. The operator's personal excludes file is switched off
  * (`core.excludesFile=/dev/null`): a rule only one machine carries does not keep
@@ -274,6 +287,11 @@ function newestChangeFor(projectRoot: string, key: string): { change: RecordedCh
  * otherwise. Reads only; writes nothing.
  */
 export function proposeRevertLines(projectRoot: string, key: string): string[] {
+  return revertProposal(projectRoot, key).lines;
+}
+
+/** The revert proposal and the one receipt change it was computed from, resolved once. */
+function revertProposal(projectRoot: string, key: string): { lines: string[]; found: { change: RecordedChange; appliedAt: string } } {
   const ctx = `root=${projectRoot}, verb=propose-revert, key=${key}`;
   // Only a proposable key, on a settings-file tree, is revertable: the same table and home a forward change uses.
   if (!PROPOSABLE_SETTINGS.some((r) => r.key === key)) {
@@ -298,7 +316,7 @@ export function proposeRevertLines(projectRoot: string, key: string): string[] {
       ctx,
     );
   }
-  const cur = currentValue(projectRoot, key);
+  const cur = rawValue(projectRoot, key);
   const current = cur === undefined ? "absent" : cur;
   // "absent" in a receipt is the unset sentinel: it matches only a key the file does not hold.
   const holds = found.change.to === "absent" ? cur === undefined : cur !== undefined && Bun.deepEquals(cur, found.change.to);
@@ -313,7 +331,7 @@ export function proposeRevertLines(projectRoot: string, key: string): string[] {
   const show = (v: unknown) => (v === "absent" ? "absent" : JSON.stringify(v));
   const lines = [`revert ${key}: ${show(found.change.to)} -> ${show(found.change.from)}`];
   // The digest also binds the receipt reverted, so a newer change landing after the approval is refused.
-  return [...lines, `digest=${proposalDigest(projectRoot, [...lines, `receipt=${found.appliedAt}`])}`];
+  return { lines: [...lines, `digest=${proposalDigest(projectRoot, [...lines, `receipt=${found.appliedAt}`])}`], found };
 }
 
 // --------------------------------------------------------------------- apply
@@ -605,18 +623,19 @@ export function applyRevert(projectRoot: string, key: string, digest: string): v
   const session = requireSession(ctx);
   let root: string;
   let lines: string[];
+  let found: { change: RecordedChange; appliedAt: string };
   let writeOpts: { expectSha256?: string };
   try {
     root = realpathSync(projectRoot);
     writeOpts = settingsSnapshot(projectRoot);
-    lines = proposeRevertLines(projectRoot, key);
+    // One resolution: the receipt the approved lines (and their digest) name is the one applied.
+    ({ lines, found } = revertProposal(projectRoot, key));
   } catch (e) {
     throw asRefusal(e, "the revert proposal could not be recomputed", reask, ctx);
   }
   if (lines[lines.length - 1] !== `digest=${digest}`) {
     throw RetroApplyRefusal.of("the digest no longer matches the revert proposal for this tree (stale, or printed for another root).", reask, ctx);
   }
-  const found = newestChangeFor(projectRoot, key)!;
   const from = found.change.from;
   consumeApproval(session, root, lines, digest, "propose-revert", ctx, reask);
   try {
@@ -688,7 +707,7 @@ export function apply(projectRoot: string, reportPath: string, digest: string): 
   const paths = [join(projectRoot, SETTINGS_FILE), join(projectRoot, ".gitignore"), join(projectRoot, LOCAL_SETTINGS_PATH)];
   const prior = paths.map((p) => bytesOrNull(p));
   const changes = rows.map((r) => {
-    const from = currentValue(projectRoot, r.key);
+    const from = rawValue(projectRoot, r.key);
     return { key: r.key, from: from === undefined ? "absent" : from, to: r.value };
   });
   // Only a step that ran is rolled back, so a rollback never writes over a file this apply did

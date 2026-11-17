@@ -77,7 +77,11 @@ export interface Run {
   id: string;
   /** True when any of this skill's claimed rows is an incomplete fork row (`complete: false`). */
   incomplete: boolean;
-  /** AC-STE-812.6: "incomplete", "parent-only" (no fork row in any of its sessions) or "parent+fork". */
+  /**
+   * AC-STE-812.6: "incomplete", "parent-only" (no fork row in any of its sessions) or
+   * "parent+fork" (fork capture ran in its sessions). It describes capture, not the sum:
+   * a run's tokens are its own skill's rows only, so forked children are runs of their own.
+   */
   tokensScope: "incomplete" | "parent-only" | "parent+fork";
   /** False when git could not be read, so the run's size is unknown. */
   sized: boolean;

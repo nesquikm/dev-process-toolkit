@@ -43,8 +43,11 @@ import {
   NFR10_RE,
   PLUGIN_ROOT,
   SETTINGS_HEAD,
+  GATE_OUTCOMES_OFF,
   TOKEN_STATS_OFF,
   TOOL_CALLS_OFF,
+  rules,
+  type RuleRow,
   Transcript,
   applyApproved,
   approve,
@@ -446,6 +449,96 @@ describe("STE-816 review: the revert proposal binds what it will do", () => {
     writeProjectSettings(root, {}, { remove: ["optimizations.gate_commands"] });
     expect(readFileSync(settingsPath(root), "utf-8")).toBe(before);
   });
+});
+
+// ------------------------------------------- PR #142 review: unset stays unset
+
+// The loader fills in defaults, so reading a key through it called an unset key `false`.
+// A forward apply then recorded that default as `from`, and the revert wrote it. Each case
+// starts with the key unset, applies the forward change, reverts it, and asserts the key is
+// unset again: the receipt says "absent" and the file holds no trace of the key.
+const tripped = (id: string): RuleRow => ({ id, disposition: "tripped", reason: null });
+const keyIn = (obj: any, key: string): boolean => {
+  let v = obj;
+  for (const part of key.split(".")) {
+    if (v === null || typeof v !== "object" || !(part in v)) return false;
+    v = v[part];
+  }
+  return true;
+};
+
+async function absentRoundTrip(label: string, settings: string, report: () => RuleRow[], key: string): Promise<string> {
+  const root = makeTree(label, { settings, gitignore: IGNORE_LOCAL });
+  expect(keyIn(settingsObj(root) ?? {}, key)).toBe(false);
+  const fwdRun = applyApproved(approve(`${label}-fwd`, root, await writeReport(`${label}-fwd`, report()), { session: sid(28) }));
+  expect(fwdRun.status).toBe(0);
+  const fwd = changeReceipts(root, sid(28))
+    .flatMap((c: any) => c.evidence.changes)
+    .find((c: any) => c.key === key);
+  expect(fwd?.from).toBe("absent");
+  const a = approveRevert(`${label}-rev`, root, key, sid(29));
+  expect(a.lines[0]).toBe(`revert ${key}: ${JSON.stringify(fwd.to)} -> absent`);
+  const rev = applyRevert(a);
+  expect(rev.status).toBe(0);
+  expect(keyIn(settingsObj(root) ?? {}, key)).toBe(false);
+  return root;
+}
+
+describe("PR #142 review: an unset key is recorded as absent and reverted to absent, never to a default", () => {
+  test(
+    "tracking.tool_calls unset inside an existing tracking map",
+    async () => {
+      await absentRoundTrip(
+        "816-rv-abs-tool",
+        `${SETTINGS_HEAD}tracking:\n  token_stats:\n    enabled: false\n  gate_outcomes:\n    enabled: false\n`,
+        TOOL_CALLS_OFF,
+        TOOL_KEY,
+      );
+    },
+    LONG,
+  );
+
+  test(
+    "tracking.gate_outcomes unset inside an existing tracking map",
+    () =>
+      absentRoundTrip(
+        "816-rv-abs-gate",
+        `${SETTINGS_HEAD}tracking:\n  token_stats:\n    enabled: false\n  tool_calls:\n    enabled: false\n`,
+        GATE_OUTCOMES_OFF,
+        "tracking.gate_outcomes.enabled",
+      ),
+    LONG,
+  );
+
+  test(
+    "optimizations.gate_commands unset with no optimizations section",
+    () =>
+      absentRoundTrip(
+        "816-rv-abs-opt",
+        `${SETTINGS_HEAD}tracking:\n  token_stats:\n    enabled: false\n  gate_outcomes:\n    enabled: true\n  tool_calls:\n    enabled: false\n`,
+        () => rules([tripped("gate_rerun_unchanged_key")]),
+        "optimizations.gate_commands",
+      ),
+    LONG,
+  );
+
+  test(
+    "a revert of that revert sees the unset key as holding the receipt's absent, and proposes the way back",
+    async () => {
+      const label = "816-rv-abs-rerev";
+      const root = await absentRoundTrip(label, `${SETTINGS_HEAD}tracking:\n  token_stats:\n    enabled: false\n  gate_outcomes:\n    enabled: false\n`, TOOL_CALLS_OFF, TOOL_KEY);
+      const p = proposeRevert(root, TOOL_KEY);
+      expect(p.status).toBe(0);
+      expect(printedLines(p.stdout)[0]).toBe(`revert ${TOOL_KEY}: absent -> true`);
+    },
+    LONG,
+  );
+
+  test(
+    "tracking.token_stats on a tree with no tracking section at all",
+    () => absentRoundTrip("816-rv-abs-notracking", SETTINGS_HEAD, TOKEN_STATS_OFF, TOKEN_KEY),
+    LONG,
+  );
 });
 
 // ------------------------------------------------------------------ AC.4
