@@ -122,7 +122,8 @@ One opt-in hook is again registered install-side, in project-local settings and 
   - The directory must be a literal absolute path. The `cd` takes no option. The receipt call is the last segment.
   - A relative module path resolves against that directory. It must still name this plugin's `gate_receipt.ts`.
   - The directory must exist. A relative path resolves against its real path, the way the shell enters it, so a symlink cannot redirect it.
-  - A newline anywhere in the command makes it uncounted.
+  - A newline, or any whitespace or control character other than a space or a tab, anywhere in the command makes it uncounted. A no-break space, a vertical tab or a zero-width character looks like a blank to a reader but not to the shell, so it could name another directory.
+  - The same form counts for the spec-review receipt that `pre-pr-spec-review` reads and the tdd receipt that `pre-commit-tdd-orchestrator` reads, because all three hooks use one recogniser.
   - The directory must be in normal form: no `.` or `..` segment, no `//`, no trailing slash.
   - Residual: `bun` reads `bunfig.toml` and `.env` from the directory it starts in, so the standalone form is the safer default.
   - Residual: the hook reads the filesystem at commit time, not when the `cd` ran, so a symlink re-pointed in between is not seen. The receipt itself must still exist and match.

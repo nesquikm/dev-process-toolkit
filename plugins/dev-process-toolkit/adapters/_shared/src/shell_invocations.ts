@@ -1697,6 +1697,19 @@ export function realpathOr(path: string): string {
   }
 }
 
+/**
+ * STE-791 — `command` with only the blanks the shell itself splits on (space
+ * and tab) trimmed from its ends, or null when any other whitespace or control
+ * character appears anywhere in it. `String.prototype.trim()` also strips
+ * U+00A0, `\v`, `\f`, U+2028/9 and U+FEFF, none of which the shell treats as
+ * blanks, so a reader trimming with it would grade a different word than the
+ * shell runs.
+ */
+export function trimShellBlanks(command: string): string | null {
+  if (/(?![ \t])[\p{White_Space}\p{Cc}\p{Cf}]/u.test(command)) return null;
+  return command.replace(/^[ \t]+|[ \t]+$/g, "");
+}
+
 /** One plain `bun [run] <absolute module path> <args…>`, as a realpath plus its arguments. */
 export interface BunInvocation {
   /** The module the command runs, realpath-resolved. */
@@ -1707,13 +1720,16 @@ export interface BunInvocation {
 
 /**
  * The module an `bun [run] <absolute path> …` command RUNS, or null when the
- * command is not one plain such invocation under `simpleCommandWords`.
+ * command is not one plain such invocation under `simpleCommandWords` — or
+ * carries whitespace other than space and tab, or a control or format
+ * character, anywhere (`trimShellBlanks`).
  *
  * `bun <path>` with no `run` is accepted: Bun runs a file either way, so a gate
  * that understood only the `run` spelling would refuse an honest caller.
  */
 export function bunInvocation(command: string, pluginRoot?: string): BunInvocation | null {
-  const words = simpleCommandWords(command.trim(), pluginRoot);
+  const trimmed = trimShellBlanks(command);
+  const words = trimmed === null ? null : simpleCommandWords(trimmed, pluginRoot);
   if (words === null || words[0] !== "bun") return null;
   const at = words[1] === "run" ? 2 : 1;
   const target = words[at];

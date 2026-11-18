@@ -27,7 +27,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { receiptsDir } from "./dpt_paths";
 import { nfr10Message } from "./dpt_version";
-import { bunInvocation, realpathOr, simpleCommandWords } from "./shell_invocations";
+import { bunInvocation, realpathOr, simpleCommandWords, trimShellBlanks } from "./shell_invocations";
 import { isToolkitManaged } from "./toolkit_managed";
 import { dptGitignorePath, writeDptGitignore } from "./setup/dpt_gitignore";
 import { announceReceipt, oneLine, readSessionReceipts, receiptDigest, writeReceipt } from "./tracker_receipts";
@@ -80,7 +80,8 @@ const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..");
  * print anything, and a same-named `gate_receipt.ts` somewhere this plugin does
  * not own all run nothing here, and announce nothing. One `cd` form is admitted
  * (STE-791, `cdBunInvocation`): exactly `cd <absolute dir> && bun [run] <path>
- * <gate skill> …`, the receipt call last, with no `$` or backtick anywhere.
+ * <gate skill> …`, the receipt call last, with no `$` or backtick and no
+ * whitespace but space and tab anywhere.
  *
  * Scope, not reading, is what separates this from `invokedDecidingModule`: the
  * gate receipt is deliberately NOT one of the tracker gate's
@@ -104,18 +105,21 @@ function gateReceiptSubcommand(command: string): GateSkillName | null {
  * <path> <args…>`, the receipt call the last segment, `<dir>` a literal
  * absolute directory with no option, `<path>` a literal path (a relative one
  * resolved against `<dir>`). No expansion of any kind, the plugin-root variable
- * included, and no newline anywhere. `<dir>` must be an existing directory, and a
- * relative `<path>` is resolved against its REAL path: `bun` applies `..` to the
- * physical directory the shell entered, so a lexical resolve through a symlinked
- * `<dir>` would name one file while bun ran another. Deliberately local: `bunInvocation` and its other readers keep
- * refusing the `cd` form.
+ * included. No whitespace but space and tab, and no control or format
+ * character, anywhere: `trimShellBlanks` refuses a newline, `\v`, U+00A0 or a
+ * zero-width character, and trims only the blanks the shell splits on around
+ * each segment. `<dir>` must be an existing directory, and a relative `<path>`
+ * is resolved against its REAL path: `bun` applies `..` to the physical
+ * directory the shell entered, so a lexical resolve through a symlinked `<dir>`
+ * would name one file while bun ran another. Deliberately local:
+ * `bunInvocation` and its other readers keep refusing the `cd` form.
  */
 function cdBunInvocation(command: string): { module: string; args: string[] } | null {
-  if (/[$`\n\r]/.test(command)) return null;
+  if (/[$`]/.test(command) || trimShellBlanks(command) === null) return null;
   const joint = command.indexOf("&&");
   if (joint < 0) return null;
-  const cd = simpleCommandWords(command.slice(0, joint).trim());
-  const bun = simpleCommandWords(command.slice(joint + 2).trim());
+  const cd = simpleCommandWords(trimShellBlanks(command.slice(0, joint))!);
+  const bun = simpleCommandWords(trimShellBlanks(command.slice(joint + 2))!);
   if (cd === null || bun === null || cd.length !== 2 || cd[0] !== "cd") return null;
   const dir = cd[1]!;
   // Normal form only: the shell collapses `..` lexically before it enters the directory, while

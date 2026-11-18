@@ -162,6 +162,16 @@ async function expectRejected(shape: string, base: string = BASE): Promise<void>
   expect({ base: m.announcesGateReceipt(base), shape: m.announcesGateReceipt(shape) }).toEqual({ base: true, shape: false });
 }
 
+// Fix round 1 (verify survivors 791-d, 791-f): the cd takes exactly one operand, and only bun runs after it.
+describe("AC-STE-791.2 — the cd takes one operand, and the program after it is bun", () => {
+  test("AC-STE-791.2 — `cd <dir> extra && bun …` is refused", async () => {
+    await expectRejected(`cd ${DIR} extra && bun run ${ABS} gate-check ${DIR}`);
+  });
+  test("AC-STE-791.2 — `cd <dir> && node <front door> …` is refused", async () => {
+    await expectRejected(`cd ${DIR} && node ${ABS} gate-check ${DIR}`);
+  });
+});
+
 describe("AC-STE-791.2 — any segment after the receipt call is refused", () => {
   test("AC-STE-791.2 — `; true` after the receipt call", async () => {
     await expectRejected(`${BASE}; true`);
