@@ -424,6 +424,8 @@ export interface EvidenceTarget {
   announcesOutcomes?(command: string): boolean;
   /** STE-825 — the line prefix an outcome write is announced with. */
   outcomePrefix?: string;
+  /** STE-825 — the line prefix the outcome verb prints when outcomes are off and it recorded nothing: that line is no outcome. */
+  outcomeOffPrefix?: string;
   /**
    * STE-825 — the looser reading: whether a command names the outcome verb at
    * all, a compound command included, for THIS target's gate or for no gate it
@@ -904,10 +906,14 @@ function scanSkillCalls(
       // outcome can clear it and an older one cannot decide past it.
       const call = outcomeCalls.get(block.tool_use_id)!;
       call.answered = true;
+      // STE-825 — with outcomes off the plain outcome call prints one line saying it recorded nothing: no outcome at all.
+      const readable = call.strict && block.is_error !== true;
+      const body = resultText(block.content);
+      const text = body.replace(/(?:\r\n|\r|\n)$/, "");
+      const off = target?.outcomeOffPrefix;
+      if (readable && off !== undefined && !/[\r\n]/.test(text) && text.startsWith(off)) continue;
       const found =
-        call.strict && block.is_error !== true && target?.outcomePrefix !== undefined
-          ? announcementsIn(resultText(block.content), target.outcomePrefix)
-          : [];
+        readable && target?.outcomePrefix !== undefined ? announcementsIn(body, target.outcomePrefix) : [];
       if (found.length === 1) outcomes.push({ ...found[0]!, line: index });
       else outcomes.push({ path: "", digest: "", line: index, unread: "unreadable" });
     } else if (

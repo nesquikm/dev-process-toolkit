@@ -27,7 +27,7 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { receiptsDir } from "./dpt_paths";
 import { nfr10Message } from "./dpt_version";
-import { bunInvocation, realpathOr, simpleCommandWords, trimShellBlanks } from "./shell_invocations";
+import { argv0Is, bunInvocation, realpathOr, shellInvocations, simpleCommandWords, trimShellBlanks } from "./shell_invocations";
 import { isToolkitManaged } from "./toolkit_managed";
 import { dptGitignorePath, writeDptGitignore } from "./setup/dpt_gitignore";
 import { announceReceipt, oneLine, readSessionReceipts, receiptDigest, writeReceipt } from "./tracker_receipts";
@@ -156,28 +156,37 @@ export function runsGateOutcome(command: string): boolean {
  * The skill word of EVERY segment that RUNS this front door's outcome verb —
  * `bun [flags] [run [flags]] <…/gate_receipt.ts> outcome <skill>`, `bun` by any
  * path, anywhere in the command, a compound included: empty when no such segment
- * exists, a `null` entry where nothing follows `outcome`. A command that only reads or greps the file names no
- * outcome call (fix round 3 audit: `sed … gate_receipt.ts | grep outcome` held
- * every commit, forever in a repo with outcomes off).
+ * exists, a `null` entry where nothing follows `outcome`. Segments come from the
+ * shared quote- and heredoc-aware reader (`shellInvocations`), so `bun` counts
+ * only in command position: a quoted string, a commit message or a heredoc body
+ * that quotes the call is never one (fix round 5, RD2). A command that only reads
+ * or greps the file names no outcome call either (fix round 3 audit: `sed …
+ * gate_receipt.ts | grep outcome` held every commit). A command the reader throws
+ * on fails closed, as a call for every gate.
  */
 function outcomeSkillWords(command: string): Array<string | null> {
   const door = basename(OWN_FRONT_DOOR);
-  const words = command.split(/[\s;&|()<>'"`=]+/);
+  let invocations: ReturnType<typeof shellInvocations>;
+  try {
+    invocations = shellInvocations(command, process.cwd());
+  } catch {
+    return [null]; // a command the shell reader cannot read fails closed: it may hold a call
+  }
   const found: Array<string | null> = [];
   const isFlag = (w: string | undefined): boolean => w !== undefined && w.startsWith("-");
-  for (let at = 0; at < words.length; at++) {
-    const w = words[at]!;
-    if (w !== door && !w.endsWith(`/${door}`)) continue;
-    if (words[at + 1] !== "outcome") continue;
-    // `bun` by any path, then optional flags, an optional `run`, optional flags, the door.
-    let j = at - 1;
-    while (isFlag(words[j])) j--;
-    if (words[j] === "run") {
-      j--;
-      while (isFlag(words[j])) j--;
+  for (const { argv } of invocations) {
+    // `bun` in command position by any path, optional flags, an optional `run`, optional flags, the door.
+    if (!argv0Is(argv[0], "bun")) continue;
+    let at = 1;
+    while (isFlag(argv[at])) at++;
+    if (argv[at] === "run") {
+      at++;
+      while (isFlag(argv[at])) at++;
     }
-    if (j < 0 || !/(^|\/)bun$/.test(words[j]!)) continue;
-    const skill = words[at + 2];
+    const w = argv[at];
+    if (w === undefined || (w !== door && !w.endsWith(`/${door}`))) continue;
+    if (argv[at + 1] !== "outcome") continue;
+    const skill = argv[at + 2];
     found.push(skill === undefined || skill === "" ? null : skill);
   }
   return found;
@@ -423,6 +432,9 @@ export const GATE_OUTCOME_KIND = "gate-outcome";
 
 /** The line prefix an outcome write is announced with — never `dpt-receipt: `. */
 export const GATE_OUTCOME_ANNOUNCEMENT_PREFIX = "dpt-gate-outcome: ";
+
+/** STE-825 — the line the outcome verb prints when it recorded nothing; that line is no outcome. */
+export const GATE_OUTCOME_OFF_PREFIX = "no gate outcome was recorded: ";
 
 /** The step-name rule `--step` names follow; the gate_reuse front door's labels follow it too. */
 export const STEP_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
@@ -1244,9 +1256,15 @@ export function gateReceiptEvidence(
     // never by the store. A run with no counted outcome never changes the
     // verdict, and when none counts the vouch permits as before.
     // STE-825 — outcomes OFF (or absent) for this checkout: a run receipt carries
-    // a reuse key exactly when the switch read on, so with no keyed run no
-    // outcome, pending or unreadable call is graded.
-    const outcomesOn = ours.some((a) => receiptCarriesKey(a.path));
+    // a reuse key exactly when the switch read on. The switch is read from the
+    // NEWEST run of this checkout, so one keyed run earlier in the session does
+    // not keep outcomes graded after they are switched off; with the newest run
+    // keyless, no outcome, pending or unreadable call is graded.
+    const newestRun = ours.reduce<(typeof ours)[number] | undefined>(
+      (newest, a) => (newest === undefined || a.line > newest.line ? a : newest),
+      undefined,
+    );
+    const outcomesOn = newestRun !== undefined && receiptCarriesKey(newestRun.path);
     const verdict = outcomesOn ? announcedVerdict(vouch.outcomes ?? [], sessionId, subject, real, ours) : null;
     if (verdict !== null && verdict.decision === "fail") {
       return { ok: false, reason: "gate-failed", claimant: null, named: verdict.run, ...here, tampered };
@@ -1899,6 +1917,8 @@ export interface GateEvidenceTarget {
   announcesOutcomes(command: string): boolean;
   /** STE-825 — the outcome announcement prefix (`GATE_OUTCOME_ANNOUNCEMENT_PREFIX`). */
   outcomePrefix: string;
+  /** STE-825 — the line prefix of the outcome verb's nothing-recorded line (`GATE_OUTCOME_OFF_PREFIX`). */
+  outcomeOffPrefix: string;
   /** STE-825 — whether a command names the outcome verb for THIS gate, or for no gate it can place (`namesGateOutcomeFor`). */
   mentionsOutcomes(command: string): boolean;
   /** STE-650 — whether a command ran the front door for THIS target's gate. */
@@ -1946,6 +1966,7 @@ export function gateEvidenceTarget(
     // Scoped like `mentionsOutcomes`: another gate's outcome call is never this gate's pending or unreadable one.
     announcesOutcomes: (command) => runsGateOutcome(command) && namesGateOutcomeFor(command, subject),
     outcomePrefix: GATE_OUTCOME_ANNOUNCEMENT_PREFIX,
+    outcomeOffPrefix: GATE_OUTCOME_OFF_PREFIX,
     mentionsOutcomes: (command) => namesGateOutcomeFor(command, subject),
     announcesOwnRun: (command) => announcesGateReceiptFor(command, subject),
   };
@@ -1991,7 +2012,7 @@ async function runOutcomeFrontDoor(argv: readonly string[]): Promise<void> {
   try {
     const path = await recordGateOutcome(outcomeSkill, outcomeTarget, rest);
     if (path !== null) console.log(announceGateOutcome(path));
-    else console.log("no gate outcome was recorded: outcomes are off for this checkout, or the path is in no checkout");
+    else console.log(`${GATE_OUTCOME_OFF_PREFIX}outcomes are off for this checkout, or the path is in no checkout`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
