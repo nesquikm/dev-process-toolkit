@@ -255,3 +255,65 @@ describe("AC-STE-791.3 — trimShellBlanks trims only space and tab and refuses 
     expect(trimShellBlanks(" \tbun x\t ")).toBe("bun x");
   });
 });
+
+// ------------------------------------------------------------------- AC .3 (fix round 2)
+
+// Amended AC .3: `bunInvocation` strips ONE final line ending (`\n`, `\r\n` or `\r`)
+// before it refuses the characters AC .2 names, so an honest command that ends in a
+// newline still counts. Everything else stays refused.
+describe("AC-STE-791.3 (round 2) one final line ending is stripped", () => {
+  const PLAIN_X = `bun ${ABS} gate-check /x`;
+  const OUTCOME_X = `bun ${ABS} outcome /x`;
+
+  for (const [label, ending] of [
+    ["\\n", "\n"],
+    ["\\r\\n", "\r\n"],
+    ["\\r", "\r"],
+  ] as const) {
+    test(`AC-STE-791.3 (round 2) — one final ${label} is accepted, same module and args`, async () => {
+      const s = await shellModule();
+      expect(s.bunInvocation(`${PLAIN_X}${ending}`)).toEqual({ module: s.realpathOr(ABS), args: ["gate-check", "/x"] });
+    });
+  }
+
+  test("AC-STE-791.3 (round 2) — announcesGateReceipt counts the plain receipt form ending in \\n", async () => {
+    const m = await receiptModule();
+    expect(m.announcesGateReceipt(`${PLAIN}\n`)).toBe(true);
+  });
+
+  test("AC-STE-791.3 (round 2) — runsGateOutcome counts the outcome verb ending in \\n", async () => {
+    const m = await receiptModule();
+    expect(m.runsGateOutcome(`${OUTCOME_X}\n`)).toBe(true);
+  });
+
+  test("AC-STE-791.3 (round 2) — two final line endings are still refused", async () => {
+    const s = await shellModule();
+    expect(s.bunInvocation(`${PLAIN_X}\n\n`)).toBeNull();
+  });
+
+  test("AC-STE-791.3 (round 2) — a newline in the middle is still refused", async () => {
+    const s = await shellModule();
+    expect(s.bunInvocation(`bun ${ABS} gate-check /x\ny`)).toBeNull();
+  });
+
+  test("AC-STE-791.3 (round 2) — a leading newline is still refused", async () => {
+    const s = await shellModule();
+    expect(s.bunInvocation(`\n${PLAIN_X}`)).toBeNull();
+  });
+
+  test("AC-STE-791.3 (round 2) — a final line ending preceded by U+00A0 is still refused", async () => {
+    const s = await shellModule();
+    expect(s.bunInvocation(`${PLAIN_X} \n`)).toBeNull();
+  });
+
+  // Fail closed, documented: a quoted argument cannot carry U+00A0 or U+200D either.
+  for (const [label, ch] of [
+    ["U+00A0", " "],
+    ["U+200D", "‍"],
+  ] as const) {
+    test(`AC-STE-791.3 (round 2) — a quoted argument holding ${label} is still refused (fail closed)`, async () => {
+      const s = await shellModule();
+      expect(s.bunInvocation(`bun ${ABS} gate-check '/Users/me/Proj${ch}Dir'`)).toBeNull();
+    });
+  }
+});

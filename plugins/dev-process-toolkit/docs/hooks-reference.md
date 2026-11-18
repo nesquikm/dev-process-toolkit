@@ -122,7 +122,9 @@ One opt-in hook is again registered install-side, in project-local settings and 
   - The directory must be a literal absolute path. The `cd` takes no option. The receipt call is the last segment.
   - A relative module path resolves against that directory. It must still name this plugin's `gate_receipt.ts`.
   - The directory must exist. A relative path resolves against its real path, the way the shell enters it, so a symlink cannot redirect it.
-  - A newline, or any whitespace or control character other than a space or a tab, anywhere in the command makes it uncounted. A no-break space, a vertical tab or a zero-width character looks like a blank to a reader but not to the shell, so it could name another directory.
+  - A newline, or any whitespace or control character other than a space or a tab, anywhere in the command makes it uncounted (for the standalone form, apart from one final line ending). A no-break space, a vertical tab or a zero-width character looks like a blank to a reader but not to the shell, so it could name another directory.
+  - The standalone form is the one exception: a plain `bun <module>` call has one final line ending (`\n`, `\r\n` or `\r`) stripped first, so it still counts when it ends in a newline. Every reader of that call shares the rule. The `cd` form strips nothing, so a `cd` form that ends in a newline stays uncounted.
+  - The refusal holds inside quotes too: a quoted argument that carries a no-break space or a zero-width joiner leaves the call uncounted. These hooks are security gates, so they fail closed; such arguments are rare in a receipt call.
   - The same form counts for the spec-review receipt that `pre-pr-spec-review` reads and the tdd receipt that `pre-commit-tdd-orchestrator` reads, because all three hooks use one recogniser.
   - The directory must be in normal form: no `.` or `..` segment, no `//`, no trailing slash.
   - Residual: `bun` reads `bunfig.toml` and `.env` from the directory it starts in, so the standalone form is the safer default.

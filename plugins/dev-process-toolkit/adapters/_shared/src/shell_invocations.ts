@@ -1722,13 +1722,16 @@ export interface BunInvocation {
  * The module an `bun [run] <absolute path> …` command RUNS, or null when the
  * command is not one plain such invocation under `simpleCommandWords` — or
  * carries whitespace other than space and tab, or a control or format
- * character, anywhere (`trimShellBlanks`).
+ * character, anywhere (`trimShellBlanks`). One final line ending (`\n`,
+ * `\r\n` or `\r`) is stripped first, so an honest command that ends in a
+ * newline still counts; any other such character, a second ending included,
+ * still refuses it.
  *
  * `bun <path>` with no `run` is accepted: Bun runs a file either way, so a gate
  * that understood only the `run` spelling would refuse an honest caller.
  */
 export function bunInvocation(command: string, pluginRoot?: string): BunInvocation | null {
-  const trimmed = trimShellBlanks(command);
+  const trimmed = trimShellBlanks(command.replace(/(?:\r\n|\r|\n)$/, ""));
   const words = trimmed === null ? null : simpleCommandWords(trimmed, pluginRoot);
   if (words === null || words[0] !== "bun") return null;
   const at = words[1] === "run" ? 2 : 1;
