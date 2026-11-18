@@ -153,25 +153,34 @@ export function runsGateOutcome(command: string): boolean {
 }
 
 /**
- * The skill word of the first segment that RUNS this front door's outcome verb —
- * `bun [run] <…/gate_receipt.ts> outcome <skill>`, anywhere in the command, a
- * compound included: `undefined` when no such segment exists, `null` when nothing
- * follows `outcome`. A command that only reads or greps the file names no
+ * The skill word of EVERY segment that RUNS this front door's outcome verb —
+ * `bun [flags] [run [flags]] <…/gate_receipt.ts> outcome <skill>`, `bun` by any
+ * path, anywhere in the command, a compound included: empty when no such segment
+ * exists, a `null` entry where nothing follows `outcome`. A command that only reads or greps the file names no
  * outcome call (fix round 3 audit: `sed … gate_receipt.ts | grep outcome` held
  * every commit, forever in a repo with outcomes off).
  */
-function outcomeSkillWord(command: string): string | null | undefined {
+function outcomeSkillWords(command: string): Array<string | null> {
   const door = basename(OWN_FRONT_DOOR);
   const words = command.split(/[\s;&|()<>'"`=]+/);
+  const found: Array<string | null> = [];
+  const isFlag = (w: string | undefined): boolean => w !== undefined && w.startsWith("-");
   for (let at = 0; at < words.length; at++) {
     const w = words[at]!;
     if (w !== door && !w.endsWith(`/${door}`)) continue;
-    const runByBun = words[at - 1] === "bun" || (words[at - 1] === "run" && words[at - 2] === "bun");
-    if (!runByBun || words[at + 1] !== "outcome") continue;
+    if (words[at + 1] !== "outcome") continue;
+    // `bun` by any path, then optional flags, an optional `run`, optional flags, the door.
+    let j = at - 1;
+    while (isFlag(words[j])) j--;
+    if (words[j] === "run") {
+      j--;
+      while (isFlag(words[j])) j--;
+    }
+    if (j < 0 || !/(^|\/)bun$/.test(words[j]!)) continue;
     const skill = words[at + 2];
-    return skill === undefined || skill === "" ? null : skill;
+    found.push(skill === undefined || skill === "" ? null : skill);
   }
-  return undefined;
+  return found;
 }
 
 /**
@@ -186,10 +195,9 @@ function outcomeSkillWord(command: string): string | null | undefined {
  * all) cannot be placed, so it fails closed and counts for every gate.
  */
 export function namesGateOutcomeFor(command: string, subject: string): boolean {
-  const word = outcomeSkillWord(command);
-  if (word === undefined) return false;
-  if (word !== null && isGateSkillName(word)) return gateSubject(word) === subject;
-  return true;
+  return outcomeSkillWords(command).some(
+    (word) => word === null || !isGateSkillName(word) || gateSubject(word) === subject,
+  );
 }
 
 /**
@@ -1235,7 +1243,11 @@ export function gateReceiptEvidence(
     // counted outcomes are ordered by their announcements in the transcript,
     // never by the store. A run with no counted outcome never changes the
     // verdict, and when none counts the vouch permits as before.
-    const verdict = announcedVerdict(vouch.outcomes ?? [], sessionId, subject, real, ours);
+    // STE-825 — outcomes OFF (or absent) for this checkout: a run receipt carries
+    // a reuse key exactly when the switch read on, so with no keyed run no
+    // outcome, pending or unreadable call is graded.
+    const outcomesOn = ours.some((a) => receiptCarriesKey(a.path));
+    const verdict = outcomesOn ? announcedVerdict(vouch.outcomes ?? [], sessionId, subject, real, ours) : null;
     if (verdict !== null && verdict.decision === "fail") {
       return { ok: false, reason: "gate-failed", claimant: null, named: verdict.run, ...here, tampered };
     }
@@ -1322,8 +1334,12 @@ export function gateReceiptEvidence(
  * An outcome counts only when its own `dpt-gate-outcome` announcement is in the
  * transcript AFTER its run's announcement, the file sits in this checkout's
  * store and still hashes to the announced digest, and it is a `gate-outcome`
- * record for `subject` naming one of `runs`. A file in the store that no
- * announcement names — written by hand — counts for nothing.
+ * record for `subject`. A `pass` must name one of `runs`; a `fail` counts
+ * whichever run it names (its own outcome path stands in when that run is not
+ * among `runs`), unless it was announced before that run's announcement. An
+ * announced file of this checkout that is gone, rewritten or unparseable is an
+ * `unreadable` outcome. A file in the store that no announcement names —
+ * written by hand — counts for nothing.
  */
 function announcedVerdict(
   outcomes: readonly ReceiptAnnouncement[],
@@ -1332,26 +1348,33 @@ function announcedVerdict(
   real: string,
   runs: ReadonlyArray<{ line: number; digest: string; path: string }>,
 ): { decision: string; run: string } | null {
-  let newest: { decision: string; run: string; line: number } | null = null;
+  type Counted = { decision: string; run: string; line: number };
+  let newest: Counted | null = null;
+  const newer = (at: Counted | null, next: Counted): Counted => (at === null || next.line > at.line ? next : at);
   for (const o of outcomes) {
     if (o.unread !== undefined) {
-      if (newest === null || o.line > newest.line) newest = { decision: o.unread, run: "", line: o.line };
+      newest = newer(newest, { decision: o.unread, run: "", line: o.line });
       continue;
     }
     try {
       if (announcedRoot(o.path, sessionId) !== real) continue;
-      const bytes = readFileSync(resolve(o.path));
-      if (receiptDigest(bytes) !== o.digest) continue;
-      const rec = JSON.parse(bytes.toString("utf-8")) as {
-        kind?: unknown;
-        subject?: unknown;
-        decision?: unknown;
-        evidence?: { run?: unknown };
-      };
+      let rec: { kind?: unknown; subject?: unknown; decision?: unknown; evidence?: { run?: unknown } };
+      try {
+        // An announced outcome file of this checkout that is gone, rewritten or
+        // unparseable is an UNREADABLE outcome, never nothing.
+        const bytes = readFileSync(resolve(o.path));
+        if (receiptDigest(bytes) !== o.digest) throw new Error("rewritten");
+        rec = JSON.parse(bytes.toString("utf-8"));
+      } catch {
+        newest = newer(newest, { decision: "unreadable", run: "", line: o.line });
+        continue;
+      }
       if (rec?.kind !== GATE_OUTCOME_KIND || rec.subject !== subject || typeof rec.decision !== "string") continue;
       const run = runs.find((r) => r.digest === rec.evidence?.run && r.line < o.line);
-      if (run === undefined) continue;
-      if (newest === null || o.line > newest.line) newest = { decision: rec.decision, run: run.path, line: o.line };
+      // A `fail` counts whichever run it names; a `pass` only after a counted run.
+      // A fail announced before its own run's announcement still never counts.
+      if (run === undefined && (rec.decision !== "fail" || runs.some((r) => r.digest === rec.evidence?.run))) continue;
+      newest = newer(newest, { decision: rec.decision, run: run?.path ?? o.path, line: o.line });
     } catch {
       continue;
     }
@@ -1962,12 +1985,13 @@ if (import.meta.main) {
   }
 }
 
-/** The STE-715 outcome verb: silent when the switch is off, else one record. */
+/** The STE-715 outcome verb: one record when the switch is on; off, one line saying nothing was recorded (STE-825). */
 async function runOutcomeFrontDoor(argv: readonly string[]): Promise<void> {
   const [outcomeSkill, outcomeTarget, ...rest] = argv;
   try {
     const path = await recordGateOutcome(outcomeSkill, outcomeTarget, rest);
     if (path !== null) console.log(announceGateOutcome(path));
+    else console.log("no gate outcome was recorded: outcomes are off for this checkout, or the path is in no checkout");
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

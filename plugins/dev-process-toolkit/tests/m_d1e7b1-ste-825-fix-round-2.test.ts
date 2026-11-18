@@ -16,7 +16,7 @@
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -627,4 +627,89 @@ describe("AC-STE-825.4 (round 3) only a bun call of the door's outcome verb is a
     const r = await runHook("gate", root, tr);
     expect({ code: r.exitCode, unreadable: /unreadable outcome/i.test(r.stderr) }).toEqual({ code: 2, unreadable: true });
   }, T);
+});
+
+// Fix round 4 addendum (cf-verify recheck2): W1, W2, W3, W4 and the parse-failure branch.
+describe("AC-STE-825.4 (round 4 addendum) the pending wait, bun spellings and non-calls", () => {
+  for (const verdict of ["pass", "fail"] as const) {
+    test(`(W2-${verdict}) the outcome result arrives DURING the wait → the hook re-reads and decides on it`, async () => {
+      const root = checkout(`w2-${verdict}`);
+      const head = passedWindow(root);
+      const r2 = mintRun(root);
+      const o = outcome(root, verdict); // the CLI really ran; only its call is in the transcript at first
+      const tr = writeTranscript(tempDir("tr"), [...head, ...runRecords(root, r2), o.records[0]!]);
+      const hook = runHook("gate", root, tr);
+      await Bun.sleep(500);
+      appendFileSync(tr, `${o.records[1]!}\n`);
+      const r = await hook;
+      if (verdict === "pass") expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+      else expect({ code: r.exitCode, failed: /fix what failed the gate/.test(r.stderr), pending: /pending/i.test(r.stderr) }).toEqual({ code: 2, failed: true, pending: false });
+    }, T);
+  }
+
+  test("(W3) a pending outcome refuses with the pending wording, not the unreadable one", async () => {
+    const root = checkout("w3-pending");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...passedWindow(root),
+      ...pendingBashCall(uid("pend"), outcomeCommand("gate-check", root, "fail")),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, pending: /pending gate outcome/.test(r.stderr), unreadable: /unreadable outcome/.test(r.stderr) }).toEqual({
+      code: 2,
+      pending: true,
+      unreadable: false,
+    });
+  }, T);
+
+  for (const bun of ["/opt/homebrew/bin/bun run", "bun --smol run", "bun --smol"]) {
+    test(`(W1) \`${bun} <door> outcome gate-check … fail\` after a pass → exit 2`, async () => {
+      const root = checkout(`w1-${bun.replace(/[^a-z]/g, "")}`);
+      const head = passedWindow(root);
+      const r2 = mintRun(root);
+      const f = outcome(root, "fail");
+      const tr = writeTranscript(tempDir("tr"), [
+        ...head,
+        ...runRecords(root, r2),
+        ...bashCall(uid("w1"), `${bun} ${FRONT_DOOR} outcome gate-check "${root}" fail`, f.stdout),
+      ]);
+      const r = await runHook("gate", root, tr);
+      expect(r.exitCode).toBe(2);
+    }, T);
+  }
+
+  test("(W4a) `cat <door> outcome gate-check` (not run by bun) does not hold the commit", async () => {
+    const root = checkout("w4a-cat");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...passedWindow(root),
+      ...pendingBashCall(uid("cat"), `cat ${FRONT_DOOR} outcome gate-check "${root}" fail`),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  }, T);
+
+  test("(W4b) `bun <another>.ts outcome gate-check … fail` (not the front door) does not hold the commit", async () => {
+    const root = checkout("w4b-other");
+    const other = join(scratch("w4b"), "other.ts");
+    writeFileSync(other, "console.log('ok')\n");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...passedWindow(root),
+      ...pendingBashCall(uid("other"), `bun run ${other} outcome gate-check "${root}" fail`),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  }, T);
+});
+
+describe("AC-STE-825.1 (round 4 addendum) unparseable git log output fails closed", () => {
+  test("(Y-git-i) a git whose log output does not fit the NUL frame → a `did not parse` evidence line", () => {
+    const root = repo("parsefail");
+    const bin = scratch("parsebin");
+    writeFileSync(
+      join(bin, "git"),
+      '#!/bin/sh\ncase "$*" in\n  *rev-parse*) echo 0000000000000000000000000000000000000000 ;;\n  *for-each-ref*) echo refs/heads/main ;;\n  *log*) printf "not a frame" ;;\nesac\nexit 0\n',
+    );
+    chmodSync(join(bin, "git"), 0o755);
+    const ev = withEnv({ PATH: `${bin}:${process.env.PATH ?? ""}` }, () => workStartedEvidence(root, TID));
+    expect(ev.some((l) => /did not parse/.test(l))).toBe(true);
+  });
 });

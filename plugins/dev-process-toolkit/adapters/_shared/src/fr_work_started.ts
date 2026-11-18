@@ -9,9 +9,14 @@
 //       letter case), so a real-sized history never fills the output buffer. `--grep`
 //       is a substring match, so the id boundary (non-alphanumerics on both sides; ASCII
 //       case folding only, no Unicode lookalikes) is re-checked here. A commit counts
-//       when it also touches at least one path outside `specs/`. Paths are read relative to `projectRoot` (`--relative`), so a project
-//       in a repo subdirectory reads its own `specs/`, and a change outside the project
-//       directory is not seen.
+//       when it also touches at least one path outside `specs/`. A merge commit's paths
+//       are its diff against its first parent (`--diff-merges=first-parent`), so work
+//       that reaches a branch through a merge naming the id counts. Paths are read raw
+//       (`core.quotePath=false`), so a non-ASCII path under `specs/` still reads as under
+//       `specs/`, and relative to `projectRoot` (`--relative`), so a project in a repo
+//       subdirectory reads its own `specs/`, and a change outside the project directory
+//       is not seen. Fields are NUL-framed (git refuses a NUL in a message), and output
+//       whose field count does not fit the frame reads as unparseable.
 // One evidence line per signal. Git runs with `--no-replace-objects`, a 5 s timeout,
 // a 64 MB output buffer, and `process.env` minus every `GIT_*` variable, so an inherited GIT_DIR cannot point
 // it at another repository.
@@ -34,8 +39,9 @@ import { readRunStarts } from "./run_start_ledger";
 
 const WORK_SKILLS = new Set(["dev-process-toolkit:implement", "dev-process-toolkit:tdd"]);
 
-const REC = "\x1e";
-const SEP = "\x1f";
+// NUL frames every field: git refuses a NUL byte in a commit message, so no message
+// can forge a field boundary.
+const NUL = "\x00";
 const GIT_TIMEOUT_MS = 5_000;
 const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 
@@ -93,25 +99,30 @@ export function workStartedEvidence(projectRoot: string, trackerId: string, frId
 
   const revs = head.status === 0 ? ["HEAD", "--branches"] : ["--branches"];
   const p = runGit(projectRoot, [
+    "-c",
+    "core.quotePath=false",
     "log",
     "--fixed-strings",
     "--regexp-ignore-case",
     `--grep=${trackerId}`,
-    `--format=${REC}%H${SEP}%B${SEP}`,
+    "--format=%x00%H%x00%B%x00",
     "--name-only",
+    "--diff-merges=first-parent",
     "--relative",
     ...revs,
   ]);
   const logFail = gitFailure("git log", p);
   if (logFail !== null) return [...evidence, logFail];
 
-  const records = p.stdout.split(REC).filter((r) => r.trim() !== "");
+  // Fields: "", then (sha, body, names) per commit. Any other count is unparseable.
+  const fields = p.stdout === "" ? [""] : p.stdout.split(NUL);
+  if (fields[0]!.trim() !== "" || (fields.length - 1) % 3 !== 0) {
+    return [...evidence, "git-unreadable: git log output did not parse"];
+  }
 
   const named = new RegExp(namesTrackerIdRe(trackerId).source, "i");
-  for (const record of records) {
-    const parts = record.split(SEP);
-    if (parts.length < 3) return [...evidence, "git-unreadable: git log output did not parse"];
-    const [sha, body, names] = parts as [string, string, string];
+  for (let i = 1; i < fields.length; i += 3) {
+    const [sha, body, names] = fields.slice(i, i + 3) as [string, string, string];
     if (!named.test(body)) continue;
     const paths = names.split("\n").map((l) => l.trim()).filter((l) => l !== "");
     if (paths.some((path) => !path.startsWith("specs/"))) {

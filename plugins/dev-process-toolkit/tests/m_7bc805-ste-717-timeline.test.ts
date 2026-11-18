@@ -544,7 +544,7 @@ describe("AC-STE-717.5 › gate runs", () => {
     mintRun(root, "tdd", { sid: GATE_SID });
     mintRun(root, "spec-review", { sid: GATE_SID });
     const silent = runCli(["outcome", "gate-check", root, "pass"], { sid: GATE_SID });
-    expect({ code: silent.exitCode, out: silent.stdout }).toEqual({ code: 0, out: "" });
+    expect({ code: silent.exitCode, out: silent.stdout }).toEqual({ code: 0, out: "no gate outcome was recorded: outcomes are off for this checkout, or the path is in no checkout\n" }); // Amended by AC-STE-825.4 (M_d1e7b1)
     const t = timelineOf(writeSessionTranscript(tempDir("gate-off-tr"), GATE_SID, gateCheckSpan(root)), root);
     expect(t.gate_runs.length).toBe(3);
     for (const r of t.gate_runs) {

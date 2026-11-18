@@ -326,7 +326,7 @@ describe("AC-STE-715.13 switch off", () => {
       expect(readJson(path).evidence).toEqual({ head: git(root, "rev-parse", "HEAD").trim() });
     }, T);
 
-    test(`switch off (${state}): the outcome CLI exits 0 silently and writes nothing`, () => {
+    test(`switch off (${state}): the outcome CLI exits 0, prints only that outcomes are off, and writes nothing`, () => { // Amended by AC-STE-825.4 (M_d1e7b1)
       const root = makeTree(`off-outcome-${state}`, state);
       mintRun(root);
       const before = receiptFiles(root);
@@ -343,7 +343,7 @@ describe("AC-STE-715.13 switch off", () => {
         expect({ args: f.args, code: r.exitCode, out: r.stdout, err: r.stderr }).toEqual({
           args: f.args,
           code: 0,
-          out: "",
+          out: "no gate outcome was recorded: outcomes are off for this checkout, or the path is in no checkout\n", // Amended by AC-STE-825.4 (M_d1e7b1)
           err: "",
         });
       }
@@ -369,7 +369,7 @@ describe("AC-STE-715.13 switch off", () => {
     }
   }, T);
 
-  test("SUPERSEDED: the v3.0.0 front door refused `outcome` with reason=unknown-skill; today's is silent when off", () => {
+  test("SUPERSEDED: the v3.0.0 front door refused `outcome` with reason=unknown-skill; today's says it is off", () => { // Amended by AC-STE-825.4 (M_d1e7b1)
     const dir = tempDir("v300-tree");
     const tar = spawnSync(
       "bash",
@@ -384,7 +384,7 @@ describe("AC-STE-715.13 switch off", () => {
     expect(trunk.stdout).toBe("");
     expect(trunk.stderr).toContain("reason=unknown-skill, skill=outcome");
     const now = runCli(["outcome", "gate-check", root, "pass"]);
-    expect({ code: now.exitCode, out: now.stdout, err: now.stderr }).toEqual({ code: 0, out: "", err: "" });
+    expect({ code: now.exitCode, out: now.stdout, err: now.stderr }).toEqual({ code: 0, out: "no gate outcome was recorded: outcomes are off for this checkout, or the path is in no checkout\n", err: "" }); // Amended by AC-STE-825.4 (M_d1e7b1)
   }, T);
 
   test("switch on: the receipt CLI prints exactly two lines, the announcement then `outcome: on`", () => {
