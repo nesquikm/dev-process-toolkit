@@ -4,6 +4,8 @@
 // specs/frs/archive/STE-715.md differs from its bytes at the M_7bc805 merge
 // commit only on the AC-STE-715.13 line, by one appended amendment clause,
 // separated by one space as the file's existing amendment clauses are.
+// Amended by AC-STE-825.4 (M_d1e7b1): the AC-STE-715.17 line carries one
+// appended amendment clause too, so the file admits exactly those two clauses.
 //
 // AC-STE-724.7, .13, .21 and .22 land with the milestone's single gate-check
 // edit commit and are graded below: knob-off byte identity of the trunk
@@ -26,6 +28,14 @@ const ARCHIVE_715 = "specs/frs/archive/STE-715.md";
 const AC_715_13 = "- AC-STE-715.13:";
 const CLAUSE_715_13 =
   "*(Amended by AC-STE-724.20 (v3.3.0): with gate_commands: reuse effective, the gate-check receipt call prints a third line, reuse: on.)*";
+// Amended by AC-STE-825.4 (M_d1e7b1): the second admitted clause, on the AC-STE-715.17 line.
+const AC_715_17 = "- AC-STE-715.17:";
+const CLAUSE_715_17 =
+  "*(Amended by AC-STE-825.4 (v3.9.0): a key that cannot be computed still reads the switch on, so the receipt CLI also prints outcome: on, its outcome is recorded, and an earlier recorded fail keeps refusing instead of being released as on a switch-off run.)*";
+const CLAUSES_715: Array<[string, string]> = [
+  [AC_715_13, CLAUSE_715_13],
+  [AC_715_17, CLAUSE_715_17],
+];
 
 function atCommit(sha: string, repoRel: string): string {
   const p = spawnSync("git", ["show", `${sha}:${repoRel}`], { cwd: REPO_ROOT, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 });
@@ -34,55 +44,78 @@ function atCommit(sha: string, repoRel: string): string {
 }
 
 /**
- * Every way `now` departs from `base` plus exactly one appended clause on the
- * line starting with `prefix`; empty when that is the only difference.
+ * Every way `now` departs from `base` plus exactly one appended clause on each
+ * line starting with one of the given prefixes; empty when that is the only
+ * difference. (Amended by AC-STE-825.4 (M_d1e7b1): several prefixed lines.)
  */
-function amendmentDrift(base: string, now: string, prefix: string, clause: string): string[] {
+function amendmentsDrift(base: string, now: string, amendments: Array<[string, string]>): string[] {
   const a = base.split("\n");
   const b = now.split("\n");
   const out: string[] = [];
   if (a.length !== b.length) out.push(`line count ${a.length} -> ${b.length}`);
-  const targets = a.flatMap((l, i) => (l.startsWith(prefix) ? [i] : []));
-  if (targets.length !== 1) out.push(`expected one ${prefix} line at the base, found ${targets.length}`);
+  const want = [...a];
+  for (const [prefix, clause] of amendments) {
+    const targets = a.flatMap((l, i) => (l.startsWith(prefix) ? [i] : []));
+    if (targets.length !== 1) out.push(`expected one ${prefix} line at the base, found ${targets.length}`);
+    if (targets[0] !== undefined) want[targets[0]] = `${want[targets[0]]} ${clause}`;
+  }
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const want = i === targets[0] ? `${a[i]} ${clause}` : a[i];
-    if (b[i] !== want) out.push(`line ${i + 1} differs`);
+    if (b[i] !== want[i]) out.push(`line ${i + 1} differs`);
   }
   return out;
 }
 
-describe("AC-STE-724.20 archived STE-715.md gains the AC-STE-715.13 amendment clause and nothing else", () => {
+/** One appended clause on the one line starting with `prefix`. */
+function amendmentDrift(base: string, now: string, prefix: string, clause: string): string[] {
+  return amendmentsDrift(base, now, [[prefix, clause]]);
+}
+
+/** `base` with each clause appended, after one space, to its prefixed line. */
+function withClauses(base: string, amendments: Array<[string, string]>, sep = " "): string {
+  return base
+    .split("\n")
+    .map((l) => {
+      const hit = amendments.find(([prefix]) => l.startsWith(prefix));
+      return hit ? `${l}${sep}${hit[1]}` : l;
+    })
+    .join("\n");
+}
+
+// Amended by AC-STE-825.4 (M_d1e7b1): exactly the AC-STE-715.13 and AC-STE-715.17 clauses.
+describe("AC-STE-724.20 archived STE-715.md gains the AC-STE-715.13 and AC-STE-715.17 amendment clauses and nothing else", () => {
   const base = atCommit(M7BC805_MERGE, ARCHIVE_715);
   const now = readFileSync(join(REPO_ROOT, ARCHIVE_715), "utf-8");
 
-  test("the file differs from the M_7bc805 merge commit only by the clause appended to the AC-STE-715.13 line", () => {
-    expect(amendmentDrift(base, now, AC_715_13, CLAUSE_715_13)).toEqual([]);
+  test("the file differs from the M_7bc805 merge commit only by the clauses appended to the AC-STE-715.13 and AC-STE-715.17 lines", () => {
+    expect(amendmentsDrift(base, now, CLAUSES_715)).toEqual([]);
   });
 
-  test("the clause is joined by one space, as the file's existing amendment clauses are", () => {
-    const line = now.split("\n").find((l) => l.startsWith(AC_715_13)) ?? "";
-    expect(line.endsWith(` ${CLAUSE_715_13}`)).toBe(true);
+  test("each clause is joined by one space, as the file's existing amendment clauses are", () => {
+    for (const [prefix, clause] of CLAUSES_715) {
+      const line = now.split("\n").find((l) => l.startsWith(prefix)) ?? "";
+      expect(line.endsWith(` ${clause}`)).toBe(true);
+    }
     // The house separator, read off an amendment the file already carries.
     expect(base).toMatch(/\. \*\(Amended by /);
   });
 
   test("CONTROL: a one-byte edit elsewhere in the amended file is reported", () => {
-    const amended = base
-      .split("\n")
-      .map((l) => (l.startsWith(AC_715_13) ? `${l} ${CLAUSE_715_13}` : l))
-      .join("\n");
-    expect(amendmentDrift(base, amended, AC_715_13, CLAUSE_715_13)).toEqual([]);
+    const amended = withClauses(base, CLAUSES_715);
+    expect(amendmentsDrift(base, amended, CLAUSES_715)).toEqual([]);
     const edited = amended.replace("# ", "#  ");
-    expect(amendmentDrift(base, edited, AC_715_13, CLAUSE_715_13).length).toBeGreaterThan(0);
+    expect(amendmentsDrift(base, edited, CLAUSES_715).length).toBeGreaterThan(0);
   });
 
   test("CONTROL: the unamended file, and the clause joined with no space, are each reported", () => {
-    expect(amendmentDrift(base, base, AC_715_13, CLAUSE_715_13).length).toBeGreaterThan(0);
-    const glued = base
-      .split("\n")
-      .map((l) => (l.startsWith(AC_715_13) ? `${l}${CLAUSE_715_13}` : l))
-      .join("\n");
-    expect(amendmentDrift(base, glued, AC_715_13, CLAUSE_715_13).length).toBeGreaterThan(0);
+    expect(amendmentsDrift(base, base, CLAUSES_715).length).toBeGreaterThan(0);
+    expect(amendmentsDrift(base, withClauses(base, CLAUSES_715, ""), CLAUSES_715).length).toBeGreaterThan(0);
+  });
+
+  test("CONTROL: only one of the two clauses, or a third clause on another line, is reported", () => {
+    expect(amendmentsDrift(base, withClauses(base, [CLAUSES_715[0]!]), CLAUSES_715).length).toBeGreaterThan(0);
+    expect(amendmentsDrift(base, withClauses(base, [CLAUSES_715[1]!]), CLAUSES_715).length).toBeGreaterThan(0);
+    const third = withClauses(withClauses(base, CLAUSES_715), [["- AC-STE-715.1:", "*(Amended by nobody.)*"]]);
+    expect(amendmentsDrift(base, third, CLAUSES_715).length).toBeGreaterThan(0);
   });
 });
 
@@ -228,7 +261,7 @@ describe("AC-STE-724.13 ## Commands names `reuse: on` and the front door; the pa
 
   test("AC-STE-724.13 the file measures exactly 356 split-lines and 87 STE-<n> tokens", () => {
     const body = gcNow();
-    expect(body.split("\n").length).toBe(356);
+    expect(body.split("\n").length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     expect((body.match(/STE-\d+/g) ?? []).length).toBe(87);
   });
 

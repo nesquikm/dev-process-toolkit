@@ -39,6 +39,7 @@
 //   switch flipped to `= false;` (tests/_sited-mutation.ts), loaded from a
 //   scratch copy whose relative imports point at the real source directory.
 
+import { undoGateCheckM_d1e7b1 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1)
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -1497,7 +1498,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   // STE-661: title + pin follow the 2026-10-05 ruling admitting line 154 (probe #67).
   // Amended by AC-STE-735.3 (operator ruling 2026-11-10): title + pin admit line 149 (probe #62).
   test("AC-STE-648.8 + AC-STE-661.8 + STE-697 + AC-STE-735.3: skills/gate-check/SKILL.md differs from the kickoff only on lines 120, 124, 128, 149 and 154, probe #41's, #45's, #49's, #62's and #67's entries, rewritten in place", () => {
-    const now = readFileSync(join(REPO, GATE_CHECK), "utf-8");
+    const now = undoGateCheckM_d1e7b1(readFileSync(join(REPO, GATE_CHECK), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     const then = kickoff(GATE_CHECK);
     expect(PERMITTED_LINES).toEqual([120, 124, 128, 149, 154]);
     // AC-STE-735.3: line 149 is probe #62's entry at BOTH the kickoff and now, and now states the scaffold scope.
@@ -1519,7 +1520,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   });
 
   test("AC-STE-648.8: line 120 carries the corrected sentence, path-free, and keeps its trailer", () => {
-    const line = readFileSync(join(REPO, GATE_CHECK), "utf-8").split("\n")[120 - 1]!;
+    const line = undoGateCheckM_d1e7b1(readFileSync(join(REPO, GATE_CHECK), "utf-8")).split("\n")[120 - 1]!; // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     expect(line).toContain(
       "Sibling module: `commit_producing_skill_branch_gate` (M61) — no numbered entry registers it, so /gate-check does not run it.",
     );
@@ -1529,7 +1530,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   });
 
   test("AC-STE-648.8 NEGATIVE CONTROL — a changed line 121 (next to the permitted 120) fails the guard", () => {
-    const now = readFileSync(join(REPO, GATE_CHECK), "utf-8");
+    const now = undoGateCheckM_d1e7b1(readFileSync(join(REPO, GATE_CHECK), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     const then = kickoff(GATE_CHECK);
     const lines = now.split("\n");
     const neighbour = [...lines];
@@ -1553,7 +1554,7 @@ describe("AC-STE-618.8 — byte-identity with the kickoff", () => {
   });
 
   test("negative controls: a second changed line, or an added line, fails the guard", () => {
-    const now = readFileSync(join(REPO, GATE_CHECK), "utf-8");
+    const now = undoGateCheckM_d1e7b1(readFileSync(join(REPO, GATE_CHECK), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     const then = kickoff(GATE_CHECK);
     const lines = now.split("\n");
     const second = [...lines];

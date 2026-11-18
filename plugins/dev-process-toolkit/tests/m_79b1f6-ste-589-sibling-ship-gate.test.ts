@@ -802,7 +802,8 @@ describe("AC-STE-589.7 — skills/ship-milestone/SKILL.md carries refusal #4, th
     const unmarked = proc.stdout
       .split(/^(?=@@ )/m)
       .filter((h) => h.startsWith("@@ "))
-      .filter((h) => !h.split("\n").some((l) => l.startsWith("+") && /Amended by AC-STE-658\.7\b/.test(l)))
+      // Amended by AC-STE-745.1 (M_d1e7b1): the NFR-1 358 -> 362 raise is admitted by its own marker too.
+      .filter((h) => !h.split("\n").some((l) => l.startsWith("+") && /Amended by AC-STE-(?:658\.7|745\.1)\b/.test(l)))
       .map((h) => h.split("\n")[0]!);
     expect(unmarked, "the shape suite was edited outside AC-STE-658.7's amendments").toEqual([]);
   });
@@ -1400,7 +1401,7 @@ describe("AC-STE-589.12 — docs/ship-milestone-reference.md and docs/layout-ref
 // ===========================================================================
 
 describe("AC-STE-589.13 — skills/ship-milestone/SKILL.md measures at most 358 split-lines", () => {
-  test("split-line count ≤ 358", () => {
-    expect(readLf(SKILL).split("\n").length).toBeLessThanOrEqual(358);
+  test("split-line count ≤ 362", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(readLf(SKILL).split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });

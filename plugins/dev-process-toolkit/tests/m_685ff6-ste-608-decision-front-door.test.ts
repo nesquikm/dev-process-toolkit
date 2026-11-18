@@ -446,11 +446,22 @@ describe("AC-STE-608.12 — the front door makes resolve_milestone_identity.ts r
     expect(gradePinLedger(ORDERED_UNREACHABLE_PIN_LEDGER)).toEqual({ ok: true, refusals: [] });
   });
 
-  test("(control) no capability key is added: closing_summary_capability_keys.ts is byte-unchanged from the branch base", () => {
-    const rel = "plugins/dev-process-toolkit/adapters/_shared/src/closing_summary_capability_keys.ts";
-    const base = execFileSync("git", ["-C", REPO_ROOT, "merge-base", "HEAD", "main"]).toString().trim();
-    const atBase = execFileSync("git", ["-C", REPO_ROOT, "show", `${base}:${rel}`]);
-    expect(Buffer.compare(readFileSync(join(REPO_ROOT, rel)), atBase)).toBe(0);
+  // Amended by AC-STE-752.3 (M_d1e7b1): this control read "byte-unchanged from
+  // the branch base", so it went red on every later branch that registers a key
+  // and green again after merge. It is scoped to M_685ff6's own range now: the
+  // v2.87.0 release (b1211eab) to the v2.88.0 release (ef568b44).
+  const KEYS_REL = "plugins/dev-process-toolkit/adapters/_shared/src/closing_summary_capability_keys.ts";
+  const keysUnchanged = (from: string, to: string): boolean =>
+    Buffer.compare(
+      execFileSync("git", ["-C", REPO_ROOT, "show", `${from}:${KEYS_REL}`]),
+      execFileSync("git", ["-C", REPO_ROOT, "show", `${to}:${KEYS_REL}`]),
+    ) === 0;
+  test("(control) no capability key is added: closing_summary_capability_keys.ts is byte-unchanged across M_685ff6's own release range", () => {
+    expect(keysUnchanged("b1211eab", "ef568b44")).toBe(true);
+  });
+
+  test("CONTROL: the scoped check still fails on a range that registers a key (M_0c14d0's 5c8e7d34)", () => {
+    expect(keysUnchanged("5c8e7d34^", "5c8e7d34")).toBe(false);
   });
 });
 

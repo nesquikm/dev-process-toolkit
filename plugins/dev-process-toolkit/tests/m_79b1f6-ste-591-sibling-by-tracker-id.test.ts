@@ -28,6 +28,8 @@
 // Every fixture is a REAL temp root torn down in a `finally`; nothing is
 // written under the plugin tree.
 
+import { undoGateCheckM_d1e7b1 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1)
+import { carriesLiveAmendment, hunkIsLiveAmendment, liveAcIds } from "./_amendment_marker";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -220,7 +222,11 @@ function isLoadBudgetHunk(hunk: string): boolean {
 function expectUneditedBeyondMarked(path: string, ref: string, marker: RegExp): void {
   const proc = spawnSync("git", ["diff", "-U0", ref, "--", path], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(proc.status, proc.stderr).toBe(0);
-  const hunks = proc.stdout.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ ") && !isLoadBudgetHunk(h)).join("");
+  // Amended by AC-STE-752.1 (M_d1e7b1): a hunk carrying a marker that names a LIVE AC id is
+  // admitted too (`carriesLiveAmendment`); a bare or dangling marker still reads as an edit.
+  const live = liveAcIds(join(PLUGIN_ROOT, "..", ".."));
+  const liveHunk = (h: string): boolean => hunkIsLiveAmendment(h, live);
+  const hunks = proc.stdout.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ ") && !isLoadBudgetHunk(h) && !liveHunk(h)).join("");
   expect(unmarkedHunks(hunks, marker), `${path} has unmarked edits against ${ref}`).toEqual([]);
   const tracked = spawnSync("git", ["cat-file", "-e", `${ref}:./${path}`], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
   expect(tracked.status, `${path} is not tracked on ${ref}`).toBe(0);
@@ -313,7 +319,7 @@ describe("AC-STE-591.1 — skills/gate-check/SKILL.md probe #23 row states the s
       "23. **`traceability-link-validity`** — call `runTraceabilityLinkValidityProbe(projectRoot)` from `adapters/_shared/src/traceability_link_validity.ts`.",
     );
     const lines = readLf(GATE_SKILL).split("\n");
-    expect(lines[77], "probe #23's row moved off line 78").toStartWith("23. **");
+    expect(lines[78], "probe #23's row moved off line 79").toStartWith("23. **"); // Amended by AC-STE-825.3 (M_d1e7b1): line 78 -> 79
   });
 });
 
@@ -665,7 +671,7 @@ describe("AC-STE-591.8 — module reachability holds its pin, and neither module
 describe("structural — gate-check's probe rows stay where the pins expect them", () => {
   test("probe #26's row is on line 81, and `26. ` marks exactly one line", () => {
     const lines = readLf(GATE_SKILL).split("\n");
-    expect(lines[80], "probe #26's row moved off line 81").toMatch(/^26\. /);
+    expect(lines[81], "probe #26's row moved off line 82").toMatch(/^26\. /); // Amended by AC-STE-825.3 (M_d1e7b1): line 81 -> 82
     // Control: the marker is unique, so line 81 is not matched by accident.
     expect(lines.filter((l) => /^26\. /.test(l)).length).toBe(1);
   });
@@ -697,12 +703,20 @@ describe("structural — gate-check's probe rows stay where the pins expect them
       added,
       `gate-check SKILL.md must be edited IN PLACE this milestone (every row edit replaces its line): ` +
         `numstat against main is +${added} -${deleted}. A row was added or removed, or a line split.`,
-    ).toBe(deleted!);
+    ).toBe(deleted! + ste825RowAdded()); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row is the one admitted added line
   });
 
   // Amended by AC-STE-685.3: admits STE-685's marked runner migration; an unmarked hunk still goes red.
   test("tests/m120-ste-444-jira-binding-prose.test.ts is unedited against main beyond STE-685's marked amendments", () => {
     expectUneditedBeyondMarked("tests/m120-ste-444-jira-binding-prose.test.ts", "main", STE685_MARKER);
+  });
+
+  // Amended by AC-STE-752.1 (M_d1e7b1): the live-AC admission names a written AC or admits nothing.
+  test("MUTATION: a live-AC marker admits a hunk, a dangling or bare one does not", () => {
+    const live = liveAcIds(join(PLUGIN_ROOT, "..", ".."));
+    expect(carriesLiveAmendment("+x // Amended by AC-STE-752.1 (M_d1e7b1)", live)).toBe(true);
+    expect(carriesLiveAmendment("+x // Amended by AC-STE-99999.1", live)).toBe(false);
+    expect(carriesLiveAmendment("+x // Amended by", live)).toBe(false);
   });
 
   // Amended by AC-STE-685.3: the admission stays falsifiable on a synthetic diff, so it holds after merge too.
@@ -798,3 +812,9 @@ describe("Stage C hardening — /pr's refusal path, its plan path, and a remedy 
     expect(probeRow(27)).toMatch(/\bclears?\b[^.\n]{0,120}\bown plan\b|\bown plan\b[^.\n]{0,120}\bclears?\b/i);
   });
 });
+
+/** Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1): the lines M_d1e7b1's exact admissions add (STE-825's row, STE-756's block), 0 when none is in place. */
+function ste825RowAdded(): number {
+  const now = readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+  return now.split("\n").length - undoGateCheckM_d1e7b1(now).split("\n").length;
+}

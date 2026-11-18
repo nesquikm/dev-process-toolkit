@@ -10,6 +10,8 @@
 // and nothing committed.
 
 import { $ } from "bun";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 
 import { LocalProvider } from "./local_provider";
 
@@ -29,6 +31,17 @@ async function headSha(root: string): Promise<string> {
 // `..` segment, no leading `-`, nothing empty.
 function isSafeLockId(id: string): boolean {
   return /^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(id) && id !== "." && id !== "..";
+}
+
+/** The ids held in `<projectRoot>/.dpt/locks/` (STE-825); [] when the store is absent. */
+export function readLockIds(projectRoot: string): string[] {
+  try {
+    return readdirSync(join(projectRoot, ".dpt", "locks"), { withFileTypes: true })
+      .filter((e) => e.isFile() && isSafeLockId(e.name))
+      .map((e) => e.name);
+  } catch {
+    return [];
+  }
 }
 
 async function main(argv: string[]): Promise<void> {

@@ -466,8 +466,8 @@ describe("AC-STE-544.6 — the mapping clause on both prose surfaces", () => {
     expect(clause).not.toMatch(/\b(STE|AC-STE)-\d+(?:\.\d+)?\b/);
   });
 
-  test("skills/ship-milestone/SKILL.md stays within the NFR-1 line cap (358)", () => {
-    expect(read(SHIP_SKILL).split("\n").length).toBeLessThanOrEqual(358);
+  test("skills/ship-milestone/SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(read(SHIP_SKILL).split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });
 

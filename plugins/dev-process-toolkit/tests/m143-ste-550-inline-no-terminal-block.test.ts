@@ -516,7 +516,7 @@ const BASELINE_LINES: Readonly<Record<string, number>> = {
   brainstorm: 139,
   deps: 356,
   "gate-check": 354,
-  implement: 358,
+  implement: 362, // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   "report-issue": 205,
   setup: 358,
   "spec-archive": 193,
@@ -540,7 +540,7 @@ describe("AC-STE-550.8 — every edited SKILL.md stays inside its line cap", () 
     const nfr1 = read(join(import.meta.dir, "skill-nfr-1-length.test.ts"));
     const m = /SKILL_LINE_CAP\s*=\s*(\d+)/.exec(nfr1);
     expect(m).not.toBeNull();
-    expect(Number(m![1])).toBe(358);
+    expect(Number(m![1])).toBe(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 
   test("`split(\"\\n\")` is the measurement, and it is not `wc -l`", () => {
@@ -556,8 +556,8 @@ describe("AC-STE-550.8 — every edited SKILL.md stays inside its line cap", () 
   });
 
   for (const stage of ADOPTING_STAGES) {
-    test(`${stage}/SKILL.md is within the 358-line cap`, () => {
-      expect(lineCount(read(skillPath(stage)))).toBeLessThanOrEqual(358);
+    test(`${stage}/SKILL.md is within the 362-line cap`, () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+      expect(lineCount(read(skillPath(stage)))).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     });
   }
 
@@ -576,7 +576,7 @@ describe("AC-STE-550.8 — every edited SKILL.md stays inside its line cap", () 
     // read the post-edit number could not tell "unchanged" from "was already
     // over"; this pins that the recorded baseline is the cap itself, which is
     // what makes the net-zero assertion above meaningful rather than slack.
-    for (const stage of NO_HEADROOM) expect(BASELINE_LINES[stage]).toBe(358);
+    for (const stage of NO_HEADROOM) expect(BASELINE_LINES[stage]).toBe(stage === "implement" ? 362 : 358); // Amended by AC-STE-745.1 (M_d1e7b1): implement re-baselined at the raised cap.
     expect(BASELINE_LINES["gate-check"]).toBe(354);
     expect(BASELINE_LINES["deps"]).toBe(356);
   });

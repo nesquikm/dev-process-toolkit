@@ -320,14 +320,14 @@ describe("AC-STE-392.7 — the reference gains the assisted-entry walkthrough", 
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-392.8 — no meta-test regresses on the surfaces this FR edits", () => {
-  test("skills/upgrade/SKILL.md stays within the NFR-1 line cap (358)", () => {
+  test("skills/upgrade/SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // NFR-1 is 358 — `specs/requirements.md` and the one
     // `const SKILL_LINE_CAP = 358;` in `tests/skill-nfr-1-length.test.ts`.
     // This pin carried 354 while CALLING it the NFR-1 cap: 354 is a superseded
     // historical value (351 -> 352 under STE-373 -> 354 under STE-374 -> 358),
     // so the pin was four lines tighter than the shipped contract and would
     // have redded a change the NFR permits. Repointed by M_8f8e25/STE-558.
-    const SKILL_LINE_CAP = 358;
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(readSkill().split("\n").length).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 

@@ -593,8 +593,8 @@ describe("AC-STE-507.1 — /setup offers `run_cmd` on the scaffold/adopt step, s
     expect(hits.length).toBeGreaterThan(0);
   });
 
-  test("skills/setup/SKILL.md stays within the NFR-1 line cap (358)", () => {
-    expect(setupSkill.split("\n").length).toBeLessThanOrEqual(358);
+  test("skills/setup/SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(setupSkill.split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 
   test("no `STE-`/`AC-STE-` token was introduced into the 8c section (ceiling is at 246/246)", () => {
@@ -752,8 +752,8 @@ describe("audit leg 2 — /upgrade points a still-red operator at the gate probe
     expect(hits.length).toBeGreaterThan(0);
   });
 
-  test("skills/upgrade/SKILL.md stays within the NFR-1 line cap (358)", () => {
-    expect(upgradeSkill.split("\n").length).toBeLessThanOrEqual(358);
+  test("skills/upgrade/SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(upgradeSkill.split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 
   // The STE-token ceiling is at 246/246 — zero headroom. This file carries

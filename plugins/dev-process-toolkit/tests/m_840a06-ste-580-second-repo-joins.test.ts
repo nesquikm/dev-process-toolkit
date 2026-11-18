@@ -52,8 +52,8 @@ const ATTACH_HELPER = join(pluginRoot, ATTACH_HELPER_REL);
 const read = (p: string) => readFileSync(p, "utf-8");
 
 /** Measured at HEAD: `wc -l` + 1 on the split. The append must not move it. */
-const SPLIT_LINES_AT_HEAD = 358;
-/** Measured at HEAD: `body.split("\n")[176].length`. The append only grows it. */
+const SPLIT_LINES_AT_HEAD = 338; // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
+/** Measured at HEAD: `body.split("\n")[154].length`. The append only grows it. */ // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
 const LINE_177_LEN_AT_HEAD = 9675;
 /** Measured at HEAD: sixteen `<dir>/<file>.ts` paths on line 177. Re-measured by AC-STE-608.11: eighteen, the two decision front door commands naming a module that now carries a front door. */
 const MODULE_PATHS_ON_LINE_177_AT_HEAD = 18;
@@ -67,7 +67,7 @@ function splitLines(): string[] {
 }
 
 function line177(): string {
-  const line = splitLines()[176];
+  const line = splitLines()[154]; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   expect(line, "line 177 must exist — the allocation guard lives there").toBeString();
   return line as string;
 }
@@ -144,9 +144,9 @@ describe("AC-STE-580.1 — exactly one repo mints, every other derives", () => {
 
   test("line 177 is still ONE line — its two neighbours are still blank", () => {
     const lines = splitLines();
-    expect(lines[175], "line 176 is the blank separating the guard from what precedes it").toBe("");
+    expect(lines[153], "line 176 is the blank separating the guard from what precedes it").toBe(""); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
     expect(
-      lines[177],
+      lines[155], // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
       "line 178 is the blank after the guard; a wrapped clause would push prose here",
     ).toBe("");
     expect(line177()).not.toContain("\n");
@@ -260,7 +260,7 @@ describe("AC-STE-580.3 — no module path, no new STE token, no raised pin", () 
   test("the milestone-attachment paragraph is still at line 111", () => {
     const lines = splitLines();
     expect(
-      lines[110],
+      lines[88], // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
       "line 177 sits BELOW the attachment paragraph, so an append cannot move it — " +
         "asserted anyway, because a reflow would",
     ).toContain("**Milestone attachment");

@@ -288,7 +288,10 @@ function shapes(): Shape[] {
     },
     {
       name: "FORBID — chained after `cd … &&`, where a second command can print anything",
-      gate: () => `cd /tmp && bun run ${FRONT_DOOR} gate-check ${BE}`,
+      // Amended by AC-STE-791.1 (M_d1e7b1): the bare `cd <dir> && bun run <front door> …` is now admitted
+      // (pinned in tests/m_d1e7b1-ste-791-cd-receipt-and-spec-deletions.test.ts); a command that can print
+      // anything between the cd and the receipt call is still refused, which is what this row guards.
+      gate: () => `cd /tmp && echo dpt-receipt: && bun run ${FRONT_DOOR} gate-check ${BE}`, // Amended by AC-STE-791.1 (M_d1e7b1)
       sibling: () => `cd /tmp && bun run ${SIBLING_MODULE} decide ${BE}`,
       announces: false,
     },

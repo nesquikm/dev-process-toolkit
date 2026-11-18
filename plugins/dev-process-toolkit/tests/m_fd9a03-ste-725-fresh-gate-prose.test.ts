@@ -200,7 +200,7 @@ describe("AC-STE-725.4 the fresh-gate lines name the proven-reuse exception", ()
 
   test("AC-STE-725.4 /implement stays at 358 split-lines, adds no STE-<n> token and names gate_reuse.ts only beside `reuse: on`", () => {
     const body = now(IMPLEMENT);
-    expect(body.split("\n").length).toBe(358);
+    expect(body.split("\n").length).toBe(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
     expect(steTokens(body)).toBe(steTokens(trunk(IMPLEMENT)));
     expect(unkeyedReuseMentions(body)).toEqual([]);
   });

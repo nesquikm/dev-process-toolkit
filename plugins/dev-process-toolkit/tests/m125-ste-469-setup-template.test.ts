@@ -63,7 +63,7 @@ const REFUSAL_MARKER = "<dpt:requires-input-refused>v1</dpt:requires-input-refus
 
 // AC-STE-469.6's NFR-1 measure: setup ≤358 INCLUDING the flag line, and the
 // child under the same canonical cap.
-const SKILL_LINE_CAP = 358;
+const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
 
 function mustRead(path: string): string {
   expect({ path, exists: existsSync(path) }).toEqual({ path, exists: true });

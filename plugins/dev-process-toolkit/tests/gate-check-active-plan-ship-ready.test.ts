@@ -49,7 +49,7 @@ const repoRoot = join(pluginRoot, "..", "..");
 const NOTE_SUFFIX = " — run /spec-archive M<N> then /ship-milestone M<N>";
 const OFFER_PROMPT = "Milestone M<N> is ship-ready — run the close ceremony now? [y/N]";
 const DECLINE_LINE = "Run: /spec-archive M<N> then /ship-milestone M<N>";
-const SKILL_LINE_CAP = 358; // NFR-1, mirrors tests/skill-nfr-1-length.test.ts
+const SKILL_LINE_CAP = 362; // NFR-1, mirrors tests/skill-nfr-1-length.test.ts // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

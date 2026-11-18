@@ -728,7 +728,7 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
 
   test("spec-write/SKILL.md: 358 split-lines, 54 STE tokens", () => {
     const body = read(SPEC_WRITE);
-    expect(body.split("\n").length).toBe(358);
+    expect(body.split("\n").length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
     expect(steTokens(body)).toBe(54);
   });
 
@@ -772,9 +772,9 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
 
   test("gate-check/SKILL.md: 356 split-lines, 87 STE tokens, row 49 on line 128 runs the front door and lists the new rows", () => {
     const body = read(GATE_CHECK);
-    expect(body.split("\n").length).toBe(356);
+    expect(body.split("\n").length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     expect(steTokens(body)).toBe(87);
-    const line = body.split("\n")[127] ?? "";
+    const line = body.split("\n")[128] ?? ""; // Amended by AC-STE-825.3 (M_d1e7b1): row 49 now on line 129
     expect(line.startsWith("49. ")).toBe(true);
     expect(line).toMatch(/bun run [^\n`]*adapters\/_shared\/src\/tracker_local_reconciliation_drift\.ts/);
     for (const kind of [
@@ -802,7 +802,7 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
   });
 
   test("the canonical capability-key set stays at 47", () => {
-    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(47);
+    expect(CANONICAL_CAPABILITY_KEYS.length).toBe(49); // Amended by AC-STE-835.2 (M_d1e7b1): spec_research_skipped_no_tech and implement_spec_conflict_escalated registered, 47 -> 49.
   });
 
   test("reachability: row 49's two references are reachable; the new pin is one prepended ledger entry naming STE-605 (no raise)", async () => {
@@ -821,7 +821,7 @@ describe("AC-STE-605.11 — surfaces and budgets", () => {
     expect(typeof report.orderedUnreachable).toBe("number");
     expect(report.orderedUnreachable).toBe(head.value);
     const row49 = report.records.filter(
-      (r) => r.surface.endsWith("skills/gate-check/SKILL.md") && r.line === 128,
+      (r) => r.surface.endsWith("skills/gate-check/SKILL.md") && r.line === 129, // Amended by AC-STE-825.3 (M_d1e7b1): row 49 now on line 129
     );
     expect(row49.map((r) => r.module)).toContain("adapters/_shared/src/tracker_local_reconciliation_drift.ts");
     for (const r of row49) expect(r.reachable, `${r.module} on row 49 is unreachable`).toBe(true);

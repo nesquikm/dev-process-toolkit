@@ -40,6 +40,7 @@
 //   AC.5 and the adapter half of AC.6 — line and token budgets, the
 //   reachability probe, and the STE-580 suite run in a child `bun test`.
 
+import { carriesLiveAmendment, liveAcIds } from "./_amendment_marker";
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import { readFileSync } from "node:fs";
@@ -66,7 +67,7 @@ const STE_580_SUITE_REL = "tests/m_840a06-ste-580-second-repo-joins.test.ts";
 const STE_580_SUITE = join(pluginRoot, STE_580_SUITE_REL);
 
 /** Measured: `body.split("\n").length`. The rewrite is in place. */
-const SPLIT_LINES = 358;
+const SPLIT_LINES = 338; // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
 /** Measured: sixteen `<dir>/<file>.ts` paths on line 177; re-measured by AC-STE-608.11 at eighteen (its two decision front door commands). */
 const MODULE_PATHS_ON_LINE_177 = 18;
 /** Measured: STE tokens in the file, and across skills/**\/*.md. */
@@ -110,7 +111,7 @@ function splitLines(): string[] {
 }
 
 function line177(): string {
-  const line = splitLines()[176];
+  const line = splitLines()[154]; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   expect(line, "line 177 must exist, since it holds the allocation guard").toBeString();
   return line as string;
 }
@@ -555,8 +556,8 @@ describe("AC-STE-592.3 — an in-place rewrite of one line (STRUCTURAL)", () => 
 
   test("line 177 is one line with blank neighbours, and it is the allocation guard", () => {
     const lines = splitLines();
-    expect(lines[175], "line 176 is blank").toBe("");
-    expect(lines[177], "line 178 is blank; a wrapped rewrite would push prose here").toBe("");
+    expect(lines[153], "line 176 is blank").toBe(""); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+    expect(lines[155], "line 178 is blank; a wrapped rewrite would push prose here").toBe(""); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
     expect(line177().length, "line 177 carries the guard, not a blank").toBeGreaterThan(0);
     expect(line177(), "subject control: this is the line holding the Jira branch").toContain(
       JIRA_BRANCH_START,
@@ -564,7 +565,7 @@ describe("AC-STE-592.3 — an in-place rewrite of one line (STRUCTURAL)", () => 
   });
 
   test("the milestone-attachment paragraph stays on line 111", () => {
-    expect(splitLines()[110]?.startsWith(LINE_111_PREFIX)).toBe(true);
+    expect(splitLines()[88]?.startsWith(LINE_111_PREFIX)).toBe(true); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 });
 
@@ -654,19 +655,43 @@ describe("AC-STE-592.5 — the STE-580 suite stays green, its constants unedited
       "      `${ATTACH_HELPER_REL} carries 7 \\`listEpics\\` lines at HEAD — if this is not 7, the ` +",
       "    ).toBe(7);",
     ];
+    // Amended by AC-STE-752.1 (M_d1e7b1): spec-write's reference shapes moved
+    // to docs/spec-write-reference.md, so every pinned index and the split-line
+    // count moved. A removed line is also admitted when an added line is that
+    // line re-pinned (`movedPin`) AND carries a marker naming a live AC id.
+    const live = liveAcIds(repoRoot);
+    const movedPin = (l: string): string =>
+      l
+        .replace(/\[(175|176|177|110)\]/g, (_m, n: string) => `[${({ "175": 153, "176": 154, "177": 155, "110": 88 } as Record<string, number>)[n]}]`)
+        .replace(/= 358;/, "= 338;");
+    // Exact: the added line is the removed line re-pinned (it must actually move an
+    // index or the count) plus one trailing live-AC marker comment, nothing else.
+    // Each marked added line answers for exactly one removal (consumed on match).
+    const unclaimed = [...added];
+    const reasonedMove = (l: string): boolean => {
+      const moved = movedPin(l);
+      if (moved === l) return false;
+      const at = unclaimed.findIndex((a) => a.startsWith(moved) && /^ \/\/ Amended by AC-[A-Z0-9-]+\.[0-9]+\b[^\n]*$/.test(a.slice(moved.length)) && carriesLiveAmendment(a, live));
+      if (at < 0) return false;
+      unclaimed.splice(at, 1);
+      return true;
+    };
     for (const l of removed) {
+      if (reasonedMove(l)) continue;
       expect([...RETIRED_TEST, ...REMEASURED], `an unexpected removal: ${JSON.stringify(l)}`).toContain(l);
     }
     expect(added.join("\n")).toContain("Amended by AC-STE-608.11");
     expect(
-      added.filter((l) => /const [A-Z0-9_]+ = /.test(l)),
-      "no constant is added or rewritten, except the re-measured path count",
+      added.filter((l) => /const [A-Z0-9_]+ = /.test(l) && !carriesLiveAmendment(l, live)),
+      "no constant is added or rewritten, except the re-measured path count and live-AC amendments",
     ).toEqual(["const MODULE_PATHS_ON_LINE_177_AT_HEAD = 18;"]);
   });
 
   test("the suite's constants are still the ones it shipped with", () => {
     const body = read(STE_580_SUITE);
-    expect(body).toContain("const SPLIT_LINES_AT_HEAD = 358;");
+    // Amended by AC-STE-752.1 (M_d1e7b1): 358 -> 337, reference shapes moved out.
+    // Amended by AC-STE-835.2 (M_d1e7b1): 337 -> 338, the STE-835 § 7 row.
+    expect(body).toContain("const SPLIT_LINES_AT_HEAD = 338;");
     expect(body).toContain("const LINE_177_LEN_AT_HEAD = 9675;");
     expect(body).toContain("const MODULE_PATHS_ON_LINE_177_AT_HEAD = 18;");
     expect(body).toContain(`const HEAD_TAIL = "${STE_580_TAIL}";`);

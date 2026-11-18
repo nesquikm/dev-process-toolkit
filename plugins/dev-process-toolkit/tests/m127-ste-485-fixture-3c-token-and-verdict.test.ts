@@ -138,7 +138,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { scoreCapabilityKey } from "../adapters/_shared/src/capability_row_assert";
+import { runnerToolResultText, scoreCapabilityKey } from "../adapters/_shared/src/capability_row_assert"; // Amended by AC-STE-756.8 (M_d1e7b1)
+import { GATE_PROBES } from "../adapters/_shared/src/gate_probe_runner"; // Amended by AC-STE-756.8 (M_d1e7b1)
+import { PROBE_VERDICTS, parseProbeRows } from "../adapters/_shared/src/gate_probe_rows"; // Amended by AC-STE-756.8 (M_d1e7b1)
 import {
   ASSERTION_LAYERS,
   assertedTokensIn,
@@ -154,6 +156,7 @@ import {
   checkRepairClauses,
   checkRepairEntry,
   extractAssertionShell,
+  FALSIFIABILITY_FIXTURE_DIR, // Amended by AC-STE-756.8 (M_d1e7b1)
   M127_REPAIRS,
   M127_REPAIR_ROSTER,
   probeCapturePathFor,
@@ -167,6 +170,23 @@ import {
   type RepairEntry,
 } from "../adapters/_shared/src/falsifiability_harness";
 import { extractAssistantText } from "../adapters/_shared/src/smoke_child_capture";
+
+// Amended by AC-STE-756.8 (M_d1e7b1)
+// Since STE-756 the verdict clause is `probe-row … 37 notes`. It reads the [Amended by AC-STE-756.8 (M_d1e7b1)]
+// RUNNER's #37 row from a Bash tool_result, so the genuine 2026-08-16 [Amended by AC-STE-756.8 (M_d1e7b1)]
+// captures (model prose only) can no longer satisfy it. These are the [Amended by AC-STE-756.8 (M_d1e7b1)]
+// committed runner-shaped captures it is scored against instead. [Amended by AC-STE-756.8 (M_d1e7b1)]
+const STE756_CAPTURES = join(import.meta.dir, "fixtures", "m_d1e7b1-ste-756"); // Amended by AC-STE-756.8 (M_d1e7b1)
+/** Runner row #37 is `notes`; the prose says NOTE, Warning, note #37, or no NOTES at all. */ // Amended by AC-STE-756.8 (M_d1e7b1)
+const RUNNER_NOTES_CAPTURES: readonly string[] = [ // Amended by AC-STE-756.8 (M_d1e7b1)
+  join(STE756_CAPTURES, "runner-37-notes-prose-NOTE.ndjson"), // Amended by AC-STE-756.8 (M_d1e7b1)
+  join(STE756_CAPTURES, "runner-37-notes-prose-Warning.ndjson"), // Amended by AC-STE-756.8 (M_d1e7b1)
+  join(STE756_CAPTURES, "runner-37-notes-prose-note37.ndjson"), // Amended by AC-STE-756.8 (M_d1e7b1)
+  join(FALSIFIABILITY_FIXTURE_DIR, "gate-check-ste222-runner-row-none.ndjson"), // Amended by AC-STE-756.8 (M_d1e7b1)
+]; // Amended by AC-STE-756.8 (M_d1e7b1)
+/** The runner row the clause reads, and the same row with probe #37 not firing. */ // Amended by AC-STE-756.8 (M_d1e7b1)
+const RUNNER_37_NOTES_ROW = "probe #37 cross-cutting-spec-stale-file-refs: notes (1)"; // Amended by AC-STE-756.8 (M_d1e7b1)
+const RUNNER_37_PASS_ROW = "probe #37 cross-cutting-spec-stale-file-refs: pass (0)"; // Amended by AC-STE-756.8 (M_d1e7b1)
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -273,6 +293,18 @@ function probeDidNotFire(leg: FalsifiabilityLeg): string {
     .join("CLEAN");
 }
 
+// Amended by AC-STE-756.8 (M_d1e7b1)
+// The runner-shaped twin of `probeDidNotFire`: the #37 row's verdict drops [Amended by AC-STE-756.8 (M_d1e7b1)]
+// from `notes` to `pass` and nothing else changes. The prose is left alone on [Amended by AC-STE-756.8 (M_d1e7b1)]
+// purpose, so a clause that still read the prose would stay green here. [Amended by AC-STE-756.8 (M_d1e7b1)]
+function runnerProbeDidNotFire(path: string): string { // Amended by AC-STE-756.8 (M_d1e7b1)
+  const raw = readFileSync(path, "utf8"); // Amended by AC-STE-756.8 (M_d1e7b1)
+  expect(raw).toContain(RUNNER_37_NOTES_ROW); // Amended by AC-STE-756.8 (M_d1e7b1)
+  const mutated = raw.split(RUNNER_37_NOTES_ROW).join(RUNNER_37_PASS_ROW); // Amended by AC-STE-756.8 (M_d1e7b1)
+  expect(mutated).not.toBe(raw); // Amended by AC-STE-756.8 (M_d1e7b1)
+  return mutated; // Amended by AC-STE-756.8 (M_d1e7b1)
+} // Amended by AC-STE-756.8 (M_d1e7b1)
+
 // ---------------------------------------------------------------------------
 // AC-STE-485.1 — the probe-identifier clause asserts the hyphenated spelling
 // the runtime emits, AND a capture from a genuine probe firing satisfies it.
@@ -360,22 +392,34 @@ describe("AC-STE-485.1 — the identifier clause names the hyphenated form and p
 // on linear only; `NOTES` on all three.
 // ---------------------------------------------------------------------------
 
-describe("AC-STE-485.2 — the verdict clause names GATE PASSED WITH NOTES and passes a real firing", () => {
-  test("the clause carries the phrase the AC names", () => {
+describe("AC-STE-485.2 — the verdict clause reads probe #37's runner row and passes a real firing", () => { // Amended by AC-STE-756.8 (M_d1e7b1)
+  test("the clause is probe-row on #37 with the notes verdict, and names no phrase", () => { // Amended by AC-STE-756.8 (M_d1e7b1)
     const shell = verdictShell();
-    expect(shell).toContain("GATE PASSED WITH NOTES");
+    expect(shell).toMatch(/\bprobe-row \/tmp\/dpt-smoke-<tracker>-ste222-probe\.log 37 notes$/); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(shell).not.toContain("GATE PASSED WITH NOTES"); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(shell).not.toMatch(/\bNOTES\b/); // Amended by AC-STE-756.8 (M_d1e7b1)
     expect(shell).toContain("CAP_ASSERT");
     expect(SKILL_BODY).toContain(shell);
     // A distinct span from the identifier clause — two clauses, not one.
     expect(shell).not.toBe(tokenShell());
   });
 
-  test("a genuine probe firing satisfies the verdict clause on EVERY leg", () => {
+  test("a runner row #37 `notes` satisfies the verdict clause, whatever the prose says", () => { // Amended by AC-STE-756.8 (M_d1e7b1)
     const shell = verdictShell();
-    for (const leg of LEGS) {
-      expect(runAssertion(bindCapture(shell, probeCapturePathFor(leg))).exitCode).toBe(0);
+    for (const path of RUNNER_NOTES_CAPTURES) { // Amended by AC-STE-756.8 (M_d1e7b1)
+      expect(existsSync(path)).toBe(true); // Amended by AC-STE-756.8 (M_d1e7b1)
+      expect(runAssertion(bindCapture(shell, path)).exitCode).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
     }
   });
+
+  // Amended by AC-STE-756.8 (M_d1e7b1)
+  // The genuine 2026-08-16 firings predate the runner: they carry #37 only as [Amended by AC-STE-756.8 (M_d1e7b1)]
+  // model prose. probe-row does not read prose, so they no longer satisfy it. [Amended by AC-STE-756.8 (M_d1e7b1)]
+  test("the genuine 2026-08-16 firings (prose only, no runner row) do NOT satisfy it", () => { // Amended by AC-STE-756.8 (M_d1e7b1)
+    for (const leg of LEGS) { // Amended by AC-STE-756.8 (M_d1e7b1)
+      expect(runAssertion(bindCapture(verdictShell(), probeCapturePathFor(leg))).exitCode).toBe(1); // Amended by AC-STE-756.8 (M_d1e7b1)
+    } // Amended by AC-STE-756.8 (M_d1e7b1)
+  }); // Amended by AC-STE-756.8 (M_d1e7b1)
 
   test("neither `GATE PASSED WITH NOTES` nor `ADVISORY` is universal — measured", () => {
     for (const leg of LEGS) {
@@ -415,6 +459,7 @@ describe("AC-STE-485.2 — the verdict clause names GATE PASSED WITH NOTES and p
 
   test("the retired ADVISORY-only instruction is gone from the live clause", () => {
     expect(verdictShell()).not.toMatch(/\bpresent\b[^|]*\bADVISORY\b/);
+    expect(verdictShell()).not.toMatch(/ADVISORY|NOTES/); // Amended by AC-STE-756.8 (M_d1e7b1)
     // But the history stays written down — a silently deleted sentence leaves
     // the next reader free to re-derive it.
     expect(section3c()).toContain("ADVISORY");
@@ -526,11 +571,18 @@ describe("AC-STE-485.4 — falsifiability through the harness, both clauses", ()
     for (const leg of LEGS) {
       const path = tempCapture(`no-probe37-${leg}.ndjson`, probeDidNotFire(leg));
       expect(runAssertion(bindCapture(token, path)).exitCode).not.toBe(0);
-      expect(runAssertion(bindCapture(verdict, path)).exitCode).not.toBe(0);
-      // …while both are green on the untouched capture, same bytes, same moment.
+      // …while green on the untouched capture, same bytes, same moment. // Amended by AC-STE-756.8 (M_d1e7b1)
       expect(runAssertion(bindCapture(token, probeCapturePathFor(leg))).exitCode).toBe(0);
-      expect(runAssertion(bindCapture(verdict, probeCapturePathFor(leg))).exitCode).toBe(0);
     }
+    // Amended by AC-STE-756.8 (M_d1e7b1): the verdict clause reads the runner row, so "did not fire" is that row going `pass`.
+    RUNNER_NOTES_CAPTURES.forEach((own, i) => { // Amended by AC-STE-756.8 (M_d1e7b1)
+      const path = tempCapture(`no-probe37-runner-${i}.ndjson`, runnerProbeDidNotFire(own)); // Amended by AC-STE-756.8 (M_d1e7b1)
+      expect(runAssertion(bindCapture(verdict, path)).exitCode).toBe(1); // Amended by AC-STE-756.8 (M_d1e7b1)
+      expect(runAssertion(bindCapture(verdict, own)).exitCode).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    }); // Amended by AC-STE-756.8 (M_d1e7b1)
+    // A committed capture whose runner row is `pass` while the prose says NOTES is red too. // Amended by AC-STE-756.8 (M_d1e7b1)
+    const passNotes = join(STE756_CAPTURES, "runner-37-pass-prose-NOTES.ndjson"); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runAssertion(bindCapture(verdict, passNotes)).exitCode).toBe(1); // Amended by AC-STE-756.8 (M_d1e7b1)
   });
 
   test("exit-code scoring is what makes a CAP_ASSERT clause scorable at all", () => {
@@ -657,20 +709,44 @@ describe("AC-STE-485.5 — asserted tokens are checked against their emitting so
     expect(tokens).toContain(HYPHENATED);
     expect(tokens).not.toContain("any-of");
     expect(tokens.some((t) => t.includes("/tmp/dpt-smoke"))).toBe(false);
-    expect(assertedTokensIn(verdictShell())).toContain("GATE PASSED WITH NOTES");
+    // Amended by AC-STE-756.8 (M_d1e7b1): a probe-row clause carries no capability token. assertedTokensIn
+    // knows only present/absent/any-of, so it lifts nothing from it — said here [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // explicitly, and the verdict clause's arguments are checked structurally [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // in the next test instead. [Amended by AC-STE-756.8 (M_d1e7b1)]
+    expect(assertedTokensIn(verdictShell())).toEqual([]); // Amended by AC-STE-756.8 (M_d1e7b1)
   });
 
   test("every token fixture 3c asserts is emitted at the capture layer", () => {
     // The recurrence guard, closed end to end: extract the live clauses → lift
     // their asserted tokens → resolve each against the shipped emitting sources.
     const sources = defaultTokenSources(REPO_ROOT);
-    const tokens = [...assertedTokensIn(tokenShell()), ...assertedTokensIn(verdictShell())];
-    expect(tokens.length).toBeGreaterThanOrEqual(3);
+    const tokens = [...assertedTokensIn(tokenShell())]; // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(tokens.length).toBeGreaterThanOrEqual(2); // Amended by AC-STE-756.8 (M_d1e7b1)
     for (const token of tokens) {
       const evidence = checkAssertedToken({ token, layer: "capture" }, sources);
       expect(evidence.emitted).toBe(true);
       expect(evidence.emittingSources.length).toBeGreaterThan(0);
     }
+
+    // Amended by AC-STE-756.8 (M_d1e7b1)
+    // The verdict clause carries no capability token, so there is nothing for [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // countTokenEmissions to resolve. Its arguments are a probe number and a [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // verdict. The structural equivalent of "emitted at the capture layer" is: [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // #37 is a probe the runner calls, every verdict is in the row grammar, [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // and a committed runner capture really carries a parsed #37 row with it. [Amended by AC-STE-756.8 (M_d1e7b1)]
+    const words = verdictShell().trim().split(/\s+/); // Amended by AC-STE-756.8 (M_d1e7b1)
+    const at = words.indexOf("probe-row"); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(at).toBeGreaterThan(-1); // Amended by AC-STE-756.8 (M_d1e7b1)
+    const n = Number(words[at + 2]); // Amended by AC-STE-756.8 (M_d1e7b1)
+    const verdicts = words.slice(at + 3); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(n).toBe(37); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(GATE_PROBES.some((p) => p.n === n)).toBe(true); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(verdicts.length).toBeGreaterThan(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    for (const v of verdicts) expect((PROBE_VERDICTS as readonly string[]).includes(v)).toBe(true); // Amended by AC-STE-756.8 (M_d1e7b1)
+    for (const path of RUNNER_NOTES_CAPTURES) { // Amended by AC-STE-756.8 (M_d1e7b1)
+      const rows = parseProbeRows(runnerToolResultText(readFileSync(path, "utf8"))).filter((r) => r.n === n); // Amended by AC-STE-756.8 (M_d1e7b1)
+      expect(rows.some((r) => verdicts.includes(r.verdict))).toBe(true); // Amended by AC-STE-756.8 (M_d1e7b1)
+    } // Amended by AC-STE-756.8 (M_d1e7b1)
   });
 
   test("the guard rejects a clause that asserts a filename-only token", () => {

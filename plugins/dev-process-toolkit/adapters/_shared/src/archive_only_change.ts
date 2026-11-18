@@ -5,8 +5,8 @@
 //   - a rename specs/plan/<p>.md  → specs/plan/archive/<p>.md
 //   - a modification of specs/requirements.md
 
-import { lstatSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { normalizeFrontmatterSource } from "./frontmatter";
 
@@ -427,24 +427,41 @@ function changedPaths(root: string, side: "staged" | "unstaged"): string[] | nul
   return raw === null ? null : raw.split("\0").filter((p) => p !== "");
 }
 
+/** AC-STE-791.5 — true when `rel` is in the checkout's index. A git failure reads as untracked. */
+function isTracked(root: string, rel: string): boolean {
+  const out = gitOut(root, ["ls-files", "-z", "--error-unmatch", "--", rel]);
+  return out !== null && out.split("\0").includes(rel);
+}
+
 /**
  * AC-STE-741.1 — true when `git add <paths>` then a plain commit would commit a
- * spec-only set: every path is an existing regular file inside the checkout
- * that satisfies `isSpecPath`, the staged set plus those paths is spec-only,
+ * spec-only set: every path is a regular file inside the checkout, or (AC-STE-791.5)
+ * a tracked path whose file was deleted, that satisfies `isSpecPath`; under
+ * `git rm` (`verb: "rm"`) every path must also be tracked, the staged set plus those paths is spec-only,
  * and every unstaged tracked change lies inside those paths. Untracked files
  * the add does not name are not committed and do not block. Rename detection
  * is off; a git failure reads as "not spec-only".
  */
-export function isSpecOnlyAfterAdding(root: string, dir: string, paths: readonly string[]): boolean {
+export function isSpecOnlyAfterAdding(
+  root: string,
+  dir: string,
+  paths: readonly string[],
+  verb: "add" | "rm" = "add",
+): boolean {
   let realRoot: string;
   const named = new Set<string>();
   try {
     realRoot = realpathSync(root);
     for (const p of paths) {
       const abs = resolve(dir, p);
-      if (!lstatSync(abs).isFile()) return false;
-      const rel = relative(realRoot, realpathSync(abs));
+      const onDisk = existsSync(abs);
+      if (onDisk && !lstatSync(abs).isFile()) return false;
+      // AC-STE-791.5 — a path whose file is gone is placed by its parent
+      // directory and counts only when git tracks it (a deletion to stage).
+      const real = onDisk ? realpathSync(abs) : join(realpathSync(dirname(abs)), basename(abs));
+      const rel = relative(realRoot, real);
       if (rel === "" || rel.startsWith("..") || isAbsolute(rel) || !isSpecPath(rel)) return false;
+      if ((!onDisk || verb === "rm") && !isTracked(realRoot, rel)) return false;
       named.add(rel);
     }
   } catch {

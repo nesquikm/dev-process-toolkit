@@ -560,7 +560,7 @@ const splitCount = (p: string): number => read(p).split("\n").length;
 describe("AC-STE-584.12 — prose lands in the executing copies with zero new lines", () => {
   test("implement SKILL.md still splits to 358 and its close-offer line names spans_repos", () => {
     const file = skillPath("implement");
-    expect(splitCount(file)).toBe(358);
+    expect(splitCount(file)).toBe(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
     const offerLines = read(file)
       .split("\n")
       .filter((l) => l.includes("adapters/_shared/src/active_plan_ship_ready.ts"));
@@ -570,7 +570,7 @@ describe("AC-STE-584.12 — prose lands in the executing copies with zero new li
 
   test("gate-check SKILL.md still splits to 356 and probe 75's row names spans_repos.ts, awaiting-sibling, sibling-unlocatable", () => {
     const file = skillPath("gate-check");
-    expect(splitCount(file)).toBe(356);
+    expect(splitCount(file)).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     const row = read(file)
       .split("\n")
       .find((l) => /^75\. \*\*/.test(l));

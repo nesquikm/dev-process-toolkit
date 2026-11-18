@@ -687,7 +687,7 @@ describe("AC-STE-542.8 — the layout contract admits `## External References`",
 // ---------------------------------------------------------------------------
 
 describe("STE-542 budget pins — the two zero-headroom caps this FR must not breach", () => {
-  const SKILL_LINE_CAP = 358; // tests/m116-ste-418-wiring.test.ts:774
+  const SKILL_LINE_CAP = 362; // tests/m116-ste-418-wiring.test.ts:774 // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   const SKILLS_STE_TOKEN_CEILING = 246; // tests/m116-ste-418-wiring.test.ts:775
 
   test(`skills/spec-write/SKILL.md stays within the NFR-1 line cap (${SKILL_LINE_CAP})`, () => {

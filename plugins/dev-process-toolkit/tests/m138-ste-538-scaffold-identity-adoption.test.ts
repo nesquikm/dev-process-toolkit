@@ -875,6 +875,6 @@ describe("STE-538 shipped prose — the guard describes adoption, and the three 
     expect(lines.filter((l) => l.startsWith("**Milestone-number allocation guard.**"))).toHaveLength(
       1,
     );
-    expect(lines.length).toBeLessThanOrEqual(358);
+    expect(lines.length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });

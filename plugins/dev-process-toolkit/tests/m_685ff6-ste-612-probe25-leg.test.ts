@@ -221,10 +221,10 @@ describe("AC-STE-612.8 — the leg reads only active FRs' Jira keys", () => {
 describe("AC-STE-612.8 — no probe id is added (no-regression pins)", () => {
   const skill = () => readFileSync(GATE_SKILL, "utf-8");
   test("(control) gate-check SKILL.md measures 356 split-lines", () => {
-    expect(skill().split("\n").length).toBe(356);
+    expect(skill().split("\n").length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
   });
   test("(control) row 25 sits on line 80", () => {
-    expect(skill().split("\n")[79]).toMatch(/^25\. \*\*`task-tracking-workspace-binding-present`\*\*/);
+    expect(skill().split("\n")[80]).toMatch(/* Amended by AC-STE-825.3 (M_d1e7b1): row 25 now on line 81 */ /^25\. \*\*`task-tracking-workspace-binding-present`\*\*/);
   });
   // Amended by AC-STE-659.3: probe count 85 -> 86.
   // Amended by AC-STE-673.6: probe count 86 -> 87.

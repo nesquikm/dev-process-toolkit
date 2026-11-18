@@ -447,6 +447,17 @@ export interface UnreachablePinMove {
  */
 export const ORDERED_UNREACHABLE_PIN_LEDGER: readonly UnreachablePinMove[] = [
   {
+    value: 54,
+    commit: "868007b",
+    rationale:
+      "STE-756: the gate probe runner `gate_probe_runner.ts` (which has a " +
+      "front door) statically imports every project-root probe module the " +
+      "gate-check registrations name, so those modules became reachable and the " +
+      "ordered references naming them stopped naming a module nothing " +
+      "runnable reaches. Measured by the awaited `runModuleReachabilityProbe` " +
+      "(115 -> 54), not carried from the FR.",
+  },
+  {
     value: 115,
     commit: "0e072c3",
     rationale:
@@ -987,7 +998,9 @@ export interface ClassifierFixture {
 }
 
 const ORDERED_REACHABLE = "adapters/_shared/src/deliver_decision.ts";
-const NEVER_REACHED = "adapters/_shared/src/auto_approve_marker.ts";
+// STE-756: auto_approve_marker became reachable through the gate probe runner; ac_lint (probe #7, called
+// with specsDir, so never in the runner) is the measured module nothing runnable reaches.
+const NEVER_REACHED = "adapters/_shared/src/ac_lint.ts";
 const DESCRIBED_REACHABLE = "adapters/_shared/src/gate_class.ts";
 
 export const CLASSIFIER_FIXTURES: readonly ClassifierFixture[] = [

@@ -309,6 +309,17 @@ const NEW_FIXTURES = {
   planStem: join(FALSIFIABILITY_FIXTURE_DIR, "gate-check-ste450-plan-stem-none.ndjson"),
 } as const;
 
+// Amended by AC-STE-756.8 (M_d1e7b1)
+// Since STE-756 the verdict clauses are `probe-row … 13 fail` and [Amended by AC-STE-756.8 (M_d1e7b1)]
+// `probe-row … 73 fail`. They read the RUNNER's own row from a Bash [Amended by AC-STE-756.8 (M_d1e7b1)]
+// tool_result, which the 2026-08-16 captures predate. These two runner-shaped [Amended by AC-STE-756.8 (M_d1e7b1)]
+// captures are what each verdict clause is scored against: 9a's carries [Amended by AC-STE-756.8 (M_d1e7b1)]
+// #13 fail / #73 pass, 9b's carries #13 pass / #73 fail. [Amended by AC-STE-756.8 (M_d1e7b1)]
+const RUNNER_FIXTURES = { // Amended by AC-STE-756.8 (M_d1e7b1)
+  trackerBlock: join(FALSIFIABILITY_FIXTURE_DIR, "gate-check-ste450-tracker-block-runner-none.ndjson"), // Amended by AC-STE-756.8 (M_d1e7b1)
+  planStem: join(FALSIFIABILITY_FIXTURE_DIR, "gate-check-ste450-plan-stem-runner-none.ndjson"), // Amended by AC-STE-756.8 (M_d1e7b1)
+} as const; // Amended by AC-STE-756.8 (M_d1e7b1)
+
 const read = (p: string): string => readFileSync(p, "utf8");
 const smokeSkill = (): string => read(SMOKE_SKILL_PATH);
 const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
@@ -631,13 +642,17 @@ describe("AC-STE-488.3 — 9a/9b measure the rendered surface, not the module's 
       .toBeGreaterThanOrEqual(2);
   });
 
-  test("9a asserts the rendered VERDICT, as its own any-of clause", () => {
+  test("9a asserts probe #13's runner VERDICT, as its own probe-row clause", () => { // Amended by AC-STE-756.8 (M_d1e7b1)
     const shell = shellAt({
       section: "Sub-fixture 9a",
-      select: 'ste450-tracker-block.log "GATE FAILED"',
+      select: "ste450-tracker-block.log 13 fail", // Amended by AC-STE-756.8 (M_d1e7b1)
     });
     expect(shell).toContain("CAP_ASSERT");
-    expect(shell).toContain("any-of");
+    expect(shell).toMatch(/\bprobe-row \/tmp\/dpt-smoke-<tracker>-ste450-tracker-block\.log 13 fail$/); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(shell).not.toMatch(/GATE FAILED|error-severity/); // Amended by AC-STE-756.8 (M_d1e7b1)
+    // Its OWN capture: green on 9a's runner capture, red on 9b's, where #13 passed. // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runShell(bind(shell, { "${CAP_ASSERT}": CAP_ASSERT, "/tmp/dpt-smoke-<tracker>-ste450-tracker-block.log": RUNNER_FIXTURES.trackerBlock }), REPO_ROOT).code).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runShell(bind(shell, { "${CAP_ASSERT}": CAP_ASSERT, "/tmp/dpt-smoke-<tracker>-ste450-tracker-block.log": RUNNER_FIXTURES.planStem }), REPO_ROOT).code).toBe(1); // Amended by AC-STE-756.8 (M_d1e7b1)
   });
 
   test("9b asserts the rendered probe identifier and verdict against its OWN capture", () => {
@@ -648,9 +663,15 @@ describe("AC-STE-488.3 — 9a/9b measure the rendered surface, not the module's 
     expect(id).toContain("any-of");
     const verdict = shellAt({
       section: "Sub-fixture 9b",
-      select: 'ste450-plan-stem.log "GATE FAILED"',
+      select: "ste450-plan-stem.log 73 fail", // Amended by AC-STE-756.8 (M_d1e7b1)
     });
-    expect(verdict).toContain("any-of");
+    expect(verdict).toMatch(/\bprobe-row \/tmp\/dpt-smoke-<tracker>-ste450-plan-stem\.log 73 fail$/); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(verdict).not.toMatch(/GATE FAILED|error-severity/); // Amended by AC-STE-756.8 (M_d1e7b1)
+    // Its OWN capture: green on 9b's runner capture, red on 9a's, where #73 passed. // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runShell(bind(verdict, { "${CAP_ASSERT}": CAP_ASSERT, "/tmp/dpt-smoke-<tracker>-ste450-plan-stem.log": RUNNER_FIXTURES.planStem }), REPO_ROOT).code).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runShell(bind(verdict, { "${CAP_ASSERT}": CAP_ASSERT, "/tmp/dpt-smoke-<tracker>-ste450-plan-stem.log": RUNNER_FIXTURES.trackerBlock }), REPO_ROOT).code).toBe(1); // Amended by AC-STE-756.8 (M_d1e7b1)
+    // And the 2026-08-16 prose capture, which says GATE FAILED but has no runner row, is red. // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runShell(bind(verdict, { "${CAP_ASSERT}": CAP_ASSERT, "/tmp/dpt-smoke-<tracker>-ste450-plan-stem.log": NEW_FIXTURES.planStem }), REPO_ROOT).code).toBe(1); // Amended by AC-STE-756.8 (M_d1e7b1)
   });
 
   test("each canonical sentence lives in exactly ONE module, and the section names it", () => {

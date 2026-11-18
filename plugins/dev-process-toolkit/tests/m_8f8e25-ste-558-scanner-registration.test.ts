@@ -504,8 +504,8 @@ describe("AC-STE-558.3 — both scanners are numbered registrations", () => {
     }
   });
 
-  test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
-    const SKILL_LINE_CAP = 358;
+  test("gate-check SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(read(GATE_CHECK_SKILL).split("\n").length).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 });
@@ -902,7 +902,8 @@ describe("AC-STE-558.7 — the pin moved at most once, and only downward", () =>
     // Amended by M_94e6f7/STE-706: the 119 -> 117 lowering names STE-706.
     // Amended by M_7bc805/STE-717: the 117 -> 116 lowering names STE-717.
     // Amended by M_d1b4b7/STE-719: the 116 -> 115 lowering names STE-719.
-    const LATER_MOVES = ["STE-602", "STE-603", "STE-605", "STE-612", "STE-677", "STE-706", "STE-717", "STE-719"];
+    // Amended by AC-STE-756.10 (M_d1e7b1): the 115 -> 54 lowering names STE-756.
+    const LATER_MOVES = ["STE-602", "STE-603", "STE-605", "STE-612", "STE-677", "STE-706", "STE-717", "STE-719", "STE-756"]; // Amended by AC-STE-756.10 (M_d1e7b1)
     const laterEntries = ORDERED_UNREACHABLE_PIN_LEDGER.filter((m) =>
       LATER_MOVES.some((fr) => m.rationale.includes(fr)),
     ).length;

@@ -46,6 +46,8 @@ The orchestrator runs in the **main context** (no `context: fork`) so it can par
    block.drift_count       // == drift_entries.length (sentinel `(none)` excluded)
    ```
 
+   **Re-check the tree before rendering.** Re-check each file-existence claim in the audit result (a file exists, is absent, or was deleted) against the tree with one Glob per claimed path. A contradicted claim is dropped from the traceability rows and findings before the report is rendered; a claim is contradicted when Glob finds a file the audit called absent or deleted, or finds nothing where it said a file exists. The report says so in one line: `dropped <N> file-existence claim(s) the tree contradicts: <path>, …`.
+
 4. **Render the user-facing report** — Emit, in this order:
 
    a. **Traceability map** — one line per AC, format `AC-X.Y → file:line, test-file:line` (or `(not found)` for `status: missing`):

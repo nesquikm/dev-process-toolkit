@@ -39,8 +39,13 @@
 //   bun capability_row_assert.ts <present|absent|any-of|…-token> <capture.log> <key…>
 // Exit codes: expectation met ⇒ 0, not met ⇒ 1, usage error ⇒ 2.
 
+import { resolve } from "node:path";
 import { REQUIRES_INPUT_REFUSED_MARKER } from "./requires_input";
 import { extractAssistantText } from "./smoke_child_capture";
+import { parseProbeRows, PROBE_VERDICTS as ROW_VERDICTS } from "./gate_probe_rows";
+import { GATE_PROBES } from "./gate_probe_runner";
+import { messageContentBlocks, parseStreamJsonEvents } from "./stream_json_events";
+import { bunInvocation, realpathOr } from "./shell_invocations";
 
 export { REQUIRES_INPUT_REFUSED_MARKER };
 
@@ -226,6 +231,137 @@ export function capabilityVerdict(
   };
 }
 
+// ---------------------------------------------------------------------------
+// STE-756 — `probe-row <capture> <N> <verdict…>`.
+//
+// A probe the runner calls (GATE_PROBES) is read ONLY from the tool_result of
+// a Bash call whose command runs the toolkit's gate_probe_runner.ts: a row the
+// model typed, or one another command printed, never counts. Every other
+// probe is read from the assistant-text projection. Both go through
+// parseProbeRows, so free prose never matches.
+// ---------------------------------------------------------------------------
+
+export const PROBE_VERDICTS: ReadonlySet<string> = new Set<string>(ROW_VERDICTS);
+
+const RUNNER_PROBES: ReadonlySet<number> = new Set(GATE_PROBES.map((e) => e.n));
+
+/**
+ * THIS plugin's own runner, as the filesystem sees it — the way gate_receipt.ts
+ * compares OWN_FRONT_DOOR. A same-named `gate_probe_runner.ts` anywhere else
+ * does not count, however its path ends.
+ */
+const OWN_RUNNER = realpathOr(resolve(import.meta.dir, "gate_probe_runner.ts"));
+
+/**
+ * True when `command` is one plain `bun [run] <absolute path> …` under the
+ * shared small grammar (`bunInvocation` on `simpleCommandWords`) whose path
+ * realpaths to THIS plugin's runner: no chaining, redirection or substitution,
+ * so nothing but the runner could have printed into its result. The one
+ * expansion that grammar allows is the plugin-root variable, which it expands
+ * to this plugin's own root, so `${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/
+ * gate_probe_runner.ts` — the spelling the SKILL orders — counts too.
+ */
+export function runsGateProbeRunner(command: string): boolean {
+  const run = bunInvocation(command);
+  // Exactly one argument, the project root: a second word is not the runner's own call shape.
+  return run !== null && run.module === OWN_RUNNER && run.args.length === 1;
+}
+
+function toolResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((b) => b && b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text as string)
+    .join("\n");
+}
+
+/**
+ * The text of the tool_result answering the LAST Bash call that runs the
+ * runner. An earlier run's rows are superseded by the later one, so rows are
+ * never pooled across calls.
+ */
+export function runnerToolResultText(ndjson: string): string {
+  const events = parseStreamJsonEvents(ndjson);
+  let lastRunnerCall: string | null = null;
+  for (const event of events) {
+    for (const block of messageContentBlocks(event, "assistant")) {
+      const input = block.input as { command?: unknown } | undefined;
+      if (
+        block.type === "tool_use" &&
+        block.name === "Bash" &&
+        typeof block.id === "string" &&
+        typeof input?.command === "string" &&
+        runsGateProbeRunner(input.command)
+      ) {
+        lastRunnerCall = block.id;
+      }
+    }
+  }
+  if (lastRunnerCall === null) return "";
+  const out: string[] = [];
+  for (const event of events) {
+    for (const block of messageContentBlocks(event, "user")) {
+      if (block.type === "tool_result" && block.tool_use_id === lastRunnerCall) {
+        out.push(toolResultText(block.content));
+      }
+    }
+  }
+  return out.join("\n");
+}
+
+export function probeRowVerdict(
+  ndjson: string,
+  n: number,
+  verdicts: readonly string[],
+): { line: string; exitCode: number } {
+  const raw = typeof ndjson === "string" ? ndjson : "";
+  const runner = RUNNER_PROBES.has(n);
+  const source = runner ? runnerToolResultText(raw) : raw.trim() ? extractAssistantText(raw) : "";
+  const rows = parseProbeRows(source).filter((r) => r.n === n);
+  // An error row (`fail (error: …)`) is a probe that crashed: it found
+  // nothing, so it satisfies no expectation, `fail` included.
+  const ok = rows.some((r) => r.error === undefined && verdicts.includes(r.verdict));
+  const seen =
+    rows.length > 0 ? rows.map((r) => (r.error === undefined ? r.verdict : "error")).join(",") : "none";
+  return {
+    line: `probe-row: ${ok ? "ok" : "fail"} #${n} source=${runner ? "runner" : "assistant"} seen=${seen} want=${verdicts.join("|")}`,
+    exitCode: ok ? 0 : 1,
+  };
+}
+
+/**
+ * STE-824: a missing capture is not an empty one. Scoring it as empty let
+ * `absent` pass on a run that never wrote its log, so the CLI refuses it as a
+ * usage error (exit 2, one stderr line). An EXISTING empty file still scores.
+ */
+async function readCaptureOrExit(capturePath: string): Promise<string> {
+  const file = Bun.file(capturePath);
+  if (!(await file.exists())) {
+    console.error(`capability_row_assert: capture file not found: ${capturePath}`);
+    process.exit(2);
+  }
+  return await file.text();
+}
+
+if (import.meta.main && process.argv[2] === "probe-row") {
+  const [, capturePath, nText, ...verdicts] = process.argv.slice(2);
+  if (
+    !capturePath ||
+    !nText ||
+    !/^\d+$/.test(nText) ||
+    verdicts.length === 0 ||
+    !verdicts.every((v) => PROBE_VERDICTS.has(v))
+  ) {
+    console.error("usage: bun capability_row_assert.ts probe-row <capture.log> <N> <pass|notes|fail|vacuous…>");
+    process.exit(2);
+  }
+  const ndjson = await readCaptureOrExit(capturePath);
+  const verdict = probeRowVerdict(ndjson, Number(nText), verdicts);
+  console.log(verdict.line);
+  process.exit(verdict.exitCode);
+}
+
 if (import.meta.main) {
   const [expectation, capturePath, ...keys] = process.argv.slice(2);
   if (
@@ -239,11 +375,7 @@ if (import.meta.main) {
     );
     process.exit(2);
   }
-  const file = Bun.file(capturePath);
-  // A missing capture is a real smoke signal, not a crash: score it as an
-  // empty capture and let the expectation decide (chain-integrity detection
-  // is assertChainIntegrity's job, not this runner's).
-  const ndjson = (await file.exists()) ? await file.text() : "";
+  const ndjson = await readCaptureOrExit(capturePath);
   const verdict = capabilityVerdict(
     ndjson,
     keys,

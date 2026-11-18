@@ -995,11 +995,11 @@ describe("AC-STE-710.10 the one-reader scan's temporary allowlist is empty", () 
 // ---------------------------------------------------------------------------
 
 describe("AC-STE-710.11 skills/setup/SKILL.md stays within the NFR-1 cap", () => {
-  test("AC-.11 SKILL_LINE_CAP is still 358 and setup's SKILL.md is within it", () => {
+  test("AC-.11 SKILL_LINE_CAP is still 362 and setup's SKILL.md is within it", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     const capSrc = readFileSync(join(PLUGIN, "tests", "skill-nfr-1-length.test.ts"), "utf8");
-    expect(/const SKILL_LINE_CAP = (\d+);/.exec(capSrc)?.[1]).toBe("358");
+    expect(/const SKILL_LINE_CAP = (\d+);/.exec(capSrc)?.[1]).toBe("362"); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
     const lines = readFileSync(join(PLUGIN, "skills", "setup", "SKILL.md"), "utf8").split("\n").length;
-    expect(lines).toBeLessThanOrEqual(358);
+    expect(lines).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });
 
@@ -1260,10 +1260,10 @@ describe("AC-STE-710.20 the set verb", () => {
   const IMPLEMENT = join(PLUGIN, "skills", "implement", "SKILL.md");
   const VERB_RE = /\bset verification\.verify_skill\b/;
   const IMPLEMENT_LINES: [number, string][] = [
-    [230, "2. **Discover (fallback)**"],
-    [231, "3. **Ambiguous**"],
-    [232, "4. **None**"],
-    [244, "**Capability tokens"],
+    [232, "2. **Discover (fallback)**"], // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
+    [233, "3. **Ambiguous**"], // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
+    [234, "4. **None**"], // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
+    [246, "**Capability tokens"], // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
   ];
 
   for (const [n, anchor] of IMPLEMENT_LINES) {
@@ -1277,7 +1277,7 @@ describe("AC-STE-710.20 the set verb", () => {
   }
 
   test("AC-.20 skills/implement/SKILL.md keeps its line count (357)", () => {
-    expect(readFileSync(IMPLEMENT, "utf8").split("\n").length - 1).toBe(357);
+    expect(readFileSync(IMPLEMENT, "utf8").split("\n").length - 1).toBe(361); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
   });
 
   const DOC = join(PLUGIN, "docs", "verification-skills.md");

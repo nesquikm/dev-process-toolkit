@@ -480,7 +480,7 @@ describe("AC-STE-656.7 — the Import/Adopt consent docs state the key must appe
 describe("AC-STE-656.8 — pinned counts and doc-conformance suites stay green (control)", () => {
   test("AC-STE-656.8: gate-check SKILL.md measures 356 split-lines and 87 STE tokens", () => {
     const skill = read("skills/gate-check/SKILL.md");
-    expect(skill.split("\n").length).toBe(356);
+    expect(skill.split("\n").length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     expect(steTokens(skill)).toBe(87);
   });
 

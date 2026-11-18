@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Amended by AC-STE-788.1 (M_870603): line 102's step-11 gate-check line is undone by undoSte788.
-import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_11_OLD, undoAdmissions, undoSte788 } from "./_m_5f3c43_ste738_implement_admissions";
+import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_11_OLD, undoAdmissions, undoSte788, undoSte745, undoSte835 } from "./_m_5f3c43_ste738_implement_admissions";
 
 // Amended by AC-STE-774.4 (M_4daa6e): line 213 (index 212), Phase 3 step i, carries one exact append — the
 // record call gated on `review_findings: on`. Undone before the AC-STE-738.13 admissions; a line that does not
@@ -59,8 +59,14 @@ const carrying = (...phrases: Array<string | RegExp>): string[] =>
 describe("AC-STE-738.4 — /implement SKILL.md is main's bytes", () => {
   /** The SKILL.md lines with the AC-STE-738.13 admissions undone, or the reason they cannot be. */
   const undone = (body: string): string => {
-    // Amended by AC-STE-774.4 (M_4daa6e): the step-i record sentence is undone first.
-    const s774 = undoSte774(body.split("\n"));
+    // Amended by AC-STE-835.1 (M_d1e7b1): the STE-835 paragraph and Architecture Note move are undone first.
+    // Amended by AC-STE-745.1 (M_d1e7b1): the STE-745 step-14 append is undone before everything.
+    const s745 = undoSte745(body.split("\n"));
+    if ("error" in s745) return `REFUSED: ${s745.error}`;
+    const s835 = undoSte835(s745.lines);
+    if ("error" in s835) return `REFUSED: ${s835.error}`;
+    // Amended by AC-STE-774.4 (M_4daa6e): the step-i record sentence is undone next.
+    const s774 = undoSte774(s835.lines);
     if ("error" in s774) return `REFUSED: ${s774.error}`;
     // Amended by AC-STE-788.1 (M_870603): the step-11 gate-check line is undone next.
     const s788 = undoSte788(s774.lines);

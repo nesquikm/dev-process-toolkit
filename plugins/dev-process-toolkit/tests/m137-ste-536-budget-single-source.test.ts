@@ -1146,8 +1146,13 @@ describe("AC-STE-536.5 — touched skill files stay under the NFR-1 cap", () => 
   test("the files at zero headroom did not grow to hold it", () => {
     // The concrete shape of "rather than by growing a skill file": any touched
     // file that was already AT the cap at the anchor is still at most the cap.
-    const cap = nfr1LineCap();
+    // Amended by AC-STE-745.1 (M_d1e7b1): "at the cap" is judged by the cap the ENFORCER held at
+    // the anchor (read from it there, not retyped); a later documented raise is then the bound.
     const base = releaseCommit(PREVIOUS_RELEASE);
+    const anchorEnforcer = Bun.spawnSync(["git", "-C", REPO_ROOT, "show", `${base}:plugins/dev-process-toolkit/tests/skill-nfr-1-length.test.ts`], { stdout: "pipe" }).stdout.toString();
+    const anchorCap = Number(/SKILL_LINE_CAP = (\d+)/.exec(anchorEnforcer)?.[1]);
+    expect(anchorCap).toBeGreaterThan(0);
+    const cap = nfr1LineCap();
     const atCap: string[] = [];
     for (const path of touchedSkillFiles()) {
       const proc = Bun.spawnSync(["git", "-C", REPO_ROOT, "show", `${base}:${path}`], {
@@ -1156,7 +1161,7 @@ describe("AC-STE-536.5 — touched skill files stay under the NFR-1 cap", () => 
       });
       if (proc.exitCode !== 0) continue; // added after the anchor
       const before = proc.stdout.toString().split("\n").length;
-      if (before >= cap) atCap.push(path);
+      if (before >= anchorCap) atCap.push(path); // Amended by AC-STE-745.1 (M_d1e7b1)
     }
     expect(
       atCap.length,

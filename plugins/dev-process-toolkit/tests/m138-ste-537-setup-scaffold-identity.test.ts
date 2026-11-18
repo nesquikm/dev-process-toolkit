@@ -509,7 +509,7 @@ describe("AC-STE-537.4 — the STE-189 class-(5) inventory sentence names both s
     // The cap really is 358 and really is measured that way — otherwise the
     // number above is an unanchored magic constant.
     const enforcing = read(NFR1_TEST);
-    expect(enforcing).toMatch(/SKILL_LINE_CAP\s*=\s*358\b/);
+    expect(enforcing).toMatch(/SKILL_LINE_CAP\s*=\s*362\b/); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(enforcing).toContain('body.split("\\n").length');
   });
 

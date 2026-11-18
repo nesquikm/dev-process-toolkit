@@ -15,6 +15,7 @@
 // FR-scope entry is byte-identical to the milestone-scope entry for the same
 // sibling state, and `resume_classifier.ts` never calls `resolveSpansRepos`.
 
+import { withoutSte745Block } from "./_m_5f3c43_ste738_implement_admissions"; // Amended by AC-STE-745.1 (M_d1e7b1)
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { readFileSync, renameSync } from "node:fs";
@@ -192,7 +193,7 @@ describe("the executing prose says it, in place", () => {
     text.replace(/\n\n## Close-out — offers after the last milestone\n[\s\S]*?(?=\n## |\n?$)/, "");
   const headLines = (rel: string): number =>
     withoutCloseOut( // Amended by AC-STE-712.7 (M_94e6f7)
-      execFileSync("git", ["show", `HEAD:${rel}`], { cwd: repoRoot, encoding: "utf8" }),
+      withoutSte745Block(execFileSync("git", ["show", `HEAD:${rel}`], { cwd: repoRoot, encoding: "utf8" })), // Amended by AC-STE-745.1 (M_d1e7b1)
     ).split("\n").length;
   const rel = (abs: string): string => abs.slice(repoRoot.length + 1);
 
@@ -229,7 +230,9 @@ describe("the executing prose says it, in place", () => {
 
   test("zero new lines in any edited file", () => {
     for (const file of [DELIVER_SKILL, DELIVER_REF, IMPLEMENT_SKILL]) {
-      expect(withoutCloseOut(readFileSync(file, "utf8")).split("\n").length, rel(file)).toBe(headLines(rel(file))); // Amended by AC-STE-712.7 (M_94e6f7)
+      // Amended by AC-STE-745.1 (M_d1e7b1): the exact STE-745 lead-in block is taken out of both sides.
+      const now = file === IMPLEMENT_SKILL ? withoutSte745Block(readFileSync(file, "utf8")) : readFileSync(file, "utf8"); // Amended by AC-STE-745.1 (M_d1e7b1)
+      expect(withoutCloseOut(now).split("\n").length, rel(file)).toBe(headLines(rel(file))); // Amended by AC-STE-712.7 (M_94e6f7)
     }
   });
 });

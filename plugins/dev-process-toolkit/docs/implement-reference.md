@@ -1,6 +1,6 @@
 # `/implement` Reference
 
-Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 358-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
+Extended reference material for `/dev-process-toolkit:implement` that was extracted from `skills/implement/SKILL.md` to keep the skill file under the NFR-1 362-line cap. The skill file contains a one-line pointer to this file at the Stage C section.
 
 This reference is **not required reading** on every run — the skill itself has enough guidance to operate. Consult this file when Stage C (Hardening) is run on round 1 of the self-review loop, or when a hardening pass needs concrete examples.
 
@@ -39,6 +39,14 @@ These are illustrative — use the patterns in your project's CLAUDE.md as the a
 - **Flutter / Dart:** verify `async` functions return `Future` and are `await`ed; check that `Stream` subscriptions are cancelled in `dispose()`; confirm `tryEmit()` is used on closed BLoCs.
 - **Go:** verify every returned `error` is checked; check that deferred `Close()` calls are paired with error handling; confirm context cancellation propagates through goroutines.
 - **Rust:** verify `Result` is not discarded with `let _ = ...`; check that `?` propagates errors to the right boundary; confirm `panic!` is only used for truly unreachable states.
+
+## Phase 3 Spec conflict
+
+A self-review finding that conflicts with the FR's Acceptance Criteria, Technical Design or Testing section never edits the FR file — not to fix the finding, not to make the spec agree with the code. The round ends there as an escalation to the operator that names the FR section and the finding, and /implement emits `implement_spec_conflict_escalated`.
+
+This is the Phase 3 case of the rule that spec changes need approval (§ Spec Deviation Check, the `contradicts` row). It is not the Phase 2 `underspecified` backfill, which adds edge cases to the cross-cutting specs and never rewrites an FR's approved sections.
+
+The reason: the tracker ticket's description was written from the FR when the spec was approved. An FR edited mid-run leaves the tracker description stale, and the operator approves a commit whose spec no longer matches the ticket they signed off on. Only the operator decides which side changes.
 
 ## Defect checks, resuming a halt and parked tests
 
@@ -244,6 +252,14 @@ The skill carries the condensed entry; this section is the operational mirror.
 **Failure semantics.** If `rewriteArchiveLinks` or `cleanupPlanVerifyLines` throws (e.g., a plan file is read-only, an I/O error fires), `/implement` **aborts archival cleanly — do not commit the archive move, do not call `Provider.releaseLock`**. Surface an NFR-10 canonical refusal naming the offending plan `file:line:column` and the link or verify line that would have been rewritten, then exit Phase 4 non-zero. The FR file remains in its pre-archive location so a follow-up run can resume through the `already-ours` claim path. Same rule applies to a partial rewrite (any helper invocation in the milestone-group batch fails) — the entire commit is aborted, never partial.
 
 Then call `Provider.releaseLock(id)` for each released FR.
+
+## Step 14 Lead-in
+
+The prose lead-in above the `stage-status-block` fence is at most three sentences, each at most 20 words (`PLAIN_SENTENCE_WORD_CAP`). It sits inside the stage's whole-report line cap (`STAGE_REPORT_LINE_CAP`), never beside it. Per-item content rides inside the fence as `summary:` rows, not in the lead-in. Use this literal template, filling each `<...>` placeholder:
+
+```implement-lead-in
+<fr-id> is built and the gate is green. The status block below lists every AC, file and check. Reply yes to commit, or name what to change.
+```
 
 ## Step 14 Verification Evidence
 
@@ -515,3 +531,9 @@ Refs: STE-<N>
 ### Step 14 approval-gate render
 
 Alongside the AC checklist and gate output, the report must include the proposed `<type>(<scope>): <title>`. The user can redirect type/scope before approval (e.g., "use `chore` not `feat` — this is non-functional"). The commit-msg hook is the deterministic backstop if drift slips through.
+
+## Architecture Note
+
+Moved here from `skills/implement/SKILL.md` under NFR-1's overflow rule.
+
+This skill runs in-process in the main session — deliberately **not** `context: fork`. Phase 3 Stage B spawns the `code-reviewer` subagent via the `Agent` tool, and Claude Code forbids nested subagent spawns. The review-fix loop additionally requires findings to flow back to the same implementer that wrote the code. Full rationale: `docs/patterns.md` § Pattern: `/implement` Runs In-Process.

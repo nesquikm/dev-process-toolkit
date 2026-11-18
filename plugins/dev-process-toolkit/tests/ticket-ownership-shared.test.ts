@@ -765,13 +765,13 @@ describe("AC-STE-606.10 — budgets", () => {
 
   test("skills/implement/SKILL.md: exactly 358 split-lines and 41 STE tokens", () => {
     const body = read(join(PLUGIN_ROOT, "skills", "implement", "SKILL.md"));
-    expect(body.split("\n").length).toBe(358);
+    expect(body.split("\n").length).toBe(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
     expect(steTokens(body)).toBe(41);
   });
 
   test("skills/spec-write/SKILL.md: 358 split-lines and 54 STE tokens", () => {
     const body = read(join(PLUGIN_ROOT, "skills", "spec-write", "SKILL.md"));
-    expect(body.split("\n").length).toBe(358);
+    expect(body.split("\n").length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
     expect(steTokens(body)).toBe(54);
   });
 

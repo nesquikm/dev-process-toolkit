@@ -597,7 +597,7 @@ describe("G6 — the documented vacuity contract names the template sentinel", (
     // historical value (351 -> 352 under STE-373 -> 354 under STE-374 -> 358),
     // so the pin was four lines tighter than the shipped contract and would
     // have redded a change the NFR permits. Repointed by M_8f8e25/STE-558.
-    const SKILL_LINE_CAP = 358;
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     const lines = read(GATE_SKILL).split("\n").length;
     expect(
       lines,

@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.8.0 — "Black Box"** (M_c46877, self-tuning milestone B: instruments only. Each run records the settings it started under, token rows are claimed by the FR whose run spent them, forked child skills included, and `/retro --trend` reports one run per FR and skill with its own signals; a `/retro` settings change leaves a receipt that a revert is checked against)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.9.0 — "Read Back"** (M_d1e7b1, the fixes from the 2026-11-17 conformance run. One shipped probe runner prints a fixed row per probe, and the smoke fixtures grade that row instead of the model's wording; probe #14 passes a ticket that is provably not started, and the commit gate refuses a failed gate outcome; the hooks accept one literal `cd <dir> && bun …gate_receipt.ts` form)
 
 ## Core Philosophy
 

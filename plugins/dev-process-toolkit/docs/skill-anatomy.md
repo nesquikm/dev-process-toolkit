@@ -236,7 +236,7 @@ Read-side enforcement: `/gate-check` probe #38 `auto-approve-marker-in-canonical
 
 ## Best Practices
 
-1. **Keep SKILL.md under 358 lines** (NFR-1, enforced per skill by `tests/skill-nfr-1-length.test.ts`) — move reference material to `docs/<skill-name>-reference.md`, the overflow home nine of these docs already are
+1. **Keep SKILL.md under 362 lines** (NFR-1, enforced per skill by `tests/skill-nfr-1-length.test.ts`) — move reference material to `docs/<skill-name>-reference.md`, the overflow home nine of these docs already are
 2. **Reserve `disable-model-invocation: true` for bootstrap skills** — use it on skills that rewrite project scaffolding (e.g., `/setup`) where a subagent re-running the skill mid-flight would clobber the working tree. Do **not** use it on composable skills like `/implement` or `/pr`; the flag blocks agent-team subagents from invoking them via the `Skill` tool, forcing the leaky workaround of reading `SKILL.md` body manually.
 3. **Use `allowed-tools`** to restrict what Claude can do (e.g., read-only for review skills)
 4. **Reference supporting files** so Claude knows when to load them

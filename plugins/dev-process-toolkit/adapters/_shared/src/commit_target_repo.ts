@@ -143,6 +143,8 @@ export type CheckoutRootResolver = CheckoutRootLookup;
 export interface AddThenCommit {
   dir: string;
   paths: string[];
+  /** AC-STE-791.5 — the staging verb: `git add` or `git rm` (whose paths must be tracked). */
+  verb: "add" | "rm";
 }
 
 // ---------------------------------------------------------------------------
@@ -707,7 +709,7 @@ function collectOccurrences(
   const addHead: AddThenCommit | null =
     head !== null &&
     headGit !== null &&
-    headGit.subcommand === "add" &&
+    (headGit.subcommand === "add" || headGit.subcommand === "rm") &&
     headGit.globals.length === 0 &&
     headGit.args.length > 0 &&
     headGit.args.every(isLiteralAddPath) &&
@@ -715,7 +717,7 @@ function collectOccurrences(
     head.unplaced === null &&
     !head.caseArm &&
     head.dir !== null
-      ? { dir: head.dir, paths: [...headGit.args] }
+      ? { dir: head.dir, paths: [...headGit.args], verb: headGit.subcommand === "rm" ? "rm" : "add" }
       : null;
 
   /** Offer the checkout holding a literal directory as a candidate root. */

@@ -126,6 +126,13 @@ export interface FixtureGroupSpec {
    * roster is what it is. Required and non-empty for every group (STE-449).
    */
   rationale: string;
+  /**
+   * True when no headless (`claude -p`) leg can reach this group (STE-824,
+   * F14). On a run the renderer is told is headless, an UNREPORTED group so
+   * marked reconciles to `not-applicable` with the `headless` reason instead
+   * of `not-reached`. An observed outcome still stands.
+   */
+  headlessUnreachable?: true;
 }
 
 export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
@@ -224,6 +231,7 @@ export const CANONICAL_FIXTURE_GROUPS: readonly FixtureGroupSpec[] = [
     group: 14,
     sut: "STE-492",
     legs: ALL_LEGS,
+    headlessUnreachable: true,
     rationale:
       "verifyDeliverStageCapture reads a captured worker stage report off disk and grades it against the deliver-stage-result contract; the fence shape is tracker-independent and no assertion consults a tracker surface, so every leg exercises it identically",
   },
@@ -252,6 +260,8 @@ export interface FixtureGroupRecord {
   group: number;
   sut: string;
   outcome: FixtureGroupOutcome;
+  /** Why a `not-applicable` record is n/a when it is not the leg roster. */
+  reason?: "headless";
 }
 
 /**
@@ -345,12 +355,15 @@ export function groupsCoveringLeg(leg: string): readonly number[] {
  * - An observed `failed` is never downgraded, not even on a leg where the
  *   group is n/a: something ran, and it failed.
  * - Otherwise a group outside this leg's roster is `not-applicable`.
+ * - Otherwise, when `options.headless` is true, an unreported group marked
+ *   `headlessUnreachable` is `not-applicable` with reason `headless` (STE-824).
  * - Otherwise an unreported group is `not-reached`.
  * - Otherwise the (normalized) observation stands.
  */
 export function reconcileFixtureGroups(
   observed: readonly ObservedFixtureGroup[],
   leg: string,
+  options: { headless?: boolean } = {},
 ): readonly FixtureGroupRecord[] {
   const reported = new Map<number, FixtureGroupOutcome>();
   for (const entry of observed ?? []) {
@@ -370,6 +383,12 @@ export function reconcileFixtureGroups(
       outcome = "failed";
     } else if (!appliesToLeg(spec, normalizedLeg)) {
       outcome = "not-applicable";
+    } else if (
+      seen === undefined &&
+      options.headless === true &&
+      spec.headlessUnreachable === true
+    ) {
+      return { group: spec.group, sut: spec.sut, outcome: "not-applicable", reason: "headless" };
     } else if (seen === undefined) {
       outcome = "not-reached";
     } else {
@@ -405,7 +424,11 @@ export function renderFixtureGroupLine(record: FixtureGroupRecord): string {
         FIXTURE_GROUP_OUTCOMES.join(" | "),
     );
   }
-  return `${record.sut} runtime check: ${label}`;
+  const reason =
+    record.outcome === "not-applicable" && record.reason !== undefined
+      ? ` (${record.reason})`
+      : "";
+  return `${record.sut} runtime check: ${label}${reason}`;
 }
 
 /** Tally of the four outcomes across a record set. */
@@ -479,6 +502,7 @@ export function renderFixtureGroupSummary(
 // Usage:
 //   bun smoke_fixture_groups.ts render --leg <leg>
 //                                      [--passed "1 3 4"] [--failed "5"]
+//                                      [--smoke-ctx <stdin|headless|interactive>]
 //   bun smoke_fixture_groups.ts legs
 //
 // `legs` prints the registered leg set, one space-separated line, and exits 0.
@@ -506,7 +530,7 @@ export function renderFixtureGroupSummary(
 // specs/notes/follow-ups.md and closed here.
 const USAGE =
   `usage: bun smoke_fixture_groups.ts render --leg <${SMOKE_LEGS.join("|")}> ` +
-  '[--passed "1 3 4"] [--failed "5"]\n' +
+  '[--passed "1 3 4"] [--failed "5"] [--smoke-ctx <stdin|headless|interactive>]\n' +
   "       bun smoke_fixture_groups.ts legs";
 
 function parseArgs(argv: readonly string[]): Record<string, string[]> {
@@ -612,7 +636,21 @@ if (import.meta.main) {
           `roster: ${stray.join(", ")}`,
       );
     }
-    const records = reconcileFixtureGroups(observed, leg);
+    // STE-824: the run's headlessness is TOLD, never guessed. `stdin` decides
+    // it the way the Phase-2-entry SMOKE-CTX probe does (`[ -t 0 ]`); the two
+    // explicit words are for a caller that already holds the banner's answer.
+    // Absent, no group is exempted as headless-unreachable.
+    const ctx = first(flags, "smoke-ctx");
+    if (ctx !== undefined && !["stdin", "headless", "interactive"].includes(ctx)) {
+      console.error(
+        `smoke_fixture_groups: --smoke-ctx must be one of stdin | headless | ` +
+          `interactive (got ${JSON.stringify(ctx)})\n${USAGE}`,
+      );
+      process.exit(2);
+    }
+    const headless =
+      ctx === "headless" || (ctx === "stdin" && process.stdin.isTTY !== true);
+    const records = reconcileFixtureGroups(observed, leg, { headless });
     console.log(renderFixtureGroupSummary(records));
     process.exit(fixtureGroupsAggregate(records) === "pass" ? 0 : 1);
   }

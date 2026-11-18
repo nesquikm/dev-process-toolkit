@@ -135,6 +135,17 @@ const FIXTURES = {
   alias: join(FALSIFIABILITY_FIXTURE_DIR, "gate-check-ste221-alias-linear.ndjson"),
 } as const;
 
+// Amended by AC-STE-756.8 (M_d1e7b1)
+// Since STE-756, 2a's and 2c's identifier clause is `probe-row … 26 notes`. [Amended by AC-STE-756.8 (M_d1e7b1)]
+// Probe #26 is not a runner probe, so the row is read from the assistant text, [Amended by AC-STE-756.8 (M_d1e7b1)]
+// in the row grammar `probe #26 <id>: notes (<count>)`. The 2026-08-16 [Amended by AC-STE-756.8 (M_d1e7b1)]
+// captures render #26 as free prose, so they carry no such row. These two [Amended by AC-STE-756.8 (M_d1e7b1)]
+// runner-era captures do, and each also carries its own sub-fixture's key. [Amended by AC-STE-756.8 (M_d1e7b1)]
+const ROW_FIXTURES = { // Amended by AC-STE-756.8 (M_d1e7b1)
+  positive: join(FALSIFIABILITY_FIXTURE_DIR, "gate-check-ste221-positive-row-linear.ndjson"), // Amended by AC-STE-756.8 (M_d1e7b1)
+  alias: join(FALSIFIABILITY_FIXTURE_DIR, "gate-check-ste221-alias-row-linear.ndjson"), // Amended by AC-STE-756.8 (M_d1e7b1)
+} as const; // Amended by AC-STE-756.8 (M_d1e7b1)
+
 /** The exact pattern the retired assertion carried, kept as a permanent record. */
 const RETIRED_PATTERN = "ADVISORY.*probe.*26|probe.*26.*ADVISORY";
 
@@ -292,7 +303,7 @@ function spanNaming(sectionBody: string, needle: string): string {
 function identifierSpan(sectionBody: string): string {
   const hits = ste221Spans(sectionBody).filter(
     (s) =>
-      s.includes(PROBE_26_NAMES[0]) &&
+      / probe-row \S+ 26 /.test(` ${s} `) && // Amended by AC-STE-756.8 (M_d1e7b1)
       !s.includes(CANONICAL_KEY) &&
       !s.includes(DEPRECATED_ALIAS),
   );
@@ -343,6 +354,15 @@ function rawGrepCount(pattern: string, file: string): number {
 function assistantHits(capturePath: string, needle: string): number {
   return extractAssistantText(read(capturePath)).split(needle).length - 1;
 }
+
+/** A one-event NDJSON capture whose assistant text is `text`, in a scratch dir. */ // Amended by AC-STE-756.8 (M_d1e7b1)
+function rowCapture(text: string): string { // Amended by AC-STE-756.8 (M_d1e7b1)
+  const dir = scratch("ste489-row-"); // Amended by AC-STE-756.8 (M_d1e7b1)
+  const path = join(dir, "capture.ndjson"); // Amended by AC-STE-756.8 (M_d1e7b1)
+  const event = { type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } }; // Amended by AC-STE-756.8 (M_d1e7b1)
+  writeFileSync(path, `${JSON.stringify(event)}\n`, "utf8"); // Amended by AC-STE-756.8 (M_d1e7b1)
+  return path; // Amended by AC-STE-756.8 (M_d1e7b1)
+} // Amended by AC-STE-756.8 (M_d1e7b1)
 
 const tempDirs: string[] = [];
 
@@ -460,15 +480,22 @@ describe("AC-STE-489.1 — group 2's matching is NDJSON-safe in both directions"
   });
 
   test("EXECUTION — 2a's clauses pass on 2a's capture (no longer for the wrong reason)", () => {
-    expect(runSpanOn(identifierSpan(fixture2a()), FIXTURES.positive)).toBe(0);
+    expect(runSpanOn(identifierSpan(fixture2a()), ROW_FIXTURES.positive)).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runSpanOn(subjectSpans().positive, ROW_FIXTURES.positive)).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
     expect(runSpanOn(subjectSpans().positive, FIXTURES.positive)).toBe(0);
+    // NDJSON-safe: probe-row parses events, so prose spanning encoded newlines never matches. // Amended by AC-STE-756.8 (M_d1e7b1)
+    // The 2026-08-16 capture renders #26 only as prose, so it is red now. // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runSpanOn(identifierSpan(fixture2a()), FIXTURES.positive)).toBe(1); // Amended by AC-STE-756.8 (M_d1e7b1)
   });
 
   test("EXECUTION — 2c now matches, where the retired pattern gave a false RED", () => {
     // The half that was a FALSE FAILURE: probe #26 honoured the STE-198
     // deprecation window in this capture and the assertion said otherwise.
-    expect(runSpanOn(identifierSpan(fixture2c()), FIXTURES.alias)).toBe(0);
+    expect(runSpanOn(identifierSpan(fixture2c()), ROW_FIXTURES.alias)).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runSpanOn(subjectSpans().alias, ROW_FIXTURES.alias)).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
     expect(runSpanOn(subjectSpans().alias, FIXTURES.alias)).toBe(0);
+    // The 2026-08-16 alias capture has no #26 row in the grammar, so it is red now. // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runSpanOn(identifierSpan(fixture2c()), FIXTURES.alias)).toBe(1); // Amended by AC-STE-756.8 (M_d1e7b1)
   });
 
   test("the alias capture carries NO `ADVISORY` — so keying 2c on it is not the repair", () => {
@@ -484,26 +511,26 @@ describe("AC-STE-489.1 — group 2's matching is NDJSON-safe in both directions"
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("AC-STE-489.2 — `#26`, not the word `probe` followed by 26", () => {
-  test("both identifier clauses are an any-of over ≥ 2 rendered id spellings", () => {
+  test("both identifier clauses key probe #26 by its number, so no id spelling can drift", () => { // Amended by AC-STE-756.8 (M_d1e7b1)
     // Single-literal re-keying is how fixture 3c drifted three times: the SAME
     // jira leg rendered probe #37's id underscored 17 / hyphenated 0 in July and
-    // underscored 0 / hyphenated 2 in August. The two-arm discipline survives
-    // STE-564 unchanged; what changed is WHAT the arms name.
+    // underscored 0 / hyphenated 2 in August. [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // Amended by AC-STE-756.8 (M_d1e7b1): the two-arm discipline is replaced by `probe-row`. It keys on
+    // the number 26 in the row grammar and reads no id spelling at all, so the [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // spelling drift the two arms guarded against cannot reach it. [Amended by AC-STE-756.8 (M_d1e7b1)]
     for (const shell of [identifierSpan(fixture2a()), identifierSpan(fixture2c())]) {
       expect(shell).toContain("CAP_ASSERT");
-      // TOKEN-BOUNDED, which is where the delimiter comes from now. STE-488
-      // needed a LEADING delimiter against the substring hazard and the only
-      // one available was the `**` row marker; borrowing a shape from the
-      // runtime's prose is what made the arm a hostage to how that prose is
-      // drawn. The matcher supplies the boundary instead.
-      expect(shell).toContain("any-of-token");
-      const arms = PROBE_26_NAMES.filter((name) => shell.includes(name));
-      expect(arms.length).toBe(2);
-      // No arm carries a row decoration — the subject, not the rendering.
-      for (const arm of arms) {
-        expect(arm.includes("**")).toBe(false);
-        expect(/#\d/.test(arm)).toBe(false);
-      }
+      expect(shell).toMatch(/ probe-row \/tmp\/dpt-smoke-<tracker>-ste221-(positive|alias)\.log 26 notes$/); // Amended by AC-STE-756.8 (M_d1e7b1)
+      // No arm names an id spelling or carries a row decoration. // Amended by AC-STE-756.8 (M_d1e7b1)
+      for (const name of PROBE_26_NAMES) expect(shell.includes(name)).toBe(false); // Amended by AC-STE-756.8 (M_d1e7b1)
+      expect(shell.includes("**")).toBe(false); // Amended by AC-STE-756.8 (M_d1e7b1)
+      expect(/#\d/.test(shell)).toBe(false); // Amended by AC-STE-756.8 (M_d1e7b1)
+      // Executed: the same row under EITHER spelling passes; one with no number fails. // Amended by AC-STE-756.8 (M_d1e7b1)
+      for (const name of PROBE_26_NAMES) { // Amended by AC-STE-756.8 (M_d1e7b1)
+        const path = rowCapture(`probe #26 ${name}: notes (1)`); // Amended by AC-STE-756.8 (M_d1e7b1)
+        expect(runSpanOn(shell, path)).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+      } // Amended by AC-STE-756.8 (M_d1e7b1)
+      expect(runSpanOn(shell, rowCapture(`**#26 ${PROBE_26_NAMES[0]}** — notes`))).toBe(1); // Amended by AC-STE-756.8 (M_d1e7b1)
     }
   });
 
@@ -679,9 +706,16 @@ describe("cross-subject isolation — every subject clause fails on both sibling
     // three captures — as it must be. Recorded explicitly so nobody later
     // "fixes" the identifier clause into a discriminator it cannot be, or reads
     // its cross-capture pass as the isolation failure it is not.
+    // Amended by AC-STE-756.8 (M_d1e7b1): the identifier clause is now `probe-row … 26 notes`. It passes
+    // on 2a's AND 2c's row captures alike, so it cannot tell 2a from 2c; the [Amended by AC-STE-756.8 (M_d1e7b1)]
+    // subject clause does that, which is still the whole point. [Amended by AC-STE-756.8 (M_d1e7b1)]
     const shell = identifierSpan(fixture2a());
-    expect(runSpanOn(shell, FIXTURES.positive)).toBe(0);
-    expect(runSpanOn(shell, FIXTURES.control)).toBe(0);
+    expect(runSpanOn(shell, ROW_FIXTURES.positive)).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runSpanOn(shell, ROW_FIXTURES.alias)).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runSpanOn(identifierSpan(fixture2c()), ROW_FIXTURES.positive)).toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    // …while each subject clause does tell them apart, on the very same captures. // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runSpanOn(subjectSpans().positive, ROW_FIXTURES.alias)).not.toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
+    expect(runSpanOn(subjectSpans().alias, ROW_FIXTURES.positive)).not.toBe(0); // Amended by AC-STE-756.8 (M_d1e7b1)
   });
 });
 

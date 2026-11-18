@@ -141,14 +141,14 @@ describe("AC-STE-393.2 — /ship-milestone documents the migration pre-flight", 
     expect(body).toMatch(/registry|introduced_in/);
   });
 
-  test("ship-milestone SKILL.md stays within the NFR-1 line cap (358)", () => {
+  test("ship-milestone SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // NFR-1 is 358 — `specs/requirements.md` and the one
     // `const SKILL_LINE_CAP = 358;` in `tests/skill-nfr-1-length.test.ts`.
     // This pin carried 354 while CALLING it the NFR-1 cap: 354 is a superseded
     // historical value (351 -> 352 under STE-373 -> 354 under STE-374 -> 358),
     // so the pin was four lines tighter than the shipped contract and would
     // have redded a change the NFR permits. Repointed by M_8f8e25/STE-558.
-    const SKILL_LINE_CAP = 358;
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(skill().split("\n").length).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 
@@ -198,14 +198,14 @@ describe("AC-STE-393.3 — probe #68 `migration_coverage` is wired in gate-check
     expect(block).toMatch(/epoch|grandfather|exempt/i);
   });
 
-  test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
+  test("gate-check SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // NFR-1 is 358 — `specs/requirements.md` and the one
     // `const SKILL_LINE_CAP = 358;` in `tests/skill-nfr-1-length.test.ts`.
     // This pin carried 354 while CALLING it the NFR-1 cap: 354 is a superseded
     // historical value (351 -> 352 under STE-373 -> 354 under STE-374 -> 358),
     // so the pin was four lines tighter than the shipped contract and would
     // have redded a change the NFR permits. Repointed by M_8f8e25/STE-558.
-    const SKILL_LINE_CAP = 358;
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(skill().split("\n").length).toBeLessThanOrEqual(SKILL_LINE_CAP);
   });
 });

@@ -949,8 +949,8 @@ describe("AC-STE-680.6 — registered as probe #88 behind an `import.meta.main` 
     }
   });
 
-  test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
-    expect(read(GATE_CHECK_SKILL).split("\n").length).toBeLessThanOrEqual(358);
+  test("gate-check SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(read(GATE_CHECK_SKILL).split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });
 

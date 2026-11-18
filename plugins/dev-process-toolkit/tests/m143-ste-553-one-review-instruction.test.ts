@@ -26,6 +26,7 @@
 // Do not write a tracker id into any SKILL.md — a shipped token ceiling
 // across skills/ is pinned elsewhere and is at its limit.
 
+import { withoutSte745Block } from "./_m_5f3c43_ste738_implement_admissions"; // Amended by AC-STE-745.1 (M_d1e7b1)
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -319,7 +320,7 @@ describe("AC-STE-553.4 — retired halt wording tripwire", () => {
 describe("AC-STE-553.5 — no line-count cost", () => {
   // Baseline measured on this tree the way the enforcing suite measures it:
   // split("\n").length === 358 (wc -l reports 357, one fewer — expected).
-  const BASELINE_LINES = 358;
+  const BASELINE_LINES = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362 for /implement's fenced lead-in template.
 
   test("the enforcing cap is still the number this leg is written against", () => {
     // Re-derive the cap from its source rather than trusting the constant:
@@ -343,10 +344,11 @@ describe("AC-STE-553.5 — no line-count cost", () => {
       encoding: "utf-8",
       maxBuffer: 8 * 1024 * 1024,
     });
-    const headLines = headBody.split("\n").length;
+    // Amended by AC-STE-745.1 (M_d1e7b1): the exact STE-745 lead-in block is taken out of both sides.
+    const headLines = withoutSte745Block(headBody).split("\n").length;
 
     expect(lines.length).toBeLessThanOrEqual(BASELINE_LINES);
-    expect(lines.length).toBeLessThanOrEqual(headLines);
+    expect(withoutSte745Block(lines.join("\n")).split("\n").length).toBeLessThanOrEqual(headLines);
   });
 });
 

@@ -57,4 +57,5 @@ The orchestrator halts the cycle **only on `missing_acs.length > 0`**, and even 
 - **One fence only.** Multiple fences ⇒ format violation.
 - **Read-only.** No Write/Edit/Bash. If your trace requires running tests to verify GREEN, name the project test command in `command:` but rely on the orchestrator's REFACTOR-stage GREEN as the trusted signal — your job is the spec→code→test trace, not re-running the suite.
 - **Do not modify tests, source, or specs.** If a test or AC appears wrong, classify it as Partial or Missing and explain in `notes` — the orchestrator surfaces that to the operator.
+- **Tree facts are cited.** A claim that a file exists, is absent, or was deleted names the Read or Glob call that observed it (the path you passed and what came back). A claim with no such call is left out — an unchecked tree fact is a guess, and the audit must not state it.
 - **Per-FR scope.** You audit one FR's AC list. Do not chase ACs from other FRs even if you see them in passing.

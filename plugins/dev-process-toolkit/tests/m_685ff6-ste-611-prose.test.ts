@@ -86,11 +86,11 @@ describe("AC-STE-611.3 — /spec-write resolves the attach target before the dra
 
 describe("AC-STE-611.3 — the prose is edited in place (controls)", () => {
   test("(control) spec-write/SKILL.md is 358 split-lines", () => {
-    expect(lines().length).toBe(358);
+    expect(lines().length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
   });
 
   test("(control) the line-111 prefix is unchanged", () => {
-    expect(lines()[110]!.startsWith("   **Milestone attachment (any adapter with `project_milestone: true`")).toBe(true);
+    expect(lines()[88]!.startsWith("   **Milestone attachment (any adapter with `project_milestone: true`")).toBe(true); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 
   test("(control) zero new STE tokens: 54 in the file, 245 across skills/**/*.md", () => {

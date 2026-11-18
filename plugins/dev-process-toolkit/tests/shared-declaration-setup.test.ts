@@ -871,9 +871,9 @@ describe("AC-STE-603.10 — budgets and the reachability pin", () => {
   test("gate-check SKILL.md: 356 split-lines, 87 STE tokens, row 25 on line 80 running the front door", () => {
     const text = readFileSync(join(skills, "gate-check", "SKILL.md"), "utf-8");
     const lines = text.split("\n");
-    expect(lines.length).toBe(356);
+    expect(lines.length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     expect(steTokens(text)).toBe(87);
-    const row = lines[79]!;
+    const row = lines[80]!; // Amended by AC-STE-825.3 (M_d1e7b1): row 25 now on line 81
     expect(row.startsWith("25. **`task-tracking-workspace-binding-present`**"), row.slice(0, 80)).toBe(true);
     expect(row).toMatch(/bun run [^\n`]*task_tracking_workspace_binding_present\.ts/);
     expect(row).toMatch(/paragraph/i);

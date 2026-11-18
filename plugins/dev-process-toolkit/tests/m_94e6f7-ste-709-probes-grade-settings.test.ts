@@ -875,7 +875,7 @@ describe("AC-STE-709.10 upgrade Step 0 names the settings file", () => {
 
   test("the file stays within NFR-1 and SKILL_LINE_CAP is not raised", () => {
     const capSrc = readFileSync(join(PLUGIN, "tests/skill-nfr-1-length.test.ts"), "utf8");
-    expect(/const SKILL_LINE_CAP = (\d+);/.exec(capSrc)?.[1]).toBe("358");
-    expect(skill.split("\n").length).toBeLessThanOrEqual(358);
+    expect(/const SKILL_LINE_CAP = (\d+);/.exec(capSrc)?.[1]).toBe("362"); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
+    expect(skill.split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   });
 });

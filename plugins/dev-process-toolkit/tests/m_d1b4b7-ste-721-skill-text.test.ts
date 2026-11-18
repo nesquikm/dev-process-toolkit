@@ -18,6 +18,7 @@
 // The existing pins named by AC.1, AC.6 and AC.13 are amended by the
 // implementer; the rows below assert the amended contents those files carry.
 
+import { hunkIsLiveAmendment, liveAcIds } from "./_amendment_marker";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -216,7 +217,7 @@ describe("AC-STE-721.8 report_issue_retro_seeded: the /spec-write § 7 map only"
     const m = await import("../adapters/_shared/src/closing_summary_capability_keys");
     expect((m.CANONICAL_CAPABILITY_KEYS as readonly string[]).includes("report_issue_retro_seeded")).toBe(false);
     expect(Object.keys(m.KEY_OWNER_SKILL)).not.toContain("report_issue_retro_seeded");
-    expect(m.CANONICAL_CAPABILITY_KEYS.length).toBe(47);
+    expect(m.CANONICAL_CAPABILITY_KEYS.length).toBe(49); // Amended by AC-STE-835.2 (M_d1e7b1): spec_research_skipped_no_tech and implement_spec_conflict_escalated registered, 47 -> 49.
   });
 
   test("closing_summary_capability_keys reports clean on the repo", async () => {
@@ -226,11 +227,14 @@ describe("AC-STE-721.8 report_issue_retro_seeded: the /spec-write § 7 map only"
     expect(r.violations.map((v) => v.note)).toEqual([]);
   });
 
-  test("skills/spec-write/SKILL.md gains no line and no STE token against trunk, and stays at most 358 split-lines", () => {
+  test("skills/spec-write/SKILL.md gains no line and no STE token against trunk, and stays at most 362 split-lines", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     const cur = read("skills/spec-write/SKILL.md");
     const base = atRev(TRUNK_SHA, "plugins/dev-process-toolkit/skills/spec-write/SKILL.md");
-    expect(cur.split("\n").length).toBe(base.split("\n").length);
-    expect(cur.split("\n").length).toBeLessThanOrEqual(358);
+    // Amended by AC-STE-752.1 (M_d1e7b1): reference shapes moved to docs/spec-write-reference.md
+    // (NFR-1 overflow) and STE-752 added its skip-token bullet and § 7 row: trunk minus 21.
+    // Amended by AC-STE-835.2 (M_d1e7b1): plus the STE-835 § 7 row, so trunk minus 20.
+    expect(cur.split("\n").length).toBe(base.split("\n").length - 20);
+    expect(cur.split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(steTokens(cur)).toBe(steTokens(base));
   });
 
@@ -320,15 +324,13 @@ function diffAgainstTrunk(rel: string): string {
   return proc.stdout;
 }
 
-function unmarkedSweepHunks(diff: string): string[] {
-  return diff
-    .split(/^(?=@@ )/m)
-    .filter((h) => h.startsWith("@@ "))
-    .filter((h) => {
-      const added = h.split("\n").filter((l) => l.startsWith("+"));
-      return added.length === 0 || !added.every((l) => STE723_SWEEP_MARKER.test(l));
-    })
-    .map((h) => h.split("\n")[0]!);
+// Amended by AC-STE-752.3 (M_d1e7b1): hunk split and the live-AC admission.
+function hunksOf(diff: string): string[] {
+  return diff.split(/^(?=@@ )/m).filter((h) => h.startsWith("@@ "));
+}
+
+function hunkCarriesLiveAmendment(hunk: string, live: ReadonlySet<string>): boolean {
+  return hunkIsLiveAmendment(hunk, live);
 }
 
 describe("AC-STE-721.13 the line budget and its pins", () => {
@@ -361,10 +363,16 @@ describe("AC-STE-721.13 the line budget and its pins", () => {
     expectGreen("tests/m117-ste-428-report-issue-renderable.test.ts", "no new capability key is minted", 1);
   });
 
-  test("the six CANONICAL_CAPABILITY_KEYS length pins at 47 are unedited against trunk", () => {
+  // Amended by AC-STE-752.3 (M_d1e7b1): the registry moved 47 -> 48. A pin may now
+  // differ from trunk, but only in hunks that carry a marker naming a LIVE AC id
+  // (one written in a current specs/frs file); a bare or dangling marker admits
+  // nothing. The pinned lines are re-located (two moved in m84) and must read 48.
+  test("the six CANONICAL_CAPABILITY_KEYS length pins are edited against trunk only by live-AC amendments", () => {
+    const live = liveAcIds(join(PLUGIN_ROOT, "..", ".."));
     const pins: [string, number][] = [
-      ["tests/m84-ste-320-code-reviewer-scope-registry.test.ts", 308],
-      ["tests/m84-ste-320-code-reviewer-scope-registry.test.ts", 348],
+      // Amended by AC-STE-835.2 (M_d1e7b1): m84's two pins moved down one with the STE-835 key line.
+      ["tests/m84-ste-320-code-reviewer-scope-registry.test.ts", 316],
+      ["tests/m84-ste-320-code-reviewer-scope-registry.test.ts", 356],
       ["tests/orphan-listing-shared.test.ts", 805],
       ["tests/m_840a06-ste-579-idempotency-probe-narrows.test.ts", 1003],
       ["tests/m_8f07e0-ste-585-epic-label.test.ts", 352],
@@ -373,13 +381,50 @@ describe("AC-STE-721.13 the line budget and its pins", () => {
     for (const [rel, line] of pins) {
       const cur = read(rel);
       // Amended by AC-STE-723.7 (M_fd9a03): the probe-count sweep's marked hunk in ste-587 is admitted.
-      if (rel === STE587_REL) {
-        expect({ rel, unmarked: unmarkedSweepHunks(diffAgainstTrunk(rel)) }).toEqual({ rel, unmarked: [] });
-      } else {
-        expect({ rel, unedited: cur === atRev(TRUNK_SHA, `plugins/dev-process-toolkit/${rel}`) }).toEqual({ rel, unedited: true });
-      }
+      const diff = diffAgainstTrunk(rel);
+      const sweepOnly = (h: string): boolean => {
+        const added = h.split("\n").filter((l) => l.startsWith("+"));
+        return added.length > 0 && added.every((l) => STE723_SWEEP_MARKER.test(l));
+      };
+      const unmarked = hunksOf(diff)
+        .filter((h) => !(rel === STE587_REL && sweepOnly(h)))
+        .filter((h) => !hunkCarriesLiveAmendment(h, live))
+        .map((h) => h.split("\n")[0]!);
+      expect({ rel, unmarked }).toEqual({ rel, unmarked: [] });
       const pin = cur.split("\n")[line - 1]!.trim();
-      expect({ rel, line, pin, at47: /^expect\((CANONICAL_CAPABILITY_KEYS\.length|discovered\.size)\)\.toBe\(47\);$/.test(pin) }).toEqual({ rel, line, pin, at47: true });
+      expect({ rel, line, pin, at49: /^expect\((CANONICAL_CAPABILITY_KEYS\.length|discovered\.size)\)\.toBe\(49\);( \/\/ Amended by AC-[A-Z0-9-]+\.[0-9]+\b.*)?$/.test(pin) }).toEqual({ rel, line, pin, at49: true });
     }
+  });
+
+  test("CONTROL: a bare or dangling amendment marker admits no hunk", () => {
+    const live = liveAcIds(join(PLUGIN_ROOT, "..", ".."));
+    expect(live.has("AC-STE-752.3")).toBe(true);
+    const hunk = (marker: string) => `@@ -1 +1 @@\n-    expect(x).toBe(47);\n+    expect(x).toBe(48); // ${marker}\n`;
+    expect(hunkCarriesLiveAmendment(hunk("Amended by AC-STE-752.3 (M_d1e7b1)"), live)).toBe(true);
+    expect(hunkCarriesLiveAmendment(hunk("Amended by"), live)).toBe(false);
+    expect(hunkCarriesLiveAmendment(hunk("Amended (M_d1e7b1)"), live)).toBe(false);
+    expect(hunkCarriesLiveAmendment(hunk("Amended by AC-STE-99999.1"), live)).toBe(false);
+    // A marked line cannot carry an unrelated code edit in the same hunk.
+    const riding = `@@ -1,2 +1 @@\n-    expect(x).toBe(47);\n-    expect(y).toBe(1);\n+    expect(x).toBe(48); // Amended by AC-STE-752.3 (M_d1e7b1)\n`;
+    expect(hunkCarriesLiveAmendment(riding, live)).toBe(false);
+    const unmarkedAdd = `@@ -1 +1,2 @@\n-    expect(x).toBe(47);\n+    expect(x).toBe(48); // Amended by AC-STE-752.3 (M_d1e7b1)\n+    expect(z).toBe(2);\n`;
+    expect(hunkCarriesLiveAmendment(unmarkedAdd, live)).toBe(false);
+  });
+
+  // Fix round 1 (review S1): a comment counts as comment-only only when it is the whole line.
+  test("CONTROL: code hidden behind a comment opener is not comment-only", () => {
+    const live = liveAcIds(join(PLUGIN_ROOT, "..", ".."));
+    const marked = "+  expect(lines).toBe(362); // Amended by AC-STE-752.3 (M_d1e7b1)";
+    const hunk = (extra: string) => `@@ -10 +10,2 @@\n-  expect(lines).toBe(358);\n${marked}\n+${extra}\n`;
+    // The review's probe: `/* noop */ return;` rides beside a marked line.
+    expect(hunkCarriesLiveAmendment(hunk("  /* noop */ return;"), live)).toBe(false);
+    // A code line that starts with `*`, outside any block comment, is code (a continuation).
+    expect(hunkCarriesLiveAmendment(hunk("  * 2;"), live)).toBe(false);
+    // A block comment that closes and is then followed by code is not comment-only.
+    expect(hunkCarriesLiveAmendment(hunk("  /* a */ x = 1; /* b */"), live)).toBe(false);
+    // Whole-line comments still are: `//`, a closed `/* … */`, and `*` lines inside a block opened in the hunk.
+    expect(hunkCarriesLiveAmendment(hunk("  // a note"), live)).toBe(true);
+    expect(hunkCarriesLiveAmendment(hunk("  /* a note */"), live)).toBe(true);
+    expect(hunkCarriesLiveAmendment(hunk("  /**\n+   * a note\n+   */"), live)).toBe(true);
   });
 });

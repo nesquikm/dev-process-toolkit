@@ -350,10 +350,11 @@ describe("AC-STE-543.1 — walks both sections across active AND archived specs"
     // what lets those two keep saying `no git, no network`.
     const lines = read(GATE_CHECK_SKILL).split("\n");
     // SKILL.md:155 and :156 (1-indexed) — measured today.
-    expect(lines[154]).toMatch(/^68\. \*\*`migration_coverage`\*\*/);
-    expect(lines[154]).toContain("no git, no network");
-    expect(lines[155]).toMatch(/^69\. \*\*`upgrade_staleness`\*\*/);
-    expect(lines[155]).toContain("no git, no network");
+    // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row moved both down one (156, 157).
+    expect(lines[155]).toMatch(/^68\. \*\*`migration_coverage`\*\*/);
+    expect(lines[155]).toContain("no git, no network"); // Amended by AC-STE-825.3 (M_d1e7b1)
+    expect(lines[156]).toMatch(/^69\. \*\*`upgrade_staleness`\*\*/); // Amended by AC-STE-825.3 (M_d1e7b1)
+    expect(lines[156]).toContain("no git, no network"); // Amended by AC-STE-825.3 (M_d1e7b1)
   });
 
   test("the module exports a PROBE_ID and a runnable probe", () => {
@@ -1033,7 +1034,7 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     expect(skill).not.toContain("registering probe #90 will turn probe #81 red");
   });
 
-  test("gate-check SKILL.md stays within the NFR-1 line cap (358)", () => {
+  test("gate-check SKILL.md stays within the NFR-1 line cap (362)", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // NFR-1 is 358 — specs/requirements.md:17, and the number the seven
     // sibling `const SKILL_LINE_CAP = 358;` declarations enforce. This leg
     // originally pinned 354 while CALLING it the NFR-1 cap: 354 is a
@@ -1042,7 +1043,7 @@ describe("AC-STE-543.8 — the probe-count cascade moved as one", () => {
     // contract and would have redded a legitimate future registration while
     // citing an NFR that permits it. Measured 352 at HEAD, 354 after this
     // FR's registration row.
-    const SKILL_LINE_CAP = 358;
+    const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(read(GATE_CHECK_SKILL).split("\n").length).toBeLessThanOrEqual(
       SKILL_LINE_CAP,
     );

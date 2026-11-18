@@ -173,7 +173,7 @@ const WRITE_PRODUCING_ARTIFACTS = [
 // ===========================================================================
 
 describe("TRIPWIRE — the two zero-headroom budgets survive the wiring", () => {
-  const SKILL_LINE_CAP = 358;
+  const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   const SKILLS_STE_TOKEN_CEILING = 246;
 
   test(`skills/setup/SKILL.md stays within the NFR-1 line cap (${SKILL_LINE_CAP})`, () => {

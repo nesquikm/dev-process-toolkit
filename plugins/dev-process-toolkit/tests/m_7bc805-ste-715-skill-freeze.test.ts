@@ -43,6 +43,11 @@ const SPEC_REVIEW_STE774_LINE =
 /** skills/tdd/SKILL.md § 5 AUDIT: one sentence inserted into the parse paragraph. */
 const TDD_STE774_SENTENCE =
   ' Only if the § 1 receipt call also printed `review_findings: on`, write the fork\'s full output to a temp file and record its counts with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/review_findings_receipt.ts" record "<that checkout root>" tdd-audit "<that file>"` once per audit.';
+// Amended by AC-STE-826.3 (M_d1e7b1): skills/spec-review/SKILL.md step 3 gains one
+// whole line, directly after the parsed-block fence, that re-checks the audit's
+// file-existence claims against the tree. It is admitted by its exact bytes.
+const SPEC_REVIEW_STE826_LINE =
+  "   **Re-check the tree before rendering.** Re-check each file-existence claim in the audit result (a file exists, is absent, or was deleted) against the tree with one Glob per claimed path. A contradicted claim is dropped from the traceability rows and findings before the report is rendered; a claim is contradicted when Glob finds a file the audit called absent or deleted, or finds nothing where it said a file exists. The report says so in one line: `dropped <N> file-existence claim(s) the tree contradicts: <path>, \u2026`.";
 /** The admitted STE-774 lines per line-guarded skill. */
 const STE774_LINES: Record<string, number> = { "spec-review": 1 };
 
@@ -83,21 +88,29 @@ function isOutcomeLine(line: string): boolean {
  * named by the v3.0.0 line it sits at, plus the count of added outcome lines.
  */
 // Amended by AC-STE-774.4 (M_4daa6e): also counts, and takes out, the exact STE-774 line (`ste774`).
-function driftBeyondOutcomeLines(before: string, after: string): { drift: string[]; added: number; ste774: number } {
+// Amended by AC-STE-826.3 (M_d1e7b1): also counts, and takes out, the exact STE-826 line (`ste826`).
+function driftBeyondOutcomeLines(before: string, after: string): { drift: string[]; added: number; ste774: number; ste826: number } {
   const a = before.split("\n");
   const kept: string[] = [];
   let added = 0;
   let ste774 = 0;
-  for (const line of after.split("\n")) {
+  let ste826 = 0;
+  const afterLines = after.split("\n");
+  for (let i = 0; i < afterLines.length; i++) {
+    const line = afterLines[i]!;
     if (isOutcomeLine(line) && !a.includes(line)) added++;
     else if (line === SPEC_REVIEW_STE774_LINE && !a.includes(line)) ste774++;
+    else if (line === SPEC_REVIEW_STE826_LINE && !a.includes(line)) ste826++;
+    // Amended by AC-STE-826.3 (M_d1e7b1): the one blank line that separates the
+    // STE-826 paragraph from the fence above it, admitted only in that position.
+    else if (line === "" && afterLines[i + 1] === SPEC_REVIEW_STE826_LINE && !a.includes(SPEC_REVIEW_STE826_LINE)) continue;
     else kept.push(line);
   }
   const drift: string[] = [];
   if (kept.length !== a.length) drift.push(`line count ${a.length} → ${kept.length} (outcome lines excluded)`);
   const n = Math.min(kept.length, a.length);
   for (let i = 0; i < n; i++) if (kept[i] !== a[i]) drift.push(`line ${i + 1}`);
-  return { drift, added, ste774 };
+  return { drift, added, ste774, ste826 };
 }
 
 const rel = (skill: string): string => `${PLUGIN_REL}/skills/${skill}/SKILL.md`;
@@ -115,13 +128,14 @@ describe("AC-STE-715.18 line guards for tdd and spec-review", () => {
     test(`skills/${skill}/SKILL.md differs from v3.0.0 only by ${pin.addedLines} added outcome line(s)`, () => {
       const r = driftBeyondOutcomeLines(atV300(rel(skill)), now(skill));
       // Amended by AC-STE-774.4 (M_4daa6e): plus exactly the admitted STE-774 line(s).
-      expect({ skill, ...r }).toEqual({ skill, drift: [], added: pin.addedLines, ste774: STE774_LINES[skill] ?? 0 });
+      // Amended by AC-STE-826.3 (M_d1e7b1): plus exactly the admitted STE-826 line.
+      expect({ skill, ...r }).toEqual({ skill, drift: [], added: pin.addedLines, ste774: STE774_LINES[skill] ?? 0, ste826: skill === "spec-review" ? 1 : 0 });
     });
 
     test(`NEIGHBOUR CONTROL: one other changed line in a temp copy of skills/${skill}/SKILL.md is reported`, () => {
       const lines = now(skill).split("\n");
       // Amended by AC-STE-774.4 (M_4daa6e): the neighbour is never the admitted STE-774 line itself.
-      const target = lines.findIndex((l, i) => i > 20 && l.trim().length > 0 && !isOutcomeLine(l) && l !== SPEC_REVIEW_STE774_LINE);
+      const target = lines.findIndex((l, i) => i > 20 && l.trim().length > 0 && !isOutcomeLine(l) && l !== SPEC_REVIEW_STE774_LINE && l !== SPEC_REVIEW_STE826_LINE);
       lines[target] = `${lines[target]} Then Read every file under specs/ first.`;
       const r = driftBeyondOutcomeLines(atV300(rel(skill)), lines.join("\n"));
       expect(r.drift.length).toBe(1);
@@ -132,6 +146,23 @@ describe("AC-STE-715.18 line guards for tdd and spec-review", () => {
     test(`CONTROL: the admitted STE-774 line of skills/${skill}/SKILL.md, edited by one clause, is reported`, () => {
       const lines = now(skill).split("\n");
       const at = lines.indexOf(SPEC_REVIEW_STE774_LINE);
+      expect(at).toBeGreaterThan(0);
+      lines[at] = `${lines[at]} Then Read every file under specs/ first.`;
+      expect(driftBeyondOutcomeLines(atV300(rel(skill)), lines.join("\n")).drift).not.toEqual([]);
+    });
+
+    // Amended by AC-STE-826.3 (M_d1e7b1). Kills: the blank-line admission widened past its one position.
+    test(`CONTROL: a blank line added anywhere else in skills/${skill}/SKILL.md is reported`, () => {
+      const lines = now(skill).split("\n");
+      const at = lines.findIndex((l, i) => i > 20 && l.trim().length > 0 && !isOutcomeLine(l) && l !== SPEC_REVIEW_STE774_LINE && l !== SPEC_REVIEW_STE826_LINE);
+      lines.splice(at, 0, "");
+      expect(driftBeyondOutcomeLines(atV300(rel(skill)), lines.join("\n")).drift).not.toEqual([]);
+    });
+
+    // Amended by AC-STE-826.3 (M_d1e7b1). Kills: the STE-826 admission widened past its exact bytes.
+    test(`CONTROL: the admitted STE-826 line of skills/${skill}/SKILL.md, edited by one clause, is reported`, () => {
+      const lines = now(skill).split("\n");
+      const at = lines.indexOf(SPEC_REVIEW_STE826_LINE);
       expect(at).toBeGreaterThan(0);
       lines[at] = `${lines[at]} Then Read every file under specs/ first.`;
       expect(driftBeyondOutcomeLines(atV300(rel(skill)), lines.join("\n")).drift).not.toEqual([]);

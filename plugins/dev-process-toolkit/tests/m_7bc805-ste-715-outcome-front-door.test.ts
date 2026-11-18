@@ -21,6 +21,7 @@
 // plugin; the test separates them so a manifest the key cannot read does not
 // also turn the switch off through the loader's version-floor check.
 
+import { undoGateCheckM_d1e7b1 } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1)
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -325,7 +326,7 @@ describe("AC-STE-715.13 switch off", () => {
       expect(readJson(path).evidence).toEqual({ head: git(root, "rev-parse", "HEAD").trim() });
     }, T);
 
-    test(`switch off (${state}): the outcome CLI exits 0 silently and writes nothing`, () => {
+    test(`switch off (${state}): the outcome CLI exits 0, prints only that outcomes are off, and writes nothing`, () => { // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a path in no checkout now fails
       const root = makeTree(`off-outcome-${state}`, state);
       mintRun(root);
       const before = receiptFiles(root);
@@ -342,7 +343,7 @@ describe("AC-STE-715.13 switch off", () => {
         expect({ args: f.args, code: r.exitCode, out: r.stdout, err: r.stderr }).toEqual({
           args: f.args,
           code: 0,
-          out: "",
+          out: "no gate outcome was recorded: outcomes are off for this checkout\n", // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a path in no checkout now fails
           err: "",
         });
       }
@@ -368,7 +369,7 @@ describe("AC-STE-715.13 switch off", () => {
     }
   }, T);
 
-  test("SUPERSEDED: the v3.0.0 front door refused `outcome` with reason=unknown-skill; today's is silent when off", () => {
+  test("SUPERSEDED: the v3.0.0 front door refused `outcome` with reason=unknown-skill; today's says it is off", () => { // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a path in no checkout now fails
     const dir = tempDir("v300-tree");
     const tar = spawnSync(
       "bash",
@@ -383,7 +384,7 @@ describe("AC-STE-715.13 switch off", () => {
     expect(trunk.stdout).toBe("");
     expect(trunk.stderr).toContain("reason=unknown-skill, skill=outcome");
     const now = runCli(["outcome", "gate-check", root, "pass"]);
-    expect({ code: now.exitCode, out: now.stdout, err: now.stderr }).toEqual({ code: 0, out: "", err: "" });
+    expect({ code: now.exitCode, out: now.stdout, err: now.stderr }).toEqual({ code: 0, out: "no gate outcome was recorded: outcomes are off for this checkout\n", err: "" }); // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a path in no checkout now fails
   }, T);
 
   test("switch on: the receipt CLI prints exactly two lines, the announcement then `outcome: on`", () => {
@@ -426,14 +427,16 @@ describe("AC-STE-715.17 a key error never blocks", () => {
     return join(copy, "adapters", "_shared", "src", "gate_receipt.ts");
   }
 
-  test("an unreadable manifest degrades: exit 0, one announcement line, evidence { head, key: null, key_digest: null }, one stderr note", () => {
+  // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a key that could not be computed still reads the switch on, so the run says `outcome: on`.
+  test("an unreadable manifest degrades: exit 0, the announcement line then `outcome: on`, evidence { head, key: null, key_digest: null }, one stderr note", () => {
     const door = brokenManifestDoor();
     const root = makeTree("key-error", "on");
     const r = runCli(["gate-check", root], { frontDoor: door, env: { CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT } });
     expect(r.exitCode).toBe(0);
     const lines = r.stdout.split("\n");
-    expect(lines.length).toBe(2);
-    expect(lines[1]).toBe("");
+    expect(lines.length).toBe(3);
+    expect(lines[1]).toBe("outcome: on");
+    expect(lines[2]).toBe("");
     const ann = parseAnnouncement(lines[0]!, "dpt-receipt: ");
     expect(ann).not.toBeNull();
     expect(readJson(ann!.path).evidence).toEqual({
@@ -488,14 +491,14 @@ describe("AC-STE-715.9 gate-check line 9", () => {
   });
 
   test("the line count and the STE-<n> token count are unchanged from v3.0.0", () => {
-    const now = readFileSync(SKILL("gate-check"), "utf-8");
+    const now = undoGateCheckM_d1e7b1(readFileSync(SKILL("gate-check"), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     const then = atV300(GATE_CHECK_REL);
     expect(now.split("\n").length).toBe(then.split("\n").length);
     expect((now.match(/STE-\d+/g) ?? []).length).toBe((then.match(/STE-\d+/g) ?? []).length);
   });
 
   test("line 9 starts with its trunk text byte for byte, then carries exactly one appended sentence", () => {
-    const line = readFileSync(SKILL("gate-check"), "utf-8").split("\n")[8]!;
+    const line = undoGateCheckM_d1e7b1(readFileSync(SKILL("gate-check"), "utf-8")).split("\n")[8]!; // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     expect(line.startsWith(TRUNK_LINE_9)).toBe(true);
     const tail = line.slice(TRUNK_LINE_9.length);
     expect(tail.startsWith(" ")).toBe(true);
@@ -606,14 +609,14 @@ describe("AC-STE-715.9 the AC-STE-618.8 freeze is re-based once, onto the line-9
 
   test("at KICKOFF line 9 already holds the edit: the freeze is green on today's file", () => {
     const then = spawnSync("git", ["show", `${kickoff()}:${GATE_CHECK_REL}`], { cwd: REPO_ROOT, encoding: "utf-8" }).stdout;
-    const now = readFileSync(SKILL("gate-check"), "utf-8");
+    const now = undoGateCheckM_d1e7b1(readFileSync(SKILL("gate-check"), "utf-8")); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     expect(then.split("\n")[8]).toBe(now.split("\n")[8]);
     expect(driftBeyond(then, now, PERMITTED)).toEqual([]);
   });
 
   test("NEIGHBOUR CONTROL: a changed line 10 still fails driftBeyond", () => {
     const then = spawnSync("git", ["show", `${kickoff()}:${GATE_CHECK_REL}`], { cwd: REPO_ROOT, encoding: "utf-8" }).stdout;
-    const lines = readFileSync(SKILL("gate-check"), "utf-8").split("\n");
+    const lines = undoGateCheckM_d1e7b1(readFileSync(SKILL("gate-check"), "utf-8")).split("\n"); // Amended by AC-STE-825.3 (M_d1e7b1): graded with probe #14's admitted edit undone (tests/_m_d1e7b1_ste825_gate_check.ts) // Amended by AC-STE-756.6 (M_d1e7b1): every M_d1e7b1 admission undone, the probe-runner block included
     lines[9] = `${lines[9]} (edited)`;
     expect(driftBeyond(then, lines.join("\n"), PERMITTED)).toEqual(["line 10"]);
   });

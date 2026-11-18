@@ -25,10 +25,10 @@ const collapse = (s: string) => s.replace(/\s+/g, " ");
 const steTokens = (s: string) => (s.match(/STE-\d+/g) ?? []).length;
 
 function line177(): string {
-  return lines(SPEC_WRITE)[176] ?? "";
+  return lines(SPEC_WRITE)[154] ?? ""; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
 }
 function line179(): string {
-  return lines(SPEC_WRITE)[178] ?? "";
+  return lines(SPEC_WRITE)[156] ?? ""; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
 }
 
 /** A branch of line 177, from its bold lead to the next branch's bold lead. */
@@ -122,18 +122,18 @@ describe("AC-STE-608.11 — the adapters no longer say a normalized match joins 
 
 describe("AC-STE-608.11 — structural pins are unmoved (controls)", () => {
   test("(control) spec-write/SKILL.md is 358 split-lines", () => {
-    expect(lines(SPEC_WRITE).length).toBe(358);
+    expect(lines(SPEC_WRITE).length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
   });
 
   test("(control) line 177 is one line with blank neighbours", () => {
     const l = lines(SPEC_WRITE);
-    expect(l[175]).toBe("");
-    expect(l[177]).toBe("");
-    expect(l[176]!.startsWith("**Milestone-number allocation guard.**")).toBe(true);
+    expect(l[153]).toBe(""); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+    expect(l[155]).toBe(""); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+    expect(l[154]!.startsWith("**Milestone-number allocation guard.**")).toBe(true); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 
   test("(control) the line-111 prefix", () => {
-    expect(lines(SPEC_WRITE)[110]!.startsWith("   **Milestone attachment (any adapter with `project_milestone: true`")).toBe(true);
+    expect(lines(SPEC_WRITE)[88]!.startsWith("   **Milestone attachment (any adapter with `project_milestone: true`")).toBe(true); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
   });
 
   test("(control) 54 STE tokens in the file, 245 across skills/**/*.md", () => {
@@ -148,7 +148,7 @@ describe("AC-STE-608.11 — structural pins are unmoved (controls)", () => {
 // ===========================================================================
 
 describe("AC-STE-608.16 — gate-check row 73 (line 160) is rewritten in place", () => {
-  const row = () => lines(GATE_CHECK)[159] ?? "";
+  const row = () => lines(GATE_CHECK)[160] ?? ""; // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row adds one line.
 
   test("row 73 names the Linear arm and its epoch", () => {
     expect(row().startsWith("73. **`plan_identity_mode_conditional`**")).toBe(true);
@@ -161,7 +161,7 @@ describe("AC-STE-608.16 — gate-check row 73 (line 160) is rewritten in place",
   });
 
   test("(control) gate-check/SKILL.md keeps 356 split-lines and 87 STE tokens", () => {
-    expect(lines(GATE_CHECK).length).toBe(356);
+    expect(lines(GATE_CHECK).length).toBe(361); // Amended by AC-STE-756.6 (M_d1e7b1): the probe-runner block adds four lines.
     expect(steTokens(read(GATE_CHECK))).toBe(87);
   });
 });
@@ -170,7 +170,7 @@ describe("AC-STE-608.16 — gate-check row 73 (line 160) is rewritten in place",
 // writes. Graded on line 177, where the Jira join branch orders the label write.
 describe("AC-STE-608.9 — the skill makes no label write on labels=unchanged", () => {
   test("line 177 orders zero label writes when the front door prints labels=unchanged", () => {
-    const line = readFileSync(join(import.meta.dir, "..", "skills", "spec-write", "SKILL.md"), "utf-8").split("\n")[176]!;
+    const line = readFileSync(join(import.meta.dir, "..", "skills", "spec-write", "SKILL.md"), "utf-8").split("\n")[154]!; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
     expect(line).toMatch(/`labels=unchanged`[^.]*no label write is made/);
   });
 });

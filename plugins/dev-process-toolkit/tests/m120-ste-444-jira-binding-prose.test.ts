@@ -484,10 +484,10 @@ describe("AC-STE-444.4 — every correction above is pinned by a falsifiable ass
 // ───────────────────────────────────────────────────────────────────────────
 
 describe("AC-STE-444.5 — the correction is a byte-trade, not an expansion", () => {
-  const SPEC_WRITE_LINE_CAP = 358;
+  const SPEC_WRITE_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   // NFR-1 is 358; this pin read 354 (a superseded value) until
   // M_8f8e25/STE-558 repointed it at the one contract.
-  const GATE_CHECK_LINE_CAP = 358;
+  const GATE_CHECK_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
   const SKILLS_STE_TOKEN_CEILING = 246;
   // Per-file counts recorded at the pinned pre-change commit.
   const SPEC_WRITE_STE_TOKENS_BEFORE = 55;
@@ -509,8 +509,8 @@ describe("AC-STE-444.5 — the correction is a byte-trade, not an expansion", ()
     const gcIdx = read(GATE_CHECK_SKILL)
       .split("\n")
       .findIndex((l) => PROBE_26_MARKER.test(l));
-    expect(swIdx + 1, "the milestone-attachment paragraph moved off line 111").toBe(111);
-    expect(gcIdx + 1, "probe #26's row moved off line 81").toBe(81);
+    expect(swIdx + 1, "the milestone-attachment paragraph moved off line 111").toBe(89); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
+    expect(gcIdx + 1, "probe #26's row moved off line 82").toBe(82); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row moved it 81 -> 82
   });
 
   test(`the skills/ STE-token ceiling (${SKILLS_STE_TOKEN_CEILING}) is not breached`, () => {

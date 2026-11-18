@@ -76,6 +76,9 @@ export const CANONICAL_CAPABILITY_KEYS = [
   "spec_research_invoked",
   "spec_research_no_matches",
   "spec_research_shape_violation",
+  // The spec-research fork's legal-skip disposition: a `--no-tech` run has no
+  // `## Technical Design` interview to seed, so the fork is not invoked.
+  "spec_research_skipped_no_tech",
   "deps_research_invoked",
   "deps_research_no_matches",
   "deps_research_shape_violation",
@@ -192,6 +195,12 @@ export const CANONICAL_CAPABILITY_KEYS = [
   // and the const<->directive invariant stays two-way.
   "design_references_passed",
   "design_references_none_cited",
+  // /implement Phase 3 self-review: a finding that conflicts with the FR's
+  // Acceptance Criteria, Technical Design or Testing section ends the round
+  // as an operator escalation instead of an FR edit. Owned by `spec-write`
+  // (the § 7 row) like every token /implement emits; /implement Phase 3
+  // carries the emission-site MUST-emit directive of its own.
+  "implement_spec_conflict_escalated",
 ] as const;
 
 export type CapabilityKey = (typeof CANONICAL_CAPABILITY_KEYS)[number];
@@ -219,6 +228,7 @@ export const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   spec_research_invoked: "spec-write",
   spec_research_no_matches: "spec-write",
   spec_research_shape_violation: "spec-write",
+  spec_research_skipped_no_tech: "spec-write",
   deps_research_invoked: "spec-write",
   deps_research_no_matches: "spec-write",
   deps_research_shape_violation: "spec-write",
@@ -320,6 +330,10 @@ export const KEY_OWNER_SKILL: Record<CapabilityKey, string> = {
   // the Phase 4b″ run-placement paragraph where the block is rendered.
   design_references_passed: "spec-write",
   design_references_none_cited: "spec-write",
+  // STE-835: the self-review spec-conflict escalation. Routes to spec-write for
+  // the same reason as every row above; /implement Phase 3 carries the
+  // emission-site MUST-emit directive on its "Spec conflict." paragraph.
+  implement_spec_conflict_escalated: "spec-write",
 };
 
 /**

@@ -23,11 +23,11 @@
 // about. So stdout carries a whole announcement or nothing at all.
 
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { receiptsDir } from "./dpt_paths";
 import { nfr10Message } from "./dpt_version";
-import { bunInvocation, realpathOr } from "./shell_invocations";
+import { argv0Is, bunInvocation, realpathOr, shellInvocations, simpleCommandWords, trimShellBlanks } from "./shell_invocations";
 import { isToolkitManaged } from "./toolkit_managed";
 import { dptGitignorePath, writeDptGitignore } from "./setup/dpt_gitignore";
 import { announceReceipt, oneLine, readSessionReceipts, receiptDigest, writeReceipt } from "./tracker_receipts";
@@ -78,7 +78,10 @@ const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..");
  * <gate skill>` whose path realpaths to THIS file. So `echo bun run <front
  * door> …`, a trailing `# …` comment naming it, a `cd … &&` chain that could
  * print anything, and a same-named `gate_receipt.ts` somewhere this plugin does
- * not own all run nothing here, and announce nothing.
+ * not own all run nothing here, and announce nothing. One `cd` form is admitted
+ * (STE-791, `cdBunInvocation`): exactly `cd <absolute dir> && bun [run] <path>
+ * <gate skill> …`, the receipt call last, with no `$` or backtick and no
+ * whitespace but space and tab anywhere.
  *
  * Scope, not reading, is what separates this from `invokedDecidingModule`: the
  * gate receipt is deliberately NOT one of the tracker gate's
@@ -86,22 +89,160 @@ const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..");
  * about a different module.
  */
 export function announcesGateReceipt(command: string): boolean {
-  const run = bunInvocation(command);
-  if (run === null || run.module !== OWN_FRONT_DOOR) return false;
+  return gateReceiptSubcommand(command) !== null;
+}
+
+/** The gate skill a receipt-announcing command names, or null when it announces nothing. */
+function gateReceiptSubcommand(command: string): GateSkillName | null {
+  const run = bunInvocation(command) ?? cdBunInvocation(command);
+  if (run === null || run.module !== OWN_FRONT_DOOR) return null;
   const subcommand = run.args[0];
-  return subcommand !== undefined && isGateSkillName(subcommand);
+  return subcommand !== undefined && isGateSkillName(subcommand) ? subcommand : null;
+}
+
+/**
+ * STE-791 — the ONE `cd` form a receipt call may take: `cd <dir> && bun [run]
+ * <path> <args…>`, the receipt call the last segment, `<dir>` a literal
+ * absolute directory with no option, `<path>` a literal path (a relative one
+ * resolved against `<dir>`). No expansion of any kind, the plugin-root variable
+ * included. No whitespace but space and tab, and no control or format
+ * character, anywhere: `trimShellBlanks` refuses a newline, `\v`, U+00A0 or a
+ * zero-width character, and trims only the blanks the shell splits on around
+ * each segment. `<dir>` must be an existing directory, and a relative `<path>`
+ * is resolved against its REAL path: `bun` applies `..` to the physical
+ * directory the shell entered, so a lexical resolve through a symlinked `<dir>`
+ * would name one file while bun ran another. Deliberately local:
+ * `bunInvocation` and its other readers keep refusing the `cd` form.
+ */
+function cdBunInvocation(command: string): { module: string; args: string[] } | null {
+  if (/[$`]/.test(command) || trimShellBlanks(command) === null) return null;
+  const joint = command.indexOf("&&");
+  if (joint < 0) return null;
+  const cd = simpleCommandWords(trimShellBlanks(command.slice(0, joint))!);
+  const bun = simpleCommandWords(trimShellBlanks(command.slice(joint + 2))!);
+  if (cd === null || bun === null || cd.length !== 2 || cd[0] !== "cd") return null;
+  const dir = cd[1]!;
+  // Normal form only: the shell collapses `..` lexically before it enters the directory, while
+  // realpath follows symlinks first, so a `..` (or `.`, `//`, trailing slash) could make the two disagree.
+  if (!dir.startsWith("/") || resolve(dir) !== dir) return null;
+  let physical: string;
+  try {
+    if (!statSync(dir).isDirectory()) return null;
+    physical = realpathSync(dir);
+  } catch {
+    return null; // a directory the `cd` cannot enter runs nothing
+  }
+  if (bun[0] !== "bun") return null;
+  const at = bun[1] === "run" ? 2 : 1;
+  const target = bun[at];
+  if (target === undefined || target.startsWith("-")) return null;
+  return { module: realpathOr(resolve(physical, target)), args: bun.slice(at + 1) };
+}
+
+/**
+ * STE-825 — drop every backslash-newline outside single quotes, as the shell
+ * does before reading words, so a continued outcome call stays one plain call.
+ * Only the outcome verb's strict reader uses it; `bunInvocation` is unchanged.
+ */
+function joinContinuations(command: string): string {
+  let out = "";
+  let single = false;
+  let double = false;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (single) {
+      if (c === "'") single = false;
+      out += c;
+    } else if (c === "'" && !double) {
+      single = true;
+      out += c;
+    } else if (c === '"') {
+      double = !double;
+      out += c;
+    } else if (c === "\\" && command[i + 1] === "\n") {
+      i++;
+    } else if (c === "\\" && i + 1 < command.length) {
+      out += c + command[++i];
+    } else {
+      out += c;
+    }
+  }
+  return out;
 }
 
 /**
  * STE-715 — whether a Bash command RAN this front door's `outcome` verb: one
  * plain `bun [run] <absolute path> outcome …` whose path realpaths to THIS file,
- * read by the same `bunInvocation` grammar `announcesGateReceipt` uses. An
+ * read by the plain `bunInvocation` grammar alone — never the `cd` form that
+ * `announcesGateReceipt` also admits (STE-791). An
  * outcome run is never a gate receipt announcement, so no evidence reader
  * counts it.
  */
 export function runsGateOutcome(command: string): boolean {
-  const run = bunInvocation(command);
+  const run = bunInvocation(joinContinuations(command));
   return run !== null && run.module === OWN_FRONT_DOOR && run.args[0] === "outcome";
+}
+
+/**
+ * The skill word of EVERY segment that RUNS this front door's outcome verb —
+ * `bun [flags] [run [flags]] <…/gate_receipt.ts> outcome <skill>`, `bun` by any
+ * path, anywhere in the command, a compound included: empty when no such segment
+ * exists, a `null` entry where nothing follows `outcome`. Segments come from the
+ * shared quote- and heredoc-aware reader (`shellInvocations`), so `bun` counts
+ * only in command position: a quoted string, a commit message or a heredoc body
+ * that quotes the call is never one (fix round 5, RD2). A program word built by
+ * an expansion (`$BUN`, `$(which bun)`, a backtick) cannot be read, so it is taken
+ * as possibly `bun` and fails closed (fix round 7). A command that only reads
+ * or greps the file names no outcome call either (fix round 3 audit: `sed …
+ * gate_receipt.ts | grep outcome` held every commit). A command the reader throws
+ * on fails closed, as a call for every gate.
+ */
+function outcomeSkillWords(command: string): Array<string | null> {
+  const door = basename(OWN_FRONT_DOOR);
+  let invocations: ReturnType<typeof shellInvocations>;
+  try {
+    invocations = shellInvocations(command, process.cwd());
+  } catch {
+    return [null]; // a command the shell reader cannot read fails closed: it may hold a call
+  }
+  const found: Array<string | null> = [];
+  const isFlag = (w: string | undefined): boolean => w !== undefined && w.startsWith("-");
+  // A program word built by an expansion (`$…`, a backtick) cannot be read, so it may be `bun`.
+  const mayBeBun = (w: string | undefined): boolean =>
+    argv0Is(w, "bun") || (w !== undefined && /[$`]/.test(w));
+  for (const { argv } of invocations) {
+    // `bun` in command position by any path, optional flags, an optional `run`, optional flags, the door.
+    if (!mayBeBun(argv[0])) continue;
+    let at = 1;
+    while (isFlag(argv[at])) at++;
+    if (argv[at] === "run") {
+      at++;
+      while (isFlag(argv[at])) at++;
+    }
+    const w = argv[at];
+    if (w === undefined || (w !== door && !w.endsWith(`/${door}`))) continue;
+    if (argv[at + 1] !== "outcome") continue;
+    const skill = argv[at + 2];
+    found.push(skill === undefined || skill === "" ? null : skill);
+  }
+  return found;
+}
+
+/**
+ * STE-825 — the looser reading of the outcome verb, scoped to ONE gate
+ * (`subject`, the full skill name): whether any segment of `command` RUNS this
+ * front door's outcome verb (`bun [run] <door> outcome …`), a compound command
+ * or a `cd` chain included; a command that only reads the file does not. Such a
+ * call that `runsGateOutcome` does not count is an
+ * unreadable outcome, never nothing. A command whose skill word names ANOTHER
+ * gate is that gate's business, so its pending or unreadable outcome does not
+ * hold this one; a skill word that is not a gate name (a variable, nothing at
+ * all) cannot be placed, so it fails closed and counts for every gate.
+ */
+export function namesGateOutcomeFor(command: string, subject: string): boolean {
+  return outcomeSkillWords(command).some(
+    (word) => word === null || !isGateSkillName(word) || gateSubject(word) === subject,
+  );
 }
 
 /**
@@ -110,8 +251,8 @@ export function runsGateOutcome(command: string): boolean {
  * own run may make this gate wait on a pending result.
  */
 export function announcesGateReceiptFor(command: string, subject: string): boolean {
-  if (!announcesGateReceipt(command)) return false;
-  return `${GATE_SKILL_NAMESPACE}:${bunInvocation(command)!.args[0]}` === subject;
+  const name = gateReceiptSubcommand(command);
+  return name !== null && gateSubject(name) === subject;
 }
 
 /**
@@ -264,7 +405,7 @@ export async function recordGateRun(skill: string, target: string): Promise<stri
       evidence = { head, ...(await computeReuseKey(root)) };
     } catch (error) {
       evidence = { head, key: null, key_digest: null };
-      console.error(`gate-outcome: the reuse key could not be computed, so no outcome is recorded: ${errorText(error)}`);
+      console.error(`gate-outcome: the reuse key could not be computed, so this run is never reused (its outcome is still recorded): ${errorText(error)}`);
     }
   }
 
@@ -327,6 +468,9 @@ export const GATE_OUTCOME_KIND = "gate-outcome";
 
 /** The line prefix an outcome write is announced with — never `dpt-receipt: `. */
 export const GATE_OUTCOME_ANNOUNCEMENT_PREFIX = "dpt-gate-outcome: ";
+
+/** STE-825 — the line the outcome verb prints when it recorded nothing; that line is no outcome. */
+export const GATE_OUTCOME_OFF_PREFIX = "no gate outcome was recorded: ";
 
 /** The step-name rule `--step` names follow; the gate_reuse front door's labels follow it too. */
 export const STEP_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
@@ -397,7 +541,8 @@ export function sessionReceiptFiles(root: string, sessionId: string): StoredRece
 /**
  * Record the outcome of the latest unpaired run of `skill` against the
  * checkout containing `target`, and return the outcome receipt's path — or
- * `null` when the switch reads off, in which case nothing is written.
+ * `null` when the switch reads off, in which case nothing is written. A
+ * target in no checkout throws (STE-825).
  */
 export async function recordGateOutcome(
   skill: string | undefined,
@@ -405,7 +550,15 @@ export async function recordGateOutcome(
   rest: readonly string[],
 ): Promise<string | null> {
   const switchRoot = checkoutRootOf(target ?? process.cwd());
-  if (switchRoot === null) return null;
+  if (switchRoot === null) {
+    // STE-825 — a path in no checkout fails: the call is unreadable, never "off".
+    throw new GateReceiptError(
+      "no-checkout",
+      `"${target ?? process.cwd()}" is in no git checkout, so no gate outcome was recorded`,
+      "name a path inside the checkout the gate ran against, then re-run the outcome call",
+      `reason=no-checkout, skill=${skill}`,
+    );
+  }
   if (!(await outcomesSwitchOn(switchRoot))) return null;
 
   if (skill === undefined || target === undefined) {
@@ -501,14 +654,29 @@ export function announceGateOutcome(path: string): string {
   return `${GATE_OUTCOME_ANNOUNCEMENT_PREFIX}${abs} sha256:${receiptDigest(readFileSync(abs))}`;
 }
 
-/** True when the receipt at `path` carries a non-null reuse key (STE-715). */
-function receiptCarriesKey(path: string): boolean {
+/** The receipt's `evidence` object, or null when it cannot be read. */
+function receiptEvidence(path: string): Record<string, unknown> | null {
   try {
-    const r = JSON.parse(readFileSync(path, "utf-8")) as { evidence?: { key_digest?: unknown } };
-    return typeof r.evidence?.key_digest === "string";
+    const r = JSON.parse(readFileSync(path, "utf-8")) as { evidence?: unknown };
+    return r.evidence !== null && typeof r.evidence === "object" ? (r.evidence as Record<string, unknown>) : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * STE-825 — true when the receipt at `path` carries the key FIELD: the outcome
+ * switch read on. A key that could not be computed is still the field (its
+ * digest null), so the switch reads on for that run too.
+ */
+function receiptCarriesKey(path: string): boolean {
+  const evidence = receiptEvidence(path);
+  return evidence !== null && "key_digest" in evidence;
+}
+
+/** True when the receipt at `path` carries a real (string) reuse key (STE-715). */
+function receiptKeyComputed(path: string): boolean {
+  return typeof receiptEvidence(path)?.key_digest === "string";
 }
 
 // ---------------------------------------------------------------------------
@@ -607,7 +775,10 @@ export type GateEvidenceReason =
   | "announcement-foreign-store"
   | "run-announced-many"
   | "run-announced-none"
-  | "nothing-announced";
+  | "nothing-announced"
+  | "gate-failed"
+  | "outcome-pending"
+  | "outcome-unreadable";
 
 export interface GateEvidence {
   /** False ONLY when the leg applies and is not satisfied. */
@@ -740,6 +911,12 @@ export interface VouchContext {
    */
   incompleteRuns?: readonly IncompleteRun[];
   /**
+   * STE-825 — every `dpt-gate-outcome:` announcement the transcript carries, in
+   * transcript order. NEVER mixed into `announcements`, which decide vouching:
+   * these only decide which outcome files count. Absent ⇒ no outcome counts.
+   */
+  outcomes?: readonly ReceiptAnnouncement[];
+  /**
    * Every OTHER checkout this session could have minted a receipt in — the
    * session's own root and the command's other targets. A window is claimed by
    * the earliest receipt written in it across all of them, so without the peers
@@ -754,6 +931,8 @@ export interface ReceiptAnnouncement {
   digest: string;
   /** Transcript line — the ordering key no file content can forge. */
   line: number;
+  /** STE-825 — set on an outcome-verb call that counts for nothing: no result yet, or one that was not read. */
+  unread?: "pending" | "unreadable";
 }
 
 /**
@@ -812,7 +991,7 @@ type AnnouncementDrop = "tampered" | "unreadable" | "foreign-store";
 /** What `announcedRoots` measured: what survived, and why the rest did not. */
 interface AnnouncedReading {
   /** The roots this session announced a still-intact receipt for, in order. */
-  kept: Array<{ root: string; line: number }>;
+  kept: Array<{ root: string; line: number; digest: string; path: string }>;
   /**
    * One entry per announcement the filter rejected, with its cause AND the
    * file it named. The path is carried because a report that says a receipt
@@ -833,7 +1012,7 @@ function announcedRoots(
   announcements: readonly ReceiptAnnouncement[],
   sessionId: string,
 ): AnnouncedReading {
-  const kept: Array<{ root: string; line: number }> = [];
+  const kept: Array<{ root: string; line: number; digest: string; path: string }> = [];
   const dropped: Array<{ drop: AnnouncementDrop; line: number; path: string }> = [];
   for (const a of announcements) {
     const root = announcedRoot(a.path, sessionId);
@@ -852,7 +1031,7 @@ function announcedRoots(
       dropped.push({ drop: "tampered", line: a.line, path: a.path });
       continue;
     }
-    kept.push({ root, line: a.line });
+    kept.push({ root, line: a.line, digest: a.digest, path: resolve(a.path) });
   }
   return {
     kept: kept.sort((x, y) => x.line - y.line),
@@ -1110,6 +1289,14 @@ export function gateReceiptEvidence(
   // it leaves by. Read from the drop that recorded it, so it says which FILE.
   const tampered = reading.dropped.filter((d) => d.drop === "tampered").map((d) => d.path);
   let claimant: string | null = null;
+  // STE-825 — the PERMIT and the GRADE read different sets. A window vouches
+  // when its FIRST announcement is this checkout; that alone decides whether
+  // the gate ran here at all. The runs whose outcomes are graded are every run
+  // announced for this checkout anywhere in the transcript, whatever window it
+  // sits in — a window another checkout opened still holds this checkout's
+  // later runs, and their `pass` or `fail` is the newest word on it.
+  const ours = announced.filter((a) => a.root === real);
+  let vouching = false;
   for (const window of vouch.windows) {
     const inside = announced.filter(
       (a) => a.line >= window.startLine && a.line < window.endLine,
@@ -1117,13 +1304,43 @@ export function gateReceiptEvidence(
     if (inside.length === 0) continue;
     const first = inside[0]!;
     if (first.root === real) {
-      // PERMITTED — and the tamper goes with it rather than being discarded
-      // here, which is the whole of HIGH-3. Refusing would be a false positive:
-      // a genuine announcement in this window vouches for this checkout, so the
-      // gate demonstrably ran against it.
-      return vouched(tampered);
+      vouching = true;
+      continue;
     }
     if (claimant === null) claimant = first.root;
+  }
+  if (vouching) {
+    // STE-825 — the NEWEST counted `gate-outcome` decides: `fail` refuses,
+    // `pass` admits. An outcome counts only when ANNOUNCED and intact, and
+    // counted outcomes are ordered by their announcements in the transcript,
+    // never by the store. A run with no counted outcome never changes the
+    // verdict, and when none counts the vouch permits as before.
+    // STE-825 — outcomes OFF (or absent) for this checkout: a run receipt carries
+    // the reuse-key field (its digest null when uncomputable) exactly when the
+    // switch read on. The switch is read from the NEWEST run of this checkout, so
+    // one run with the field earlier in the session does not keep outcomes graded
+    // after they are switched off; when the newest run's receipt has no key
+    // field, no outcome, pending or unreadable call is graded.
+    const newestRun = ours.reduce<(typeof ours)[number] | undefined>(
+      (newest, a) => (newest === undefined || a.line > newest.line ? a : newest),
+      undefined,
+    );
+    const outcomesOn = newestRun !== undefined && receiptCarriesKey(newestRun.path);
+    const verdict = outcomesOn ? announcedVerdict(vouch.outcomes ?? [], sessionId, subject, real, ours) : null;
+    if (verdict !== null && verdict.decision === "fail") {
+      return { ok: false, reason: "gate-failed", claimant: null, named: verdict.run, ...here, tampered };
+    }
+    // STE-825 — an older verdict never decides past an outcome call that has
+    // no result yet, or one that was not counted.
+    if (verdict !== null && (verdict.decision === "pending" || verdict.decision === "unreadable")) {
+      const reason = verdict.decision === "pending" ? "outcome-pending" : "outcome-unreadable";
+      return { ok: false, reason, claimant: null, named: null, ...here, tampered };
+    }
+    // PERMITTED — and the tamper goes with it rather than being discarded
+    // here, which is the whole of HIGH-3. Refusing would be a false positive:
+    // a genuine announcement vouches for this checkout, so the gate
+    // demonstrably ran against it.
+    return vouched(tampered);
   }
   // Eight states, eight names, each decided HERE by the VALUE that produced it
   // — never by `announced.length`, which is a post-filter count and so cannot
@@ -1187,6 +1404,61 @@ export function gateReceiptEvidence(
   if (incomplete.some((r) => r.outcome === "errored")) return miss("run-errored");
   if (incomplete.some((r) => r.outcome === "unresolved")) return miss("run-unresolved");
   return miss("nothing-announced");
+}
+
+/**
+ * STE-825 — the decision of the NEWEST counted outcome for this checkout's runs,
+ * with the run it is for, or null when none counts. Never throws.
+ *
+ * An outcome counts only when its own `dpt-gate-outcome` announcement is in the
+ * transcript AFTER its run's announcement, the file sits in this checkout's
+ * store and still hashes to the announced digest, and it is a `gate-outcome`
+ * record for `subject`. A `pass` must name one of `runs`; a `fail` counts
+ * whichever run it names (its own outcome path stands in when that run is not
+ * among `runs`), unless it was announced before that run's announcement. An
+ * announced file of this checkout that is gone, rewritten or unparseable is an
+ * `unreadable` outcome. A file in the store that no announcement names —
+ * written by hand — counts for nothing.
+ */
+function announcedVerdict(
+  outcomes: readonly ReceiptAnnouncement[],
+  sessionId: string,
+  subject: string,
+  real: string,
+  runs: ReadonlyArray<{ line: number; digest: string; path: string }>,
+): { decision: string; run: string } | null {
+  type Counted = { decision: string; run: string; line: number };
+  let newest: Counted | null = null;
+  const newer = (at: Counted | null, next: Counted): Counted => (at === null || next.line > at.line ? next : at);
+  for (const o of outcomes) {
+    if (o.unread !== undefined) {
+      newest = newer(newest, { decision: o.unread, run: "", line: o.line });
+      continue;
+    }
+    try {
+      if (announcedRoot(o.path, sessionId) !== real) continue;
+      let rec: { kind?: unknown; subject?: unknown; decision?: unknown; evidence?: { run?: unknown } };
+      try {
+        // An announced outcome file of this checkout that is gone, rewritten or
+        // unparseable is an UNREADABLE outcome, never nothing.
+        const bytes = readFileSync(resolve(o.path));
+        if (receiptDigest(bytes) !== o.digest) throw new Error("rewritten");
+        rec = JSON.parse(bytes.toString("utf-8"));
+      } catch {
+        newest = newer(newest, { decision: "unreadable", run: "", line: o.line });
+        continue;
+      }
+      if (rec?.kind !== GATE_OUTCOME_KIND || rec.subject !== subject || typeof rec.decision !== "string") continue;
+      const run = runs.find((r) => r.digest === rec.evidence?.run && r.line < o.line);
+      // A `fail` counts whichever run it names; a `pass` only after a counted run.
+      // A fail announced before its own run's announcement still never counts.
+      if (run === undefined && (rec.decision !== "fail" || runs.some((r) => r.digest === rec.evidence?.run))) continue;
+      newest = newer(newest, { decision: rec.decision, run: run?.path ?? o.path, line: o.line });
+    } catch {
+      continue;
+    }
+  }
+  return newest === null ? null : { decision: newest.decision, run: newest.run };
 }
 
 /** The two sentences a failed repository-scoped leg refuses with, and where. */
@@ -1444,6 +1716,24 @@ const MISS_PROSE: Readonly<
     `the ${w.subject} gate receipt under ${w.where} is vouched for by nothing: ` +
     `no command in this session was read as a run of the ${w.subject} receipt ` +
     `front door, so no run announced a receipt for any checkout, ${NOTHING_SHOWS}`,
+
+  // STE-825 — the run that vouches for this checkout recorded a `fail` outcome:
+  // the gate ran, and it failed.
+  "gate-failed": (w) =>
+    `the ${w.subject} run that vouches for it, ${w.named}, recorded a failed ` +
+    `outcome, so the gate ran against that checkout and did not pass.`,
+
+  // STE-825 — an outcome call is in the transcript with no result after the wait.
+  "outcome-pending": (w) =>
+    `a call in this session that runs the ${w.subject} front door's outcome verb ` +
+    `still has no result in the transcript after waiting, so this is a pending ` +
+    `gate outcome: whether that run passed cannot be read yet, and no older verdict decides past it.`,
+
+  // STE-825 — an outcome call ran, and nothing it printed can be counted.
+  "outcome-unreadable": (w) =>
+    `a call in this session that runs the ${w.subject} front door's outcome verb ` +
+    `was not counted (a compound command, an error result, or a result without ` +
+    `exactly one announcement line), so it is an unreadable outcome, and no older verdict decides past it.`,
 };
 
 /**
@@ -1504,7 +1794,12 @@ export function gateReceiptMiss(
         ? `this action writes to ${root}, and `
         : `this action writes to ${root}, a toolkit-managed checkout, and `) +
       MISS_PROSE[evidence.reason as keyof typeof MISS_PROSE](words),
-    how: `${remedyCommand(subject, root)}, then retry this action.`,
+    how:
+      evidence.reason === "gate-failed"
+        ? `fix what failed the gate, or re-run it: ${remedyCommand(subject, root)}, then retry this action.`
+        : evidence.reason === "outcome-pending" || evidence.reason === "outcome-unreadable"
+        ? `record the outcome with its own plain call once the gate has finished, or re-run it: ${remedyCommand(subject, root)}, then retry this action.`
+        : `${remedyCommand(subject, root)}, then retry this action.`,
     root,
     reason: evidence.reason,
     tampered: evidence.tampered.length > 0,
@@ -1580,14 +1875,16 @@ export function gateReceiptLeg(
   announcements?: readonly ReceiptAnnouncement[],
   misreadRuns?: readonly AnnouncementMisread[],
   incompleteRuns?: readonly IncompleteRun[],
+  outcomes?: readonly ReceiptAnnouncement[],
 ) => GateEvidenceMiss | null {
-  return (root, windows, announcements, misreadRuns, incompleteRuns) =>
+  return (root, windows, announcements, misreadRuns, incompleteRuns, outcomes) =>
     gateReceiptMiss(subject, root, sessionId, {
       windows,
       peerRoots,
       announcements,
       misreadRuns,
       incompleteRuns,
+      outcomes,
     });
 }
 
@@ -1605,14 +1902,16 @@ export function gateReceiptNoteLeg(
   announcements?: readonly ReceiptAnnouncement[],
   misreadRuns?: readonly AnnouncementMisread[],
   incompleteRuns?: readonly IncompleteRun[],
+  outcomes?: readonly ReceiptAnnouncement[],
 ) => GateEvidenceMiss[] {
-  return (root, windows, announcements, misreadRuns, incompleteRuns) =>
+  return (root, windows, announcements, misreadRuns, incompleteRuns, outcomes) =>
     gateReceiptNotes(subject, root, sessionId, {
       windows,
       peerRoots,
       announcements,
       misreadRuns,
       incompleteRuns,
+      outcomes,
     });
 }
 
@@ -1654,6 +1953,7 @@ export interface GateEvidenceTarget {
     announcements?: readonly ReceiptAnnouncement[],
     misreadRuns?: readonly AnnouncementMisread[],
     incompleteRuns?: readonly IncompleteRun[],
+    outcomes?: readonly ReceiptAnnouncement[],
   ): GateEvidenceMiss | null;
   /** What a PERMITTED root is still owed a word about (`gateReceiptNotes`). */
   receiptNotes(
@@ -1662,6 +1962,7 @@ export interface GateEvidenceTarget {
     announcements?: readonly ReceiptAnnouncement[],
     misreadRuns?: readonly AnnouncementMisread[],
     incompleteRuns?: readonly IncompleteRun[],
+    outcomes?: readonly ReceiptAnnouncement[],
   ): GateEvidenceMiss[];
   /**
    * Whether a Bash command RAN the receipt front door (`announcesGateReceipt`).
@@ -1673,6 +1974,14 @@ export interface GateEvidenceTarget {
    * and re-open HS-1.
    */
   announcesReceipts(command: string): boolean;
+  /** STE-825 — whether a Bash command ran the outcome verb (`runsGateOutcome`). */
+  announcesOutcomes(command: string): boolean;
+  /** STE-825 — the outcome announcement prefix (`GATE_OUTCOME_ANNOUNCEMENT_PREFIX`). */
+  outcomePrefix: string;
+  /** STE-825 — the line prefix of the outcome verb's nothing-recorded line (`GATE_OUTCOME_OFF_PREFIX`). */
+  outcomeOffPrefix: string;
+  /** STE-825 — whether a command names the outcome verb for THIS gate, or for no gate it can place (`namesGateOutcomeFor`). */
+  mentionsOutcomes(command: string): boolean;
   /** STE-650 — whether a command ran the front door for THIS target's gate. */
   announcesOwnRun(command: string): boolean;
 }
@@ -1715,6 +2024,11 @@ export function gateEvidenceTarget(
     receiptLeg: gateReceiptLeg(subject, sessionId, peerRoots),
     receiptNotes: gateReceiptNoteLeg(subject, sessionId, peerRoots),
     announcesReceipts: announcesGateReceipt,
+    // Scoped like `mentionsOutcomes`: another gate's outcome call is never this gate's pending or unreadable one.
+    announcesOutcomes: (command) => runsGateOutcome(command) && namesGateOutcomeFor(command, subject),
+    outcomePrefix: GATE_OUTCOME_ANNOUNCEMENT_PREFIX,
+    outcomeOffPrefix: GATE_OUTCOME_OFF_PREFIX,
+    mentionsOutcomes: (command) => namesGateOutcomeFor(command, subject),
     announcesOwnRun: (command) => announcesGateReceiptFor(command, subject),
   };
 }
@@ -1753,22 +2067,23 @@ if (import.meta.main) {
   }
 }
 
-/** The STE-715 outcome verb: silent when the switch is off, else one record. */
+/** The STE-715 outcome verb: one record when the switch is on; off, one line saying nothing was recorded (STE-825). */
 async function runOutcomeFrontDoor(argv: readonly string[]): Promise<void> {
   const [outcomeSkill, outcomeTarget, ...rest] = argv;
   try {
     const path = await recordGateOutcome(outcomeSkill, outcomeTarget, rest);
     if (path !== null) console.log(announceGateOutcome(path));
+    else console.log(`${GATE_OUTCOME_OFF_PREFIX}outcomes are off for this checkout`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
 }
 
-/** `outcome: on` when the receipt is keyed, then `reuse: on` for gate-check when its knob reads reuse. */
+/** `outcome: on` when the receipt carries the key field, then `reuse: on` for gate-check when its knob reads reuse and the key was computed. */
 async function printOutcomeLines(skill: string, target: string, path: string): Promise<void> {
-  // STE-715: a receipt carrying a key means the switch read on and the key
-  // was computed, so the gate's outcome call may follow.
+  // STE-715 / STE-825: a receipt carrying the key field means the switch read
+  // on (even when the key could not be computed), so the outcome call may follow.
   if (!receiptCarriesKey(path)) return;
   console.log("outcome: on");
   // STE-724 (AC-STE-724.20): only the gate-check receipt call reports the
@@ -1780,7 +2095,8 @@ async function printOutcomeLines(skill: string, target: string, path: string): P
     const root = checkoutRootOf(target);
     if (root === null) return;
     const { readOptimizations } = await import("./optimizations_config");
-    if (readOptimizations(root).gate_commands === "reuse") console.log("reuse: on");
+    // STE-825: `outcome: on` stands even for a key that could not be computed; `reuse: on` only for a real key.
+    if (readOptimizations(root).gate_commands === "reuse" && receiptKeyComputed(path)) console.log("reuse: on");
   } catch {
     // best effort: the receipt and its two lines stand as written
   }

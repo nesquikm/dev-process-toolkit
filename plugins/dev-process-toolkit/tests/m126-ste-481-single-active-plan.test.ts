@@ -113,7 +113,7 @@ const SMOKE_SKILL = join(REPO_ROOT, ".claude", "skills", "smoke-test", "SKILL.md
 const read = (path: string): string => readFileSync(path, "utf-8");
 
 /** NFR-1, counted exactly as `tests/skill-nfr-1-length.test.ts` counts it. */
-const SKILL_LINE_CAP = 358;
+const SKILL_LINE_CAP = 362; // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
 const skillLines = (path: string): number => read(path).split("\n").length;
 
 /** The `skills/` tracker-token ceiling — measured at 246/246, zero headroom. */
@@ -763,7 +763,7 @@ describe("AC-STE-481.3 — the shipped prose about the plan filename is true as 
     expect(row!).toMatch(/consum\w*|unconsumed|no longer exempt|narrow\w*/i);
   });
 
-  test("NFR-1 — every edited SKILL.md stays at or under the 358-line cap", () => {
+  test("NFR-1 — every edited SKILL.md stays at or under the 362-line cap", () => { // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     // setup + spec-write are AT 358/358: any prose landed there must be
     // net-zero-line, carried on an existing line.
     expect(skillLines(SETUP_SKILL)).toBeLessThanOrEqual(SKILL_LINE_CAP);

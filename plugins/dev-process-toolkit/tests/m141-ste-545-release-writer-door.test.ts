@@ -611,7 +611,7 @@ const DOCS_CONFIG_KEY = "adapters/_shared/src/docs_config.ts";
  */
 const FLIPPED_BY_THE_DOCS_CONFIG_IMPORT = [
   { surface: "skills/docs/SKILL.md", line: 23 },
-  { surface: "skills/implement/SKILL.md", line: 221 },
+  { surface: "skills/implement/SKILL.md", line: 223 }, // Amended by AC-STE-835.1 (M_d1e7b1): +2 below the STE-835 paragraph.
 ] as const;
 
 describe("AC-STE-545.7 — probe #81 stays put while the class flips", () => {

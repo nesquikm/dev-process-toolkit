@@ -148,7 +148,7 @@ const MODULE_PATH_RE = /[A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+\.ts\b/g;
 const BASE = "6b5422c";
 
 function line177(): string {
-  return read(SPEC_WRITE).split("\n")[176] ?? "";
+  return read(SPEC_WRITE).split("\n")[154] ?? ""; // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
 }
 
 describe("AC-STE-610.4 — spec-write line 177 orders --declare right after the plan file is written", () => {
@@ -246,7 +246,7 @@ describe("AC-STE-651.7 — the spec-write --declare line writes this repository'
 
   test("AC-STE-651.7 the file keeps 358 split-lines and 54 STE tokens", () => {
     const body = read(SPEC_WRITE);
-    expect(body.split("\n").length).toBe(358);
+    expect(body.split("\n").length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
     expect((body.match(/STE-\d+/g) ?? []).length).toBe(54);
   });
 
