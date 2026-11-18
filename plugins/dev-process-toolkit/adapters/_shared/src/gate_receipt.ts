@@ -190,7 +190,9 @@ export function runsGateOutcome(command: string): boolean {
  * exists, a `null` entry where nothing follows `outcome`. Segments come from the
  * shared quote- and heredoc-aware reader (`shellInvocations`), so `bun` counts
  * only in command position: a quoted string, a commit message or a heredoc body
- * that quotes the call is never one (fix round 5, RD2). A command that only reads
+ * that quotes the call is never one (fix round 5, RD2). A program word built by
+ * an expansion (`$BUN`, `$(which bun)`, a backtick) cannot be read, so it is taken
+ * as possibly `bun` and fails closed (fix round 7). A command that only reads
  * or greps the file names no outcome call either (fix round 3 audit: `sed …
  * gate_receipt.ts | grep outcome` held every commit). A command the reader throws
  * on fails closed, as a call for every gate.
@@ -205,9 +207,12 @@ function outcomeSkillWords(command: string): Array<string | null> {
   }
   const found: Array<string | null> = [];
   const isFlag = (w: string | undefined): boolean => w !== undefined && w.startsWith("-");
+  // A program word built by an expansion (`$…`, a backtick) cannot be read, so it may be `bun`.
+  const mayBeBun = (w: string | undefined): boolean =>
+    argv0Is(w, "bun") || (w !== undefined && /[$`]/.test(w));
   for (const { argv } of invocations) {
     // `bun` in command position by any path, optional flags, an optional `run`, optional flags, the door.
-    if (!argv0Is(argv[0], "bun")) continue;
+    if (!mayBeBun(argv[0])) continue;
     let at = 1;
     while (isFlag(argv[at])) at++;
     if (argv[at] === "run") {
