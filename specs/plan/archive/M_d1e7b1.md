@@ -1,7 +1,7 @@
 ---
 milestone: M_d1e7b1
-status: active
-archived_at: null
+status: archived
+archived_at: 2026-11-18T14:41:50Z
 kickoff_branch: fix/conformance-2026-11-17
 frozen_at: null
 migration: none
