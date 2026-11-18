@@ -99,20 +99,23 @@ function keyFailedScenario(label: string, brk: (root: string) => void) {
 }
 
 describe("AC-STE-825.4 RE1 — a run whose key could not be computed still reads on", () => {
+  // Not a skip call site (AC-STE-616.16 pins those by name): a breaker that
+  // cannot break the key for this user (root reads a 000 file) defines no test.
   for (const [name, brk, skip] of BREAKERS) {
-    test.skipIf(skip)(`${name}: r2's receipt carries the key field, its digest null`, () => {
+    if (skip) continue;
+    test(`${name}: r2's receipt carries the key field, its digest null`, () => {
       const { r2 } = keyFailedScenario(rid("re1-ev"), brk);
       const ev = evidenceOf(r2);
       expect("key_digest" in ev).toBe(true);
       expect(ev.key_digest).toBeNull();
     }, T);
 
-    test.skipIf(skip)(`${name}: r2's mint still says outcome: on`, () => {
+    test(`${name}: r2's mint still says outcome: on`, () => {
       const { r2 } = keyFailedScenario(rid("re1-on"), brk);
       expect(r2.run.stdout.split("\n")).toContain("outcome: on");
     }, T);
 
-    test.skipIf(skip)(`${name}: keyed fail, key-failed r2, no later outcome → refuses`, async () => {
+    test(`${name}: keyed fail, key-failed r2, no later outcome → refuses`, async () => {
       const { root, r1, f, r2 } = keyFailedScenario(rid("re1-hk"), brk);
       const r = await hook(root, [
         ...skillCall("gate", "sk1"),
