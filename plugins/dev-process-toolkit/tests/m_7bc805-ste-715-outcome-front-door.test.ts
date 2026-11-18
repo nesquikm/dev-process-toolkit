@@ -326,7 +326,7 @@ describe("AC-STE-715.13 switch off", () => {
       expect(readJson(path).evidence).toEqual({ head: git(root, "rev-parse", "HEAD").trim() });
     }, T);
 
-    test(`switch off (${state}): the outcome CLI exits 0, prints only that outcomes are off, and writes nothing`, () => { // Amended by AC-STE-825.4 (M_d1e7b1)
+    test(`switch off (${state}): the outcome CLI exits 0, prints only that outcomes are off, and writes nothing`, () => { // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a path in no checkout now fails
       const root = makeTree(`off-outcome-${state}`, state);
       mintRun(root);
       const before = receiptFiles(root);
@@ -343,7 +343,7 @@ describe("AC-STE-715.13 switch off", () => {
         expect({ args: f.args, code: r.exitCode, out: r.stdout, err: r.stderr }).toEqual({
           args: f.args,
           code: 0,
-          out: "no gate outcome was recorded: outcomes are off for this checkout, or the path is in no checkout\n", // Amended by AC-STE-825.4 (M_d1e7b1)
+          out: "no gate outcome was recorded: outcomes are off for this checkout\n", // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a path in no checkout now fails
           err: "",
         });
       }
@@ -369,7 +369,7 @@ describe("AC-STE-715.13 switch off", () => {
     }
   }, T);
 
-  test("SUPERSEDED: the v3.0.0 front door refused `outcome` with reason=unknown-skill; today's says it is off", () => { // Amended by AC-STE-825.4 (M_d1e7b1)
+  test("SUPERSEDED: the v3.0.0 front door refused `outcome` with reason=unknown-skill; today's says it is off", () => { // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a path in no checkout now fails
     const dir = tempDir("v300-tree");
     const tar = spawnSync(
       "bash",
@@ -384,7 +384,7 @@ describe("AC-STE-715.13 switch off", () => {
     expect(trunk.stdout).toBe("");
     expect(trunk.stderr).toContain("reason=unknown-skill, skill=outcome");
     const now = runCli(["outcome", "gate-check", root, "pass"]);
-    expect({ code: now.exitCode, out: now.stdout, err: now.stderr }).toEqual({ code: 0, out: "no gate outcome was recorded: outcomes are off for this checkout, or the path is in no checkout\n", err: "" }); // Amended by AC-STE-825.4 (M_d1e7b1)
+    expect({ code: now.exitCode, out: now.stdout, err: now.stderr }).toEqual({ code: 0, out: "no gate outcome was recorded: outcomes are off for this checkout\n", err: "" }); // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a path in no checkout now fails
   }, T);
 
   test("switch on: the receipt CLI prints exactly two lines, the announcement then `outcome: on`", () => {
@@ -427,14 +427,16 @@ describe("AC-STE-715.17 a key error never blocks", () => {
     return join(copy, "adapters", "_shared", "src", "gate_receipt.ts");
   }
 
-  test("an unreadable manifest degrades: exit 0, one announcement line, evidence { head, key: null, key_digest: null }, one stderr note", () => {
+  // Amended by AC-STE-825.4 (M_d1e7b1), fix round 6: a key that could not be computed still reads the switch on, so the run says `outcome: on`.
+  test("an unreadable manifest degrades: exit 0, the announcement line then `outcome: on`, evidence { head, key: null, key_digest: null }, one stderr note", () => {
     const door = brokenManifestDoor();
     const root = makeTree("key-error", "on");
     const r = runCli(["gate-check", root], { frontDoor: door, env: { CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT } });
     expect(r.exitCode).toBe(0);
     const lines = r.stdout.split("\n");
-    expect(lines.length).toBe(2);
-    expect(lines[1]).toBe("");
+    expect(lines.length).toBe(3);
+    expect(lines[1]).toBe("outcome: on");
+    expect(lines[2]).toBe("");
     const ann = parseAnnouncement(lines[0]!, "dpt-receipt: ");
     expect(ann).not.toBeNull();
     expect(readJson(ann!.path).evidence).toEqual({

@@ -109,21 +109,21 @@ describe("AC-STE-825.4 RD1 — the switch is read from the newest counted run", 
     expect(r.exitCode).toBe(0);
   }, T);
 
-  test("S2b: outcomes on, the off line from a path in no checkout is no outcome → admits", async () => {
+  // Amended by AC-STE-825.4 (M_d1e7b1) fix round 6
+  test("S2b: outcomes on, an outcome call for a path in no checkout is unreadable → refuses", async () => {
     const root = makeTree("rd1-s2b", "on");
     stageCodeAndTest(root);
     const r1 = mintRun(root);
     const p = outcome(root, "pass");
     const nowhere = tempDir("rd1-s2b-nowhere");
     const off = runCli(["outcome", "gate-check", nowhere, "pass"]);
-    expect(off.stdout.startsWith(OFF_LINE)).toBe(true);
     const r = await hook(root, [
       ...skillCall("gate", "sk1"),
       ...runRecords(root, r1),
       ...p,
       ...bashCall(rid("o"), outcomeCommand("gate-check", nowhere, "pass"), off.stdout),
     ]);
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(2);
   }, T);
 
   test("C-on control: fail recorded, re-run still keyed, no later outcome → refuses", async () => {

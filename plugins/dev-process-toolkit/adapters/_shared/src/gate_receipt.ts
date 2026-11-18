@@ -140,6 +140,37 @@ function cdBunInvocation(command: string): { module: string; args: string[] } | 
 }
 
 /**
+ * STE-825 — drop every backslash-newline outside single quotes, as the shell
+ * does before reading words, so a continued outcome call stays one plain call.
+ * Only the outcome verb's strict reader uses it; `bunInvocation` is unchanged.
+ */
+function joinContinuations(command: string): string {
+  let out = "";
+  let single = false;
+  let double = false;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (single) {
+      if (c === "'") single = false;
+      out += c;
+    } else if (c === "'" && !double) {
+      single = true;
+      out += c;
+    } else if (c === '"') {
+      double = !double;
+      out += c;
+    } else if (c === "\\" && command[i + 1] === "\n") {
+      i++;
+    } else if (c === "\\" && i + 1 < command.length) {
+      out += c + command[++i];
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
+/**
  * STE-715 — whether a Bash command RAN this front door's `outcome` verb: one
  * plain `bun [run] <absolute path> outcome …` whose path realpaths to THIS file,
  * read by the plain `bunInvocation` grammar alone — never the `cd` form that
@@ -148,7 +179,7 @@ function cdBunInvocation(command: string): { module: string; args: string[] } | 
  * counts it.
  */
 export function runsGateOutcome(command: string): boolean {
-  const run = bunInvocation(command);
+  const run = bunInvocation(joinContinuations(command));
   return run !== null && run.module === OWN_FRONT_DOOR && run.args[0] === "outcome";
 }
 
@@ -369,7 +400,7 @@ export async function recordGateRun(skill: string, target: string): Promise<stri
       evidence = { head, ...(await computeReuseKey(root)) };
     } catch (error) {
       evidence = { head, key: null, key_digest: null };
-      console.error(`gate-outcome: the reuse key could not be computed, so no outcome is recorded: ${errorText(error)}`);
+      console.error(`gate-outcome: the reuse key could not be computed, so this run is never reused (its outcome is still recorded): ${errorText(error)}`);
     }
   }
 
@@ -505,7 +536,8 @@ export function sessionReceiptFiles(root: string, sessionId: string): StoredRece
 /**
  * Record the outcome of the latest unpaired run of `skill` against the
  * checkout containing `target`, and return the outcome receipt's path — or
- * `null` when the switch reads off, in which case nothing is written.
+ * `null` when the switch reads off, in which case nothing is written. A
+ * target in no checkout throws (STE-825).
  */
 export async function recordGateOutcome(
   skill: string | undefined,
@@ -513,7 +545,15 @@ export async function recordGateOutcome(
   rest: readonly string[],
 ): Promise<string | null> {
   const switchRoot = checkoutRootOf(target ?? process.cwd());
-  if (switchRoot === null) return null;
+  if (switchRoot === null) {
+    // STE-825 — a path in no checkout fails: the call is unreadable, never "off".
+    throw new GateReceiptError(
+      "no-checkout",
+      `"${target ?? process.cwd()}" is in no git checkout, so no gate outcome was recorded`,
+      "name a path inside the checkout the gate ran against, then re-run the outcome call",
+      `reason=no-checkout, skill=${skill}`,
+    );
+  }
   if (!(await outcomesSwitchOn(switchRoot))) return null;
 
   if (skill === undefined || target === undefined) {
@@ -609,14 +649,29 @@ export function announceGateOutcome(path: string): string {
   return `${GATE_OUTCOME_ANNOUNCEMENT_PREFIX}${abs} sha256:${receiptDigest(readFileSync(abs))}`;
 }
 
-/** True when the receipt at `path` carries a non-null reuse key (STE-715). */
-function receiptCarriesKey(path: string): boolean {
+/** The receipt's `evidence` object, or null when it cannot be read. */
+function receiptEvidence(path: string): Record<string, unknown> | null {
   try {
-    const r = JSON.parse(readFileSync(path, "utf-8")) as { evidence?: { key_digest?: unknown } };
-    return typeof r.evidence?.key_digest === "string";
+    const r = JSON.parse(readFileSync(path, "utf-8")) as { evidence?: unknown };
+    return r.evidence !== null && typeof r.evidence === "object" ? (r.evidence as Record<string, unknown>) : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * STE-825 — true when the receipt at `path` carries the key FIELD: the outcome
+ * switch read on. A key that could not be computed is still the field (its
+ * digest null), so the switch reads on for that run too.
+ */
+function receiptCarriesKey(path: string): boolean {
+  const evidence = receiptEvidence(path);
+  return evidence !== null && "key_digest" in evidence;
+}
+
+/** True when the receipt at `path` carries a real (string) reuse key (STE-715). */
+function receiptKeyComputed(path: string): boolean {
+  return typeof receiptEvidence(path)?.key_digest === "string";
 }
 
 // ---------------------------------------------------------------------------
@@ -1256,10 +1311,11 @@ export function gateReceiptEvidence(
     // never by the store. A run with no counted outcome never changes the
     // verdict, and when none counts the vouch permits as before.
     // STE-825 — outcomes OFF (or absent) for this checkout: a run receipt carries
-    // a reuse key exactly when the switch read on. The switch is read from the
-    // NEWEST run of this checkout, so one keyed run earlier in the session does
-    // not keep outcomes graded after they are switched off; with the newest run
-    // keyless, no outcome, pending or unreadable call is graded.
+    // the reuse-key field (its digest null when uncomputable) exactly when the
+    // switch read on. The switch is read from the NEWEST run of this checkout, so
+    // one run with the field earlier in the session does not keep outcomes graded
+    // after they are switched off; when the newest run's receipt has no key
+    // field, no outcome, pending or unreadable call is graded.
     const newestRun = ours.reduce<(typeof ours)[number] | undefined>(
       (newest, a) => (newest === undefined || a.line > newest.line ? a : newest),
       undefined,
@@ -2012,17 +2068,17 @@ async function runOutcomeFrontDoor(argv: readonly string[]): Promise<void> {
   try {
     const path = await recordGateOutcome(outcomeSkill, outcomeTarget, rest);
     if (path !== null) console.log(announceGateOutcome(path));
-    else console.log(`${GATE_OUTCOME_OFF_PREFIX}outcomes are off for this checkout, or the path is in no checkout`);
+    else console.log(`${GATE_OUTCOME_OFF_PREFIX}outcomes are off for this checkout`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   }
 }
 
-/** `outcome: on` when the receipt is keyed, then `reuse: on` for gate-check when its knob reads reuse. */
+/** `outcome: on` when the receipt carries the key field, then `reuse: on` for gate-check when its knob reads reuse and the key was computed. */
 async function printOutcomeLines(skill: string, target: string, path: string): Promise<void> {
-  // STE-715: a receipt carrying a key means the switch read on and the key
-  // was computed, so the gate's outcome call may follow.
+  // STE-715 / STE-825: a receipt carrying the key field means the switch read
+  // on (even when the key could not be computed), so the outcome call may follow.
   if (!receiptCarriesKey(path)) return;
   console.log("outcome: on");
   // STE-724 (AC-STE-724.20): only the gate-check receipt call reports the
@@ -2034,7 +2090,8 @@ async function printOutcomeLines(skill: string, target: string, path: string): P
     const root = checkoutRootOf(target);
     if (root === null) return;
     const { readOptimizations } = await import("./optimizations_config");
-    if (readOptimizations(root).gate_commands === "reuse") console.log("reuse: on");
+    // STE-825: `outcome: on` stands even for a key that could not be computed; `reuse: on` only for a real key.
+    if (readOptimizations(root).gate_commands === "reuse" && receiptKeyComputed(path)) console.log("reuse: on");
   } catch {
     // best effort: the receipt and its two lines stand as written
   }
