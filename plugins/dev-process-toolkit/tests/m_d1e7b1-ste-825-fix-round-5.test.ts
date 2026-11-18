@@ -284,3 +284,71 @@ describe("AC-STE-825.4 RD2 — namesGateOutcomeFor reads command position", () =
     });
   }
 });
+
+// ---------------------------------------------------------------- cf-verify addendum (recheck 3)
+
+describe("AC-STE-825.4 RD1 — mixed keyed and unkeyed runs, both flip directions", () => {
+  test("on → off: a keyed counted pass, then an unkeyed run, then an uncounted outcome call → admits", async () => {
+    const root = makeTree("mix-on-off", "on");
+    stageCodeAndTest(root);
+    const r1 = mintRun(root);
+    const p = outcome(root, "pass");
+    flip(root, "false");
+    const r2 = mintRun(root);
+    const r = await hook(root, [
+      ...skillCall("gate", "sk1"),
+      ...runRecords(root, r1),
+      ...p,
+      ...skillCall("gate", "sk2"),
+      ...runRecords(root, r2),
+      ...bashCall(rid("u"), outcomeCommand("gate-check", root, "fail"), "ok"),
+    ]);
+    expect(r.exitCode).toBe(0);
+  }, T);
+
+  test("off → on: an unkeyed run, then a keyed run, then an uncounted outcome call → refuses", async () => {
+    const root = makeTree("mix-off-on", "false");
+    stageCodeAndTest(root);
+    const r1 = mintRun(root);
+    flip(root, "on");
+    const r2 = mintRun(root);
+    const r = await hook(root, [
+      ...skillCall("gate", "sk1"),
+      ...runRecords(root, r1),
+      ...skillCall("gate", "sk2"),
+      ...runRecords(root, r2),
+      ...bashCall(rid("u"), outcomeCommand("gate-check", root, "fail"), "ok"),
+    ]);
+    expect(r.exitCode).toBe(2);
+  }, T);
+
+  test("derived: keyed fail, switch off, unkeyed re-run whose pass call prints the off line → admits", async () => {
+    const root = makeTree("mix-derived", "on");
+    stageCodeAndTest(root);
+    const r1 = mintRun(root);
+    const f = outcome(root, "fail");
+    flip(root, "false");
+    const r2 = mintRun(root);
+    const off = runCli(["outcome", "gate-check", root, "pass"]);
+    expect(off.exitCode).toBe(0);
+    expect(off.stdout.startsWith(OFF_LINE)).toBe(true);
+    const r = await hook(root, [
+      ...skillCall("gate", "sk1"),
+      ...runRecords(root, r1),
+      ...f,
+      ...skillCall("gate", "sk2"),
+      ...runRecords(root, r2),
+      ...bashCall(rid("o"), outcomeCommand("gate-check", root, "pass"), off.stdout),
+    ]);
+    expect(r.exitCode).toBe(0);
+  }, T);
+});
+
+describe("AC-STE-825.4 — a bun segment running the door with another verb is no outcome call (Z5-d)", () => {
+  for (const verb of ["gate-check", "tdd", "--help"]) {
+    test(`bun <door> ${verb} names no gate outcome`, () => {
+      expect(namesGateOutcomeFor(`bun ${FRONT_DOOR} ${verb} /tmp/x`, GATE)).toBe(false);
+      expect(namesGateOutcomeFor(`bun run ${door} ${verb} /tmp/x`, GATE)).toBe(false);
+    });
+  }
+});
