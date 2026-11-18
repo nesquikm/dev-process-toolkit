@@ -45,20 +45,31 @@ function readRegistrations(): Registration[] {
   expect(end).toBeGreaterThan(start);
   const out: Registration[] = [];
   for (const line of lines.slice(start + 1, end)) {
-    const head = /^(\d+)\. /.exec(line);
-    if (!head) continue;
-    const id = /^\d+\. \*\*`([^`]+)`\*\*/.exec(line)?.[1] ?? null;
-    const call = /call `([A-Za-z_][A-Za-z0-9_]*)\(([^)`]*)\)`/i.exec(line);
-    const sev = /\*\*Severity: ([^*]+)\*\*/.exec(line)?.[1] ?? null;
-    out.push({
-      n: Number(head[1]),
-      id,
-      fn: call?.[1] ?? null,
-      args: call ? call[2]!.trim() : null,
-      severityText: sev,
-    });
+    const reg = parseRegistrationLine(line); // Amended by AC-STE-756.5 (M_d1e7b1)
+    if (reg) out.push(reg); // Amended by AC-STE-756.5 (M_d1e7b1)
   }
   return out;
+}
+
+/**
+ * One numbered registration line, read from its CALL SHAPE: the first
+ * backticked `fn(args)` token anywhere on the line (the identifier may carry
+ * dots, e.g. `Provider.getTicketStatus(<tracker-ref>)`), not only the one
+ * after the verb "call". Amended by AC-STE-756.5 (M_d1e7b1).
+ */
+function parseRegistrationLine(line: string): Registration | null {
+  const head = /^(\d+)\. /.exec(line);
+  if (!head) return null;
+  const id = /^\d+\. \*\*`([^`]+)`\*\*/.exec(line)?.[1] ?? null;
+  const call = /`([A-Za-z_][A-Za-z0-9_.]*)\(([^)`]*)\)`/.exec(line); // Amended by AC-STE-756.5 (M_d1e7b1)
+  const sev = /\*\*Severity: ([^*]+)\*\*/.exec(line)?.[1] ?? null;
+  return {
+    n: Number(head[1]),
+    id,
+    fn: call?.[1] ?? null,
+    args: call ? call[2]!.trim() : null,
+    severityText: sev,
+  };
 }
 
 function projectRootOnly(): Registration[] {
@@ -113,6 +124,7 @@ type Entry = {
   id: string;
   severity: "error" | "warning" | "note";
   run: (projectRoot: string) => unknown;
+  vacuityNotes?: true; // Amended by AC-STE-756.3 (M_d1e7b1)
 };
 
 async function rowsMod() {
@@ -404,7 +416,7 @@ describe("AC-STE-756.5 completeness against the SKILL registry", () => {
     const ns = new Set(projectRootOnly().map((r) => r.n));
     // Spot anchors read from the SKILL text: in, and out (multi-argument or no call).
     for (const n of [12, 13, 37, 73, 81]) expect(ns.has(n)).toBe(true);
-    for (const n of [7, 8, 9, 14, 25, 26, 49, 56]) expect(ns.has(n)).toBe(false);
+    for (const n of [7, 8, 9, 14, 26, 49, 56]) expect(ns.has(n)).toBe(false); // Amended by AC-STE-756.5 (M_d1e7b1)
   });
 
   test("every project-root-only registration has a runner entry, and the runner has no other", async () => {
@@ -1015,4 +1027,198 @@ describe("Stage B review round 2", () => {
       two: m.runsGateProbeRunner(`bun ${own} /tmp/project /tmp/other`),
     }).toEqual({ one: true, variable: true, none: false, two: false });
   });
+});
+
+// ===========================================================================
+// Fix round 1
+// ===========================================================================
+
+describe("AC-STE-756.3 (fix round 1) notes on a vacuous report, and unknown severities", () => {
+  test("(i) a vacuous report with two notes reads `notes (2)`", async () => {
+    const { deriveProbeOutcome } = await rowsMod();
+    expect(deriveProbeOutcome({ count: 0, vacuous: true, notesCount: 2, severity: "error" })).toEqual({
+      verdict: "notes",
+      count: 2,
+    });
+  });
+
+  test("(ii) the same report with vacuityNotes: true stays `vacuous (0)`", async () => {
+    const { deriveProbeOutcome } = await rowsMod();
+    expect(
+      deriveProbeOutcome({ count: 0, vacuous: true, notesCount: 2, severity: "error", vacuityNotes: true }),
+    ).toEqual({ verdict: "vacuous", count: 0 });
+  });
+
+  test("(iii) the runner: a vacuous report with a note reads `notes (1)`", async () => {
+    const { runGateProbes } = await runnerMod();
+    const out = await runGateProbes("/nonexistent-ste-756", [
+      { n: 1, id: "vac-notes", severity: "error", run: () => ({ violations: [], vacuous: true, notes: ["x"] }) },
+    ]);
+    expect(out.rows).toEqual(["probe #1 vac-notes: notes (1)"]);
+  });
+
+  test("(iii) the runner: the same report on an entry declaring vacuityNotes reads `vacuous (0)`", async () => {
+    const { runGateProbes } = await runnerMod();
+    const out = await runGateProbes("/nonexistent-ste-756", [
+      {
+        n: 1,
+        id: "vac-notes",
+        severity: "error",
+        vacuityNotes: true,
+        run: () => ({ violations: [], vacuous: true, notes: ["x"] }),
+      },
+    ]);
+    expect(out.rows).toEqual(["probe #1 vac-notes: vacuous (0)"]);
+  });
+
+  test("(iv) exactly probe #62's runner entry declares vacuityNotes", async () => {
+    const { GATE_PROBES } = await runnerMod();
+    const declaring = (GATE_PROBES as Entry[]).filter((e) => e.vacuityNotes === true).map((e) => e.n);
+    expect(declaring).toEqual([62]);
+  });
+
+  test("(v) a per-violation severity `high` gives `fail`", async () => {
+    const { deriveProbeOutcome } = await rowsMod();
+    expect(deriveProbeOutcome({ count: 1, vacuous: false, violationSeverities: ["high"], severity: "warning" }).verdict).toBe(
+      "fail",
+    );
+  });
+
+  // Audit advisory (fix round 1): a report-level severity the runner does not know fails closed too.
+  test("(v) an unknown report-level severity gives `fail`; a known `warning` gives `notes`", async () => {
+    const { deriveProbeOutcome } = await rowsMod();
+    expect(deriveProbeOutcome({ count: 1, vacuous: false, reportSeverity: "high", severity: "warning" }).verdict).toBe("fail");
+    expect(deriveProbeOutcome({ count: 1, vacuous: false, reportSeverity: "warning", severity: "error" }).verdict).toBe("notes");
+  });
+
+  test("(v) a per-violation severity `info` gives `fail`", async () => {
+    const { deriveProbeOutcome } = await rowsMod();
+    expect(deriveProbeOutcome({ count: 1, vacuous: false, violationSeverities: ["info"], severity: "warning" }).verdict).toBe(
+      "fail",
+    );
+  });
+
+  test("(v) a per-violation severity `warning` gives `notes`", async () => {
+    const { deriveProbeOutcome } = await rowsMod();
+    expect(
+      deriveProbeOutcome({ count: 1, vacuous: false, violationSeverities: ["warning"], severity: "warning" }).verdict,
+    ).toBe("notes");
+  });
+
+  test("(vi) S-f 756-f: a `{ skipped: true, ok: true }` report renders `vacuous (0)`", async () => {
+    const { runGateProbes } = await runnerMod();
+    const out = await runGateProbes("/nonexistent-ste-756", [
+      { n: 1, id: "skipped-ok", severity: "error", run: () => ({ skipped: true, ok: true }) },
+    ]);
+    expect(out.rows).toEqual(["probe #1 skipped-ok: vacuous (0)"]);
+  });
+
+  test("(vi) S-f 756-f: the live runner on this checkout renders `probe #12 docs-nav-contract: vacuous (0)`", async () => {
+    expect(await realRow(REPO_ROOT, 12)).toBe("probe #12 docs-nav-contract: vacuous (0)");
+  });
+
+  test("(vii) S-f 756-g: #67 with a vacuous FR half and a measured plan half is not vacuous (`pass (0)`)", async () => {
+    const { runPlanNarrativeAltitudeProbe } = await import(join(SHARED, "scan_plan_narrative_altitude.ts"));
+    const dir = stageTree({
+      "specs/plan/M1.md": `---\nmilestone: M1\nstatus: active\n---\n\n# M1\n\n### Approach\n\n${words(40)}.\n`,
+    });
+    try {
+      // Precondition: the fixture really makes the plan half non-vacuous, with nothing to grade.
+      const plan = runPlanNarrativeAltitudeProbe(dir);
+      expect({ vacuous: plan.vacuous, violations: plan.violations.length }).toEqual({ vacuous: false, violations: 0 });
+      expect(await realRow(dir, 67)).toBe("probe #67 fr_summary_altitude: pass (0)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("(vii) S-f 756-g: #67 with neither half measured is `vacuous (0)`", async () => {
+    const dir = stageTree({ "specs/requirements.md": "# Requirements\n" });
+    try {
+      expect(await realRow(dir, 67)).toBe("probe #67 fr_summary_altitude: vacuous (0)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/** The wrappers whose runner function is not the one the registration names. */
+const WRAPPER_ALLOWLIST: Record<number, string> = {
+  61: "unresolvedDesignReferences",
+  67: "frSummaryAndPlanNarrativeAltitude",
+};
+
+/** Every entry whose `run` is not the function its registration names (or its allowlisted wrapper). */
+function runMatchesRegistration(table: Entry[], registrations: Registration[]): string[] {
+  const byN = new Map(registrations.map((r) => [r.n, r]));
+  const out: string[] = [];
+  for (const e of table) {
+    const want = WRAPPER_ALLOWLIST[e.n] ?? byN.get(e.n)?.fn ?? null;
+    if (e.run.name !== want) out.push(`#${e.n} run=${e.run.name} registration=${want}`);
+  }
+  return out;
+}
+
+describe("AC-STE-756.5 (fix round 1) the call shape, wherever it appears", () => {
+  test("mutation control: a registration phrased like #25 (`run \\`bun …\\` (the front door over \\`fn(projectRoot)\\`)`) is projectRoot-only", () => {
+    const line =
+      '925. **`synthetic-front-door`** — run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/synthetic.ts" "<projectRoot>"` (the front door over `runSyntheticFrontDoorProbe(projectRoot)`; exit 0 prints OK).';
+    const reg = parseRegistrationLine(line);
+    expect(reg).toEqual({
+      n: 925,
+      id: "synthetic-front-door",
+      fn: "runSyntheticFrontDoorProbe",
+      args: "projectRoot",
+      severityText: null,
+    });
+  });
+
+  test("mutation control: a dotted call shape is read as that call, with its own arguments", () => {
+    const reg = parseRegistrationLine(
+      "908. **Ticket drift** — resolve `Provider` once and call `Provider.getTicketStatus(<tracker-ref>)`.",
+    );
+    expect([reg?.fn, reg?.args]).toEqual(["Provider.getTicketStatus", "<tracker-ref>"]);
+  });
+
+  test("the projectRoot-only set includes #25 and excludes #8, #14, #26 and #1", () => {
+    const ns = new Set(projectRootOnly().map((r) => r.n));
+    expect({ 25: ns.has(25), 8: ns.has(8), 14: ns.has(14), 26: ns.has(26), 1: ns.has(1) }).toEqual({
+      25: true,
+      8: false,
+      14: false,
+      26: false,
+      1: false,
+    });
+  });
+
+  test("S-a: each runner entry's function is the one its registration names (wrappers allowlisted)", async () => {
+    const { GATE_PROBES } = await runnerMod();
+    expect(runMatchesRegistration(GATE_PROBES as Entry[], readRegistrations())).toEqual([]);
+  });
+
+  test("S-a: the two allowlisted wrappers carry exactly their named functions", async () => {
+    const { GATE_PROBES } = await runnerMod();
+    const byN = new Map<number, Entry>((GATE_PROBES as Entry[]).map((e) => [e.n, e]));
+    expect([byN.get(61)?.run.name, byN.get(67)?.run.name]).toEqual([
+      "unresolvedDesignReferences",
+      "frSummaryAndPlanNarrativeAltitude",
+    ]);
+  });
+
+  test("S-a mutation control: swapping two entries' `run` fields is reported for both", async () => {
+    const { GATE_PROBES } = await runnerMod();
+    const copy = (GATE_PROBES as Entry[]).map((e) => ({ ...e }));
+    const a = copy.findIndex((e) => e.n === 12);
+    const b = copy.findIndex((e) => e.n === 13);
+    expect([a >= 0, b >= 0]).toEqual([true, true]);
+    [copy[a]!.run, copy[b]!.run] = [copy[b]!.run, copy[a]!.run];
+    const flagged = runMatchesRegistration(copy, readRegistrations()).map((m) => Number(/^#(\d+) /.exec(m)![1]));
+    expect(flagged).toEqual([12, 13]);
+  });
+
+  test("the runner's summary on this checkout reads `conformance-probes pass: 74/74`", async () => {
+    const { runGateProbes } = await runnerMod();
+    const out = await runGateProbes(REPO_ROOT);
+    expect(out.summary.startsWith("conformance-probes pass: 74/74 [")).toBe(true);
+  }, 300_000);
 });

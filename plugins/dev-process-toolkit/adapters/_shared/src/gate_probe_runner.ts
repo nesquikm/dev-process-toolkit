@@ -19,6 +19,7 @@ import { runTaskTrackingCanonicalKeysProbe } from "./task_tracking_canonical_key
 import { runToolkitBootstrapCommittedProbe } from "./toolkit_bootstrap_committed.ts";
 import { runTraceabilityLinkValidityProbe } from "./traceability_link_validity.ts";
 import { runSignatureStrategyHonorsSetupProbe } from "./signature_strategy_honors_setup.ts";
+import { runTaskTrackingWorkspaceBindingPresentProbe } from "./task_tracking_workspace_binding_present.ts";
 import { runFrontmatterMilestoneNotArchivedProbe } from "./frontmatter_milestone_not_archived.ts";
 import { runPlanVerifyLineValidityProbe } from "./plan_verify_line_validity.ts";
 import { runRequirementsMdNoPlaceholderProbe } from "./requirements_md_no_placeholder.ts";
@@ -88,6 +89,8 @@ export interface GateProbeEntry {
   id: string;
   severity: ProbeSeverity;
   run: (projectRoot: string) => unknown;
+  /** Set on #62 only: its notes explain its own vacuity, so a vacuous report with notes stays `vacuous`. */
+  vacuityNotes?: true;
 }
 
 /**
@@ -124,6 +127,7 @@ export const GATE_PROBES: GateProbeEntry[] = [
   { n: 22, id: "toolkit-bootstrap-committed", severity: "error", run: runToolkitBootstrapCommittedProbe },
   { n: 23, id: "traceability-link-validity", severity: "error", run: runTraceabilityLinkValidityProbe },
   { n: 24, id: "signature-strategy-honors-setup", severity: "error", run: runSignatureStrategyHonorsSetupProbe },
+  { n: 25, id: "task-tracking-workspace-binding-present", severity: "error", run: runTaskTrackingWorkspaceBindingPresentProbe },
   { n: 27, id: "frontmatter-milestone-not-archived", severity: "error", run: runFrontmatterMilestoneNotArchivedProbe },
   { n: 28, id: "plan-verify-line-validity", severity: "warning", run: runPlanVerifyLineValidityProbe },
   { n: 29, id: "requirements-md-no-placeholder", severity: "warning", run: runRequirementsMdNoPlaceholderProbe },
@@ -157,7 +161,7 @@ export const GATE_PROBES: GateProbeEntry[] = [
   { n: 59, id: "disable_model_invocation_allowlist", severity: "error", run: runDisableModelInvocationAllowlistProbe },
   { n: 60, id: "kotlin-detekt-configured", severity: "error", run: runKotlinDetektConfiguredProbe },
   { n: 61, id: "design_references_resolve", severity: "error", run: unresolvedDesignReferences },
-  { n: 62, id: "spawn_pattern_allowlist", severity: "error", run: runSpawnPatternAllowlistProbe },
+  { n: 62, id: "spawn_pattern_allowlist", severity: "error", vacuityNotes: true, run: runSpawnPatternAllowlistProbe },
   { n: 63, id: "plan_ship_coherence", severity: "error", run: runPlanShipCoherenceProbe },
   { n: 64, id: "deps_research_result_shape", severity: "error", run: runDepsResearchResultShapeProbe },
   { n: 65, id: "deps_research_disposition_contract", severity: "error", run: runDepsResearchDispositionContractProbe },
@@ -267,7 +271,7 @@ export async function runGateProbes(
   for (const e of table) {
     try {
       const rep = normaliseReport(await e.run(projectRoot));
-      const { verdict, count } = deriveProbeOutcome({ ...rep, severity: e.severity });
+      const { verdict, count } = deriveProbeOutcome({ ...rep, severity: e.severity, vacuityNotes: e.vacuityNotes === true });
       if (verdict === "fail") failed = true;
       else passed++;
       if (verdict === "vacuous") vacuous++;

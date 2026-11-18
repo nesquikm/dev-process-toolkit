@@ -56,6 +56,11 @@ export interface ProbeOutcomeInput {
   violationSeverities?: (string | undefined)[];
   /** How many entries the report's `notes` and `warnings` lists hold together. */
   notesCount?: number;
+  /**
+   * The probe's runner entry declares that its notes explain its own vacuity
+   * (#62): a vacuous report with notes stays `vacuous` instead of `notes`.
+   */
+  vacuityNotes?: boolean;
 }
 
 /** A derived row's verdict and the count it prints. */
@@ -67,28 +72,35 @@ export interface ProbeOutcome {
 /**
  * The verdict is derived from the report, never chosen.
  *
- * - Zero violations: `vacuous` when the report says so; `notes (<n>)` when its
- *   `notes` or `warnings` lists hold n entries, because a note never escalates
- *   and never vanishes into `pass`; `pass` otherwise.
+ * - Zero violations: `notes (<n>)` when the report's `notes` or `warnings`
+ *   lists hold n entries, because a note never escalates and never vanishes
+ *   into `pass` -- a vacuous report included, unless the entry declares
+ *   `vacuityNotes` (its notes explain the vacuity), which stays `vacuous`;
+ *   otherwise `vacuous` when the report says so, `pass` when it does not.
  * - Violations that carry their own `severity`: `fail` when any of them is
- *   `error` (one without its own falls back to the report's, then the declared
- *   one), `notes` otherwise.
- * - Violations that carry none: the report's `severity`, else the declared one.
+ *   neither `warning` nor `note` -- `error` or an unknown severity (one
+ *   without its own falls back to the report's, then the declared one),
+ *   `notes` otherwise.
+ * - Violations that carry none: the report's `severity`, else the declared one,
+ *   with the same rule: `notes` for `warning` or `note`, `fail` for anything else.
  */
 export function deriveProbeOutcome(input: ProbeOutcomeInput): ProbeOutcome {
   const fallback = (input.reportSeverity ?? input.severity).toLowerCase();
   if (input.count === 0) {
-    if (input.vacuous) return { verdict: "vacuous", count: 0 };
     const notes = input.notesCount ?? 0;
+    if (input.vacuous && (notes === 0 || input.vacuityNotes === true)) return { verdict: "vacuous", count: 0 };
     if (notes > 0) return { verdict: "notes", count: notes };
     return { verdict: "pass", count: 0 };
   }
   const own = input.violationSeverities ?? [];
   if (own.some((s) => s !== undefined)) {
-    const anyError = own.some((s) => (s ?? fallback).toLowerCase() === "error");
-    return { verdict: anyError ? "fail" : "notes", count: input.count };
+    const anyFailing = own.some((s) => {
+      const sev = (s ?? fallback).toLowerCase();
+      return sev !== "warning" && sev !== "note";
+    });
+    return { verdict: anyFailing ? "fail" : "notes", count: input.count };
   }
-  return { verdict: fallback === "error" ? "fail" : "notes", count: input.count };
+  return { verdict: fallback === "warning" || fallback === "note" ? "notes" : "fail", count: input.count };
 }
 
 /** The verdict half of `deriveProbeOutcome`. */
