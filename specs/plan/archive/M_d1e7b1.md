@@ -6,6 +6,7 @@ kickoff_branch: fix/conformance-2026-11-17
 frozen_at: null
 migration: none
 codename: Read Back
+shipped_in: v3.9.0
 ---
 
 # Implementation Plan
@@ -62,3 +63,28 @@ codename: Read Back
   verify: runner set equals registry project-root-only set; prose-only capture fails 3c; probe #81 green
 - [x] STE-824: smoke harness fixes 1b/5b, group 2, Phase 4, 3a/3b, 13a, group 14, Phase 0.5, child-spawn; missing capture exits 2
   verify: contract test per AC; CLI test for missing capture
+
+<!-- token-stats:begin -->
+
+## Token Stats
+
+| scope | model | input | output | cache-read | cache-creation |
+| --- | --- | ---: | ---: | ---: | ---: |
+| STE-756 | claude-opus-5-5 | 8 | 2197 | 1247658 | 10899 |
+| STE-825 | claude-opus-5-5 | 352 | 119825 | 74649018 | 733273 |
+| STE-745 | claude-opus-5-5 | 8 | 1265 | 2457685 | 10088 |
+| STE-835 | claude-opus-5-5 | 134 | 51141 | 47632487 | 238564 |
+| STE-752 | claude-opus-5-5 | 14 | 2838 | 2214127 | 10263 |
+| STE-826 | claude-opus-5-5 | 6 | 230 | 808052 | 8778 |
+| STE-791 | claude-opus-5-5 | 34 | 7648 | 7571332 | 26168 |
+| dev-process-toolkit:gate-check | claude-opus-5-5 | 472 | 135332 | 96194527 | 670960 |
+| dev-process-toolkit:implement | claude-opus-5-5 | 32 | 4942 | 4564492 | 109928 |
+| dev-process-toolkit:spec-write | claude-opus-5-5 | 224 | 117976 | 29413702 | 323824 |
+| dev-process-toolkit:tdd-implement | claude-opus-5-5 | 1942 | 654538 | 65456096 | 7718240 |
+| dev-process-toolkit:tdd-refactor | claude-opus-5-5 | 412 | 105079 | 12754392 | 1914751 |
+| dev-process-toolkit:tdd-spec-review | claude-opus-5-5 | 560 | 175064 | 19261582 | 2880134 |
+| dev-process-toolkit:tdd-write-test | claude-opus-5-5 | 870 | 509937 | 36747430 | 3700138 |
+| design/exploration | claude-opus-5-5 | 4992 | 1348795 | 941924588 | 3931504 |
+| total |  | 10060 | 3236807 | 1342897168 | 22287512 |
+
+<!-- token-stats:end -->

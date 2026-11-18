@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.9.0] — 2026-11-18 — "Read Back"
+
+### Added
+
+- One probe runner prints a fixed row per probe, and the smoke fixtures grade that row (STE-756). `gate_probe_runner.ts <projectRoot>` calls every `/gate-check` probe whose registration takes only the project root, and prints `probe #<N> <probe-id>: <verdict> (<count>)` per probe plus the summary line. The verdict is derived from the probe's own report, never chosen. A test pins the runner's probe set to the registry, so a new probe cannot be skipped silently. `capability_row_assert.ts` gains a `probe-row` expectation, and fixtures 2a, 2c, 3c, 9a and 9b grade the row instead of the model's wording.
+- A `--no-tech` run names its legal spec-research skip (STE-752). `/spec-write` and `/brainstorm` emit `spec_research_skipped_no_tech`, registered in the capability keys, so a legal skip no longer looks like a silent one.
+
+### Changed
+
+- A run whose reuse key cannot be computed now prints `outcome: on` and records its outcome (with `key_stable: false`, never reused). An earlier failed outcome keeps refusing the commit until a counted pass, instead of being released as if outcomes were off. This supersedes AC-STE-715.17's "exactly the one announcement line" and "permit as on a switch-off run" (STE-825).
+- Gate outcomes stay off by default. The failed-outcome refusal below only grades runs whose receipt carries the key field, so a project that never set `tracking.gate_outcomes.enabled: true` sees no change.
+
+### Fixed
+
+- Probe #14 passes a ticket that is provably not started, and the commit gate refuses a failed gate outcome (STE-825). The not-started carve-out needs the initial lane, no checked task, no lock, and no run-start row or commit showing the work began; an unreadable history counts as started. `pre-commit-gate-check` refuses a commit whose newest counted gate outcome is `fail`, and treats a pending or unreadable outcome call as a refusal until a later counted outcome decides.
+- The `/implement` report fits its caps, and fixture 15a grades the whole final message (STE-745).
+- `/implement`'s self-review escalates a conflict with the FR instead of editing it, and emits `implement_spec_conflict_escalated` (STE-835).
+- The spec-review auditors cite the read behind every file-existence claim, and `/spec-review` re-checks those claims before it reports them (STE-826).
+- The commit hooks accept the literal `cd <abs dir> && bun …gate_receipt.ts <gate-skill> <args>` form, with the receipt call last, and a commit that only deletes spec files gets the spec-only pass (STE-791). Every other compound shape, and any variable in the directory or path, is still refused.
+- The smoke harness reaches what each fixture names: fixture stubs no earlier step wrote, a real fixture ticket for group 2, setup-template's own refusal for 13a, and an N/A row for group 14 on a headless leg. Smoke children no longer write into the operator's notes or memory (STE-824).
+
+Milestone M_d1e7b1, the fixes from the 2026-11-17 conformance run: the gate is graded by what the probe said, not by how the model worded it.
+
+Total test count at release: 24803 tests, 0 failures, 0 errors.
+
 ## [3.8.0] — 2026-11-17 — "Black Box"
 
 ### Added
