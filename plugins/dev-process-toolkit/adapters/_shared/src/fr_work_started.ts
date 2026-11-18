@@ -37,6 +37,9 @@ export function workStartedEvidence(projectRoot: string, trackerId: string, frId
 
   const p = spawnSync("git", ["-C", projectRoot, "log", `--format=${REC}%H${SEP}%B${SEP}`, "--name-only", "--relative", "HEAD"], {
     encoding: "utf-8",
+    // Passed, not left to default: under Bun an omitted `env` resolves `git` against the
+    // PATH the process started with (HS-1).
+    env: process.env,
   });
   if (p.status !== 0 || typeof p.stdout !== "string") return evidence;
 
