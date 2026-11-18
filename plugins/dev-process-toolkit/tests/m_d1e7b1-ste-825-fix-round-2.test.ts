@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 
 import {
   bashCall,
+  FRONT_DOOR,
   cleanupTemps,
   makeTree,
   mintRun,
@@ -412,4 +413,218 @@ describe("AC-STE-825.1 (amended) the commit leg on a real-sized history", () => 
     git(root, "checkout", "-q", "--orphan", "fresh");
     expect(workStartedEvidence(root, TID)).toEqual([]);
   });
+});
+
+// ===========================================================================
+// AC-STE-825.4 (amended, fix round 3) — a pending or unreadable outcome refuses
+// ===========================================================================
+
+/** Only the tool_use half of a Bash call: the call ran, its result is not in the transcript yet. */
+function pendingBashCall(id: string, command: string): string[] {
+  return [
+    JSON.stringify({
+      type: "assistant",
+      timestamp: new Date().toISOString(),
+      message: { content: [{ type: "tool_use", id, name: "Bash", input: { command } }] },
+    }),
+  ];
+}
+
+/** One Bash call whose result is an error result carrying `stdout`. */
+function erroredBashCall(id: string, command: string, stdout: string): string[] {
+  return [
+    JSON.stringify({
+      type: "assistant",
+      timestamp: new Date().toISOString(),
+      message: { content: [{ type: "tool_use", id, name: "Bash", input: { command } }] },
+    }),
+    JSON.stringify({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: id, is_error: true, content: stdout }] },
+    }),
+  ];
+}
+
+/** run1 with an announced, counted pass: on its own this admits the commit. */
+function passedWindow(root: string): string[] {
+  const r1 = mintRun(root);
+  const p1 = outcome(root, "pass");
+  return [...skillCall("gate", "sk1"), ...runRecords(root, r1), ...p1.records];
+}
+
+/** One compound Bash call that mints a run and records `verdict` in the same command. */
+function compoundRunAndOutcome(root: string, verdict: "pass" | "fail"): string[] {
+  const run = runCli(["gate-check", root]);
+  expect({ code: run.exitCode, err: run.stderr }).toEqual({ code: 0, err: "" });
+  const o = runCli(["outcome", "gate-check", root, verdict]);
+  expect({ code: o.exitCode, err: o.stderr }).toEqual({ code: 0, err: "" });
+  return bashCall(
+    uid("c"),
+    `${receiptCommand("gate-check", root)} && ${outcomeCommand("gate-check", root, verdict)}`,
+    run.stdout + o.stdout,
+  );
+}
+
+describe("AC-STE-825.4 (round 3) pending and unreadable outcomes", () => {
+  test("(P0) control: run1 + announced pass alone → exit 0", async () => {
+    const root = checkout("p0-control");
+    const tr = writeTranscript(tempDir("tr"), passedWindow(root));
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  }, T);
+
+  test("(P1) an outcome-verb call with no result yet, still missing after the wait → exit 2, refused as pending", async () => {
+    const root = checkout("p1-pending");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...passedWindow(root),
+      ...pendingBashCall(uid("pend"), outcomeCommand("gate-check", root, "fail")),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, pending: /pending/i.test(r.stderr) }).toEqual({ code: 2, pending: true });
+  }, T);
+
+  test("(P2a) control: the same outcome call with its announced fail result → exit 2 with the gate-failed wording", async () => {
+    const root = checkout("p2a-fail");
+    const head = passedWindow(root);
+    const r2 = mintRun(root);
+    const f = outcome(root, "fail");
+    const tr = writeTranscript(tempDir("tr"), [...head, ...runRecords(root, r2), ...f.records]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, failed: r.stderr.includes("fix what failed the gate, or re-run it") }).toEqual({
+      code: 2,
+      failed: true,
+    });
+  }, T);
+
+  test("(P2b) control: the same outcome call with its announced pass result → exit 0", async () => {
+    const root = checkout("p2b-pass");
+    const head = passedWindow(root);
+    const r2 = mintRun(root);
+    const p = outcome(root, "pass");
+    const tr = writeTranscript(tempDir("tr"), [...head, ...runRecords(root, r2), ...p.records]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  }, T);
+
+  test("(U1) a compound `receipt && outcome fail` call → exit 2", async () => {
+    const root = checkout("u1-compound-fail");
+    const tr = writeTranscript(tempDir("tr"), [...passedWindow(root), ...compoundRunAndOutcome(root, "fail")]);
+    const r = await runHook("gate", root, tr);
+    expect(r.exitCode).toBe(2);
+  }, T);
+
+  test("(U1b) a compound `receipt && outcome pass` call is unreadable too: the older pass does not decide past it → exit 2", async () => {
+    const root = checkout("u1b-compound-pass");
+    const tr = writeTranscript(tempDir("tr"), [...passedWindow(root), ...compoundRunAndOutcome(root, "pass")]);
+    const r = await runHook("gate", root, tr);
+    expect(r.exitCode).toBe(2);
+  }, T);
+
+  test("(U2) an outcome-verb call whose result is an error result → exit 2", async () => {
+    const root = checkout("u2-error");
+    const head = passedWindow(root);
+    const r2 = mintRun(root);
+    const p = outcome(root, "pass");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...head,
+      ...runRecords(root, r2),
+      ...erroredBashCall(uid("err"), outcomeCommand("gate-check", root, "pass"), p.stdout),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect(r.exitCode).toBe(2);
+  }, T);
+
+  test("(U3a) an outcome-verb call whose result has no `dpt-gate-outcome:` line → exit 2", async () => {
+    const root = checkout("u3a-no-line");
+    const head = passedWindow(root);
+    const r2 = mintRun(root);
+    outcome(root, "pass");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...head,
+      ...runRecords(root, r2),
+      ...bashCall(uid("ok"), outcomeCommand("gate-check", root, "pass"), "ok\n"),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect(r.exitCode).toBe(2);
+  }, T);
+
+  test("(U3b) an outcome-verb call whose result carries two announcement lines → exit 2", async () => {
+    const root = checkout("u3b-two-lines");
+    const head = passedWindow(root);
+    const r2 = mintRun(root);
+    const p = outcome(root, "pass");
+    const line = p.stdout.split("\n")[0]!;
+    const tr = writeTranscript(tempDir("tr"), [
+      ...head,
+      ...runRecords(root, r2),
+      ...bashCall(uid("two"), outcomeCommand("gate-check", root, "pass"), `${line}\n${p.stdout}`),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect(r.exitCode).toBe(2);
+  }, T);
+
+  test("(U4) recovery: the compound call, then a later run2 with a properly announced pass → exit 0", async () => {
+    const root = checkout("u4-recovery");
+    const head = [...passedWindow(root), ...compoundRunAndOutcome(root, "fail")];
+    const r3 = mintRun(root);
+    const p = outcome(root, "pass");
+    const tr = writeTranscript(tempDir("tr"), [...head, ...runRecords(root, r3), ...p.records]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  }, T);
+});
+
+// Fix round 3: a pending or unreadable outcome is scoped to the gate its command names, so a broken
+// `outcome tdd` call does not hold the gate-check commit gate; an unreadable skill word fails closed.
+describe("AC-STE-825.4 (round 3) pending and unreadable outcomes are scoped to their gate", () => {
+  test("(S1) a pending outcome call for ANOTHER gate (`outcome tdd …`) does not refuse the gate-check commit", async () => {
+    const root = checkout("s1-other-gate");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...passedWindow(root),
+      ...pendingBashCall(uid("pend"), outcomeCommand("gate-check", root, "fail").replace(" outcome gate-check ", " outcome tdd ")),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  }, T);
+
+  test("(S2) a pending outcome call whose skill word cannot be read still refuses (fail closed)", async () => {
+    const root = checkout("s2-unread-skill");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...passedWindow(root),
+      ...pendingBashCall(uid("pend"), outcomeCommand("gate-check", root, "fail").replace(" outcome gate-check ", " outcome $SKILL ")),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect(r.exitCode).toBe(2);
+  }, T);
+});
+
+// Fix round 3 audit: only a call that RUNS the front door (a `bun [run] <door> outcome` segment)
+// is an outcome call. Reading or grepping the file is not, and must not hold the gate.
+describe("AC-STE-825.4 (round 3) only a bun call of the door's outcome verb is an outcome call", () => {
+  test("(T1) `sed -n 1,50p <door> | grep outcome` after a pass → exit 0", async () => {
+    const root = checkout("t1-sed");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...passedWindow(root),
+      ...bashCall(uid("sed"), `sed -n 1,50p ${FRONT_DOOR} | grep outcome`, "outcome\n"),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  }, T);
+
+  test("(T2) `cat <door> && echo outcome gate-check` with no result yet → exit 0 (not pending)", async () => {
+    const root = checkout("t2-cat");
+    const tr = writeTranscript(tempDir("tr"), [
+      ...passedWindow(root),
+      ...pendingBashCall(uid("cat"), `cat ${FRONT_DOOR} && echo outcome gate-check`),
+    ]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+  }, T);
+
+  test("(T3) the compound refusal names the unreadable outcome", async () => {
+    const root = checkout("t3-wording");
+    const tr = writeTranscript(tempDir("tr"), [...passedWindow(root), ...compoundRunAndOutcome(root, "fail")]);
+    const r = await runHook("gate", root, tr);
+    expect({ code: r.exitCode, unreadable: /unreadable outcome/i.test(r.stderr) }).toEqual({ code: 2, unreadable: true });
+  }, T);
 });

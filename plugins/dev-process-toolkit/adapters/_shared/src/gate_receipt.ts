@@ -23,7 +23,7 @@
 // about. So stdout carries a whole announcement or nothing at all.
 
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { receiptsDir } from "./dpt_paths";
 import { nfr10Message } from "./dpt_version";
@@ -150,6 +150,46 @@ function cdBunInvocation(command: string): { module: string; args: string[] } | 
 export function runsGateOutcome(command: string): boolean {
   const run = bunInvocation(command);
   return run !== null && run.module === OWN_FRONT_DOOR && run.args[0] === "outcome";
+}
+
+/**
+ * The skill word of the first segment that RUNS this front door's outcome verb —
+ * `bun [run] <…/gate_receipt.ts> outcome <skill>`, anywhere in the command, a
+ * compound included: `undefined` when no such segment exists, `null` when nothing
+ * follows `outcome`. A command that only reads or greps the file names no
+ * outcome call (fix round 3 audit: `sed … gate_receipt.ts | grep outcome` held
+ * every commit, forever in a repo with outcomes off).
+ */
+function outcomeSkillWord(command: string): string | null | undefined {
+  const door = basename(OWN_FRONT_DOOR);
+  const words = command.split(/[\s;&|()<>'"`=]+/);
+  for (let at = 0; at < words.length; at++) {
+    const w = words[at]!;
+    if (w !== door && !w.endsWith(`/${door}`)) continue;
+    const runByBun = words[at - 1] === "bun" || (words[at - 1] === "run" && words[at - 2] === "bun");
+    if (!runByBun || words[at + 1] !== "outcome") continue;
+    const skill = words[at + 2];
+    return skill === undefined || skill === "" ? null : skill;
+  }
+  return undefined;
+}
+
+/**
+ * STE-825 — the looser reading of the outcome verb, scoped to ONE gate
+ * (`subject`, the full skill name): whether any segment of `command` RUNS this
+ * front door's outcome verb (`bun [run] <door> outcome …`), a compound command
+ * or a `cd` chain included; a command that only reads the file does not. Such a
+ * call that `runsGateOutcome` does not count is an
+ * unreadable outcome, never nothing. A command whose skill word names ANOTHER
+ * gate is that gate's business, so its pending or unreadable outcome does not
+ * hold this one; a skill word that is not a gate name (a variable, nothing at
+ * all) cannot be placed, so it fails closed and counts for every gate.
+ */
+export function namesGateOutcomeFor(command: string, subject: string): boolean {
+  const word = outcomeSkillWord(command);
+  if (word === undefined) return false;
+  if (word !== null && isGateSkillName(word)) return gateSubject(word) === subject;
+  return true;
 }
 
 /**
@@ -656,7 +696,9 @@ export type GateEvidenceReason =
   | "run-announced-many"
   | "run-announced-none"
   | "nothing-announced"
-  | "gate-failed";
+  | "gate-failed"
+  | "outcome-pending"
+  | "outcome-unreadable";
 
 export interface GateEvidence {
   /** False ONLY when the leg applies and is not satisfied. */
@@ -809,6 +851,8 @@ export interface ReceiptAnnouncement {
   digest: string;
   /** Transcript line — the ordering key no file content can forge. */
   line: number;
+  /** STE-825 — set on an outcome-verb call that counts for nothing: no result yet, or one that was not read. */
+  unread?: "pending" | "unreadable";
 }
 
 /**
@@ -1195,6 +1239,12 @@ export function gateReceiptEvidence(
     if (verdict !== null && verdict.decision === "fail") {
       return { ok: false, reason: "gate-failed", claimant: null, named: verdict.run, ...here, tampered };
     }
+    // STE-825 — an older verdict never decides past an outcome call that has
+    // no result yet, or one that was not counted.
+    if (verdict !== null && (verdict.decision === "pending" || verdict.decision === "unreadable")) {
+      const reason = verdict.decision === "pending" ? "outcome-pending" : "outcome-unreadable";
+      return { ok: false, reason, claimant: null, named: null, ...here, tampered };
+    }
     // PERMITTED — and the tamper goes with it rather than being discarded
     // here, which is the whole of HIGH-3. Refusing would be a false positive:
     // a genuine announcement vouches for this checkout, so the gate
@@ -1284,6 +1334,10 @@ function announcedVerdict(
 ): { decision: string; run: string } | null {
   let newest: { decision: string; run: string; line: number } | null = null;
   for (const o of outcomes) {
+    if (o.unread !== undefined) {
+      if (newest === null || o.line > newest.line) newest = { decision: o.unread, run: "", line: o.line };
+      continue;
+    }
     try {
       if (announcedRoot(o.path, sessionId) !== real) continue;
       const bytes = readFileSync(resolve(o.path));
@@ -1566,6 +1620,18 @@ const MISS_PROSE: Readonly<
   "gate-failed": (w) =>
     `the ${w.subject} run that vouches for it, ${w.named}, recorded a failed ` +
     `outcome, so the gate ran against that checkout and did not pass.`,
+
+  // STE-825 — an outcome call is in the transcript with no result after the wait.
+  "outcome-pending": (w) =>
+    `a call in this session that runs the ${w.subject} front door's outcome verb ` +
+    `still has no result in the transcript after waiting, so this is a pending ` +
+    `gate outcome: whether that run passed cannot be read yet, and no older verdict decides past it.`,
+
+  // STE-825 — an outcome call ran, and nothing it printed can be counted.
+  "outcome-unreadable": (w) =>
+    `a call in this session that runs the ${w.subject} front door's outcome verb ` +
+    `was not counted (a compound command, an error result, or a result without ` +
+    `exactly one announcement line), so it is an unreadable outcome, and no older verdict decides past it.`,
 };
 
 /**
@@ -1629,6 +1695,8 @@ export function gateReceiptMiss(
     how:
       evidence.reason === "gate-failed"
         ? `fix what failed the gate, or re-run it: ${remedyCommand(subject, root)}, then retry this action.`
+        : evidence.reason === "outcome-pending" || evidence.reason === "outcome-unreadable"
+        ? `record the outcome with its own plain call once the gate has finished, or re-run it: ${remedyCommand(subject, root)}, then retry this action.`
         : `${remedyCommand(subject, root)}, then retry this action.`,
     root,
     reason: evidence.reason,
@@ -1808,6 +1876,8 @@ export interface GateEvidenceTarget {
   announcesOutcomes(command: string): boolean;
   /** STE-825 — the outcome announcement prefix (`GATE_OUTCOME_ANNOUNCEMENT_PREFIX`). */
   outcomePrefix: string;
+  /** STE-825 — whether a command names the outcome verb for THIS gate, or for no gate it can place (`namesGateOutcomeFor`). */
+  mentionsOutcomes(command: string): boolean;
   /** STE-650 — whether a command ran the front door for THIS target's gate. */
   announcesOwnRun(command: string): boolean;
 }
@@ -1850,8 +1920,10 @@ export function gateEvidenceTarget(
     receiptLeg: gateReceiptLeg(subject, sessionId, peerRoots),
     receiptNotes: gateReceiptNoteLeg(subject, sessionId, peerRoots),
     announcesReceipts: announcesGateReceipt,
-    announcesOutcomes: runsGateOutcome,
+    // Scoped like `mentionsOutcomes`: another gate's outcome call is never this gate's pending or unreadable one.
+    announcesOutcomes: (command) => runsGateOutcome(command) && namesGateOutcomeFor(command, subject),
     outcomePrefix: GATE_OUTCOME_ANNOUNCEMENT_PREFIX,
+    mentionsOutcomes: (command) => namesGateOutcomeFor(command, subject),
     announcesOwnRun: (command) => announcesGateReceiptFor(command, subject),
   };
 }

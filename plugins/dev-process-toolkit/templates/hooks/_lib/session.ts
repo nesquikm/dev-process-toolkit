@@ -237,7 +237,7 @@ export interface EvidenceMiss {
  * foreign root, a wrong subject, an errored run, an unreadable store) is a
  * finding that holds whatever the pending run returns, and keeps its refusal.
  */
-const LAG_EXPLAINABLE = new Set(["outside-window", "between-windows", "no-receipt", "nothing-announced", "run-unresolved"]);
+const LAG_EXPLAINABLE = new Set(["outside-window", "between-windows", "no-receipt", "nothing-announced", "run-unresolved", "outcome-pending"]);
 
 /**
  * STE-650 — whether `run` is a still-unresolved run of THIS gate's receipt
@@ -297,6 +297,8 @@ export interface ReceiptAnnouncement {
   digest: string;
   /** Transcript line it was announced on — the ordering key. */
   line: number;
+  /** STE-825 — set on an outcome-verb call that counts for nothing: no result yet, or one that was not read. */
+  unread?: "pending" | "unreadable";
 }
 
 /**
@@ -422,6 +424,13 @@ export interface EvidenceTarget {
   announcesOutcomes?(command: string): boolean;
   /** STE-825 — the line prefix an outcome write is announced with. */
   outcomePrefix?: string;
+  /**
+   * STE-825 — the looser reading: whether a command names the outcome verb at
+   * all, a compound command included, for THIS target's gate or for no gate it
+   * can place. Such a call that is not counted is an unreadable outcome, never
+   * nothing. Fails closed.
+   */
+  mentionsOutcomes?(command: string): boolean;
   /**
    * STE-650 — whether a command ran the front door for THIS target's gate, so a
    * pending run of another gate never makes this one wait. Absent ⇒ every
@@ -835,8 +844,8 @@ function scanSkillCalls(
   const announcements: ReceiptAnnouncement[] = [];
   const misreads: AnnouncementMisread[] = [];
   const incomplete: IncompleteRun[] = [];
-  /** STE-825 — the Bash ids whose command ran the outcome verb (with the line each call sits on), then what their results announced. A map, so the graded-ids guard below stays the scanner's only `.has(block.tool_use_id)` set check. */
-  const outcomeCalls = new Map<string, number>();
+  /** STE-825 — the Bash ids whose command names the outcome verb: the line each call sits on, whether it is a plain outcome call (`strict`, the only kind whose result can count), and whether anything answered it yet. A map, so the graded-ids guard below stays the scanner's only `.has(block.tool_use_id)` set check. */
+  const outcomeCalls = new Map<string, { line: number; strict: boolean; answered: boolean }>();
   const outcomes: ReceiptAnnouncement[] = [];
 
   // STE-695 / STE-696 — one call (or one result) written as more than one
@@ -876,10 +885,12 @@ function scanSkillCalls(
       } else if (
         target?.announcesOutcomes !== undefined &&
         target.outcomePrefix !== undefined &&
-        typeof command === "string" &&
-        target.announcesOutcomes(command)
+        typeof command === "string"
       ) {
-        outcomeCalls.set(block.id, index);
+        const strict = target.announcesOutcomes(command);
+        if (strict || target.mentionsOutcomes?.(command) === true) {
+          outcomeCalls.set(block.id, { line: index, strict, answered: false });
+        }
       }
     } else if (
       block.type === "tool_result" &&
@@ -887,11 +898,18 @@ function scanSkillCalls(
       outcomeCalls.get(block.tool_use_id) !== undefined
     ) {
       // STE-825 — an outcome counts only through its own announcement: exactly
-      // one `outcomePrefix` line in a non-error result of the outcome verb.
-      if (block.is_error !== true && target?.outcomePrefix !== undefined) {
-        const found = announcementsIn(resultText(block.content), target.outcomePrefix);
-        if (found.length === 1) outcomes.push({ ...found[0]!, line: index });
-      }
+      // one `outcomePrefix` line in a non-error result of one plain outcome
+      // call. Any other answer (a compound command, an error result, no line
+      // or several) is an UNREADABLE outcome, kept in order so a later counted
+      // outcome can clear it and an older one cannot decide past it.
+      const call = outcomeCalls.get(block.tool_use_id)!;
+      call.answered = true;
+      const found =
+        call.strict && block.is_error !== true && target?.outcomePrefix !== undefined
+          ? announcementsIn(resultText(block.content), target.outcomePrefix)
+          : [];
+      if (found.length === 1) outcomes.push({ ...found[0]!, line: index });
+      else outcomes.push({ path: "", digest: "", line: index, unread: "unreadable" });
     } else if (
       block.type === "tool_result" &&
       typeof block.tool_use_id === "string" &&
@@ -936,6 +954,12 @@ function scanSkillCalls(
     if (!resolved.has(id)) incomplete.push({ outcome: "unresolved", line, command });
   }
   incomplete.sort((a, b) => a.line - b.line);
+  // STE-825 — an outcome-verb call nothing answered yet is a PENDING outcome,
+  // placed by the call's own line and waited for like a receipt run.
+  for (const call of outcomeCalls.values()) {
+    if (!call.answered) outcomes.push({ path: "", digest: "", line: call.line, unread: "pending" });
+  }
+  outcomes.sort((a, b) => a.line - b.line);
 
   // A call with no `id` is unpairable, so nothing can retire it.
   const standing = (call: SkillCall): boolean => call.id === null || !erroredIds.has(call.id);
@@ -1057,7 +1081,10 @@ export function waitOutReceiptLag(
 ): { scan: SkillCallScan; miss: EvidenceMiss | null; lagging: boolean } {
   let scan = first;
   let miss = grade(scan);
-  const pending = (s: SkillCallScan): boolean => s.incomplete.some((run) => pendingRunOf(target, run));
+  const runPending = (s: SkillCallScan): boolean => s.incomplete.some((run) => pendingRunOf(target, run));
+  // STE-825 — a pending outcome call is waited for the same way; when it is
+  // still missing, its own miss names it, never the receipt-lag sentence.
+  const pending = (s: SkillCallScan): boolean => runPending(s) || s.outcomes.some((o) => o.unread === "pending");
   const deadline = Date.now() + RECEIPT_RESULT_WAIT_MS;
   while (miss !== null && lagCanExplain(miss) && Date.now() < deadline && pending(scan)) {
     Bun.sleepSync(Math.max(1, Math.min(RECEIPT_RESULT_POLL_MS, deadline - Date.now())));
@@ -1069,7 +1096,11 @@ export function waitOutReceiptLag(
     scan = next;
     miss = grade(scan);
   }
-  return { scan, miss, lagging: miss !== null && lagCanExplain(miss) && pending(scan) };
+  return {
+    scan,
+    miss,
+    lagging: miss !== null && lagCanExplain(miss) && miss.reason !== "outcome-pending" && runPending(scan),
+  };
 }
 
 /**
