@@ -410,4 +410,21 @@ describe("AC-STE-721.13 the line budget and its pins", () => {
     const unmarkedAdd = `@@ -1 +1,2 @@\n-    expect(x).toBe(47);\n+    expect(x).toBe(48); // Amended by AC-STE-752.3 (M_d1e7b1)\n+    expect(z).toBe(2);\n`;
     expect(hunkCarriesLiveAmendment(unmarkedAdd, live)).toBe(false);
   });
+
+  // Fix round 1 (review S1): a comment counts as comment-only only when it is the whole line.
+  test("CONTROL: code hidden behind a comment opener is not comment-only", () => {
+    const live = liveAcIds(join(PLUGIN_ROOT, "..", ".."));
+    const marked = "+  expect(lines).toBe(362); // Amended by AC-STE-752.3 (M_d1e7b1)";
+    const hunk = (extra: string) => `@@ -10 +10,2 @@\n-  expect(lines).toBe(358);\n${marked}\n+${extra}\n`;
+    // The review's probe: `/* noop */ return;` rides beside a marked line.
+    expect(hunkCarriesLiveAmendment(hunk("  /* noop */ return;"), live)).toBe(false);
+    // A code line that starts with `*`, outside any block comment, is code (a continuation).
+    expect(hunkCarriesLiveAmendment(hunk("  * 2;"), live)).toBe(false);
+    // A block comment that closes and is then followed by code is not comment-only.
+    expect(hunkCarriesLiveAmendment(hunk("  /* a */ x = 1; /* b */"), live)).toBe(false);
+    // Whole-line comments still are: `//`, a closed `/* … */`, and `*` lines inside a block opened in the hunk.
+    expect(hunkCarriesLiveAmendment(hunk("  // a note"), live)).toBe(true);
+    expect(hunkCarriesLiveAmendment(hunk("  /* a note */"), live)).toBe(true);
+    expect(hunkCarriesLiveAmendment(hunk("  /**\n+   * a note\n+   */"), live)).toBe(true);
+  });
 });

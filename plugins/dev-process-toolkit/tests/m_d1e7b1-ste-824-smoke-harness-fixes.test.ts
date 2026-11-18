@@ -526,6 +526,19 @@ describe("AC-STE-824.7 — group 14 renders N/A (headless)", () => {
     expect(head).toContain("3 n/a");
   });
 
+  // Fix round 1 (verify survivor 824-a): the exemption is headless-only. The same render without
+  // the documented headless flag keeps an unreported group 14 NOT-REACHED.
+  test("a non-headless leg that never reached group 14 still renders it NOT-REACHED", () => {
+    const r = Bun.spawnSync(
+      ["bun", FIXTURE_GROUPS, "render", "--leg", "linear", "--passed", LINEAR_GROUPS_BUT_14.join(" ")],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    const lines = r.stdout.toString().split("\n");
+    expect(documentedExtraFlags().length).toBeGreaterThan(0);
+    expect(lines).toContain("STE-492 runtime check: NOT-REACHED");
+    expect(lines).not.toContain(LINE);
+  });
+
   test("an unreported group other than 14 still renders NOT-REACHED", () => {
     const out = render("linear", LINEAR_GROUPS_BUT_14.filter((g) => g !== 13)).stdout;
     expect(out.split("\n")).toContain("STE-469 runtime check: NOT-REACHED");

@@ -42,7 +42,33 @@ export function carriesLiveAmendment(line: string, live: ReadonlySet<string>): b
   return id !== null && live.has(id);
 }
 
-const COMMENT_ONLY = /^\s*(\/\/.*|\/\*.*|\*.*|\*\/)?$/;
+/**
+ * Which of `lines` are comment-only: blank, a `//` comment, or a block comment
+ * that is the WHOLE line. A closed block comment followed by code is code, and a line that
+ * starts with `*` is comment-only only inside a block this sequence opened — at
+ * the start of a hunk nothing proves it is inside one, so it is graded as code.
+ * Amended by AC-STE-752.1 (M_d1e7b1): review S1, a block comment then code was admitted.
+ */
+function commentOnlyFlags(lines: readonly string[]): boolean[] {
+  let inBlock = false;
+  return lines.map((raw) => {
+    const l = raw.trim();
+    if (inBlock) {
+      const close = l.indexOf("*/");
+      if (close < 0) return true;
+      inBlock = false;
+      return l.slice(close + 2).trim() === "";
+    }
+    if (l === "" || l.startsWith("//")) return true;
+    if (!l.startsWith("/*")) return false;
+    const close = l.indexOf("*/", 2);
+    if (close < 0) {
+      inBlock = true;
+      return true;
+    }
+    return l.slice(close + 2).trim() === "";
+  });
+}
 
 /**
  * A `git diff -U0` hunk admitted as a live-AC amendment, strictly: every added
@@ -59,7 +85,9 @@ export function hunkIsLiveAmendment(hunk: string, live: ReadonlySet<string>): bo
   const removed = lines.filter((l) => l.startsWith("-")).map((l) => l.slice(1));
   const marked = added.filter((l) => carriesLiveAmendment(l, live));
   if (marked.length === 0) return false;
-  if (!added.every((l) => carriesLiveAmendment(l, live) || COMMENT_ONLY.test(l))) return false;
-  const removedCode = removed.filter((l) => !COMMENT_ONLY.test(l));
+  const addedComment = commentOnlyFlags(added);
+  if (!added.every((l, i) => carriesLiveAmendment(l, live) || addedComment[i])) return false;
+  const removedComment = commentOnlyFlags(removed);
+  const removedCode = removed.filter((_, i) => !removedComment[i]);
   return removedCode.length <= marked.length;
 }
