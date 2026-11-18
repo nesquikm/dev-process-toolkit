@@ -789,6 +789,12 @@ export interface VouchContext {
    */
   incompleteRuns?: readonly IncompleteRun[];
   /**
+   * STE-825 — every `dpt-gate-outcome:` announcement the transcript carries, in
+   * transcript order. NEVER mixed into `announcements`, which decide vouching:
+   * these only decide which outcome files count. Absent ⇒ no outcome counts.
+   */
+  outcomes?: readonly ReceiptAnnouncement[];
+  /**
    * Every OTHER checkout this session could have minted a receipt in — the
    * session's own root and the command's other targets. A window is claimed by
    * the earliest receipt written in it across all of them, so without the peers
@@ -1159,10 +1165,13 @@ export function gateReceiptEvidence(
   // it leaves by. Read from the drop that recorded it, so it says which FILE.
   const tampered = reading.dropped.filter((d) => d.drop === "tampered").map((d) => d.path);
   let claimant: string | null = null;
-  // STE-825 — every run announced for this checkout, in transcript order,
-  // across EVERY window that vouches for it (a window vouches when its FIRST
-  // announcement is this checkout).
-  const ours: typeof announced = [];
+  // STE-825 — the PERMIT and the GRADE read different sets. A window vouches
+  // when its FIRST announcement is this checkout; that alone decides whether
+  // the gate ran here at all. The runs whose outcomes are graded are every run
+  // announced for this checkout anywhere in the transcript, whatever window it
+  // sits in — a window another checkout opened still holds this checkout's
+  // later runs, and their `pass` or `fail` is the newest word on it.
+  const ours = announced.filter((a) => a.root === real);
   let vouching = false;
   for (const window of vouch.windows) {
     const inside = announced.filter(
@@ -1172,23 +1181,19 @@ export function gateReceiptEvidence(
     const first = inside[0]!;
     if (first.root === real) {
       vouching = true;
-      ours.push(...inside.filter((a) => a.root === real));
       continue;
     }
     if (claimant === null) claimant = first.root;
   }
   if (vouching) {
-    // STE-825 — the NEWEST run with a recorded `gate-outcome` decides: `fail`
-    // refuses, `pass` admits. A run with no outcome never changes the verdict,
-    // and when no run has one the vouch permits as before.
-    for (let i = ours.length - 1; i >= 0; i--) {
-      const run = ours[i]!;
-      const verdict = recordedVerdict(root, sessionId, subject, run.digest);
-      if (verdict === null) continue;
-      if (verdict === "fail") {
-        return { ok: false, reason: "gate-failed", claimant: null, named: run.path, ...here, tampered };
-      }
-      break;
+    // STE-825 — the NEWEST counted `gate-outcome` decides: `fail` refuses,
+    // `pass` admits. An outcome counts only when ANNOUNCED and intact, and
+    // counted outcomes are ordered by their announcements in the transcript,
+    // never by the store. A run with no counted outcome never changes the
+    // verdict, and when none counts the vouch permits as before.
+    const verdict = announcedVerdict(vouch.outcomes ?? [], sessionId, subject, real, ours);
+    if (verdict !== null && verdict.decision === "fail") {
+      return { ok: false, reason: "gate-failed", claimant: null, named: verdict.run, ...here, tampered };
     }
     // PERMITTED — and the tamper goes with it rather than being discarded
     // here, which is the whole of HIGH-3. Refusing would be a false positive:
@@ -1260,23 +1265,44 @@ export function gateReceiptEvidence(
   return miss("nothing-announced");
 }
 
-/** STE-825 — the verdict this session recorded for the run receipt `runDigest`, or null when none. Never throws. */
-// Fails open on purpose, like every other leg of this guard: a store it cannot read, or a
-// decision that is not a string, reads as "no outcome recorded" and grades the run as before.
-// The CLI records one outcome per run, so the store holds at most one match. Reading it without
-// an announcement can only ADD a refusal (a planted `fail`), never permit a commit.
-function recordedVerdict(root: string, sessionId: string, subject: string, runDigest: string): string | null {
-  let verdict: string | null = null;
-  try {
-    for (const s of sessionReceiptFiles(root, sessionId)) {
-      if (s.record.kind === GATE_OUTCOME_KIND && s.record.subject === subject && s.record.evidence?.run === runDigest) {
-        verdict = typeof s.record.decision === "string" ? s.record.decision : null;
-      }
+/**
+ * STE-825 — the decision of the NEWEST counted outcome for this checkout's runs,
+ * with the run it is for, or null when none counts. Never throws.
+ *
+ * An outcome counts only when its own `dpt-gate-outcome` announcement is in the
+ * transcript AFTER its run's announcement, the file sits in this checkout's
+ * store and still hashes to the announced digest, and it is a `gate-outcome`
+ * record for `subject` naming one of `runs`. A file in the store that no
+ * announcement names — written by hand — counts for nothing.
+ */
+function announcedVerdict(
+  outcomes: readonly ReceiptAnnouncement[],
+  sessionId: string,
+  subject: string,
+  real: string,
+  runs: ReadonlyArray<{ line: number; digest: string; path: string }>,
+): { decision: string; run: string } | null {
+  let newest: { decision: string; run: string; line: number } | null = null;
+  for (const o of outcomes) {
+    try {
+      if (announcedRoot(o.path, sessionId) !== real) continue;
+      const bytes = readFileSync(resolve(o.path));
+      if (receiptDigest(bytes) !== o.digest) continue;
+      const rec = JSON.parse(bytes.toString("utf-8")) as {
+        kind?: unknown;
+        subject?: unknown;
+        decision?: unknown;
+        evidence?: { run?: unknown };
+      };
+      if (rec?.kind !== GATE_OUTCOME_KIND || rec.subject !== subject || typeof rec.decision !== "string") continue;
+      const run = runs.find((r) => r.digest === rec.evidence?.run && r.line < o.line);
+      if (run === undefined) continue;
+      if (newest === null || o.line > newest.line) newest = { decision: rec.decision, run: run.path, line: o.line };
+    } catch {
+      continue;
     }
-  } catch {
-    return null;
   }
-  return verdict;
+  return newest === null ? null : { decision: newest.decision, run: newest.run };
 }
 
 /** The two sentences a failed repository-scoped leg refuses with, and where. */
@@ -1679,14 +1705,16 @@ export function gateReceiptLeg(
   announcements?: readonly ReceiptAnnouncement[],
   misreadRuns?: readonly AnnouncementMisread[],
   incompleteRuns?: readonly IncompleteRun[],
+  outcomes?: readonly ReceiptAnnouncement[],
 ) => GateEvidenceMiss | null {
-  return (root, windows, announcements, misreadRuns, incompleteRuns) =>
+  return (root, windows, announcements, misreadRuns, incompleteRuns, outcomes) =>
     gateReceiptMiss(subject, root, sessionId, {
       windows,
       peerRoots,
       announcements,
       misreadRuns,
       incompleteRuns,
+      outcomes,
     });
 }
 
@@ -1704,14 +1732,16 @@ export function gateReceiptNoteLeg(
   announcements?: readonly ReceiptAnnouncement[],
   misreadRuns?: readonly AnnouncementMisread[],
   incompleteRuns?: readonly IncompleteRun[],
+  outcomes?: readonly ReceiptAnnouncement[],
 ) => GateEvidenceMiss[] {
-  return (root, windows, announcements, misreadRuns, incompleteRuns) =>
+  return (root, windows, announcements, misreadRuns, incompleteRuns, outcomes) =>
     gateReceiptNotes(subject, root, sessionId, {
       windows,
       peerRoots,
       announcements,
       misreadRuns,
       incompleteRuns,
+      outcomes,
     });
 }
 
@@ -1753,6 +1783,7 @@ export interface GateEvidenceTarget {
     announcements?: readonly ReceiptAnnouncement[],
     misreadRuns?: readonly AnnouncementMisread[],
     incompleteRuns?: readonly IncompleteRun[],
+    outcomes?: readonly ReceiptAnnouncement[],
   ): GateEvidenceMiss | null;
   /** What a PERMITTED root is still owed a word about (`gateReceiptNotes`). */
   receiptNotes(
@@ -1761,6 +1792,7 @@ export interface GateEvidenceTarget {
     announcements?: readonly ReceiptAnnouncement[],
     misreadRuns?: readonly AnnouncementMisread[],
     incompleteRuns?: readonly IncompleteRun[],
+    outcomes?: readonly ReceiptAnnouncement[],
   ): GateEvidenceMiss[];
   /**
    * Whether a Bash command RAN the receipt front door (`announcesGateReceipt`).
@@ -1772,6 +1804,10 @@ export interface GateEvidenceTarget {
    * and re-open HS-1.
    */
   announcesReceipts(command: string): boolean;
+  /** STE-825 — whether a Bash command ran the outcome verb (`runsGateOutcome`). */
+  announcesOutcomes(command: string): boolean;
+  /** STE-825 — the outcome announcement prefix (`GATE_OUTCOME_ANNOUNCEMENT_PREFIX`). */
+  outcomePrefix: string;
   /** STE-650 — whether a command ran the front door for THIS target's gate. */
   announcesOwnRun(command: string): boolean;
 }
@@ -1814,6 +1850,8 @@ export function gateEvidenceTarget(
     receiptLeg: gateReceiptLeg(subject, sessionId, peerRoots),
     receiptNotes: gateReceiptNoteLeg(subject, sessionId, peerRoots),
     announcesReceipts: announcesGateReceipt,
+    announcesOutcomes: runsGateOutcome,
+    outcomePrefix: GATE_OUTCOME_ANNOUNCEMENT_PREFIX,
     announcesOwnRun: (command) => announcesGateReceiptFor(command, subject),
   };
 }

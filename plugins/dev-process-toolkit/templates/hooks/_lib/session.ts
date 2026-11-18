@@ -373,6 +373,7 @@ export interface EvidenceTarget {
     announcements: readonly ReceiptAnnouncement[],
     misreads?: readonly AnnouncementMisread[],
     incomplete?: readonly IncompleteRun[],
+    outcomes?: readonly ReceiptAnnouncement[],
   ): EvidenceMiss | null;
   /**
    * What this root is owed a word about although it did NOT refuse — one
@@ -395,6 +396,7 @@ export interface EvidenceTarget {
     announcements: readonly ReceiptAnnouncement[],
     misreads?: readonly AnnouncementMisread[],
     incomplete?: readonly IncompleteRun[],
+    outcomes?: readonly ReceiptAnnouncement[],
   ): EvidenceMiss[];
   /**
    * Whether a Bash command RAN the receipt front door — ONE plain
@@ -410,6 +412,16 @@ export interface EvidenceTarget {
    * announces nothing.
    */
   announcesReceipts(command: string): boolean;
+  /**
+   * STE-825 — whether a Bash command RAN the front door's `outcome` verb, whose
+   * one announcement line (starting `outcomePrefix`) is the only thing that
+   * makes an outcome file count. Injected for the reason `announcesReceipts`
+   * is — and so is the prefix, since this library names no outcome kind
+   * (STE-715.8). Either absent ⇒ no outcome announcement is collected.
+   */
+  announcesOutcomes?(command: string): boolean;
+  /** STE-825 — the line prefix an outcome write is announced with. */
+  outcomePrefix?: string;
   /**
    * STE-650 — whether a command ran the front door for THIS target's gate, so a
    * pending run of another gate never makes this one wait. Absent ⇒ every
@@ -457,6 +469,7 @@ function firstReceiptMiss(
   announcements: readonly ReceiptAnnouncement[] = [],
   misreads: readonly AnnouncementMisread[] = [],
   incomplete: readonly IncompleteRun[] = [],
+  outcomes: readonly ReceiptAnnouncement[] = [],
 ): EvidenceMiss | null {
   // `windows === null` is the fail-open state: no transcript was readable at
   // all, so there is nothing to grade a receipt against and nothing to refuse.
@@ -465,7 +478,7 @@ function firstReceiptMiss(
   }
   const misses: EvidenceMiss[] = [];
   for (const root of target.roots) {
-    const miss = target.receiptLeg(root, windows, announcements, misreads, incomplete);
+    const miss = target.receiptLeg(root, windows, announcements, misreads, incomplete, outcomes);
     if (miss !== null) misses.push(miss);
   }
   const first = misses[0];
@@ -501,13 +514,14 @@ function receiptReports(
   announcements: readonly ReceiptAnnouncement[] = [],
   misreads: readonly AnnouncementMisread[] = [],
   incomplete: readonly IncompleteRun[] = [],
+  outcomes: readonly ReceiptAnnouncement[] = [],
 ): EvidenceMiss[] {
   if (target === undefined || windows === null || target.receiptNotes === undefined) {
     return [];
   }
   const notes: EvidenceMiss[] = [];
   for (const root of target.roots) {
-    notes.push(...target.receiptNotes(root, windows, announcements, misreads, incomplete));
+    notes.push(...target.receiptNotes(root, windows, announcements, misreads, incomplete, outcomes));
   }
   return notes;
 }
@@ -596,6 +610,13 @@ interface SkillCallScan {
    * the one the leg used to be told nothing about (see `IncompleteRun`).
    */
   incomplete: IncompleteRun[];
+  /**
+   * STE-825 — every outcome announcement, in transcript order: one
+   * per non-error result of a Bash call that ran the outcome verb (per
+   * `target.announcesOutcomes`). Kept apart from `announcements`, which decide
+   * vouching; these only say which outcome files count.
+   */
+  outcomes: ReceiptAnnouncement[];
   /**
    * The windows the standing calls opened, for the receipt leg to place
    * receipts in. `null` ONLY in the fail-open state (no readable transcript),
@@ -729,16 +750,23 @@ function resultText(content: unknown): string {
 }
 
 /**
- * Every `dpt-receipt: <absolute path> sha256:<digest>` line in `text`.
+ * Every `<prefix> <absolute path> sha256:<digest>` line in `text` — `prefix`
+ * is `dpt-receipt:` for run receipts, or the target's `outcomePrefix` for
+ * STE-825 outcome announcements.
  *
  * Both halves are required: a path with no digest cannot be checked against the
  * bytes on disk, and an unchecked announcement would re-admit the file-writing
  * forgery this rule exists to close.
  */
-function announcementsIn(text: string): Array<{ path: string; digest: string }> {
+function announcementsIn(
+  text: string,
+  prefix = "dpt-receipt:",
+): Array<{ path: string; digest: string }> {
   const out: Array<{ path: string; digest: string }> = [];
+  const lead = prefix.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^${lead}\\s+(\\/\\S+)\\s+sha256:([0-9a-f]{64})\\s*$`);
   for (const line of text.split("\n")) {
-    const match = /^dpt-receipt:\s+(\/\S+)\s+sha256:([0-9a-f]{64})\s*$/.exec(line.trim());
+    const match = pattern.exec(line.trim());
     if (match !== null) out.push({ path: match[1]!, digest: match[2]! });
   }
   return out;
@@ -788,6 +816,7 @@ function scanSkillCalls(
       announcements: [],
       misreads: [],
       incomplete: [],
+      outcomes: [],
     };
   }
 
@@ -806,6 +835,9 @@ function scanSkillCalls(
   const announcements: ReceiptAnnouncement[] = [];
   const misreads: AnnouncementMisread[] = [];
   const incomplete: IncompleteRun[] = [];
+  /** STE-825 — the Bash ids whose command ran the outcome verb (with the line each call sits on), then what their results announced. A map, so the graded-ids guard below stays the scanner's only `.has(block.tool_use_id)` set check. */
+  const outcomeCalls = new Map<string, number>();
+  const outcomes: ReceiptAnnouncement[] = [];
 
   // STE-695 / STE-696 — one call (or one result) written as more than one
   // record under the same id is read ONCE, through the shared view: a Skill
@@ -841,6 +873,24 @@ function scanSkillCalls(
         target.announcesReceipts(command)
       ) {
         minting.set(block.id, { line: index, command });
+      } else if (
+        target?.announcesOutcomes !== undefined &&
+        target.outcomePrefix !== undefined &&
+        typeof command === "string" &&
+        target.announcesOutcomes(command)
+      ) {
+        outcomeCalls.set(block.id, index);
+      }
+    } else if (
+      block.type === "tool_result" &&
+      typeof block.tool_use_id === "string" &&
+      outcomeCalls.get(block.tool_use_id) !== undefined
+    ) {
+      // STE-825 — an outcome counts only through its own announcement: exactly
+      // one `outcomePrefix` line in a non-error result of the outcome verb.
+      if (block.is_error !== true && target?.outcomePrefix !== undefined) {
+        const found = announcementsIn(resultText(block.content), target.outcomePrefix);
+        if (found.length === 1) outcomes.push({ ...found[0]!, line: index });
       }
     } else if (
       block.type === "tool_result" &&
@@ -918,6 +968,7 @@ function scanSkillCalls(
     announcements,
     misreads,
     incomplete,
+    outcomes,
   };
 }
 
@@ -1085,7 +1136,7 @@ export function requireSkillToolUse(
     const { scan, miss, lagging } = waitOutReceiptLag(
       first,
       () => scanSkillCalls(skill, payload, target),
-      (s) => firstReceiptMiss(s.windows, target, s.announcements, s.misreads, s.incomplete),
+      (s) => firstReceiptMiss(s.windows, target, s.announcements, s.misreads, s.incomplete, s.outcomes),
       target,
     );
     if (miss === null) {
@@ -1099,6 +1150,7 @@ export function requireSkillToolUse(
         scan.announcements,
         scan.misreads,
         scan.incomplete,
+        scan.outcomes,
       )) {
         emitNFR10("Reminder", note.why, note.how, skill, hook, "stdout");
       }
@@ -1371,11 +1423,11 @@ export function requireTddEvidence(
   // is what places it. Door two is NOT graded against it: a red-before proof
   // names the repository it covers (NF-2), so it carries its own scope.
   const grade = (sc: SkillCallScan): EvidenceMiss | null =>
-    firstReceiptMiss(sc.windows, target, sc.announcements, sc.misreads, sc.incomplete);
+    firstReceiptMiss(sc.windows, target, sc.announcements, sc.misreads, sc.incomplete, sc.outcomes);
   const permitDoorOne = (sc: SkillCallScan): { found: boolean } => {
     // Same permit-path report as `requireSkillToolUse`, for the same reason:
     // the finding belongs to the receipt, not to the door it came through.
-    for (const note of receiptReports(sc.windows, target, sc.announcements, sc.misreads, sc.incomplete)) {
+    for (const note of receiptReports(sc.windows, target, sc.announcements, sc.misreads, sc.incomplete, sc.outcomes)) {
       emitNFR10("Reminder", note.why, note.how, skill, hook, "stdout");
     }
     return { found: true };
