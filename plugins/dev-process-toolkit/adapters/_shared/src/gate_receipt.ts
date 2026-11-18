@@ -1155,6 +1155,11 @@ export function gateReceiptEvidence(
   // it leaves by. Read from the drop that recorded it, so it says which FILE.
   const tampered = reading.dropped.filter((d) => d.drop === "tampered").map((d) => d.path);
   let claimant: string | null = null;
+  // STE-825 — every run announced for this checkout, in transcript order,
+  // across EVERY window that vouches for it (a window vouches when its FIRST
+  // announcement is this checkout).
+  const ours: typeof announced = [];
+  let vouching = false;
   for (const window of vouch.windows) {
     const inside = announced.filter(
       (a) => a.line >= window.startLine && a.line < window.endLine,
@@ -1162,19 +1167,30 @@ export function gateReceiptEvidence(
     if (inside.length === 0) continue;
     const first = inside[0]!;
     if (first.root === real) {
-      // STE-825 — the latest run this window announced for this checkout is
-      // the one that vouches; a recorded `fail` outcome for it refuses.
-      const latest = inside.filter((a) => a.root === real).pop()!;
-      if (recordedVerdict(root, sessionId, subject, latest.digest) === "fail") {
-        return { ok: false, reason: "gate-failed", claimant: null, named: latest.path, ...here, tampered };
-      }
-      // PERMITTED — and the tamper goes with it rather than being discarded
-      // here, which is the whole of HIGH-3. Refusing would be a false positive:
-      // a genuine announcement in this window vouches for this checkout, so the
-      // gate demonstrably ran against it.
-      return vouched(tampered);
+      vouching = true;
+      ours.push(...inside.filter((a) => a.root === real));
+      continue;
     }
     if (claimant === null) claimant = first.root;
+  }
+  if (vouching) {
+    // STE-825 — the NEWEST run with a recorded `gate-outcome` decides: `fail`
+    // refuses, `pass` admits. A run with no outcome never changes the verdict,
+    // and when no run has one the vouch permits as before.
+    for (let i = ours.length - 1; i >= 0; i--) {
+      const run = ours[i]!;
+      const verdict = recordedVerdict(root, sessionId, subject, run.digest);
+      if (verdict === null) continue;
+      if (verdict === "fail") {
+        return { ok: false, reason: "gate-failed", claimant: null, named: run.path, ...here, tampered };
+      }
+      break;
+    }
+    // PERMITTED — and the tamper goes with it rather than being discarded
+    // here, which is the whole of HIGH-3. Refusing would be a false positive:
+    // a genuine announcement vouches for this checkout, so the gate
+    // demonstrably ran against it.
+    return vouched(tampered);
   }
   // Eight states, eight names, each decided HERE by the VALUE that produced it
   // — never by `announced.length`, which is a post-filter count and so cannot

@@ -8,13 +8,15 @@
 //   - `statusMapping.initial`        — the tracker status the `initial` role maps to
 //   - `planTaskState.checkedTaskLines` — every `- [x]` task line of the FR's plan,
 //                                       filled by `readPlanTaskState`
-//   - `frRef = { trackerId, lockIds }` — the FR's tracker id and the ids held in
-//                                       the lock store, read by `readLockIds`
-//                                       (exported from `lock.ts`)
+//   - `frRef = { trackerId, lockIds, startedBy }` — the FR's tracker id, the ids held
+//                                       in the lock store (`readLockIds`, `lock.ts`),
+//                                       and the evidence that work began
+//                                       (`workStartedEvidence`, `fr_work_started.ts`)
 //
 // The not-started carve-out (`notStartedExempt`) passes only when the status is
-// the initial one, no checked task line names the tracker id, and no lock id
-// names the FR. Without `frRef` nothing is provable, so it never fires.
+// the initial one, no checked task line names the tracker id, no lock id names
+// the FR, and `startedBy` is supplied and empty. Without `frRef` or `startedBy`
+// nothing is provable, so it never fires. Amended by AC-STE-825.1 (M_d1e7b1)
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -80,7 +82,7 @@ describe("AC-STE-825.1 the not-started carve-out", () => {
       plan(OTHER_CHECKED),
       MAPPING,
       ME,
-      { trackerId: TRACKER_ID, lockIds: ["STE-824"] },
+      { trackerId: TRACKER_ID, startedBy: [], lockIds: ["STE-824"] }, // Amended by AC-STE-825.1 (M_d1e7b1)
     );
     expect(v).toBe(true);
   });
@@ -91,7 +93,7 @@ describe("AC-STE-825.1 the not-started carve-out", () => {
     expect(
       m.notStartedExempt({ status: "backlog", assignee: null }, plan(OTHER_CHECKED), MAPPING, {
         trackerId: TRACKER_ID,
-        lockIds: [],
+        startedBy: [], lockIds: [], // Amended by AC-STE-825.1 (M_d1e7b1)
       }),
     ).toBe(true);
   });
@@ -100,14 +102,14 @@ describe("AC-STE-825.1 the not-started carve-out", () => {
   for (const line of ["- [x] fix-STE-825 landed", "- [x] STE-825-2 follow-up", "- [x] (STE-825)"]) {
     test(`a checked line \`${line}\` names STE-825 → fails`, async () => {
       const m = await predicate();
-      const v = m.activeTicketDriftPasses({ status: "backlog", assignee: null }, plan([line]), MAPPING, ME, { trackerId: TRACKER_ID, lockIds: [] });
+      const v = m.activeTicketDriftPasses({ status: "backlog", assignee: null }, plan([line]), MAPPING, ME, { trackerId: TRACKER_ID, startedBy: [], lockIds: [] }); // Amended by AC-STE-825.1 (M_d1e7b1)
       expect(v).toBe(false);
     });
   }
 
   test("a lock filed under the FR's own id (not the tracker id) names the FR → fails", async () => {
     const m = await predicate();
-    const ref = { trackerId: TRACKER_ID, frId: "fr_01ABC", lockIds: ["fr_01ABC"] };
+    const ref = { trackerId: TRACKER_ID, frId: "fr_01ABC", startedBy: [], lockIds: ["fr_01ABC"] }; // Amended by AC-STE-825.1 (M_d1e7b1)
     expect(m.activeTicketDriftPasses({ status: "backlog", assignee: null }, plan([]), MAPPING, ME, ref)).toBe(false);
     expect(m.activeTicketDriftPasses({ status: "backlog", assignee: null }, plan([]), MAPPING, ME, { ...ref, lockIds: ["fr_01XYZ"] })).toBe(true);
   });
@@ -119,7 +121,7 @@ describe("AC-STE-825.1 the not-started carve-out", () => {
       plan(["- [x] STE-8250 — a different ticket"]),
       MAPPING,
       ME,
-      { trackerId: TRACKER_ID, lockIds: [] },
+      { trackerId: TRACKER_ID, startedBy: [], lockIds: [] }, // Amended by AC-STE-825.1 (M_d1e7b1)
     );
     expect(v).toBe(true);
   });
@@ -131,7 +133,7 @@ describe("AC-STE-825.1 the not-started carve-out", () => {
       plan([]),
       { initial: "unstarted", in_progress: "in_progress", done: "done" },
       ME,
-      { trackerId: TRACKER_ID, lockIds: [] },
+      { trackerId: TRACKER_ID, startedBy: [], lockIds: [] }, // Amended by AC-STE-825.1 (M_d1e7b1)
     );
     expect(v).toBe(true);
   });
@@ -177,7 +179,7 @@ describe("AC-STE-825.2 one false condition keeps the existing drift failure", ()
       plan(OTHER_CHECKED),
       MAPPING,
       ME,
-      { trackerId: TRACKER_ID, lockIds: [] },
+      { trackerId: TRACKER_ID, startedBy: [], lockIds: [] }, // Amended by AC-STE-825.1 (M_d1e7b1)
     );
     expect(v).toBe(false);
   });
@@ -189,7 +191,7 @@ describe("AC-STE-825.2 one false condition keeps the existing drift failure", ()
       plan([...OTHER_CHECKED, "- [x] STE-825 — the work is already ticked"]),
       MAPPING,
       ME,
-      { trackerId: TRACKER_ID, lockIds: [] },
+      { trackerId: TRACKER_ID, startedBy: [], lockIds: [] }, // Amended by AC-STE-825.1 (M_d1e7b1)
     );
     expect(v).toBe(false);
   });
@@ -201,7 +203,7 @@ describe("AC-STE-825.2 one false condition keeps the existing drift failure", ()
       plan(OTHER_CHECKED),
       MAPPING,
       ME,
-      { trackerId: TRACKER_ID, lockIds: ["STE-824", TRACKER_ID] },
+      { trackerId: TRACKER_ID, startedBy: [], lockIds: ["STE-824", TRACKER_ID] }, // Amended by AC-STE-825.1 (M_d1e7b1)
     );
     expect(v).toBe(false);
   });
@@ -291,7 +293,7 @@ describe("AC-STE-825.5 a later pass clears it; a foreign fail does not refuse", 
   // Added by the orchestrator after the AC-STE-825.5 defect check: a plant that matched ANY run's
   // outcome (not the vouching run's digest) stayed GREEN. This pins the digest match: an older
   // run's fail does not refuse a newer vouching run that has no outcome of its own.
-  test("an older run's fail does not refuse a newer vouching run with no outcome", async () => {
+  test("an older run's fail still refuses: a bare re-mint with no outcome does not clear it", async () => { // Amended by AC-STE-825.4 (M_d1e7b1)
     const root = makeTree("older-fail", "on");
     stageCodeAndTest(root);
     const run1 = mintRun(root);
@@ -299,7 +301,7 @@ describe("AC-STE-825.5 a later pass clears it; a foreign fail does not refuse", 
     const run2 = mintRun(root);
     const tr = [...skillCall("gate"), ...runRecords(root, run1), ...failed, ...runRecords(root, run2)];
     const r = await runHook("gate", root, writeTranscript(tempDir("tr"), tr));
-    expect({ code: r.exitCode, err: r.stderr }).toEqual({ code: 0, err: "" });
+    expect(r.exitCode).toBe(2); // Amended by AC-STE-825.4 (M_d1e7b1)
   }, T);
 
   test("a fail recorded for checkout B refuses B but not checkout A", async () => {

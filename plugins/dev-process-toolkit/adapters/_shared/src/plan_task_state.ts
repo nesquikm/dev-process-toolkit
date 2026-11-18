@@ -3,8 +3,9 @@
 //
 // Reads `<specsDir>/plan/<milestone>.md` (active path) or
 // `<specsDir>/plan/archive/<milestone>.md` (fallback) and returns:
-//   - totalTasks      — count of `^\s*-\s*\[[ x]\]\s` task-list lines
+//   - totalTasks      — count of `^\s*-\s*\[[ xX]\]\s` task-list lines
 //   - uncheckedTasks  — subset that are `- [ ]` (unchecked)
+//   - checkedTaskLines — the `- [x]` / `- [X]` lines, verbatim (STE-825)
 //   - planStatus      — 'active' if loaded from plan/, 'archived' from
 //                       plan/archive/, 'missing' if neither file exists
 //
@@ -22,13 +23,13 @@ export interface PlanTaskState {
   totalTasks: number;
   uncheckedTasks: number;
   planStatus: PlanStatus;
-  /** Every checked (`- [x]`) task line of the plan, verbatim (STE-825). */
+  /** Every checked (`- [x]` or `- [X]`) task line of the plan, verbatim (STE-825). */
   checkedTaskLines?: string[];
 }
 
-const TASK_LINE_RE = /^\s*-\s*\[[ x]\]\s/;
+const TASK_LINE_RE = /^\s*-\s*\[[ xX]\]\s/;
 const UNCHECKED_RE = /^\s*-\s*\[ \]\s/;
-const CHECKED_RE = /^\s*-\s*\[x\]\s/;
+const CHECKED_RE = /^\s*-\s*\[[xX]\]\s/;
 
 async function fileExists(path: string): Promise<boolean> {
   try {

@@ -13,9 +13,9 @@
 // | done          | any          | total = 0        | active      | fail (empty/malformed plan) |
 // | done          | any          | any              | missing     | fail (strict fallback) |
 // | done          | any          | any              | archived    | vacuous (probe #27 owns) |
-// | backlog/etc.  | any          | any              | any         | fail (M23 drift) |
+// | initial       | any          | no checked task names the FR; no lock names it; `startedBy` supplied and empty | any | pass (not started — STE-825) |
+// | backlog/etc.  | any          | any              | any         | fail (M23 drift, unless the not-started row above holds) |
 // | in_progress   | != current   | any              | any         | fail (M23 drift) |
-// | initial       | any          | no checked task names the FR; no lock names it | any | pass (not started — STE-825) |
 //
 // When the fully-checked exemption fires, the probe additionally emits an
 // advisory — `M<N> plan fully checked but not archived — run /spec-archive
@@ -44,6 +44,12 @@ export interface FrRef {
   /** The FR's frontmatter `id:` — locks are filed under it, not under the tracker id. */
   frId?: string;
   lockIds: readonly string[];
+  /**
+   * Evidence lines showing the FR's work has begun (STE-825). Absent: the
+   * caller gathered no evidence, so the not-started carve-out never fires.
+   * Non-empty: started, so the carve-out never fires either.
+   */
+  startedBy?: readonly string[];
 }
 
 function escapeRe(s: string): string {
@@ -51,9 +57,19 @@ function escapeRe(s: string): string {
 }
 
 /**
+ * A regex matching text that names `trackerId`, bounded by non-alphanumerics on
+ * both sides: `fix-STE-825` and `STE-825-2` name STE-825, `STE-8250` does not.
+ * Shared by the not-started carve-out and `fr_work_started` (STE-825).
+ */
+export function namesTrackerIdRe(trackerId: string): RegExp {
+  return new RegExp(`(^|[^A-Za-z0-9])${escapeRe(trackerId)}(?![0-9A-Za-z])`);
+}
+
+/**
  * STE-825 not-started carve-out. True iff the ticket's status maps to the
- * `initial` role, no checked task line of the FR's plan names its tracker
- * id, and no lock entry names the FR. Without `frRef` nothing is provable.
+ * `initial` role, no checked task line (`[x]` or `[X]`) of the FR's plan
+ * names its tracker id, no lock entry names the FR, and `frRef.startedBy`
+ * is supplied and empty. Without `frRef` or `startedBy` nothing is provable.
  */
 export function notStartedExempt(
   summary: TicketSummaryLike,
@@ -62,9 +78,9 @@ export function notStartedExempt(
   frRef?: FrRef,
 ): boolean {
   if (!frRef || !frRef.trackerId || statusMapping.initial == null) return false;
+  if (frRef.startedBy === undefined || frRef.startedBy.length > 0) return false;
   if (summary.status !== statusMapping.initial) return false;
-  // Bounded by alphanumerics on both sides: `fix-STE-825` and `STE-825-2` name STE-825, `STE-8250` does not.
-  const named = new RegExp(`(^|[^A-Za-z0-9])${escapeRe(frRef.trackerId)}(?![0-9A-Za-z])`);
+  const named = namesTrackerIdRe(frRef.trackerId);
   if ((planTaskState.checkedTaskLines ?? []).some((line) => named.test(line))) return false;
   return !frRef.lockIds.some((id) => id === frRef.trackerId || (frRef.frId !== undefined && id === frRef.frId));
 }
@@ -136,7 +152,8 @@ export function fullyCheckedSingleFrExempt(
 /**
  * Composed predicate the probe runner asks: "does this active FR pass
  * probe #14?". Pass iff the ticket is in the in-progress lane assigned to
- * the current user, OR the single-FR-clean exemption applies (STE-151
+ * the current user, OR the not-started carve-out applies (STE-825), OR
+ * the single-FR-clean exemption applies (STE-151
  * partial-checked branch), OR the fully-checked-single-FR exemption applies
  * (STE-180 fully-checked branch).
  */

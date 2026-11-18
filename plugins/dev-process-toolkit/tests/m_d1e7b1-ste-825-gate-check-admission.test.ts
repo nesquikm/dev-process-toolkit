@@ -70,9 +70,20 @@ const pre756 = (): string => {
   return r.stdout;
 };
 
+/**
+ * The pre-block file with the probe #14 lines as fix round 1 rewrote them (the started leg, the
+ * residual): every other byte is still f160c61b's. Amended by AC-STE-825.1 (M_d1e7b1)
+ */
+const pre756FixRound = (): string => {
+  const l = pre756().split("\n");
+  for (const e of STE_825_EDITS) l[e.line - 1] = e.after;
+  l[STE_825_ROW_LINE - 1] = STE_825_ROW;
+  return l.join("\n");
+};
+
 describe("AC-STE-756.6 — undoSte756 admits exactly the probe-runner block", () => {
   test("undoing the block yields the pre-block file byte for byte; both undone yields the pre-M_d1e7b1 file", () => {
-    expect(undoSte756(raw()) === pre756()).toBe(true);
+    expect(undoSte756(raw()) === pre756FixRound()).toBe(true); // Amended by AC-STE-825.1 (M_d1e7b1)
     expect(undoGateCheckM_d1e7b1(raw()) === preEdit()).toBe(true);
     expect(raw().split("\n").slice(STE_756_BLOCK_LINE - 1, STE_756_BLOCK_LINE - 1 + STE_756_BLOCK.length)).toEqual([...STE_756_BLOCK]);
   });
@@ -86,7 +97,7 @@ describe("AC-STE-756.6 — undoSte756 admits exactly the probe-runner block", ()
     const beside = raw().split("\n");
     beside[STE_756_BLOCK_LINE - 2] = `${beside[STE_756_BLOCK_LINE - 2]}x`; // the blank line above the block
     const undone = undoSte756(beside.join("\n")).split("\n");
-    const before = pre756().split("\n");
+    const before = pre756FixRound().split("\n"); // Amended by AC-STE-825.1 (M_d1e7b1)
     expect(undone.map((l, i) => (l === before[i] ? -1 : i + 1)).filter((n) => n > 0)).toEqual([STE_756_BLOCK_LINE - 1]);
   });
 
