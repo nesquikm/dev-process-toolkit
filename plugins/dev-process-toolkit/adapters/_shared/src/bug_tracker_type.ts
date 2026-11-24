@@ -53,7 +53,9 @@ function checkJira(issueType: string, epicKey: string, listing: unknown): string
       `mode=jira, jira_bug_issue_type=${issueType}, epic=${epic}, skill=/spec-write`,
     );
   }
-  const level = typeof hit.hierarchyLevel === "number" ? hit.hierarchyLevel : 0;
+  // A v2 row carries no hierarchyLevel: the Epic type is then known by its name.
+  const isEpic = String(hit.name).trim().toLowerCase() === "epic";
+  const level = typeof hit.hierarchyLevel === "number" ? hit.hierarchyLevel : isEpic ? 1 : 0;
   if (hit.subtask === true || level !== 0) {
     refuse(
       `bug type refused: Jira issue type "${String(hit.name)}" cannot take ${parent} as parent`,

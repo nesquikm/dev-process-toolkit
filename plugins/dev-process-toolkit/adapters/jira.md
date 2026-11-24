@@ -70,17 +70,35 @@ below, which is how the create payload gets the bug type.
 
 ## MCP tool names
 
-| Operation | MCP tool | Notes |
-|-----------|----------|-------|
-| `pull_acs` | `mcp__atlassian__getJiraIssue` | Branches on `jira_ac_field`: read the custom-field value (custom-field path) or the issue's description body (description path) and parse `## Acceptance Criteria` bullets. |
-| `push_ac_toggle` | `mcp__atlassian__editJiraIssue` | Branches on `jira_ac_field`: write back the toggled custom-field value or rewrite the description's `## Acceptance Criteria` section atomically. Pass `contentFormat: "markdown"` to round-trip markdown without ADF conversion. |
-| `transition_status` | `mcp__atlassian__transitionJiraIssue` | Resolve transition id via `getTransitionsForJiraIssue` + `status_mapping`. Primary match is `to.name`; fallback is `to.statusCategory.key` (canonical category). |
-| `upsert_ticket_metadata` | `mcp__atlassian__createJiraIssue` (new) / `mcp__atlassian__editJiraIssue` (existing) | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. On create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md (on a settings-file tree that sub-section is the generated stub rendered from `task_tracking.jira` in `specs/settings.yaml` and is never edited by hand); reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. **Labels:** when `### Jira`.default_labels is populated (free-form sub-section field, parsed as inline-YAML array per `docs/patterns.md`) **or** the call argument carries `labels`, forward every entry into `createJiraIssue.additional_fields.labels` (the only Jira-MCP path for setting labels — there is no top-level `labels` parameter, see the `mcp__atlassian__createJiraIssue` schema). Empty array or missing key ⇒ no `labels` field is set. **Update path** (`editJiraIssue`): labels are not modified — `defaultLabels` applies only on create per the workspace-binding rule. The one exception is the claim on import in a shared repository: importing an `unowned` ticket sends `labels` as the union of the ticket's current labels (read off the saved container page) and this repository's ownership tag, never a set that drops a label (`docs/spec-write-tracker-mode.md` § Orphan listing). Default issue type is `Task`; override via `jira_issue_type:` in `### Jira`. Pass `contentFormat: "markdown"` so the rendered description body keeps its markdown shape. |
-| `list_project_statuses` | `mcp__atlassian__getJiraIssueTypeMetaWithFields` (company-managed) / `mcp__atlassian__getTransitionsForJiraIssue` (team-managed) | Two-path status-vocabulary fetch dispatched on project style — probe order, output contract, project-key sourcing, and NFR-10 guard are documented in § `list_project_statuses` under Operations. Used by `/setup` Step Nb (STE-303) to seed `specs/tracker-config.yaml` with the workspace-bound status vocabulary. Pure read; no mutation. |
-| `addCommentToJiraIssue` | `mcp__atlassian__addCommentToJiraIssue` | Available on the live MCP surface (smoke-test #5 enumerated tool list) for callers that need to post a markdown comment. Pass `contentFormat: "markdown"`. No /implement-internal caller today. |
-| Project visibility probe | `mcp__atlassian__getVisibleJiraProjects` | Called by `/setup` step 7b before any other Jira operation; refuses with NFR-10 canonical shape when the configured `project` key is not visible to the authenticated principal. |
-| `listMilestones` (optional driver method) | `mcp__atlassian__searchJiraIssuesUsingJql` | Enumerate milestone Epics via `issuetype = Epic` (primary leg) and union the grandfathered `milestone-<M-token>` labels (legacy leg). Both legs paginate with client-side union-grammar filters, dedupe, and return bare `M_<epic-key>` / `M<N>` tokens. Best-effort: any failure ⇒ `[]`. Pure read; see § Milestone Listing below. |
-| `list_active_frs` | `mcp__atlassian__searchJiraIssuesUsingJql` | The orphan-listing read: JQL is what `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/tracker_listing_query.ts jira <projectRoot> <KEY>` prints (`project = <KEY> AND (statusCategory != Done OR key in (<keys bound by active FRs>))`, or `project = <KEY> AND statusCategory != Done` when no active FR binds a key) — run it and pass its output verbatim, never retype the JQL — with `fields: [key, summary, issuetype, labels, description, creator, project, status]` (`status.statusCategory.key` `done` marks a ticket closed: listed, never offered — the JQL fetches a closed ticket only when an active local FR binds it, so the field is what keeps that ticket out of the orphan offer while it still counts as the FR's match), paginated with `nextPageToken` until the response carries `isLast: true` — or, when the Atlassian server answers in its wrapped shape (`context` + `issues.nodes`), with `issues.pageInfo.endCursor` until `issues.pageInfo.hasNextPage` is false; the server was observed to flip between the two within days, and the front doors read both. Save every page verbatim as a JSON file — each page after the first with the cursor it was fetched with added as a top-level `requestCursor`, so a dropped or reordered page shows as a broken chain; the saved pages feed the front doors — `container_ownership.ts` (`list` / `consent`, see `docs/spec-write-tracker-mode.md` § Orphan listing) and probe #49's `tracker_local_reconciliation_drift.ts` — which classify each ticket by its labels and refuse a page lacking `labels` or `description` in shared mode, or one carrying a ticket from another project. Pure read; no mutation. |
+The Atlassian server exposes one of two tool surfaces, v1 or v2. Use whichever
+surface the session lists: a session that lists `addCommentToJiraIssue` is on v1,
+and one that lists `addOrEditJiraIssueComment` is on v2. The calls written out
+below are v1 calls; where v2 takes other inputs, the v2 call is stated beside
+them. Every Jira operation on either surface also takes `cloudId`.
+
+- **No direct v2 tool.** Call `mcp__atlassian__executeRead` (a read) or
+  `mcp__atlassian__executeWrite` (a write) with `{ name, inputs, cloudId }`.
+  Put every input inside `inputs`; only the read-only `responseFields` and
+  `view` may sit beside it. `adapters/_shared/data/tracker-tool-inventory.json`
+  (`atlassian_v2.operations`) lists the recorded operations and their inputs. A
+  name marked "found through `discover`" is in that list but proven by no recorded call: confirm the name and its inputs with
+  `mcp__atlassian__discover` first.
+- **v2 answers.** An answer is wrapped as `{ data: … }`. A failed call can come
+  back as `{ data: { error, … } }` with no error flag: treat that as a failure.
+- **v2 reads.** Pass `view: "full"` to `getJiraIssue` and
+  `searchJiraIssuesUsingJql`; the compact default drops fields such as `project`.
+
+| Operation | v1 MCP tool and inputs | v2 MCP tool and inputs | Notes |
+|-----------|------------------------|------------------------|-------|
+| `pull_acs` | `mcp__atlassian__getJiraIssue`: `issueIdOrKey`, `fields`, `contentFormat` | `mcp__atlassian__getJiraIssue`: `issueIdOrKey`, `fields`, `view: "full"` | Branches on `jira_ac_field`: read the custom-field value (custom-field path) or the issue's description body (description path) and parse `## Acceptance Criteria` bullets. |
+| `push_ac_toggle` | `mcp__atlassian__editJiraIssue`: `issueIdOrKey`, `fields`, `contentFormat` | `mcp__atlassian__editJiraIssue`: `issueIdOrKey`, `fields`, `contentFormat` | Branches on `jira_ac_field`: write back the toggled custom-field value or rewrite the description's `## Acceptance Criteria` section atomically. Pass `contentFormat: "markdown"` to round-trip markdown without ADF conversion. |
+| `transition_status` | `mcp__atlassian__transitionJiraIssue`: `issueIdOrKey`, `transition: { id }` | `mcp__atlassian__transitionJiraIssue`: `issueIdOrKey` and one of `transitionId` or `transitionName`. Transition list: `mcp__atlassian__executeRead` with name `listJiraIssueTransitions` (`issueIdOrKey`) | Resolve transition id via `getTransitionsForJiraIssue` + `status_mapping`. Primary match is `to.name`; fallback is `to.statusCategory.key` (canonical category). |
+| `upsert_ticket_metadata` | `mcp__atlassian__createJiraIssue` (new) / `mcp__atlassian__editJiraIssue` (existing). Create: `projectKey`, `issueTypeName`, `summary`, `description`, `parent`, `additional_fields`, `contentFormat`. Edit: `issueIdOrKey`, `fields`, `contentFormat` | `mcp__atlassian__createJiraIssue` (new): `projectKey`, `issueType`, `summary`, `description`, `labels`, `parent`, `contentFormat`, and `additional_fields` for any other field. `mcp__atlassian__editJiraIssue` (existing): `issueIdOrKey`, `fields`, `contentFormat` | Body MUST include the back-link to `specs/frs/<TICKET-ID>.md`. On create, `project` is required (Jira API requirement) — sourced from the call argument or `### Jira`.project in CLAUDE.md (on a settings-file tree that sub-section is the generated stub rendered from `task_tracking.jira` in `specs/settings.yaml` and is never edited by hand); reject with NFR-10 canonical shape if neither supplies a value. `team` does not apply to Jira and is silently dropped if forwarded. **Labels:** when `### Jira`.default_labels is populated (free-form sub-section field, parsed as inline-YAML array per `docs/patterns.md`) **or** the call argument carries `labels`, forward every entry into `createJiraIssue.additional_fields.labels` (the only Jira-MCP path for setting labels — there is no top-level `labels` parameter, see the `mcp__atlassian__createJiraIssue` schema). That is v1 only: on v2, forward them as the top-level `labels`. Empty array or missing key ⇒ no `labels` field is set. **Update path** (`editJiraIssue`): labels are not modified — `defaultLabels` applies only on create per the workspace-binding rule. The one exception is the claim on import in a shared repository: importing an `unowned` ticket sends `labels` as the union of the ticket's current labels (read off the saved container page) and this repository's ownership tag, never a set that drops a label (`docs/spec-write-tracker-mode.md` § Orphan listing). Default issue type is `Task`; override via `jira_issue_type:` in `### Jira`. Pass `contentFormat: "markdown"` so the rendered description body keeps its markdown shape. |
+| `list_project_statuses` | `mcp__atlassian__getJiraIssueTypeMetaWithFields` (company-managed) / `mcp__atlassian__getTransitionsForJiraIssue` (team-managed). Company-managed: `projectIdOrKey`, `issueTypeId`. Team-managed: `issueIdOrKey` | `mcp__atlassian__executeRead` with name `getJiraIssueTypeMetaWithFields` (company-managed: `projectIdOrKey`, `issueTypeId`) or `listJiraIssueTransitions` (team-managed: `issueIdOrKey`) | Two-path status-vocabulary fetch dispatched on project style — probe order, output contract, project-key sourcing, and NFR-10 guard are documented in § `list_project_statuses` under Operations. Used by `/setup` Step Nb (STE-303) to seed `specs/tracker-config.yaml` with the workspace-bound status vocabulary. Pure read; no mutation. |
+| `addCommentToJiraIssue` | `mcp__atlassian__addCommentToJiraIssue`: `issueIdOrKey`, `commentBody`, `contentFormat` | `mcp__atlassian__addOrEditJiraIssueComment`: `issueIdOrKey`, `commentBody`; `commentId` only to edit a comment | Available on the live MCP surface (smoke-test #5 enumerated tool list) for callers that need to post a markdown comment. Pass `contentFormat: "markdown"`. No /implement-internal caller today. |
+| Project visibility probe | `mcp__atlassian__getVisibleJiraProjects`: `cloudId` | `mcp__atlassian__executeRead` with name `listJiraProjects` (`query`, `maxResults`, `startAt`) | Called by `/setup` step 7b before any other Jira operation; refuses with NFR-10 canonical shape when the configured `project` key is not visible to the authenticated principal. |
+| `listMilestones` (optional driver method) | `mcp__atlassian__searchJiraIssuesUsingJql`: `jql`, `fields`, `nextPageToken` | `mcp__atlassian__searchJiraIssuesUsingJql`: `jql`, `fields`, `nextPageToken`, `view: "full"` | Enumerate milestone Epics via `issuetype = Epic` (primary leg) and union the grandfathered `milestone-<M-token>` labels (legacy leg). Both legs paginate with client-side union-grammar filters, dedupe, and return bare `M_<epic-key>` / `M<N>` tokens. Best-effort: any failure ⇒ `[]`. Pure read; see § Milestone Listing below. |
+| `list_active_frs` | `mcp__atlassian__searchJiraIssuesUsingJql`: `jql`, `fields`, `nextPageToken` | `mcp__atlassian__searchJiraIssuesUsingJql`: `jql`, `fields`, `nextPageToken`, `view: "full"` | The orphan-listing read: JQL is what `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/tracker_listing_query.ts jira <projectRoot> <KEY>` prints (`project = <KEY> AND (statusCategory != Done OR key in (<keys bound by active FRs>))`, or `project = <KEY> AND statusCategory != Done` when no active FR binds a key) — run it and pass its output verbatim, never retype the JQL — with `fields: [key, summary, issuetype, labels, description, creator, project, status]` (`status.statusCategory.key` `done` marks a ticket closed: listed, never offered — the JQL fetches a closed ticket only when an active local FR binds it, so the field is what keeps that ticket out of the orphan offer while it still counts as the FR's match), paginated with `nextPageToken` until the response carries `isLast: true` — or, when the Atlassian server answers in its wrapped shape (`context` + `issues.nodes`), with `issues.pageInfo.endCursor` until `issues.pageInfo.hasNextPage` is false; the server was observed to flip between the two within days, and the front doors read both. Save every page verbatim as a JSON file — each page after the first with the cursor it was fetched with added as a top-level `requestCursor`, so a dropped or reordered page shows as a broken chain; the saved pages feed the front doors — `container_ownership.ts` (`list` / `consent`, see `docs/spec-write-tracker-mode.md` § Orphan listing) and probe #49's `tracker_local_reconciliation_drift.ts` — which classify each ticket by its labels and refuse a page lacking `labels` or `description` in shared mode, or one carrying a ticket from another project. Pure read; no mutation. |
 
 > **No `deleteJiraIssue` tool.** The MCP surface does not expose issue
 > deletion. `/spec-archive` for Jira transitions the ticket to `Done` (or a
@@ -152,7 +170,8 @@ The Atlassian Rovo MCP exposes no project-creation tool, so the operator
 `/setup`**. `/setup` for `mode: jira` records the project key in the
 `### Jira` sub-section under `## Task Tracking`; on every subsequent run,
 the adapter validates that the configured key is visible to the
-authenticated principal via `mcp__atlassian__getVisibleJiraProjects`.
+authenticated principal via `mcp__atlassian__getVisibleJiraProjects`
+(v2: `executeRead` with name `listJiraProjects` and `query: "<key>"`).
 
 If the project is **not visible** (key typo, OAuth principal lacks
 membership, project archived), refuse with NFR-10 canonical shape:
@@ -258,7 +277,9 @@ the canonical form (no round-trip loop).
 
 ### `transition_status(ticket_id, status) → void`
 
-1. `mcp__atlassian__getTransitionsForJiraIssue(ticket_id)` → list of
+1. `mcp__atlassian__getTransitionsForJiraIssue(ticket_id)`
+   (v2: `mcp__atlassian__executeRead(name="listJiraIssueTransitions", inputs={ issueIdOrKey: ticket_id })`)
+   → list of
    available transitions for the issue's current workflow.
 2. Resolve the target transition via this two-step algorithm:
 
@@ -290,6 +311,7 @@ the canonical form (no round-trip loop).
    exact-name precedence, so the collapse is invisible there.
 
 3. `mcp__atlassian__transitionJiraIssue(ticket_id, transition={ id: <matched id> })`.
+   v2: `mcp__atlassian__transitionJiraIssue(issueIdOrKey=ticket_id, transitionId=<matched id>)`.
 4. Unknown `status` values (or no transition matches by name OR
    category) fail with NFR-10 canonical shape.
 
@@ -318,7 +340,8 @@ the canonical form (no round-trip loop).
         `default_labels`) from the binding itself (no tag is ever passed
         by hand) and refuses, non-zero, a tag the create would not forward.
      2. `mcp__atlassian__searchJiraIssuesUsingJql` with exactly that `jql`
-        and those `fields` — no edits to either.
+        and those `fields` — no edits to either. On v2, add
+        `view: "full"` and nothing else.
      3. In a session, `create_idempotency_probe.ts decide` takes `--from-transcript <transcript_path> <tool_use_id>...` in place of the page files:
         the `transcript_path` from the hook payload, then the `tool_use` id
         of every search call, in page order.
@@ -390,6 +413,8 @@ the canonical form (no round-trip loop).
      type there, and it replaces the resolved type as `issuetype`
      — so the new ticket lands already inside its milestone container and a
      retry's narrowed query can find it. Create only on a `create` decision.
+     The type input is `issueTypeName` on v1 and `issueType` on v2. Labels go in
+     `additional_fields` on v1 and in the top-level `labels` on v2.
    - **Network-error retry path (Gateway-Timeout idempotency hardening).**
      If the create call returns a network-error response
      (Gateway-Timeout / 504 / connection reset / equivalent) instead of a
@@ -410,7 +435,8 @@ the canonical form (no round-trip loop).
      three (`retry-1`, `retry-2`, `retry-3`), after that attempt's wait:
 
      1. `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/create_idempotency_probe.ts query <projectRoot> --title <title> [container]`;
-     2. `mcp__atlassian__searchJiraIssuesUsingJql` with the printed `jql` and `fields`;
+     2. `mcp__atlassian__searchJiraIssuesUsingJql` with the printed `jql` and `fields`,
+        plus `view: "full"` on v2;
      3. in a session, `create_idempotency_probe.ts decide` takes
         `--from-transcript <transcript_path> <tool_use_id>...` in place of the
         page files (the `transcript_path` from the hook payload, then this
@@ -482,12 +508,13 @@ uses to seed `specs/tracker-config.yaml`. The fetch is a
 conformance iter-2 2026-07-02 finding F5):
 
 1. **Detect project style** — `mcp__atlassian__getVisibleJiraProjects`
+   (v2: `executeRead`, as in the table above)
    (the same visibility probe `/setup` step 7b already runs; reuse its
    response rather than re-calling). A project entry carrying
    `"simplified": true` is team-managed (next-gen); absent or `false`
    means company-managed.
 2. **Company-managed ⇒ `allowedValues` path** (the original path,
-   unchanged). `mcp__atlassian__getJiraIssueTypeMetaWithFields` → the
+   unchanged). `mcp__atlassian__getJiraIssueTypeMetaWithFields` (v2: through `executeRead`) → the
    `status` field's `allowedValues` array; extract each
    `allowedValue.name`. This introspection is **company-managed-only**:
    team-managed projects return no `allowedValues` for the `status`
@@ -495,6 +522,7 @@ conformance iter-2 2026-07-02 finding F5):
    not an empty workflow.
 3. **Team-managed ⇒ transitions-derived path** — the **primary** path for
    team-managed projects. `mcp__atlassian__getTransitionsForJiraIssue`
+   (v2: through `executeRead`)
    against a representative issue in the bound project (or the project's
    create-meta default issue type when no issue exists) → collect each
    transition's `to.name` in API order, dedup preserving the
@@ -506,7 +534,7 @@ of status names, verbatim casing and whitespace — so the
 `tracker-config.yaml` composition is untouched by the dispatch.
 
 **Zero-issue edge.** A fresh team-managed project with no issues offers
-nothing to call `getTransitionsForJiraIssue` against: fall back to the
+nothing to call `getTransitionsForJiraIssue` (v2: `listJiraIssueTransitions` through `executeRead`) against: fall back to the
 three canonical `statusCategory` names (`To Do` / `In Progress` / `Done`)
 and surface a `tracker_config_write_mcp_unavailable`-style advisory so the
 operator knows the seeded vocabulary is a category-level approximation of
@@ -535,7 +563,8 @@ hard failure.
 
 **Find.** Enumerate the project's Epics via
 `mcp__atlassian__searchJiraIssuesUsingJql` with
-`jql = "project = <projectKey> AND issuetype = Epic"` and match the milestone's
+`jql = "project = <projectKey> AND issuetype = Epic"`, fields `summary`,
+`issuetype`, `status`, `labels` and `project`, and on v2 `view: "full"`, and match the milestone's
 Epic by KEY when the plan heading carries an `M_<key>` token: sanitize each
 candidate's key forward (`GK-78` → `M_GK_78`) and compare. For an Epic-KEYED
 milestone, summary equality is not the join — the canonical name embeds the
@@ -555,7 +584,8 @@ That protection is why a timeout does not mint a duplicate Epic.
 
 1. Create the Epic with the **human title alone** —
    `mcp__atlassian__createJiraIssue(projectKey=<projectKey>,
-   issueTypeName="Epic", summary=<human title>)`. The canonical
+   issueTypeName="Epic", summary=<human title>)`
+   (v2: the same call with `issueType="Epic"` as the type). The canonical
    `M_<key> — <Title>` name is not available here: it embeds the key Jira is
    about to allocate for this very Epic, so ordering it would order a value
    that does not yet exist.
@@ -575,7 +605,8 @@ failed label write never fails the mint: the Epic and its derived id stand,
 and only the convenience is missing. In a live session the write is a
 read-merge-write on the Epic's own key —
 `mcp__atlassian__editJiraIssue(issueIdOrKey=<epic-key>,
-additional_fields={ labels: [...<existing labels>, "milestone-M_<key>", ...<default_labels>] })`,
+additional_fields={ labels: [...<existing labels>, "milestone-M_<key>", ...<default_labels>] })`
+(v2: the same `labels` set under `fields`),
 never clobbering a label already there. `mintMilestoneEpic` performs it
 through the provider's `addLabel`, given the default labels in process as
 `defaultLabels`, and reports whether every write landed as `labelled`; its command form prints the label it would write as
@@ -589,7 +620,7 @@ provider carrying no `listEpics` — refuses instead of creating. A join never
 creates. The toolkit makes every other mint with the approved decision of
 `resolve_milestone_identity.ts` as `expect`, so it performs that act or refuses; only a bare mint with neither option still finds by title. A decision printed with `default=forbidden` (a shared title join) also prints `options=` — ``Join `<KEY>` `` / ``Skip `<KEY>` `` — and in a shared repository the tracker-write hook permits the join's labels edit and any FR create attached through it only after an `AskUserQuestion` offering those labels was answered exactly ``Join `<KEY>` `` after the decision.
 
-**Re-list before a container create.** A create decision goes stale the moment another repository mints the same Epic. In a shared repository the tracker-write hook therefore permits an Epic create only when, after the permitting decision, the session re-listed the project's containers with exactly `project = <P> AND issuetype = Epic` (whitespace, case, quoting and a trailing `ORDER BY` aside; a query narrowed by summary, status, key, created, labels, `OR` or `NOT` does not count) — every page, from the unpaged first request to a page proven last, each row carrying `summary` and `status`, requested with fields `summary`, `issuetype`, `status`, `labels` and `project` — and sent the create within 120 s of that listing's last result. An open Epic of the create's title in that listing refuses the create by its key: join it instead. The hook makes no tracker call; it reads what the transcript recorded. Residuals: a sibling's create inside the 120 s window, Jira's search-index lag, and the operator's permission prompt (shown after the hook permits).
+**Re-list before a container create.** A create decision goes stale the moment another repository mints the same Epic. In a shared repository the tracker-write hook therefore permits an Epic create only when, after the permitting decision, the session re-listed the project's containers with exactly `project = <P> AND issuetype = Epic` (whitespace, case, quoting and a trailing `ORDER BY` aside; a query narrowed by summary, status, key, created, labels, `OR` or `NOT` does not count) — every page, from the unpaged first request to a page proven last, each row carrying `summary` and `status`, requested with fields `summary`, `issuetype`, `status`, `labels` and `project`, and on v2 with `view: "full"` — and sent the create within 120 s of that listing's last result. An open Epic of the create's title in that listing refuses the create by its key: join it instead. The hook makes no tracker call; it reads what the transcript recorded. Residuals: a sibling's create inside the 120 s window, Jira's search-index lag, and the operator's permission prompt (shown after the hook permits).
 
 The mint surfaces NO capability row: it is a step of its own, not an attach
 outcome, and the attach that follows FINDS the Epic and returns `capability:
@@ -598,7 +629,8 @@ null`. `milestone_create_required` belongs to the object binding's
 
 **Membership — `parent` set.** Bind the FR Task by writing the Epic's key to
 its `parent` field: `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id,
-additional_fields={ parent: { key: <epic-key> } })`. This path never touches
+additional_fields={ parent: { key: <epic-key> } })`
+(v2: `fields={ parent: { key: <epic-key> } }`). This path never touches
 milestone objects. For an Epic-KEYED milestone the per-FR attach writes no
 `milestone-<M-token>` label on the FR ticket; the only `milestone-M_<key>`
 label such a milestone carries is the one the mint writes on the Epic itself.
@@ -627,7 +659,8 @@ every pass forever. There is nothing to configure: the routing is decided by
 the milestone TOKEN's kind, not by the adapter's declared binding.
 
 **Epic-absent fallback.** Probe the bound project's issue-type metadata via
-`mcp__atlassian__getJiraProjectIssueTypesMetadata`. When the Epic type is
+`mcp__atlassian__getJiraProjectIssueTypesMetadata` (v2: `executeRead` with name
+`listJiraProjectIssueTypesMetadata`). When the Epic type is
 absent — or the project cannot set `parent` — the attach degrades to the
 label path below and the closing summary surfaces the **informational**
 `milestone_epic_unsupported` capability row (the FR still attaches via the
@@ -659,8 +692,10 @@ a **read-merge-write** cycle:
 3. **Write** — `mcp__atlassian__editJiraIssue(issueIdOrKey=ticket_id,
    additional_fields={ labels: <merged set> })` with the full merged array,
    so no pre-existing label is dropped. (There is no top-level `labels`
-   parameter — labels go through `additional_fields.labels`, the same path
+   parameter — labels go through `additional_fields.labels` on v1 and `labels` under `fields` on v2, the same path
    the on-create `default_labels` rule uses; see the MCP tool-names table.)
+   On v2, write the merged `labels` under `fields`:
+   `fields={ labels: <merged set> }`.
 
 **Read-back verify.** After the write, **re-read** the issue
 (`getJiraIssue`) and assert the `milestone-<M-token>` label is present in
@@ -704,14 +739,15 @@ driver simply supplies this method.
 
 1. **Epic leg (primary)** — `mcp__atlassian__searchJiraIssuesUsingJql` with
    `jql = "project = <projectKey> AND issuetype = Epic ORDER BY created DESC"`
-   (project key from `### Jira`.project), paginating page by page. Feed each
+   (project key from `### Jira`.project), fields `summary` and `labels` and, on v2,
+   `view: "full"`, paginating page by page. Feed each
    raw search answer, verbatim — plain or wrapped — into the helper's `fetchEpicPage`.
    Client-side name filter: an Epic counts iff its summary's first
    whitespace-delimited word is a valid milestone token (union grammar); each
    match contributes `M_<epic-key>` (key verbatim).
 2. **Label leg (grandfathered labels and freshly minted Epics)** — the same JQL tool with
    `jql = "project = <projectKey> AND labels IS NOT EMPTY ORDER BY created DESC"`,
-   feeding each raw search answer, verbatim, into `fetchPage`.
+   with the same fields and view, feeding each raw search answer, verbatim, into `fetchPage`.
    This JQL deliberately carries no `issuetype` filter, and that absence is
    what lets the label leg return an Epic carrying the `milestone-M_<epic-key>`
    label the mint writes — so a repo joining a shared project finds a freshly

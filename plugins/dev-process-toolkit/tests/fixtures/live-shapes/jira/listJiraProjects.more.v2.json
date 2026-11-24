@@ -1,0 +1,38 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "read-only-call",
+    "request": {
+      "name": "listJiraProjects",
+      "inputs": {
+        "maxResults": 2
+      }
+    },
+    "note": "listJiraProjects through executeRead, a first page with more to come; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "data": {
+      "isLast": false,
+      "maxResults": 2,
+      "nextPage": "example-next-page",
+      "startAt": 0,
+      "total": 3,
+      "values": [
+        {
+          "id": "10000",
+          "key": "ZZ",
+          "name": "Example ZZ",
+          "projectTypeKey": "software",
+          "style": "classic"
+        },
+        {
+          "id": "10001",
+          "key": "ZY",
+          "name": "Example ZY",
+          "projectTypeKey": "software",
+          "style": "classic"
+        }
+      ]
+    }
+  }
+}

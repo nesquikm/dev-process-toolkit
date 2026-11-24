@@ -32,12 +32,13 @@ import { fileURLToPath } from "node:url";
 import { CHILD_LISTING_REJECTED } from "./sibling_release.ts";
 import { cwdToSlug } from "./find_current_session";
 
+import { ATLASSIAN_EXECUTE_TOOLS, canonicalAtlassianCall } from "./atlassian_call";
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
 import { TOOLKIT_LABELS } from "./container_ownership";
 import { EPIC_EDIT_INPUT_KEYS, exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets, type OwnershipRoute } from "./join_consent_ownership";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
-import { listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
+import { flaggedStatus, inBandError, listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
 import { isCanonicalContainerListing, milestoneIdFromEpicKey, milestoneIdFromLinearMilestone, normalizeMilestoneTitle } from "./milestone_token";
 
 import {
@@ -87,6 +88,10 @@ export interface ToolCall {
   at: string;
   name: string;
   input: Record<string, unknown>;
+  /** Set by `canonicalBundle`, never recorded: input keys the Atlassian translator could not place (STE-865). */
+  unplaced?: string[];
+  /** Set by `canonicalBundle`, never recorded: why the hook refuses this execute call whatever it was decided (STE-866). */
+  executeRefusal?: string;
   result: ToolResult;
   sidechain: boolean;
 }
@@ -612,7 +617,11 @@ function parseSession(
         return abort("tool-result-missing", `session ${sid}: the persisted tool_result of ${u.id} points at a file that cannot be read`);
       }
     }
-    const isError = res.isError;
+    // An in-band error is an error whatever the flag says; its text keeps the
+    // status and whether the call may have run, all `createNeverRan` reads (STE-867).
+    const inBand = isTrackerTool(u.name) ? inBandError(tracker, ptr ? text : res.content) : null;
+    if (inBand !== null) text = `in-band tracker error, status ${inBand.status}${MAY_HAVE_RUN.test(inBand.said) ? ", may have run: interrupted" : ""}`;
+    const isError = res.isError || inBand !== null;
     let result: ToolResult;
     if (u.name === "Bash") {
       const ex = EXIT_PREFIX.exec(text);
@@ -621,7 +630,8 @@ function parseSession(
     } else if (!isError && isTrackerTool(u.name)) {
       // An answer in no observed shape keeps no item, so every predicate that
       // needs one fails closed; its text names why, never the raw answer.
-      const a = projectAnswer(tracker, u.name, text);
+      // A wrapped call answers as the operation it names (STE-866).
+      const a = projectAnswer(tracker, tracker === "jira" ? canonicalCall(u.name, u.input).name : u.name, text);
       result =
         a === null
           ? { isError, text: rw(text), exitCode: null, items: null, lastPage: null }
@@ -1063,18 +1073,52 @@ const notObserved = (reason: string): PredicateResult => ({ outcome: "not-observ
  * in the grader's suite imports the hook's list and keeps the two equal.
  */
 export const TRACKER_WRITE_TOOL_NAMES: readonly string[] = [
-  "createJiraIssue", "editJiraIssue", "transitionJiraIssue", "addCommentToJiraIssue", "addWorklogToJiraIssue", "createIssueLink",
-  "addTeamworkGraphContext",
+  "createJiraIssue", "editJiraIssue", "transitionJiraIssue", "addCommentToJiraIssue", "addOrEditJiraIssueComment",
+  "addWorklogToJiraIssue", "addOrEditJiraIssueWorklog", "createIssueLink", "createJiraIssueLink", "addTeamworkGraphContext", "addGraphContext",
   "save_issue", "save_milestone", "save_comment", "delete_comment", "create_attachment", "create_attachment_from_upload",
   "delete_attachment", "share_issue", "unshare_issue", "save_project", "create_issue_label", "save_issue_label",
   "retire_issue_label", "restore_issue_label", "save_project_label", "retire_project_label", "restore_project_label",
   "save_status_update", "delete_status_update", "save_document",
 ];
 const TRACKER_WRITE_TOOL = new RegExp(`^(${TRACKER_WRITE_TOOL_NAMES.join("|")})$`);
+/** The gated Atlassian writes: a Linear name in the list is no Atlassian operation. Twin: `ATLASSIAN_WRITE_TOOLS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const ATLASSIAN_WRITE_TOOL_NAMES: readonly string[] = TRACKER_WRITE_TOOL_NAMES.filter((t) => !t.includes("_"));
+/** The Atlassian operations that only read. Twin: the Atlassian names of `TRACKER_READ_TOOLS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+export const ATLASSIAN_READ_TOOL_NAMES: readonly string[] = [
+  "atlassianUserInfo", "fetch", "getAccessibleAtlassianResources", "getCompassComponent", "getCompassComponents",
+  "getCompassCustomFieldDefinitions", "getConfluenceCommentChildren", "getConfluencePage", "getConfluencePageDescendants",
+  "getConfluencePageFooterComments", "getConfluencePageInlineComments", "getConfluenceSpaces", "getContentFormatGuide",
+  "getIssueLinkTypes", "getJiraIssue", "getJiraIssueRemoteIssueLinks", "getJiraIssueTypeMetaWithFields",
+  "getJiraProjectIssueTypesMetadata", "getPagesInConfluenceSpace", "getTeamworkGraphContext", "getTeamworkGraphObject",
+  "getTransitionsForJiraIssue", "getVisibleJiraProjects", "lookupJiraAccountId", "search", "searchConfluenceUsingCql",
+  "searchJiraIssuesUsingJql", "discover", "getCollaborators", "getConfluenceContent", "getGraphContext", "getGraphObject",
+  "getLoomObjectsContent", "getPeopleInfo", "getWorkActivity", "getWorkPortfolio", "listJiraIssueComments", "searchConfluence",
+  "downloadJiraIssueAttachment", "getConfluenceComment", "getJiraAlignTerminology", "getJiraBoardConfig",
+  "getJiraBoardIssueData", "getJiraBoardSprintData", "getJiraCurrentUser", "getJiraEntityProperty",
+  "getJiraProjectVersionRelatedWork", "getJiraProjectVersions", "getJiraUser", "getJsmRequest",
+  "getJsmRequestActionMetadata", "getJsmRequestCreationOptions", "getMyWork", "getPullRequests",
+  "listConfluenceComments", "listJiraBoardSprints", "listJiraBoards", "listJiraIssueAssignableUsers",
+  "listJiraIssueChangelogs", "listJiraIssueLinkTypes", "listJiraIssueRemoteIssueLinks",
+  "listJiraIssueTransitions", "listJiraIssueWorklogs", "listJiraProjectComponents",
+  "listJiraProjectIssueTypesMetadata", "listJiraProjects", "listJiraStatuses", "searchJsmRequests",
+];
+/** The Atlassian writes the hook does not gate. Twin: the Atlassian names of `UNGATED_WRITE_TOOLS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+export const ATLASSIAN_UNGATED_WRITE_TOOL_NAMES: readonly string[] = [
+  "createCompassComponent", "createCompassComponentRelationship", "createCompassCustomFieldDefinition",
+  "createConfluenceFooterComment", "createConfluenceInlineComment", "createConfluencePage", "updateConfluencePage",
+  "createConfluenceContent", "updateConfluenceContent",
+  "addConfluenceReaction", "addLabelsToConfluenceContent", "createConfluenceAttachment",
+  "createConfluenceComment", "createConfluenceInfographicForPage", "createConfluenceMauiApp",
+  "createConfluenceSpace", "editConfluenceInfographicForPage", "editConfluenceMauiApp",
+  "manageConfluenceApproval", "unwatchConfluenceLabel", "unwatchConfluenceSpace", "updateConfluenceComment",
+  "updateConfluenceCommentResolution", "watchConfluenceContent", "watchConfluenceLabel",
+  "watchConfluenceSpace",
+];
 /** The B repository's second server name (`claude_ai_Atlassian` / `claude_ai_Linear`). */
 const SECOND_SERVER = /^claude_ai_/;
 
-const isTrackerWrite = (c: ToolCall): boolean => isTrackerTool(c.name) && TRACKER_WRITE_TOOL.test(bareTool(c.name));
+const isTrackerWrite = (c: ToolCall): boolean =>
+  isTrackerTool(c.name) && (c.executeRefusal !== undefined || TRACKER_WRITE_TOOL.test(bareTool(c.name)));
 const cmdOf = (c: ToolCall): string => (c.name === "Bash" ? String(c.input.command ?? "") : "");
 
 /** What `${CLAUDE_PLUGIN_ROOT}` is read as when a recorded command is parsed: a placeholder word, never a real path. */
@@ -1233,7 +1277,7 @@ const itemKeys = (c: ToolCall): string[] => (c.result.items ?? []).map((i) => i.
 const itemClass = (i: TrackerItem): "container" | "issue" => (i.kind !== "issue" || i.issueType === "Epic" ? "container" : "issue");
 /** The class a create ATTEMPT would make: a `save_milestone` or a Jira Epic is a container; anything else an issue. */
 const attemptClass = (c: ToolCall): "container" | "issue" =>
-  bareTool(c.name) === "save_milestone" || str(c.input.issueTypeName) === "Epic" ? "container" : "issue";
+  bareTool(c.name) === "save_milestone" || str(c.input.issueTypeName).trim().toLowerCase() === "epic" ? "container" : "issue";
 
 /** The title a create call's input gives (`summary` on Jira, `title` on Linear), or "". */
 const createTitle = (c: ToolCall): string =>
@@ -2240,11 +2284,13 @@ const MAY_HAVE_RUN = /time[ds]?[\s-]*out|\b5\d\d\b|interrupt|aborted|reset/i;
 /**
  * Whether an errored create's result proves it never reached the tracker (a
  * hook or permission refusal, a user rejection, a refused input, a definite
- * 4xx). Twin: `neverRan` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ * 4xx; an in-band error's text holds its status alone, see `parseSession`). Twin: `neverRan` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
  * (the bundle keeps no `toolDenialKind`, so only the text arm is mirrored).
  */
 function createNeverRan(c: ToolCall): boolean {
   const text = c.result.text.trimStart();
+  const flagged = flaggedStatus(text);
+  if (flagged !== null) return TRACKER_4XX.test(`status ${flagged}`) && !MAY_HAVE_RUN.test(text);
   return (
     text.startsWith("PreToolUse:") ||
     text.startsWith("The user doesn't want to proceed") ||
@@ -2273,7 +2319,8 @@ function subjectValues(c: ToolCall): unknown[] {
     const itemTarget = typeof i.relationshipType === "string" && TEAMWORK_ITEM_TARGETS.has(i.relationshipType);
     return itemTarget ? [i.objectIdentifier, i.targetObjectIdentifier] : [i.objectIdentifier];
   }
-  return [i.issueIdOrKey, i.id, i.issueId, i.issue];
+  if (ATLASSIAN_WRITE_TOOL_NAMES.includes(t) || t === GET_TICKET_TOOLS.jira) return [i.issueIdOrKey];
+  return [i.id, i.issueId, i.issue];
 }
 /** A Jira `/browse/<KEY>` URL. Twin: `BROWSE_URL` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
 const BROWSE_URL = /^https?:\/\/[^/?#\s]+\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)\/?(?:[?#]\S*)?$/;
@@ -2557,6 +2604,7 @@ function relistedAfter(s: BundleSession, tracker: SharedTrackerId, project: stri
   for (let j = from + 1; j < to && j < s.calls.length; j++) {
     const c = s.calls[j]!;
     if (bareTool(c.name) !== tool || c.sidechain !== s.calls[to]?.sidechain || !isCanonicalContainerListing(tracker, c.input, project)) continue;
+    if ((c.unplaced ?? []).length > 0) continue; // twin: `relistRequest`
     if (c.result.isError) {
       open = false;
       continue;
@@ -2741,7 +2789,12 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
       const before = ann.filter((a) => a.index < i);
       const cls = writeClass(c);
       let why: string | null = null;
-      if (cls === "ticket-create") {
+      if (c.executeRefusal !== undefined) {
+        why = `${c.executeRefusal}, which the hook refuses in a declared container`;
+      } else if (bareTool(c.name) === "createJiraIssue" && (c.unplaced ?? []).length > 0) {
+        // AC-STE-865.4 — twin: the ambiguous-type refusal in the hook's `uncheckableCall`.
+        why = `create names an ambiguous issue type or a field twice (${c.unplaced!.join(", ")}), which the hook refuses in a declared container`;
+      } else if (cls === "ticket-create") {
         const shape = callShape(tracker, c.input);
         const tagged = (["A", "B"] as const).filter((r) => shape.labels.includes(b.roots[r].tag));
         if (tagged.length !== 1) {
@@ -2869,7 +2922,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
             for (const p of s.calls.slice(0, i)) {
               if (p.sidechain !== c.sidechain || !p.name.startsWith("mcp__") || bareTool(p.name) !== GET_TICKET_TOOLS[tracker]) continue;
               if (p.result.isError || !subjectKeys(p).includes(k)) continue;
-              newest = p.result.items?.length === 1 ? p.result.items[0]! : null;
+              newest = p.result.items?.length === 1 && !(p.unplaced ?? []).includes("cloudId") ? p.result.items[0]! : null;
             }
             if (!newest || (newest.absent?.length ?? 0) > 0 || newest.key.toUpperCase() !== k || itemClass(newest) === "container") return false;
             const project = tracker === "jira" ? k.slice(0, k.lastIndexOf("-")) : b.run.container;
@@ -3306,7 +3359,11 @@ function trackerWriteMatchers(path: string): RegExp[] {
     .map((e) => new RegExp(e.matcher as string));
 }
 
-type InventoryClass = "read" | "gated-write" | "out-of-scope";
+type InventoryClass = "read" | "gated-write" | "out-of-scope" | "execute";
+interface InventorySurface {
+  tools: string[];
+  classification?: Record<string, { class: InventoryClass }>;
+}
 
 /**
  * `<server family>/<bare tool>` → its inventoried class. The family is the
@@ -3314,19 +3371,28 @@ type InventoryClass = "read" | "gated-write" | "out-of-scope";
  * it in any spelling (`mcp__claude_ai_Atlassian__…`), as `isTrackerTool` reads it.
  * A tool listed with no classification gets NO class, so it is graded
  * `unclassified-tool` like an absent one — never defaulted to a read, which
- * would let a new write tool pass unregistered.
+ * would let a new write tool pass unregistered. The Atlassian v2 surface
+ * (STE-869, its own top-level block, absent in an older file) joins the
+ * `atlassian` family: one server spelling serves either surface.
  */
 function inventoryClasses(path: string): Map<string, InventoryClass> {
   const j = JSON.parse(readFileSync(path, "utf-8")) as {
-    servers: Record<string, { tools: string[]; classification?: Record<string, { class: InventoryClass }> }>;
+    servers: Record<string, InventorySurface>;
+    atlassian_v2?: InventorySurface;
   };
   const out = new Map<string, InventoryClass>();
-  for (const [family, srv] of Object.entries(j.servers)) {
+  const surfaces = Object.entries(j.servers);
+  if (j.atlassian_v2) surfaces.push(["atlassian", j.atlassian_v2]);
+  // A name either surface lists without a class has none, whatever the other says.
+  const unclassified = new Set<string>();
+  for (const [family, srv] of surfaces) {
     for (const t of srv.tools) {
       const cls = srv.classification?.[t]?.class;
       if (cls !== undefined) out.set(`${family}/${t}`, cls);
+      else unclassified.add(`${family}/${t}`);
     }
   }
+  for (const k of unclassified) out.delete(k);
   return out;
 }
 
@@ -3339,7 +3405,7 @@ function inventoryKey(name: string): string | null {
 
 /**
  * AC-STE-617.13 — every observed tracker tool is in the STE-607 inventory
- * (else `unclassified-tool`), and every observed inventoried write is matched
+ * (else `unclassified-tool`), and every observed inventoried write or execute tool is matched
  * by the tracker-write hook's `hooks.json` matcher (else `unregistered-write-tool`).
  */
 function toolRegistration(b: LiveBundle, hooksJsonPath: string, inventoryPath: string): { aborts: LiveFinding[]; findings: LiveFinding[] } {
@@ -3368,8 +3434,8 @@ function toolRegistration(b: LiveBundle, hooksJsonPath: string, inventoryPath: s
       const cls = key === null ? undefined : classes.get(key);
       if (cls === undefined) {
         out.push({ code: "unclassified-tool", session: s.sessionId, tool: c.name, detail: `${c.ref}: ${c.name} is absent from the tracker tool inventory, or listed there with no class` });
-      } else if (cls === "gated-write" && !matchers.some((m) => m.test(c.name))) {
-        out.push({ code: "unregistered-write-tool", session: s.sessionId, tool: c.name, detail: `${c.ref}: write tool ${c.name} is not matched by the tracker-write hook's matcher` });
+      } else if ((cls === "gated-write" || cls === "execute") && !matchers.some((m) => m.test(c.name))) {
+        out.push({ code: "unregistered-write-tool", session: s.sessionId, tool: c.name, detail: `${c.ref}: ${cls === "execute" ? "execute" : "write"} tool ${c.name} is not matched by the tracker-write hook's matcher` });
       }
     }
   }
@@ -3675,11 +3741,60 @@ function teamConjunctInert(b: LiveBundle): LiveFinding[] {
   return out;
 }
 
-export function gradeBundle(b: LiveBundle, o: GradeOptions): LiveVerdict {
+/**
+ * STE-866 — an execute call that names no gated operation: null when it passes
+ * (a known read, or a listed non-Jira write with readable inputs), else why the
+ * hook cannot place it.
+ * Twin: `unplaceableOperation` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ */
+function unplaceableOperation(wrapper: string, input: Record<string, unknown>): string | null {
+  const { name, inputs } = input;
+  if (typeof name !== "string" || name === "") return `${wrapper} call names no operation`;
+  if (ATLASSIAN_READ_TOOL_NAMES.includes(name)) return null;
+  if (!ATLASSIAN_UNGATED_WRITE_TOOL_NAMES.includes(name) && !ATLASSIAN_WRITE_TOOL_NAMES.includes(name)) {
+    return `${wrapper} call names the unknown operation ${JSON.stringify(name)}`;
+  }
+  const readable = inputs !== null && typeof inputs === "object" && !Array.isArray(inputs);
+  return readable ? null : `${wrapper} call names the operation ${JSON.stringify(name)} without an inputs object`;
+}
+
+/**
+ * One Jira-run tracker call in the v1 vocabulary; an execute call is read as the
+ * operation it names. One the hook cannot place keeps its wrapper's name with an
+ * empty input, so no rule reads it as a call it is not.
+ * Twin: `identifyTrackerCall` and the execute refusals of `uncheckableCall` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ */
+function canonicalCall(name: string, recorded: Record<string, unknown>): Pick<ToolCall, "name" | "input" | "unplaced" | "executeRefusal"> {
+  const bare = bareTool(name);
+  const { tool, input, unplaced, wrapperKeys = [] } = canonicalAtlassianCall(bare, recorded);
+  const call = { name: name.slice(0, name.length - bare.length) + tool, input, unplaced };
+  // Twin: the graph-link refusal of `uncheckableCall`.
+  if (tool === "addTeamworkGraphContext" && unplaced.length > 0) return { ...call, executeRefusal: `${tool} with unreadable ${unplaced.join(", ")}` };
+  if (!ATLASSIAN_EXECUTE_TOOLS.includes(bare)) return call;
+  if (!ATLASSIAN_WRITE_TOOL_NAMES.includes(tool)) {
+    const unplaceable = unplaceableOperation(bare, recorded);
+    // A read is never refused, but a re-list does not count one whose keys have no place.
+    return unplaceable === null ? { ...call, unplaced: [...unplaced, ...wrapperKeys] } : { name, input: {}, unplaced: [], executeRefusal: unplaceable };
+  }
+  if (bare === "executeDestructive") return { ...call, executeRefusal: `${tool} sent through executeDestructive` };
+  if (unplaced.includes("cloudId")) return { ...call, executeRefusal: `${tool} with two different cloudId values` };
+  if (wrapperKeys.length > 0) return { ...call, executeRefusal: `${tool} with ${wrapperKeys.join(", ")} beside its inputs` };
+  return call;
+}
+
+/** STE-865 — the bundle with every Atlassian call translated, so each rule reads the v1 vocabulary. The recorded bundle is left as it is. */
+function canonicalBundle(b: LiveBundle): LiveBundle {
+  if (b.run.tracker !== "jira") return b;
+  const canonical = (c: ToolCall): ToolCall => (isTrackerTool(c.name) ? { ...c, ...canonicalCall(c.name, c.input) } : c);
+  return { ...b, sessions: b.sessions.map((s) => ({ ...s, calls: s.calls.map(canonical) })) };
+}
+
+export function gradeBundle(recorded: LiveBundle, o: GradeOptions): LiveVerdict {
+  const b = canonicalBundle(recorded);
   const gw = gatedWrites(b);
   const budget = linearBudget(b);
   const lb = linearBudgetFindings(b, budget);
-  const reg = toolRegistration(b, o.hooksJsonPath ?? DEFAULT_HOOKS_JSON, o.inventoryPath ?? DEFAULT_INVENTORY);
+  const reg = toolRegistration(recorded, o.hooksJsonPath ?? DEFAULT_HOOKS_JSON, o.inventoryPath ?? DEFAULT_INVENTORY);
   const aborts = [...spawnOverrun(b), ...missingSessions(b), ...noScenarios(b), ...pluginChanged(b, o.behaviourDigestNow), ...gw.aborts, ...lb.aborts, ...auditIncomplete(b), ...auditFieldsAbsent(b), ...createKeyUnreadable(b), ...reg.aborts];
   const findings: LiveFinding[] = [
     ...gw.findings,

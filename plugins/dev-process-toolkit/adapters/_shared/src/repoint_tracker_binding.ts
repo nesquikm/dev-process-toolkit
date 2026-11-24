@@ -94,7 +94,7 @@ import {
   type WorkspaceAdapterKey,
   type WorkspaceBinding,
 } from "./workspace_binding";
-import { LINEAR_TEAM_KEY, readCompleteList, readTrackerPage, type CompleteListTool } from "./tracker_answer";
+import { LINEAR_TEAM_KEY, readCompleteList, readJiraAnswer, readTrackerPage, type CompleteListTool } from "./tracker_answer";
 
 export type RowVerdict = "PASS" | "REFUSE" | "NOT-APPLICABLE";
 
@@ -804,7 +804,10 @@ function readStatuses(args: RepointArgs): Input<{ names: string[]; from: Asserte
   const json = readJson("--statuses", args.statuses);
   if (!json.ok) return json;
   const label = `--statuses ${args.statuses}`;
-  const o = json.value as Record<string, unknown>;
+  // A v2 answer holds the same list under one `data` level (tracker_answer.ts).
+  const un = isObject(json.value) ? readJiraAnswer(json.value) : { ok: true as const, answer: json.value as Record<string, unknown> };
+  if (!un.ok) return failed(`${label} cannot be read: ${un.reason}`);
+  const o = un.answer;
   // BOTH documented Jira shapes are accepted, because both are what the tracker
   // actually returns and the session must not have to bridge them by hand.
   // `adapters/jira.md` names two paths: `getJiraIssueTypeMetaWithFields`

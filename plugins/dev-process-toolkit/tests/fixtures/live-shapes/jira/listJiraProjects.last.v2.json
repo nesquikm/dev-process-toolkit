@@ -1,0 +1,30 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "read-only-call",
+    "request": {
+      "name": "listJiraProjects",
+      "inputs": {
+        "maxResults": 50
+      }
+    },
+    "note": "listJiraProjects through executeRead, a last page: no nextPage; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "data": {
+      "isLast": true,
+      "maxResults": 50,
+      "startAt": 0,
+      "total": 1,
+      "values": [
+        {
+          "id": "10000",
+          "key": "ZZ",
+          "name": "Example ZZ",
+          "projectTypeKey": "software",
+          "style": "classic"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "read-only-call",
+    "request": {
+      "name": "listJiraIssueLinkTypes",
+      "inputs": {}
+    },
+    "note": "listJiraIssueLinkTypes through executeRead; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "data": {
+      "issueLinkTypes": [
+        {
+          "id": "10000",
+          "inward": "is blocked by",
+          "name": "Blocks",
+          "outward": "blocks"
+        }
+      ]
+    }
+  }
+}

@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { STE_756_BLOCK, STE_756_BLOCK_LINE, STE_825_EDITS, STE_825_ROW, STE_825_ROW_LINE, currentGateCheckLine, currentGateCheckLineM_d1e7b1, undoGateCheckM_d1e7b1, undoSte756, undoSte825 } from "./_m_d1e7b1_ste825_gate_check";
+import { STE_756_BLOCK, STE_756_BLOCK_LINE, STE_825_EDITS, STE_825_ROW, STE_825_ROW_LINE, currentGateCheckLine, currentGateCheckLineM_d1e7b1, undoGateCheckM_d1e7b1, undoSte756, undoSte825, undoSte869, STE_869_AFTER, STE_869_BEFORE, STE_869_LINE } from "./_m_d1e7b1_ste825_gate_check";
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REL = "plugins/dev-process-toolkit/skills/gate-check/SKILL.md";
@@ -18,7 +18,9 @@ const REL = "plugins/dev-process-toolkit/skills/gate-check/SKILL.md";
 const PRE_EDIT = "8a5a273f";
 
 // Amended by AC-STE-756.6 (M_d1e7b1): the STE-825 legs read the file with the later STE-756 block taken out.
-const raw = (): string => readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+// Amended by AC-STE-869.3 (M_b054b1): read with the later STE-869 insertion taken out.
+const shipped = (): string => readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+const raw = (): string => undoSte869(shipped());
 const now = (): string => undoSte756(raw());
 const preEdit = (): string => {
   const r = spawnSync("git", ["show", `${PRE_EDIT}:${REL}`], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
@@ -103,5 +105,23 @@ describe("AC-STE-756.6 — undoSte756 admits exactly the probe-runner block", ()
 
   test("currentGateCheckLineM_d1e7b1 moves lines past each insertion", () => {
     expect([currentGateCheckLineM_d1e7b1(61), currentGateCheckLineM_d1e7b1(62), currentGateCheckLineM_d1e7b1(180), currentGateCheckLineM_d1e7b1(181), currentGateCheckLineM_d1e7b1(247)]).toEqual([61, 63, 181, 186, 252]);
+  });
+});
+
+describe("AC-STE-869.3 — undoSte869 admits exactly probe #26's insertion", () => {
+  test("undoing every admission yields the pre-edit file byte for byte", () => {
+    expect(undoGateCheckM_d1e7b1(shipped()) === preEdit()).toBe(true);
+    expect(shipped().split("\n")[STE_869_LINE - 1]).toContain(STE_869_AFTER);
+    expect(raw().split("\n")[STE_869_LINE - 1]).toContain(STE_869_BEFORE);
+  });
+
+  test("CONTROL: a drifted insertion is not undone, and a change beside it survives", () => {
+    const drifted = shipped().replace(STE_869_AFTER, `${STE_869_AFTER}.`.replace("(v2:", "(v3:"));
+    expect(undoSte869(drifted)).toBe(drifted);
+    const lines = shipped().split("\n");
+    lines[STE_869_LINE - 1] += " (edited)";
+    const undone = undoGateCheckM_d1e7b1(lines.join("\n")).split("\n");
+    const before = preEdit().split("\n"); // one git spawn, not one per line
+    expect(undone.map((l, i) => (l === before[i] ? -1 : i + 1)).filter((n) => n > 0)).toEqual([STE_869_LINE - 1]);
   });
 });

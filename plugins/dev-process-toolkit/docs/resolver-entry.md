@@ -46,7 +46,7 @@ In tracker mode a `--bug` run proves the bug type exists before anything is writ
 `/spec-write` § 0a **Miss** and `/implement` 0.b′ run these steps, in order,
 before any write:
 
-1. Fetch the ticket read-only (`getJiraIssue` / `get_issue`) and save it as `<ticket.json>`.
+1. Fetch the ticket read-only (`getJiraIssue` / `get_issue`; on Jira with the fields `summary`, `issuetype`, `labels`, `description`, `creator`, `project` and `status`, and on v2 `view: "full"`) and save it as `<ticket.json>`.
 2. Run `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts" decide <projectRoot> <ticket.json>`.
    A refused verdict (`container`, `foreign-project`, `foreign-repo`) exits with
    zero tracker writes and zero files.

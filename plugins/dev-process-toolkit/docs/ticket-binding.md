@@ -101,7 +101,9 @@ ticket ID explicitly (e.g., /implement <ID>).
 ## Ownership decision (tracker mode, before the prompt)
 
 Before the confirmation below, `/implement` and `/spec-write` fetch the
-resolved ticket read-only, save it as `<ticket.json>`, and run:
+resolved ticket read-only (on Jira with the fields `summary`, `issuetype`,
+`labels`, `description`, `creator`, `project` and `status`, and on v2
+`view: "full"`), save it as `<ticket.json>`, and run:
 
 ```bash
 bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts" decide <projectRoot> <ticket.json>

@@ -20,7 +20,7 @@ The order is load-bearing. Trackers skip cancelled numbers, renumber across work
    - Filename: `<tracker-id>.md`
    - Plan-file table row: `| <tracker-id> | Title | <tracker>:<tracker-id> |`
    - Prose cross-references: `"closes <tracker-id>"`, `"supersedes <tracker-id>"`
-2. **Create the tracker ticket.** Call `Provider.sync(spec)` → `upsertTicketMetadata(null, …)`. **Workspace binding.** Before invoking, call `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` from `adapters/_shared/src/workspace_binding.ts` and pass `team` + `project` + `defaultLabels` into the call so the new ticket lands on the correct project board with the configured labels. Linear adapter rejects creates that lack `project` per the silent-landing trap; Jira adapter rejects creates that lack `project` per the Jira API requirement. **Labels** are optional and forwarded only when `defaultLabels` is populated (Linear → `save_issue.labels`; Jira → `createJiraIssue.additional_fields.labels`). The tracker allocator returns the real ID (e.g., `<TKR>-NN`).
+2. **Create the tracker ticket.** Call `Provider.sync(spec)` → `upsertTicketMetadata(null, …)`. **Workspace binding.** Before invoking, call `readWorkspaceBinding(claudeMdPath, "linear" | "jira")` from `adapters/_shared/src/workspace_binding.ts` and pass `team` + `project` + `defaultLabels` into the call so the new ticket lands on the correct project board with the configured labels. Linear adapter rejects creates that lack `project` per the silent-landing trap; Jira adapter rejects creates that lack `project` per the Jira API requirement. **Labels** are optional and forwarded only when `defaultLabels` is populated (Linear → `save_issue.labels`; Jira → `createJiraIssue.additional_fields.labels` on v1, the top-level `labels` input on v2). The tracker allocator returns the real ID (e.g., `<TKR>-NN`).
 3. **Substitute globally.** Replace every `<tracker-id>` with the returned ID in one pass.
 4. **Write the FR file.** Only after substitution completes — the file on disk never contains a placeholder.
 5. **Re-sync the ticket.** Call `Provider.sync(spec)` again. With its `tracker:` binding the FR is now an update of the returned key, which sends title and description — the substituted AC ids and the back-link rendered with the real key — and, since the re-sync passes no labels on the spec, leaves labels untouched. Without this step the ticket keeps the placeholder-era description written at create time.
@@ -96,7 +96,8 @@ Page fields the listing needs:
 
 - **Jira** (`searchJiraIssuesUsingJql`, paginated to `isLast: true`): `key`,
   `summary`, `issuetype`, `labels`, `description`, `creator`, `project`,
-  `status` (its `statusCategory.key` `done` marks the ticket closed).
+  `status` (its `statusCategory.key` `done` marks the ticket closed). On v2, also pass `view: "full"`:
+  the compact default carries no `project`.
 - **Linear** (`list_issues`, cursor followed to `hasNextPage: false`):
   `id` / `identifier`, `title`, `labels`, `description`, `createdBy`,
   `project`, `team`, `statusType`, `completedAt`, `canceledAt` (a

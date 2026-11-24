@@ -131,7 +131,8 @@ concrete pattern via the active adapter's `## Tool surface` table.
    ownership decision found `owned`, or `unowned` and adopted by the
    operator's explicit answer to the adopt question. Run
    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts decide <projectRoot> <ticket.json>`
-   on the fetched ticket; on `foreign-project`, `foreign-repo` or
+   on the fetched ticket (Jira: the fields `docs/resolver-entry.md` names, and
+   on v2 `view: "full"`); on `foreign-project`, `foreign-repo` or
    `container` STOP without writing. After the operator confirms (and
    answers `Adopt <KEY>` for an `unowned` ticket), run
    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/ticket_ownership.ts confirm <projectRoot> <KEY> <ticket.json> [--adopt]`;

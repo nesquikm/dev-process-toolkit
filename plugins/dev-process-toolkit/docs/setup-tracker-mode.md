@@ -141,7 +141,8 @@ Only on test-call success does `/setup` write `task_tracking` through
 Jira Space (project) in the Jira UI manually** — the Atlassian Rovo MCP
 exposes no project-creation tool, so the toolkit cannot do this for them.
 After the operator supplies the project key (`### Jira`.project), run
-`mcp__atlassian__getVisibleJiraProjects` and assert the configured key
+`mcp__atlassian__getVisibleJiraProjects` (v2: `mcp__atlassian__executeRead` with
+name `listJiraProjects` and the key as `query`) and assert the configured key
 appears in the response. On miss, refuse with NFR-10 canonical shape and
 **do not record mode**:
 
@@ -153,8 +154,8 @@ Context: mode=jira, project=<key>, skill=setup
 
 After visibility passes, run one-time AC-field discovery:
 
-1. Invoke the Atlassian MCP to fetch `GET /rest/api/3/field` (equivalent
-   tool, e.g., `mcp__atlassian__list_fields`).
+1. Fetch the project's fields: `mcp__atlassian__getJiraIssueTypeMetaWithFields`
+   (v2: `mcp__atlassian__executeRead` with that name).
 2. Pipe the response array into
    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` with
    `{"fields": <response>}` on stdin.

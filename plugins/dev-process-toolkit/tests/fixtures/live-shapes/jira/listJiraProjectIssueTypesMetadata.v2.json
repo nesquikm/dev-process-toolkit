@@ -1,0 +1,34 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "read-only-call",
+    "request": {
+      "name": "listJiraProjectIssueTypesMetadata",
+      "inputs": {
+        "projectIdOrKey": "ZZ"
+      }
+    },
+    "note": "listJiraProjectIssueTypesMetadata through executeRead; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "data": {
+      "issueTypes": [
+        {
+          "description": "",
+          "id": "10001",
+          "name": "Task",
+          "subtask": false
+        },
+        {
+          "description": "",
+          "id": "10002",
+          "name": "Epic",
+          "subtask": false
+        }
+      ],
+      "maxResults": 50,
+      "startAt": 0,
+      "total": 2
+    }
+  }
+}

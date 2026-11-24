@@ -19,9 +19,9 @@
 //                         allowed only after an explicit adopt question.
 
 import { join, resolve } from "node:path";
-import { adapterOf, classifyTicket, normalizeContainerItems, readJsonFile } from "./container_ownership";
+import { adapterOf, classifyTicket, containerProject, missingContainerFields, normalizeContainerItems, readJsonFile } from "./container_ownership";
 import { trackerIdsOf } from "./reconcile_tracker_local";
-import { linearTeamKeyOf, readTrackerItem } from "./tracker_answer";
+import { linearTeamKeyOf, readTrackerItem, unkeyedJiraItem } from "./tracker_answer";
 import { announceReceipt, printable, writeReceipt } from "./tracker_receipts";
 import { readWorkspaceBinding, type WorkspaceAdapterKey, type WorkspaceBinding } from "./workspace_binding";
 
@@ -135,6 +135,22 @@ export function projectMismatch(
     if (team !== binding.team) return `ticket team ${team} differs from this repository's ${binding.team}`;
   }
   return null;
+}
+
+/**
+ * STE-867 — the fields `decideTicketOwnership` needs that a readable `ticket`
+ * answer lacks, all of them; empty for an answer that cannot be read at all.
+ */
+export function missingOwnershipFields(projectRoot: string, ticket: unknown): string[] {
+  const root = resolve(projectRoot);
+  const adapter = adapterOf(root);
+  const read = readTrackerItem(adapter, ticket);
+  const unkeyed = adapter === "jira" && !read.ok ? unkeyedJiraItem(ticket) : null;
+  if (unkeyed !== null) return missingContainerFields(unkeyed, adapter, readWorkspaceBinding(join(root, "CLAUDE.md"), adapter).shared);
+  if (!read.ok) return [];
+  const missing = missingContainerFields(read.item, adapter, readWorkspaceBinding(join(root, "CLAUDE.md"), adapter).shared);
+  // `decideTicketOwnership` refuses a null `project` itself, after the normalizer.
+  return containerProject(read.item, adapter) === null ? [...missing, "project"] : missing;
 }
 
 /** Decide ownership of one fetched ticket. Throws on unreadable input. */
