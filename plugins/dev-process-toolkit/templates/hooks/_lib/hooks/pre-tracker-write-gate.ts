@@ -41,7 +41,7 @@ import { containerListingRowsComplete, governingDecision, isCanonicalContainerLi
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
 import { EPIC_EDIT_INPUT_KEYS, exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
 import { ATLASSIAN_EXECUTE_TOOLS, canonicalAtlassianCall, GRAPH_ITEM_TARGET_TYPES, type CanonicalAtlassianCall } from "../../../../adapters/_shared/src/atlassian_call.ts";
-import { browseHostMatches, isCloudId, isSiteHost, siteMatches } from "../../../../adapters/_shared/src/atlassian_site.ts";
+import { browseHostMatches, isCloudId, isSiteHost, siteHostOf, siteMatches } from "../../../../adapters/_shared/src/atlassian_site.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
@@ -1076,12 +1076,25 @@ interface CreateReceiptSeen {
   spent: boolean;
 }
 
-function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAdapterKey): CreateShape | null {
+/**
+ * F1 — a `create` or `reuse` receipt holds at `target` only when the search it
+ * was decided from ran at the target's site. `decide --from-transcript` records
+ * that site as `searchSite`; an undeclared root takes a sibling's site here
+ * (`inheritSites`), which `decide` cannot see. A receipt without the field
+ * (saved pages) is held to nothing more than before.
+ */
+function decidedAtSite(evidence: unknown, target: DeclaredTarget): boolean {
+  if (!evidence || typeof evidence !== "object" || !("searchSite" in evidence)) return true;
+  return siteMatches(target.binding, (evidence as { searchSite: unknown }).searchSite);
+}
+
+/** A create receipt's shape; `atSite` is false when it was decided at another site than `target`'s (F1). */
+function readCreateReceipt(path: string, sessionId: string, target: DeclaredTarget, adapter: WorkspaceAdapterKey): { shape: CreateShape; atSite: boolean } | null {
   const r = readSessionReceipt(path, sessionId, adapter);
   if (!r || r.kind !== "create") return null;
   const ev = r.evidence as { createPayload?: unknown } | null;
   const p = ev && typeof ev.createPayload === "object" && ev.createPayload ? ev.createPayload : null;
-  return p ? receiptShape(adapter, p as Record<string, unknown>) : null;
+  return p ? { shape: receiptShape(adapter, p as Record<string, unknown>), atSite: decidedAtSite(ev, target) } : null;
 }
 
 /**
@@ -1415,10 +1428,12 @@ function gateCreate(
   }
 
   const seen: CreateReceiptSeen[] = [];
+  const elsewhere: string[] = [];
   for (const a of announcements) {
     if (a.root !== target.root || !a.intact) continue;
-    const r = readCreateReceipt(a.receiptPath, sessionId, call.adapter);
-    if (r) seen.push({ line: a.line, path: a.receiptPath, shape: r, spent: false });
+    const r = readCreateReceipt(a.receiptPath, sessionId, target, call.adapter);
+    if (r && !r.atSite) elsewhere.push(a.receiptPath);
+    else if (r) seen.push({ line: a.line, path: a.receiptPath, shape: r.shape, spent: false });
   }
   // §4 — each receipt authorises exactly ONE create tool_use after its announcement.
   for (const c of createsBefore(parsed, call.adapter, call.toolUseId)) {
@@ -1446,8 +1461,12 @@ function gateCreate(
     );
   }
   const allSpent = seen.length > 0 ? ` This session's ${seen.length} create receipt(s) are all spent, each by the create it authorised.` : "";
+  const otherSite =
+    elsewhere.length > 0
+      ? ` ${elsewhere.length} create receipt(s) were decided from a search at another site than ${target.root} is given, so they authorise nothing here (${elsewhere.join(", ")}).`
+      : "";
   return refuse(
-    `${where}: no create receipt announced by ${DECIDE_CMD} in this session authorises it.${allSpent}${note}`,
+    `${where}: no create receipt announced by ${DECIDE_CMD} in this session authorises it.${allSpent}${otherSite}${note}`,
     `run ${acceptedShape(DECIDE_MODULE, "<projectRoot> <page.json>... --title <title> [container] --attempt fast")} in ${target.root} for this ticket ${PLAIN_RULE}, then retry.`,
   );
 }
@@ -1801,7 +1820,8 @@ function refuseOtherSite(call: TrackerCall, targets: DeclaredTarget[], note: str
     const keys = [...(b.site ? [`site ${b.site}`] : []), ...(b.cloudId ? [`cloud_id ${b.cloudId}`] : [])];
     return `${root} (${keys.join(", ")}${siteFrom ? `, taken from ${siteFrom.join(", ")}, which binds the same project` : ""})`;
   });
-  const host = typeof value === "string" ? value.replace(/^https:\/\//i, "").toLowerCase() : "";
+  // The host `siteMatches` reads (F5): a path or a trailing slash is not part of it.
+  const host = typeof value === "string" ? siteHostOf(value) : "";
   const hints = targets.flatMap(({ root, binding: b, siteFrom }) => {
     if (siteFrom) return [];
     const key = !b.cloudId && isCloudId(host) ? "cloud_id" : !b.site && isSiteHost(host) ? "site" : null;
@@ -2200,7 +2220,7 @@ function owns(ctx: OwnershipContext, target: DeclaredTarget, key: string): boole
     if (!r) continue;
     if (r.kind === "reuse") {
       const ev = r.evidence as { key?: unknown } | null;
-      if (ev && typeof ev.key === "string" && ev.key.toUpperCase() === key) return true;
+      if (ev && typeof ev.key === "string" && ev.key.toUpperCase() === key && decidedAtSite(ev, target)) return true;
       continue;
     }
     const subject = typeof r.subject === "string" ? r.subject.toUpperCase() : "";

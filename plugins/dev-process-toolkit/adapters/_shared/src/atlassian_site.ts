@@ -39,6 +39,14 @@ function httpsAuthority(url: string): string | null {
   return /^https:\/\/([^/?#]*)/i.exec(url)?.[1] ?? null;
 }
 
+/**
+ * The host or id a call's `cloudId` value names, as `siteMatches` reads it: the
+ * authority of an `https` URL (its path ignored), else the value; lower case.
+ */
+export function siteHostOf(value: string): string {
+  return (httpsAuthority(value) ?? value).toLowerCase();
+}
+
 /** True when a call's `cloudId` names the declared site, or when no site is declared. */
 export function siteMatches(binding: SiteDeclaration, cloudId: unknown): boolean {
   if (!binding.site && !binding.cloudId) return true;

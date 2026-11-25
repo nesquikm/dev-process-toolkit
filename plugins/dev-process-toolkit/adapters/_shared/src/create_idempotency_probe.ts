@@ -768,6 +768,7 @@ async function readTranscriptPages(
   t: { path: string; ids: string[] },
   printed: Record<string, unknown>,
   site: SiteDeclaration,
+  searched: { site?: string | null } = {},
 ): Promise<unknown[]> {
   const { readTranscriptLines } = await import("../../../templates/hooks/_lib/session");
   const { listingRequestCursor, withoutListingRequestPaging } = await import("./tracker_answer");
@@ -820,6 +821,16 @@ async function readTranscriptPages(
     const input = withoutListingRequestPaging(mode, request);
     if (mode === "jira" && !siteMatches(site, input.cloudId)) {
       throw new PageViolatesQuery(`tool call ${id} searched another site than the binding declares`);
+    }
+    // F1 — the site the search ran at goes into the receipt, so the hook can
+    // hold the decision to the site this root is given (an undeclared root
+    // takes a sibling's, `inheritSites`). One search runs at one site.
+    if (mode === "jira") {
+      const at = typeof input.cloudId === "string" ? input.cloudId : null;
+      if (n === 0) searched.site = at;
+      else if (!site.site && !site.cloudId && (at ?? "").toLowerCase() !== (searched.site ?? "").toLowerCase()) {
+        throw new PageViolatesQuery(`tool call ${id} searched another site than the first page`);
+      }
     }
     if (mode === "jira" && typeof input.cloudId === "string") delete input.cloudId;
     if (mode === "jira" && input.view === "full") delete input.view; // v2: the widest view narrows nothing
@@ -890,11 +901,12 @@ async function runDecideCommand(args: DecideArgs): Promise<string> {
   const query = commandQuery(loaded, args);
 
   let decision: CreateDecision;
+  const searched: { site?: string | null } = {};
   try {
     // Both sources yield the same raw pages; the chain / cap / match logic
     // below never knows which one it read.
     const raw = args.transcript
-      ? await readTranscriptPages(mode, args.transcript, printedSearch(loaded, args), binding)
+      ? await readTranscriptPages(mode, args.transcript, printedSearch(loaded, args), binding, searched)
       : await readPageFiles(args.pages);
     const page = mode === "jira" ? readJiraPages(raw, query) : readLinearPages(raw, query);
     decision = decideCreate(query, page, args.attempt);
@@ -926,7 +938,11 @@ async function runDecideCommand(args: DecideArgs): Promise<string> {
       container,
       subject: args.title,
       decision: out.outcome,
-      evidence: out.outcome === "create" ? { createPayload: out.createPayload } : { key: out.key },
+      evidence: {
+        ...(out.outcome === "create" ? { createPayload: out.createPayload } : { key: out.key }),
+        // F1 — the site the transcript search ran at (null: it named none); absent for saved pages.
+        ...("site" in searched ? { searchSite: searched.site } : {}),
+      },
     });
     lines.push(announceReceipt(path));
   }

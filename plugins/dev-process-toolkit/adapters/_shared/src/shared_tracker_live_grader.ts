@@ -345,6 +345,44 @@ function rewriteDeep(v: unknown, rw: Rewriter): unknown {
   return v;
 }
 
+/** The mark that keeps a browse URL from resolving to a key: an authority with userinfo never does. */
+const UNRESOLVED_MARK = "<unresolved>@";
+
+/**
+ * STE-871 — the subject the hook reads is decided on the RAW call. Redaction can
+ * change that: `https://u@<host>/browse/K` becomes `https://<email>/browse/K`,
+ * which loses the userinfo the hook refuses, so grade time would read K. When the
+ * raw call names no key from a URL but the redacted one does, the redacted URL
+ * gets an `@` in its authority again, so grade time leaves it unresolved too.
+ */
+function keepRawSubject(name: string, raw: Record<string, unknown>, redacted: Record<string, unknown>): Record<string, unknown> {
+  if (canonicalCall(name, raw).subjectUrl !== undefined) return redacted;
+  const url = canonicalCall(name, redacted).subjectUrl;
+  if (url === undefined) return redacted;
+  const mark = (v: unknown): unknown => {
+    if (typeof v === "string") return v.trim() === url ? v.replace(/^(\s*https?:\/\/)/i, `$1${UNRESOLVED_MARK}`) : v;
+    if (Array.isArray(v)) return v.map(mark);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mark(x)]));
+    return v;
+  };
+  return mark(redacted) as Record<string, unknown>;
+}
+
+/**
+ * STE-871 — whether an execute call names two sites is decided on the RAW call,
+ * as the hook's strict comparison of its outer cloudId with inputs.cloudId.
+ * Redaction can make two values one: two undeclared `*.atlassian.net` hosts both
+ * become `<site>`, and a declared host or cloud_id spelled in two cases both
+ * become its token. Then the inner value gets a mark, so grade time still reads
+ * two values and gives the hook's verdict (a write refused, a read proving nothing).
+ */
+const TWO_SITES_MARK = "<two-sites>";
+function keepTwoSites(name: string, raw: Record<string, unknown>, redacted: Record<string, unknown>): Record<string, unknown> {
+  if (!(canonicalCall(name, raw).unplaced ?? []).includes("cloudId") || (canonicalCall(name, redacted).unplaced ?? []).includes("cloudId")) return redacted;
+  const inputs = redacted.inputs as Record<string, unknown>;
+  return { ...redacted, inputs: { ...inputs, cloudId: `${String(inputs.cloudId)}${TWO_SITES_MARK}` } };
+}
+
 /** The server segment of an MCP tool name (`mcp__<server>__<tool>` → `<server>`). */
 const serverOf = (name: string): string => name.split("__")[1] ?? "";
 /** The bare tool name of an MCP tracker call (`mcp__<server>__<tool>` → `<tool>`). */
@@ -658,7 +696,8 @@ function parseSession(
     } else {
       result = { isError, text: rw(text), exitCode: null, items: null, lastPage: null };
     }
-    calls.push({ ref: `${sid}:${u.id}`, at: u.at, name: u.name, input: rewriteDeep(u.input, rw) as Record<string, unknown>, result, sidechain: u.sidechain });
+    const input = rewriteDeep(u.input, rw) as Record<string, unknown>;
+    calls.push({ ref: `${sid}:${u.id}`, at: u.at, name: u.name, input: tracker === "jira" && isTrackerTool(u.name) ? keepTwoSites(u.name, u.input, keepRawSubject(u.name, u.input, input)) : input, result, sidechain: u.sidechain });
   }
   const session: BundleSession = { sessionId: sid, marker: mk.marker, root, cwd: rw(cwd), client: mk.client, calls };
   if (Object.keys(answers).length > 0) {
@@ -781,14 +820,14 @@ function readRepo(rootPath: string, tag: Root, tracker: SharedTrackerId, rw: Rew
  * address) into its root's token, after emptying any token the records already
  * spell; `redactRest` makes what is left of the host the `<site>` of any other.
  */
-function siteTokens(declared: Record<Root, { site?: string }>): {
-  tokens: Record<Root, { site?: string }>;
+function siteTokens(declared: Record<Root, { site?: string; cloudId?: string }>): {
+  tokens: Record<Root, { site?: string; cloudId?: string }>;
   tokenise: (s: string) => string;
   redactRest: (s: string) => string;
 } {
   const a = declared.A.site;
   const b = declared.B.site;
-  const tokens: Record<Root, { site?: string }> = { A: a ? { site: "<site-A>" } : {}, B: b ? { site: b === a ? "<site-A>" : "<site-B>" } : {} };
+  const tokens: Record<Root, { site?: string; cloudId?: string }> = { A: a ? { site: "<site-A>" } : {}, B: b ? { site: b === a ? "<site-A>" : "<site-B>" } : {} };
   const hosts = new Map<string, string>();
   for (const r of ["A", "B"] as const) if (declared[r].site) hosts.set(declared[r].site!, tokens[r].site!);
   const res = [...hosts]
@@ -797,12 +836,40 @@ function siteTokens(declared: Record<Root, { site?: string }>): {
       const h = host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       return { tok, whole: new RegExp(`(?<![A-Za-z0-9._%+@-])${h}(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])`, "gi"), any: new RegExp(h, "gi") };
     });
-  if (res.length === 0) return { tokens, tokenise: (s) => s, redactRest: (s) => s };
+  // A declared cloud_id is the operator's tenant id: it gets a token the same way,
+  // `<cloud-A>` / `<cloud-B>` (the same token when both declare the same id), in
+  // any case, so a call's cloudId and the root's declaration still compare alike.
+  // The invented placeholder the committed fixtures use is not a tenant id and stays.
+  const ids = new Map<string, string>();
+  for (const r of ["A", "B"] as const) {
+    const id = declared[r].cloudId?.toLowerCase();
+    if (!id || PLACEHOLDER_CLOUD_ID.test(id)) continue;
+    if (!ids.has(id)) ids.set(id, `<cloud-${r}>`);
+    tokens[r].cloudId = ids.get(id)!;
+  }
+  const cloudRes = [...ids].map(([id, tok]) => ({ tok, whole: new RegExp(`(?<![A-Za-z0-9-])${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9-])`, "gi") }));
+  if (res.length === 0 && cloudRes.length === 0) return { tokens, tokenise: (s) => s, redactRest: (s) => s };
   return {
     tokens,
-    tokenise: (s) => res.reduce((t, { tok, whole }) => t.replace(whole, tok), s.replace(/<site-[AB]>/gi, "<site>")),
+    tokenise: (s) =>
+      cloudRes.reduce(
+        (t, { tok, whole }) => t.replace(whole, tok),
+        res.reduce((t, { tok, whole }) => t.replace(whole, tok), s.replace(/<site-[AB]>/gi, "<site>").replace(/<cloud-[AB]>/gi, "<cloud>")),
+      ),
     redactRest: (s) => res.reduce((t, { any }) => t.replace(any, "<site>"), s),
   };
+}
+
+/** The invented cloud id the committed fixtures carry in place of a tenant's. */
+const PLACEHOLDER_CLOUD_ID = /^aaaaaaaa-aaaa-4aaa-8aaa-[0-9a-f]{12}$/i;
+
+/** STE-871 — the declared cloud ids a bundle still spells, in any case; the bundle is committed, so any is a leak. */
+function declaredCloudIdLeaks(bundle: unknown, declared: Record<Root, { cloudId?: string }>): Root[] {
+  const text = JSON.stringify(bundle).toLowerCase();
+  return (["A", "B"] as const).filter((r) => {
+    const id = declared[r].cloudId?.toLowerCase();
+    return !!id && !PLACEHOLDER_CLOUD_ID.test(id) && text.includes(id);
+  });
 }
 
 /**
@@ -990,22 +1057,26 @@ export function extractBundle(o: ExtractOptions): ExtractResult {
   }
   unledgeredSessions.sort();
 
-  return {
-    ok: true,
-    bundle: {
-      schema: 1,
-      synthetic: o.synthetic === true,
-      run: o.run,
-      roots: {
-        A: { name: basename(A), tag: o.roots.A.tag, ...declared.A, ...sites.tokens.A },
-        B: { name: basename(B), tag: o.roots.B.tag, ...declared.B, ...sites.tokens.B },
-      },
-      ledger: [...o.ledgerSessionIds],
-      sessions,
-      repos: { A: readRepo(A, "A", tracker, rw), B: readRepo(B, "B", tracker, rw) },
-      unledgeredSessions,
+  const bundle: LiveBundle = {
+    schema: 1,
+    synthetic: o.synthetic === true,
+    run: o.run,
+    roots: {
+      A: { name: basename(A), tag: o.roots.A.tag, ...declared.A, ...sites.tokens.A },
+      B: { name: basename(B), tag: o.roots.B.tag, ...declared.B, ...sites.tokens.B },
     },
+    ledger: [...o.ledgerSessionIds],
+    sessions,
+    repos: { A: readRepo(A, "A", tracker, rw), B: readRepo(B, "B", tracker, rw) },
+    unledgeredSessions,
   };
+  // The backstop: a field no rewrite reaches (an object key, the run's own
+  // metadata) must not carry a declared cloud_id into the committed bundle.
+  const leaks = declaredCloudIdLeaks(bundle, declared);
+  if (leaks.length > 0) {
+    return { ok: false, verdict: { outcome: "abort", findings: leaks.map((r) => ({ code: "cloud-id-in-bundle", detail: `the bundle still spells repository <${r}>'s declared cloud_id, which must not be committed` })) } };
+  }
+  return { ok: true, bundle };
 }
 
 // ---------------------------------------------------------------------------
@@ -2426,6 +2497,14 @@ const twoSites = (c: ToolCall): boolean => (c.unplaced ?? []).includes("cloudId"
 const rootsAtSite = (sites: Record<Root, SiteDeclaration>, c: ToolCall, roots: readonly Root[]): Root[] => roots.filter((r) => siteMatches(sites[r], c.input.cloudId));
 const declaresSite = (d: SiteDeclaration): boolean => !!d.site || !!d.cloudId;
 /**
+ * F1 — a `create` or `reuse` receipt holds at a root only when the search it was
+ * decided from ran at that root's (possibly inherited) site; one without
+ * `searchSite` (saved pages) is held to nothing more. Both sides carry the same
+ * site tokens, so the comparison is like with like.
+ * Twin: `decidedAtSite` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ */
+const decidedAtSite = (d: SiteDeclaration, ev: Record<string, unknown>): boolean => !("searchSite" in ev) || siteMatches(d, ev.searchSite);
+/**
  * STE-871 — each root's Jira site for a write in scope of `roots`, as the
  * hook's `inheritSites`: both roots bind the run's container, so a root in
  * scope that declares no site takes the site of the one that does.
@@ -2940,7 +3019,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           });
           const receipt = prior ? undefined : mine
             .map((a) => receiptOf(a, "create"))
-            .find((r) => r !== null && !spent.has(r.path) && createMismatch(tracker, shape, payloadShape(tracker, (r.evidence.createPayload ?? {}) as Record<string, unknown>), b.roots[root].tag) === null);
+            .find((r) => r !== null && !spent.has(r.path) && decidedAtSite(sites[root], r.evidence) && createMismatch(tracker, shape, payloadShape(tracker, (r.evidence.createPayload ?? {}) as Record<string, unknown>), b.roots[root].tag) === null);
           if (rootsAtSite(sites, c, [root]).length === 0) why = otherSite([root]);
           else if (prior) why = `create of "${shape.title}" repeats an earlier create of that ticket (${prior.ref}) that ${prior.result.isError ? "may have made it" : `returned ${itemKeys(prior).join(", ") || "no key"}`}, and no create receipt authorises a second create of it`;
           else if (!receipt) why = `create of "${shape.title}" follows no unspent create receipt announced by create_idempotency_probe.ts decide in <${root}> that records its project, title, tag and ${tracker === "jira" ? "parent" : "milestone"}`;
@@ -3036,7 +3115,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
             if (fetchedOwned(k)) return "fetched-ticket";
             for (const a of before) {
               const reuse = receiptOf(a, "reuse");
-              if (reuse && str(reuse.evidence.key).toUpperCase() === k) return "reuse-receipt";
+              if (reuse && str(reuse.evidence.key).toUpperCase() === k && decidedAtSite(sites[rootOfPath(a.path)!], reuse.evidence)) return "reuse-receipt";
               const bind = receiptOf(a, "binding");
               if (bind && bind.subject.toUpperCase() === k && (bind.decision !== "adopt" || (answeredBefore(s, a.index, `Adopt ${k}`) && answeredBefore(s, i, `Adopt ${k}`)))) return "binding-receipt";
               const imp = receiptOf(a, "import");
