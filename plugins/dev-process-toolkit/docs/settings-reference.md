@@ -65,6 +65,8 @@ One sub-map per adapter; either or both may be present. Each replaces the legacy
 
 `site` and `cloud_id` declare the one Jira site this repository writes to. Both are optional, and a blank value reads as absent. Read the values from `getAccessibleAtlassianResources`: `cloud_id` is the site's `id`, and `site` is the host of its `url`. An older client refuses an unknown key, so raise the top-level `min_dpt_version` of `specs/settings.yaml` to the release that added these keys when you add either. The floor is checked before the keys, so an older client then says to upgrade the plugin; without the raised floor it reports an unrecognised key.
 
+`jira_bug_type_standard` is new in the same release. An older client refuses the unknown key, so raise the top-level `min_dpt_version` to 3.11.0 when you add it too.
+
 In a tracker mode the binding is required: `/gate-check` probe #25 (`task-tracking-workspace-binding-present`) hard-fails without it. `task_tracking.linear` needs `team` and `project`; `task_tracking.jira` needs `project`. A missing sub-map, a missing key or an empty value all fail. Tickets created without `project` silently landed on the wrong board, which is why the probe exists.
 
 #### `task_tracking.status_vocabulary`

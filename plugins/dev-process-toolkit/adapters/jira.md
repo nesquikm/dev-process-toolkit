@@ -70,6 +70,8 @@ When the listing gives the type no hierarchy level, a type outside Bug, Task and
 Story passes only when the binding declares `jira_bug_type_standard: true`
 (a boolean; any other value refuses in NFR-10 shape, as does the key under
 `### Linear`); `--root` names the project whose binding is read.
+An older client refuses the unknown key, so raise the top-level
+`min_dpt_version` to 3.11.0 when you add `jira_bug_type_standard`.
 The run appends `--bug` to each `create_idempotency_probe.ts` `decide` call
 below, which is how the create payload gets the bug type.
 

@@ -184,6 +184,11 @@ type PathVal = string | PathVal[];
 
 /** The text of one expression from `i`, up to a top-level stop character. */
 function takeExpr(src: string, i: number, stops: string): string {
+  return src.slice(i, exprEnd(src, i, stops)).trim();
+}
+
+/** Where the expression from `i` ends: at a top-level stop character or an unmatched closer. */
+function exprEnd(src: string, i: number, stops: string): number {
   let depth = 0;
   let j = i;
   for (; j < src.length; j++) {
@@ -198,7 +203,20 @@ function takeExpr(src: string, i: number, stops: string): string {
       depth--;
     } else if (depth === 0 && stops.includes(ch)) break;
   }
-  return src.slice(i, j).trim();
+  return j;
+}
+
+/** The top-level items of a list that starts at `i`, each with its offset. */
+function listItems(src: string, i: number): Array<{ at: number; text: string }> {
+  const end = exprEnd(src, i, "");
+  const items: Array<{ at: number; text: string }> = [];
+  for (let k = i; k < end; ) {
+    const stop = Math.min(exprEnd(src, k, ","), end);
+    const text = src.slice(k, stop).trim();
+    if (text !== "") items.push({ at: k, text });
+    k = stop + 1;
+  }
+  return items;
 }
 
 /** Evaluate a path made only of string literals, join/resolve/dirname, the tests dir and known names. */
@@ -234,8 +252,20 @@ function evalPath(expr: string, env: Map<string, PathVal>): PathVal | undefined 
 const isLive = (v: PathVal | undefined): boolean =>
   typeof v === "string" ? v === LIVE_ROOT : Array.isArray(v) && v.some(isLive);
 
-/** Every probe-#63 grade call in `src` whose root argument is the live checkout. */
+/** Every probe-#63 grade call in `src` whose root argument is the live checkout, as `line: argument`. */
 function liveRootCalls(src: string): string[] {
+  return liveRootGrades(src).map((g) => `${lineOf(src, g.at)}: ${g.arg}`);
+}
+
+const lineOf = (src: string, at: number): number => src.slice(0, at).split("\n").length;
+const RUNNER_FILE = "gate_probe_runner";
+
+/**
+ * Every grade of the live checkout in `src`, with its offset: an in-process
+ * call, or a spawned `gate_probe_runner.ts` given the live root as a later
+ * argument (an argument list, or a command string).
+ */
+function liveRootGrades(src: string): Array<{ at: number; arg: string }> {
   const env = new Map<string, PathVal>();
   // The house names for the live root count even where their value cannot be read.
   const live = new Set<string>(["REPO_ROOT", "repoRoot"]);
@@ -252,12 +282,48 @@ function liveRootCalls(src: string): string[] {
     }
     for (const [name, expr] of loops) if (isLive(evalPath(expr, env))) live.add(name);
   }
-  const hits: string[] = [];
+  const isLiveArg = (arg: string): boolean => live.has(arg) || isLive(evalPath(arg, env));
+  const hits: Array<{ at: number; arg: string }> = [];
   for (const m of src.matchAll(GRADE_CALL)) {
     const arg = takeExpr(src, m.index! + m[0].length, ",");
-    if (live.has(arg) || isLive(evalPath(arg, env))) hits.push(`${src.slice(0, m.index!).split("\n").length}: ${arg}`);
+    if (isLiveArg(arg)) hits.push({ at: m.index!, arg });
   }
-  return hits;
+  // A name that holds the runner's path, however it is built.
+  const runners = new Set<string>();
+  for (let pass = 0; pass < 6; pass++) {
+    for (const [name, expr] of decls) if (expr.includes(RUNNER_FILE) || runners.has(expr)) runners.add(name);
+  }
+  const isRunner = (item: string): boolean => item.includes(RUNNER_FILE) || runners.has(item);
+  // Spawned through an argument list: the runner, then the live root.
+  for (const m of src.matchAll(/\[/g)) {
+    const items = listItems(src, m.index! + 1);
+    const r = items.findIndex((it) => isRunner(it.text));
+    if (r < 0) continue;
+    const root = items.slice(r + 1).find((it) => isLiveArg(it.text));
+    if (root) hits.push({ at: root.at, arg: root.text });
+  }
+  // Spawned through one command string on one line: `bun ${RUNNER} ${REPO_ROOT}`.
+  for (const m of src.matchAll(/^.*$/gm)) {
+    const holes = [...m[0].matchAll(/\$\{([^{}]*)\}/g)].map((h) => ({ at: h.index!, arg: h[1]!.trim() }));
+    const named = holes.find((h) => runners.has(h.arg))?.at ?? -1;
+    const from = m[0].includes(RUNNER_FILE) ? m[0].indexOf(RUNNER_FILE) : named;
+    const root = from < 0 ? undefined : holes.find((h) => h.at > from && isLiveArg(h.arg));
+    if (root) hits.push({ at: m.index! + root.at, arg: root.arg });
+  }
+  return hits.sort((a, b) => a.at - b.at);
+}
+
+/** The title of the innermost `test(...)` whose body holds offset `at`. */
+function enclosingTitle(src: string, at: number): string | undefined {
+  let best: { open: number; title: string } | undefined;
+  for (const m of src.matchAll(/(?<![\w$.])(?:test|it)\s*\(/g)) {
+    const open = m.index! + m[0].length;
+    if (open > at || exprEnd(src, open, "") < at || (best && best.open > open)) continue;
+    const raw = takeExpr(src, open, ",");
+    const quoted = /^(["'`])([\s\S]*)\1$/.exec(raw);
+    best = { open, title: quoted ? quoted[2]! : raw };
+  }
+  return best?.title;
 }
 
 describe("AC-STE-847.5 every live-checkout test that grades probe #63 accepts the window", () => {
@@ -285,6 +351,69 @@ describe("AC-STE-847.5 every live-checkout test that grades probe #63 accepts th
       .filter((n) => liveRootCalls(readFileSync(join(import.meta.dir, n), "utf8")).length > 0)
       .sort();
     expect(direct).toEqual(LIVE.map(([s]) => s).filter((s) => !s.startsWith("m120-")).sort());
+  });
+
+  // Live-root grades that run the whole table but read no #63 verdict, so the window cannot red them.
+  const NOT_63: ReadonlyArray<[suite: string, title: string, why: string]> = [
+    [PIN_SUITE, "AC-STE-756.3 — the runner over this repository checkout does not grade #81's warning catalogue row as `fail`", "reads only the #81 row"],
+    [PIN_SUITE, "AC-STE-756.4 — every shipped entry's real report has a known shape, on this checkout and on an empty project", "reads only the report shapes"],
+  ];
+  const suites = (): Map<string, string> =>
+    new Map(
+      readdirSync(import.meta.dir)
+        .filter((n) => n.endsWith(".test.ts") && n !== basename(import.meta.path))
+        .map((n) => [n, readFileSync(join(import.meta.dir, n), "utf8")]),
+    );
+  /** Every live-root grade, as `suite:line (title)`, keyed by where it sits. */
+  const gradesBySite = (files: Map<string, string>) =>
+    [...files].flatMap(([suite, src]) =>
+      liveRootGrades(src).map((g) => {
+        const title = enclosingTitle(src, g.at);
+        return { suite, title, where: `${suite}:${lineOf(src, g.at)} (${title ?? "outside any test"})` };
+      }),
+    );
+  // `-t` matches a title by substring, as the window run selects it.
+  const listed = (rows: ReadonlyArray<readonly [string, string, ...string[]]>, suite: string, title?: string) =>
+    rows.some(([s, t]) => s === suite && title !== undefined && title.includes(t));
+  /** The live-root grades the window run does not cover. */
+  const unlisted = (files: Map<string, string>): string[] =>
+    gradesBySite(files).filter((g) => !listed(LIVE, g.suite, g.title) && !listed(NOT_63, g.suite, g.title)).map((g) => g.where);
+
+  test("every live-root grade sits inside a listed title, or is a named grade that reads no #63 verdict", () => {
+    const files = suites();
+    expect(unlisted(files)).toEqual([]);
+    // Neither list holds a stale entry: each names a test that still grades the live root.
+    const sites = gradesBySite(files);
+    for (const [suite, title] of [...LIVE.filter(([s]) => !s.startsWith("m120-")), ...NOT_63]) {
+      expect(sites.some((g) => listed([[suite, title]], g.suite, g.title)), `${suite}: ${title}`).toBe(true);
+    }
+  });
+
+  test("control: a second live-root #63 grade in a listed suite is caught, though the suite names still agree", () => {
+    const files = suites();
+    const suite = "m141-ste-546-surface-agreement.test.ts";
+    const added = 'test("a second live grade", async () => {\n  expect((await runPlanShipCoherenceProbe(REPO_ROOT)).violations).toEqual([]);\n});\n';
+    files.set(suite, `${files.get(suite)!}\n${added}`);
+    const names = [...files].filter(([, src]) => liveRootCalls(src).length > 0).map(([n]) => n).sort();
+    expect(names).toEqual(LIVE.map(([s]) => s).filter((s) => !s.startsWith("m120-")).sort());
+    expect(unlisted(files)).toEqual([expect.stringMatching(new RegExp(`^${suite.replaceAll(".", "\\.")}:\\d+ \\(a second live grade\\)$`))]);
+  });
+
+  test("control: a spawned runner given the live root is caught, by path or by name", () => {
+    const spawned = [
+      'spawnSync("bun", ["adapters/_shared/src/gate_probe_runner.ts", REPO_ROOT]);',
+      "runBun([RUNNER, REPO_ROOT], PLUGIN_ROOT, 300_000);",
+      "spawnSync(\"sh\", [\"-c\", `bun ${RUNNER} ${REPO_ROOT}`]);",
+    ];
+    for (const body of spawned) {
+      const files = suites();
+      files.set(PIN_SUITE, `${files.get(PIN_SUITE)!}\ntest("a spawned grade", () => {\n  ${body}\n});\n`);
+      expect(unlisted(files), body).toEqual([expect.stringContaining(`${PIN_SUITE}:`)]);
+    }
+    // A fixture root handed to the same runner is not the live checkout.
+    const head = 'const PLUGIN_ROOT = join(import.meta.dir, "..");\nconst RUNNER = join(PLUGIN_ROOT, "adapters", "_shared", "src", "gate_probe_runner.ts");\n';
+    expect(liveRootCalls(`${head}runBun([RUNNER, dir], PLUGIN_ROOT);\nspawnSync("sh", ["-c", \`bun \${RUNNER} /proj\`]);`)).toEqual([]);
+    expect(liveRootCalls(`${head}spawnSync("bun", [RUNNER, join(PLUGIN_ROOT, "..", "..")]);`)).toHaveLength(1);
   });
 
   test("the discovery finds the live root under any spelling, and only the live root", () => {
