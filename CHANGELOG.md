@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.10.0] — 2026-11-25 — "Both Dialects"
+
+### Changed
+
+- The Jira adapter guide, the skills, the docs and the recorded tool inventory name both Atlassian tool surfaces, v1 and v2, and say to use whichever the session lists (STE-869). Every read that feeds a deciding command states its fields and, on v2, `view: "full"`. `/setup` reads the v2 project style and the create-metadata field list, and the first-turn detector sees a create sent through an execute tool. A test fails when the guide names a tool neither surface has.
+
+### Security
+
+- Writes sent through the generic Atlassian tools `executeWrite`, `executeDestructive` and `executeRead` are gated (STE-866). Such a call gets the verdict of the operation it names, whatever the wrapper. In a repository that declares a shared Jira project, an operation the gate cannot place and any Jira operation under `executeDestructive` are refused, as is an edit that may move a ticket into the project. Listed Confluence and Compass operations pass, and a repository with no declaration sees no change.
+
+### Fixed
+
+- A shipped milestone Epic can be closed, and every other Jira write is graded, through the v2 Atlassian tools (STE-865). One translator turns each v1 or v2 call into one form, and the write gate and its live grader read only that. A call that names its type, parent or project twice, or its ticket by a URL naming a second key, is refused.
+- Atlassian v2 answers are read, and an error inside a success is an error (STE-867). The one answer reader takes the `{data: …}` envelope. A definite 4xx proves a create never landed, unless the error names a created key or id, or says the request may have run.
+- A tracker-write refusal names the plugin copy that ran a deciding command, with its version, beside the hook's own copy (STE-868). The other copy's receipt still authorises nothing.
+
+Milestone M_b054b1, full support for both Atlassian tool surfaces in the tracker-write gate.
+
+Total test count at release: 26726 tests, 0 failures, 0 errors.
+
 ## [3.9.0] — 2026-11-18 — "Read Back"
 
 ### Added
