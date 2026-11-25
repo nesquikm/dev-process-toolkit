@@ -1,0 +1,40 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "read-only-call",
+    "request": {
+      "name": "getJiraIssueTypeMetaWithFields",
+      "inputs": {
+        "projectIdOrKey": "ZZ",
+        "issueTypeId": "10001"
+      }
+    },
+    "note": "getJiraIssueTypeMetaWithFields through executeRead; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "data": {
+      "fields": [
+        {
+          "fieldId": "summary",
+          "name": "Summary",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "fieldId": "customfield_10050",
+          "name": "Acceptance Criteria",
+          "required": false,
+          "schema": {
+            "type": "string"
+          },
+          "allowedValues": []
+        }
+      ],
+      "maxResults": 50,
+      "startAt": 0,
+      "total": 2
+    }
+  }
+}

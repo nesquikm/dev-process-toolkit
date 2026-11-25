@@ -23,6 +23,7 @@
 // raw NDJSON line count. The low-level NDJSON reader is shared with
 // smoke_child_capture via stream_json_events.ts.
 
+import { ATLASSIAN_EXECUTE_TOOLS } from "./atlassian_call";
 import { REQUIRES_INPUT_REFUSED_MARKER } from "./requires_input";
 import { SCAFFOLDING_TOOLS, type TranscriptEntry } from "./socratic_first_turn";
 import {
@@ -44,6 +45,18 @@ function scaffoldPath(name: string, input: unknown): string | undefined {
   const rec = input as Record<string, unknown>;
   const p = rec.file_path ?? rec.notebook_path;
   return typeof p === "string" ? p : undefined;
+}
+
+/**
+ * The operation an Atlassian v2 execute call names, "" when it names none.
+ * Another server's tool that only shares the name carries none of its keys
+ * (as in the tracker-write gate) and is no Atlassian call.
+ */
+function wrappedOperation(tool: string, input: unknown): string | undefined {
+  if (!ATLASSIAN_EXECUTE_TOOLS.includes(tool.split("__").at(-1)!)) return undefined;
+  const call = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  if (!/atlassian/i.test(tool) && !["name", "inputs", "cloudId"].some((k) => Object.hasOwn(call, k))) return undefined;
+  return typeof call.name === "string" ? call.name : "";
 }
 
 /**
@@ -81,11 +94,13 @@ export function parseStreamJsonLine(line: string): TranscriptEntry[] {
       }
     } else if (block.type === "tool_use" && typeof block.name === "string") {
       const path = scaffoldPath(block.name, block.input);
-      entries.push(
-        path === undefined
-          ? { type: "tool_use", name: block.name }
-          : { type: "tool_use", name: block.name, path },
-      );
+      const operation = wrappedOperation(block.name, block.input);
+      entries.push({
+        type: "tool_use",
+        name: block.name,
+        ...(path === undefined ? {} : { path }),
+        ...(operation === undefined ? {} : { operation }),
+      });
     }
   }
 

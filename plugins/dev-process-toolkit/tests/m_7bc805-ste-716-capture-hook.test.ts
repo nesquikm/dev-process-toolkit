@@ -65,7 +65,13 @@ const outcomeRun = (root: string): string => `bun run "${PLUGIN_REAL}/adapters/_
  * entries (PreToolUse `Skill`, UserPromptSubmit) removed, and any group that
  * removal leaves empty dropped — parsed, so the comparison is on structure.
  */
-function withoutRunStart(text: string): unknown {
+function withoutRunStart(raw: string): unknown {
+  // Amended by AC-STE-865.7 and AC-STE-866.1 (M_b054b1): the tracker-write matcher's exact v2 and execute names are taken out.
+  const text = raw
+    .replace("|addCommentToJiraIssue|addOrEditJiraIssueComment|", "|addCommentToJiraIssue|")
+    .replace("|addWorklogToJiraIssue|addOrEditJiraIssueWorklog|createIssueLink|createJiraIssueLink|", "|addWorklogToJiraIssue|createIssueLink|")
+    .replace("|addTeamworkGraphContext|addGraphContext|", "|addTeamworkGraphContext|")
+    .replace("|save_document|executeRead|executeWrite|executeDestructive)$", "|save_document)$");
   const json = JSON.parse(text) as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command?: string }> }>> };
   for (const [ev, groups] of Object.entries(json.hooks)) {
     json.hooks[ev] = groups

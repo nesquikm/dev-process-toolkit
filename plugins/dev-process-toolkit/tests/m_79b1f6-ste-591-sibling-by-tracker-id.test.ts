@@ -703,7 +703,7 @@ describe("structural — gate-check's probe rows stay where the pins expect them
       added,
       `gate-check SKILL.md must be edited IN PLACE this milestone (every row edit replaces its line): ` +
         `numstat against main is +${added} -${deleted}. A row was added or removed, or a line split.`,
-    ).toBe(deleted! + ste825RowAdded()); // Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row is the one admitted added line
+    ).toBe(deleted! + ste825RowAdded(readGateCheck()) - ste825RowAdded(gateCheckOnMain())); // only the admitted lines main still lacks. Amended by AC-STE-825.3 (M_d1e7b1): probe #14's not-started row is the one admitted added line
   });
 
   // Amended by AC-STE-685.3: admits STE-685's marked runner migration; an unmarked hunk still goes red.
@@ -814,7 +814,15 @@ describe("Stage C hardening — /pr's refusal path, its plan path, and a remedy 
 });
 
 /** Amended by AC-STE-825.3 (M_d1e7b1); Amended by AC-STE-756.6 (M_d1e7b1): the lines M_d1e7b1's exact admissions add (STE-825's row, STE-756's block), 0 when none is in place. */
-function ste825RowAdded(): number {
-  const now = readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
-  return now.split("\n").length - undoGateCheckM_d1e7b1(now).split("\n").length;
+function ste825RowAdded(text: string): number {
+  return text.split("\n").length - undoGateCheckM_d1e7b1(text).split("\n").length;
+}
+function readGateCheck(): string {
+  return readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+}
+/** gate-check/SKILL.md as main has it: the numstat's other side. */
+function gateCheckOnMain(): string {
+  const proc = spawnSync("git", ["show", "main:./skills/gate-check/SKILL.md"], { cwd: PLUGIN_ROOT, encoding: "utf-8", maxBuffer: 16 * 1024 * 1024 });
+  if (proc.status !== 0) throw new Error(`git show main: ${proc.stderr}`);
+  return proc.stdout;
 }

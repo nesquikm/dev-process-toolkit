@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------------
 // CONTRACT this suite reads from the hook module (the implementer satisfies it)
 // ---------------------------------------------------------------------------
-//   export const TRACKER_WRITE_TOOLS: readonly string[]      — §1, the 27 names
+//   export const TRACKER_WRITE_TOOLS: readonly string[]      — §1, the 31 names (27, plus the four v2 names of AC-STE-865.7 and AC-STE-866.2)
 //                                     (STE-607's 26 plus addTeamworkGraphContext, STE-649)
 //   export const TRACKER_READ_TOOLS: readonly string[]
 //   export const UNGATED_WRITE_TOOLS: Readonly<Record<string, string>>
@@ -97,16 +97,22 @@ const CONFIRM = "ticket_ownership.ts";
 /**
  * §1 — the list, verbatim from the FR. AC-STE-649.1 amends STE-607 §1: the
  * archived list of 26 names is history; `addTeamworkGraphContext` (a Jira
- * links/blocks writer) sits at index 6, after createIssueLink.
+ * links/blocks writer) sits after createIssueLink. Amended by AC-STE-865.7:
+ * the v2 write names `addOrEditJiraIssueComment` and `addGraphContext`, and by
+ * AC-STE-866.2: `addOrEditJiraIssueWorklog` and `createJiraIssueLink`.
  */
 const FR_WRITE_LIST = [
   "createJiraIssue",
   "editJiraIssue",
   "transitionJiraIssue",
   "addCommentToJiraIssue",
+  "addOrEditJiraIssueComment",
   "addWorklogToJiraIssue",
+  "addOrEditJiraIssueWorklog",
   "createIssueLink",
+  "createJiraIssueLink",
   "addTeamworkGraphContext",
+  "addGraphContext",
   "save_issue",
   "save_milestone",
   "save_comment",
@@ -128,7 +134,7 @@ const FR_WRITE_LIST = [
   "delete_status_update",
   "save_document",
 ] as const;
-const ATLASSIAN_WRITES = new Set(FR_WRITE_LIST.slice(0, 7));
+const ATLASSIAN_WRITES = new Set(FR_WRITE_LIST.slice(0, 11));
 
 // ------------------------------------------------------------------ cleanup
 
@@ -755,12 +761,16 @@ function sampleInput(tool: string): Record<string, unknown> {
     case "transitionJiraIssue":
       return transition("GK-111");
     case "addCommentToJiraIssue":
+    case "addOrEditJiraIssueComment":
       return { cloudId: CLOUD, issueIdOrKey: "GK-111", commentBody: "Progress." };
     case "addWorklogToJiraIssue":
+    case "addOrEditJiraIssueWorklog":
       return { cloudId: CLOUD, issueIdOrKey: "GK-111", timeSpent: "1h" };
     case "createIssueLink":
+    case "createJiraIssueLink":
       return { cloudId: CLOUD, inwardIssue: "GK-111", outwardIssue: "GK-101", type: "Relates" };
     case "addTeamworkGraphContext":
+    case "addGraphContext":
       return teamworkLink("GK-111", "GK-101", "jira-work-item-links-jira-work-item");
     case "save_issue":
       return { team: "STE", project: "DPT", title: "A new ticket", labels: [] };
@@ -806,6 +816,7 @@ function sampleInput(tool: string): Record<string, unknown> {
 
 interface HookModule {
   TRACKER_WRITE_TOOLS: readonly string[];
+  TRACKER_EXECUTE_TOOLS: readonly string[];
   TRACKER_READ_TOOLS: readonly string[];
   UNGATED_WRITE_TOOLS: Readonly<Record<string, string>>;
   RECEIPT_ANNOUNCING_MODULES: readonly string[];
@@ -838,7 +849,7 @@ function gateGroup(): HookGroup | undefined {
 // ===========================================================================
 
 describe("AC-STE-607.1 — undeclared repositories see no change", () => {
-  test("every TRACKER_WRITE_TOOLS tool × {no CLAUDE.md, mode: none, tracker mode with no tag} → exit 0, empty stdout, empty stderr (27×3 with addTeamworkGraphContext, AC-STE-649.5)", async () => {
+  test("every TRACKER_WRITE_TOOLS tool × {no CLAUDE.md, mode: none, tracker mode with no tag} → exit 0, empty stdout, empty stderr (31×3 with addTeamworkGraphContext, AC-STE-649.5, and the v2 names, AC-STE-865.7)", async () => {
     const { TRACKER_WRITE_TOOLS } = await hookModule();
     expect(TRACKER_WRITE_TOOLS.length).toBe(FR_WRITE_LIST.length);
 
@@ -917,7 +928,7 @@ const READ_CONTROLS = [
 ] as const;
 
 describe("AC-STE-607.2 — hooks.json matcher, derived from TRACKER_WRITE_TOOLS", () => {
-  test("TRACKER_WRITE_TOOLS is exactly the FR §1 list, as amended by AC-STE-649.1", async () => {
+  test("TRACKER_WRITE_TOOLS is exactly the FR §1 list, as amended by AC-STE-649.1, AC-STE-865.7 and AC-STE-866.2", async () => {
     const { TRACKER_WRITE_TOOLS } = await hookModule();
     expect([...TRACKER_WRITE_TOOLS].sort()).toEqual([...FR_WRITE_LIST].sort());
     expect(new Set(TRACKER_WRITE_TOOLS).size).toBe(TRACKER_WRITE_TOOLS.length);
@@ -935,8 +946,10 @@ describe("AC-STE-607.2 — hooks.json matcher, derived from TRACKER_WRITE_TOOLS"
   });
 
   test("the registered matcher equals the one re-derived from TRACKER_WRITE_TOOLS", async () => {
-    const { TRACKER_WRITE_TOOLS } = await hookModule();
-    const derived = `^mcp__.+__(${TRACKER_WRITE_TOOLS.join("|")})$`;
+    // Amended by AC-STE-866.1: the three execute tools are matched beside the write list.
+    const { TRACKER_WRITE_TOOLS, TRACKER_EXECUTE_TOOLS } = await hookModule();
+    expect([...TRACKER_EXECUTE_TOOLS]).toEqual(["executeRead", "executeWrite", "executeDestructive"]);
+    const derived = `^mcp__.+__(${[...TRACKER_WRITE_TOOLS, ...TRACKER_EXECUTE_TOOLS].join("|")})$`;
     expect(gateGroup()?.matcher).toBe(derived);
   });
 
@@ -970,6 +983,7 @@ interface Inventory {
   captured_at: string;
   source: string;
   servers: Record<string, { prefix: string; count: number; tools: string[] }>;
+  atlassian_v2: { prefix: string; count: number; tools: string[]; operations: { classification: Record<string, unknown> } };
 }
 
 function readInventory(): Inventory {
@@ -1015,7 +1029,9 @@ describe("AC-STE-607.2 — the tool inventory partitions into the three sets", (
 
   test("every listed write tool is in the inventory, and every UNGATED_WRITE_TOOLS entry carries a one-line reason", async () => {
     const m = await hookModule();
-    const names = new Set(Object.values(readInventory().servers).flatMap((s) => s.tools));
+    // Amended by AC-STE-869.5: the inventory records the v2 surface beside the v1 servers.
+    const inv = readInventory();
+    const names = new Set([...[...Object.values(inv.servers), inv.atlassian_v2].flatMap((s) => s.tools), ...Object.keys(inv.atlassian_v2.operations.classification)]);
     expect(m.TRACKER_WRITE_TOOLS.filter((t) => !names.has(t))).toEqual([]);
     const entries = Object.entries(m.UNGATED_WRITE_TOOLS);
     expect(entries.length).toBeGreaterThan(0);

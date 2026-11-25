@@ -1,0 +1,55 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "read-only-call",
+    "request": {
+      "name": "listJiraIssueTransitions",
+      "inputs": {
+        "issueIdOrKey": "ZZ-101"
+      }
+    },
+    "note": "listJiraIssueTransitions through executeRead; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "data": {
+      "transitions": [
+        {
+          "hasScreen": false,
+          "id": "11",
+          "isAvailable": true,
+          "name": "To Do",
+          "to": {
+            "name": "To Do",
+            "statusCategory": {
+              "key": "new"
+            }
+          }
+        },
+        {
+          "hasScreen": false,
+          "id": "12",
+          "isAvailable": true,
+          "name": "In Progress",
+          "to": {
+            "name": "In Progress",
+            "statusCategory": {
+              "key": "indeterminate"
+            }
+          }
+        },
+        {
+          "hasScreen": false,
+          "id": "13",
+          "isAvailable": true,
+          "name": "Done",
+          "to": {
+            "name": "Done",
+            "statusCategory": {
+              "key": "done"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

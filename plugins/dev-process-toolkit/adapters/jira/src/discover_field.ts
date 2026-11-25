@@ -1,11 +1,15 @@
 // Jira per-project custom-field GID discovery (AC-30.6).
 //
-// Takes the full response of `GET /rest/api/3/field` on stdin, returns the
+// Takes a project's field list on stdin, returns the
 // matching Acceptance-Criteria field's GID on stdout. Pure function over text
 // (Schema P): no network, no auth, deterministic match ranking.
 //
 // Invocation contract:
-//   stdin:  { "fields": <array of field objects from /rest/api/3/field> }
+//   stdin:  { "fields": <the answer> }, the answer being the field rows, a
+//           getJiraIssueTypeMetaWithFields answer (v1 or v2), or the JSON array
+//           of its pages. A row is named by `id` or, in create metadata, `fieldId`.
+//           An error answer, an unread shape or a partial listing exits 1: it
+//           proves no field absent.
 //   stdout: { "ok": true, "gid": "customfield_XXXXX", "name": "..." }
 //     or:   { "ok": false, "reason": "<human-readable>" }
 //   exit:   0 on success (including ok=false), non-zero on invalid input
@@ -22,8 +26,11 @@
 // for invoking the Atlassian MCP, piping the response in, and writing the
 // resolved `jira_ac_field:` value to CLAUDE.md.
 
+import { readJiraAnswer } from "../../_shared/src/tracker_answer";
+
 export type JiraField = {
-  id: string;
+  id?: string;
+  fieldId?: string;
   name: string;
   custom?: boolean;
   schema?: unknown;
@@ -40,12 +47,12 @@ function numericSuffix(id: string): number {
 
 export function discoverAcField(fields: JiraField[]): DiscoveryResult {
   if (!Array.isArray(fields) || fields.length === 0) {
-    return { ok: false, reason: "no fields returned from /rest/api/3/field" };
+    return { ok: false, reason: "no fields returned" };
   }
 
-  const custom = fields.filter(
-    (f): f is JiraField => typeof f?.id === "string" && typeof f?.name === "string",
-  );
+  const custom = fields
+    .map((f) => ({ id: f?.id ?? f?.fieldId, name: f?.name }))
+    .filter((f): f is { id: string; name: string } => typeof f.id === "string" && typeof f.name === "string");
 
   // Tier 1: exact name "Acceptance Criteria" (case-insensitive).
   const exact = custom.filter((f) => f.name.trim().toLowerCase() === "acceptance criteria");
@@ -74,15 +81,47 @@ export function discoverAcField(fields: JiraField[]): DiscoveryResult {
   };
 }
 
+/**
+ * The field rows of one answer: a row array, or the pages of a create-metadata
+ * answer in order, each starting where the one before ended and agreeing on
+ * `total`. Throws on anything else: it proves no field absent.
+ */
+export function fieldRows(answer: unknown): JiraField[] {
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+  const isRow = (v: unknown): v is JiraField => isObj(v) && typeof v.name === "string" && (typeof v.id === "string" || typeof v.fieldId === "string");
+  if (Array.isArray(answer) && answer.every(isRow)) return answer;
+  const rows: JiraField[] = [];
+  let total: unknown;
+  for (const page of Array.isArray(answer) ? answer : [answer]) {
+    if (!isObj(page)) throw new Error("the answer is not a field list");
+    const read = readJiraAnswer(page);
+    if (!read.ok) throw new Error(read.reason);
+    const { fields, startAt, total: said } = read.answer;
+    if ("error" in read.answer || !Array.isArray(fields) || !fields.every(isRow)) throw new Error("the answer carries no readable `fields` list");
+    if (startAt !== rows.length || typeof said !== "number" || (total !== undefined && said !== total)) throw new Error("the pages are not one listing in order (`startAt`, `total`)");
+    rows.push(...fields);
+    total = said;
+  }
+  if (rows.length !== total) throw new Error(`the listing holds ${rows.length} of ${total} fields; fetch the rest (startAt)`);
+  return rows;
+}
+
 if (import.meta.main) {
   const raw = await new Response(Bun.stdin.stream()).text();
-  let parsed: { fields?: JiraField[] } = {};
+  let parsed: { fields?: unknown } = {};
   try {
     parsed = raw.trim().length > 0 ? JSON.parse(raw) : {};
   } catch (err) {
     process.stderr.write(`discover_field: invalid JSON on stdin: ${(err as Error).message}\n`);
     process.exit(1);
   }
-  const result = discoverAcField(parsed.fields ?? []);
+  let fields: JiraField[];
+  try {
+    fields = fieldRows(parsed.fields);
+  } catch (err) {
+    process.stderr.write(`discover_field: ${(err as Error).message}\n`);
+    process.exit(1);
+  }
+  const result = discoverAcField(fields);
   process.stdout.write(JSON.stringify(result) + "\n");
 }

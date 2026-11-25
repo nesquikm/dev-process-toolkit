@@ -15,6 +15,8 @@
 // STE-649 widened the gated list to 27 names (STE-607's archived 26 plus
 // `addTeamworkGraphContext`) and made both link tools — `createIssueLink` and
 // the Teamwork Graph link — refuse a Jira-item side that resolves to no key.
+// STE-865 and STE-866 added the v2 names (31 names) and translates every
+// Atlassian call, v1 or v2, in `identifyTrackerCall` (atlassian_call.ts).
 //
 // The stdin entry is guarded by `import.meta.main`, so importing this module
 // for its constants has no side effect.
@@ -33,11 +35,12 @@ import {
   receiptDigest,
 } from "../../../../adapters/_shared/src/tracker_receipts.ts";
 import { normalizeTitleForCompare } from "../../../../adapters/_shared/src/create_idempotency_probe.ts";
-import { decideTicketOwnership, readTrackedBindings } from "../../../../adapters/_shared/src/ticket_ownership.ts";
+import { decideTicketOwnership, missingOwnershipFields, readTrackedBindings } from "../../../../adapters/_shared/src/ticket_ownership.ts";
 import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_milestone.ts";
 import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
 import { EPIC_EDIT_INPUT_KEYS, exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
+import { ATLASSIAN_EXECUTE_TOOLS, canonicalAtlassianCall, type CanonicalAtlassianCall } from "../../../../adapters/_shared/src/atlassian_call.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
@@ -45,7 +48,7 @@ import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shar
 import { forgedSettingsFiles, trackerWriteGateSetting } from "../../../../adapters/_shared/src/tracker_write_gate_setting.ts";
 import { detectSettingsSource, SETTINGS_FILE } from "../../../../adapters/_shared/src/project_settings.ts";
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
-import { listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey } from "../../../../adapters/_shared/src/tracker_answer.ts";
+import { flaggedError, inBandError, listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey, unkeyedJiraItem } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
 /** Kept exported from here, where it was declared until the two gates started sharing it. */
 export { simpleCommandWords } from "../../../../adapters/_shared/src/shell_invocations.ts";
@@ -53,8 +56,9 @@ export { simpleCommandWords } from "../../../../adapters/_shared/src/shell_invoc
 export const HOOK_NAME = "pre-tracker-write-gate";
 
 // ---------------------------------------------------------------------------
-// §1 — the ONE list the hooks.json matcher is generated from: 27 names, 7
-// Atlassian + 20 Linear (STE-649 amends STE-607's 26 with addTeamworkGraphContext)
+// §1 — the ONE list the hooks.json matcher is generated from: 31 names, 11
+// Atlassian + 20 Linear (STE-607's 26, plus STE-649's addTeamworkGraphContext and
+// the v2 names of STE-865 and STE-866)
 // ---------------------------------------------------------------------------
 
 const ATLASSIAN_WRITE_TOOLS = [
@@ -62,9 +66,13 @@ const ATLASSIAN_WRITE_TOOLS = [
   "editJiraIssue",
   "transitionJiraIssue",
   "addCommentToJiraIssue",
+  "addOrEditJiraIssueComment",
   "addWorklogToJiraIssue",
+  "addOrEditJiraIssueWorklog",
   "createIssueLink",
+  "createJiraIssueLink",
   "addTeamworkGraphContext",
+  "addGraphContext",
 ] as const;
 
 const LINEAR_WRITE_TOOLS = [
@@ -92,10 +100,13 @@ const LINEAR_WRITE_TOOLS = [
 
 export const TRACKER_WRITE_TOOLS: readonly string[] = [...ATLASSIAN_WRITE_TOOLS, ...LINEAR_WRITE_TOOLS];
 
-/** The hooks.json PreToolUse matcher, generated from `TRACKER_WRITE_TOOLS`: any server spelling. */
-export const TRACKER_WRITE_MATCHER = `^mcp__.+__(${TRACKER_WRITE_TOOLS.join("|")})$`;
+/** STE-866 — the generic tools that run any operation by name: gated by that operation, so never in `TRACKER_WRITE_TOOLS`. */
+export const TRACKER_EXECUTE_TOOLS: readonly string[] = ATLASSIAN_EXECUTE_TOOLS;
 
-/** §1 — inventory names that only read (adapters/_shared/data/tracker-tool-inventory.json, AC-STE-607.2). */
+/** The hooks.json PreToolUse matcher, generated from `TRACKER_WRITE_TOOLS` and `TRACKER_EXECUTE_TOOLS`: any server spelling. */
+export const TRACKER_WRITE_MATCHER = `^mcp__.+__(${[...TRACKER_WRITE_TOOLS, ...TRACKER_EXECUTE_TOOLS].join("|")})$`;
+
+/** §1 — names that only read: the inventory's (adapters/_shared/data/tracker-tool-inventory.json, AC-STE-607.2) and the v2 Atlassian ones (STE-866). */
 export const TRACKER_READ_TOOLS: readonly string[] = [
   // atlassian
   "atlassianUserInfo",
@@ -125,6 +136,49 @@ export const TRACKER_READ_TOOLS: readonly string[] = [
   "search",
   "searchConfluenceUsingCql",
   "searchJiraIssuesUsingJql",
+  // atlassian v2
+  "discover",
+  "getCollaborators",
+  "getConfluenceContent",
+  "getGraphContext",
+  "getGraphObject",
+  "getLoomObjectsContent",
+  "getPeopleInfo",
+  "getWorkActivity",
+  "getWorkPortfolio",
+  "listJiraIssueComments",
+  "searchConfluence",
+  // atlassian v2, through executeRead (recorded from `discover` 2026-11-24)
+  "downloadJiraIssueAttachment",
+  "getConfluenceComment",
+  "getJiraAlignTerminology",
+  "getJiraBoardConfig",
+  "getJiraBoardIssueData",
+  "getJiraBoardSprintData",
+  "getJiraCurrentUser",
+  "getJiraEntityProperty",
+  "getJiraProjectVersionRelatedWork",
+  "getJiraProjectVersions",
+  "getJiraUser",
+  "getJsmRequest",
+  "getJsmRequestActionMetadata",
+  "getJsmRequestCreationOptions",
+  "getMyWork",
+  "getPullRequests",
+  "listConfluenceComments",
+  "listJiraBoardSprints",
+  "listJiraBoards",
+  "listJiraIssueAssignableUsers",
+  "listJiraIssueChangelogs",
+  "listJiraIssueLinkTypes",
+  "listJiraIssueRemoteIssueLinks",
+  "listJiraIssueTransitions",
+  "listJiraIssueWorklogs",
+  "listJiraProjectComponents",
+  "listJiraProjectIssueTypesMetadata",
+  "listJiraProjects",
+  "listJiraStatuses",
+  "searchJsmRequests",
   // linear
   "extract_images",
   "get_agent_skill",
@@ -166,7 +220,7 @@ export const TRACKER_READ_TOOLS: readonly string[] = [
   "search_documentation",
 ];
 
-/** §1 — inventory write names deliberately not gated, each with a one-line reason (AC-STE-607.2). */
+/** §1 — inventory and v2 Atlassian write names deliberately not gated, each with a one-line reason (AC-STE-607.2). */
 export const UNGATED_WRITE_TOOLS: Readonly<Record<string, string>> = {
   // atlassian — Confluence and Compass hold no tracker tickets or containers
   createCompassComponent: "Compass catalog write; no Jira ticket or container is touched.",
@@ -176,6 +230,25 @@ export const UNGATED_WRITE_TOOLS: Readonly<Record<string, string>> = {
   createConfluenceInlineComment: "Confluence comment; the toolkit binds no FR to Confluence content.",
   createConfluencePage: "Confluence page write; the toolkit binds no FR to Confluence content.",
   updateConfluencePage: "Confluence page write; the toolkit binds no FR to Confluence content.",
+  createConfluenceContent: "Confluence content write; the toolkit binds no FR to Confluence content.",
+  updateConfluenceContent: "Confluence content write; the toolkit binds no FR to Confluence content.",
+  addConfluenceReaction: "Confluence comment; the toolkit binds no FR to Confluence content.",
+  addLabelsToConfluenceContent: "Confluence content write; the toolkit binds no FR to Confluence content.",
+  createConfluenceAttachment: "Confluence content write; the toolkit binds no FR to Confluence content.",
+  createConfluenceComment: "Confluence comment; the toolkit binds no FR to Confluence content.",
+  createConfluenceInfographicForPage: "Confluence content write; the toolkit binds no FR to Confluence content.",
+  createConfluenceMauiApp: "Confluence content write; the toolkit binds no FR to Confluence content.",
+  createConfluenceSpace: "Confluence space write; the toolkit binds no FR to Confluence content.",
+  editConfluenceInfographicForPage: "Confluence content write; the toolkit binds no FR to Confluence content.",
+  editConfluenceMauiApp: "Confluence content write; the toolkit binds no FR to Confluence content.",
+  manageConfluenceApproval: "Confluence content write; the toolkit binds no FR to Confluence content.",
+  unwatchConfluenceLabel: "Confluence watch state; no Jira ticket or container is touched.",
+  unwatchConfluenceSpace: "Confluence watch state; no Jira ticket or container is touched.",
+  updateConfluenceComment: "Confluence comment; the toolkit binds no FR to Confluence content.",
+  updateConfluenceCommentResolution: "Confluence comment; the toolkit binds no FR to Confluence content.",
+  watchConfluenceContent: "Confluence watch state; no Jira ticket or container is touched.",
+  watchConfluenceLabel: "Confluence watch state; no Jira ticket or container is touched.",
+  watchConfluenceSpace: "Confluence watch state; no Jira ticket or container is touched.",
   // linear — diff review, release and notification surfaces carry no ownership tag
   delete_diff_comment: "Linear diff-review write; diffs carry no ticket ownership tag.",
   save_diff_comment: "Linear diff-review write; diffs carry no ticket ownership tag.",
@@ -261,24 +334,78 @@ export interface TrackerCall {
   tool: string;
   adapter: WorkspaceAdapterKey;
   input: Record<string, unknown>;
+  /** Input keys the Atlassian translator could not place (STE-865). */
+  unplaced: string[];
+  /** Keys beside a wrapped call's `inputs` that the execute tools' schema does not have (STE-866). */
+  wrapperKeys?: string[];
+  /** The operation an `executeDestructive` call names, spelled as the call spells it (STE-866); `tool` is its canonical name. */
+  destructive?: string;
+  /** Why an execute call names no operation the gate can place (STE-866); `tool` is then the wrapper and `input` is empty. */
+  unplaceable?: string;
+  /** The unplaceable call names an operation the gate's lists do not hold. */
+  unlisted?: boolean;
   /** The gated call's own tool_use id (`payload.tool_use_id`), already in the transcript. */
   toolUseId?: string;
 }
 
-/** Recognise a tracker write under any server spelling: `mcp__<server>__<tool>`. */
+/**
+ * STE-866 — an execute call that names no gated operation: null when it passes
+ * (a known read, or a listed non-Jira write with readable inputs), else why the
+ * gate cannot place it. A Linear name in either list is no Atlassian operation.
+ */
+function unplaceableOperation(wrapper: string, input: Record<string, unknown>): string | null {
+  const { name, inputs } = input;
+  if (typeof name !== "string" || name === "") return `the ${wrapper} call names no operation`;
+  const atlassian = !name.includes("_");
+  if (atlassian && TRACKER_READ_TOOLS.includes(name)) return null;
+  const listed = atlassian && Object.hasOwn(UNGATED_WRITE_TOOLS, name);
+  if (!listed && !(ATLASSIAN_WRITE_TOOLS as readonly string[]).includes(name)) {
+    return `the ${wrapper} call names the operation ${JSON.stringify(name)}, which the gate does not know`;
+  }
+  if (inputs === null || typeof inputs !== "object" || Array.isArray(inputs)) {
+    return `the ${wrapper} call names the operation ${JSON.stringify(name)}, but its inputs is not an object`;
+  }
+  return null;
+}
+
+/**
+ * Recognise a tracker write under any server spelling: `mcp__<server>__<tool>`.
+ * The one entry where an Atlassian call is translated (STE-865), so every rule
+ * below reads the v1 vocabulary.
+ */
 export function identifyTrackerCall(payload: HookPayload): TrackerCall | null {
   const full = payload.tool_name;
   if (typeof full !== "string" || !full.startsWith("mcp__")) return null;
-  const tool = TRACKER_WRITE_TOOLS.find((t) => full.endsWith(`__${t}`) && full.length > `mcp____${t}`.length);
+  const tool = [...TRACKER_WRITE_TOOLS, ...TRACKER_EXECUTE_TOOLS].find((t) => full.endsWith(`__${t}`) && full.length > `mcp____${t}`.length);
   if (tool === undefined) return null;
-  const adapter: WorkspaceAdapterKey = (ATLASSIAN_WRITE_TOOLS as readonly string[]).includes(tool)
+  const wrapped = TRACKER_EXECUTE_TOOLS.includes(tool);
+  const adapter: WorkspaceAdapterKey = wrapped || (ATLASSIAN_WRITE_TOOLS as readonly string[]).includes(tool)
     ? "jira"
     : "linear";
   const input =
     payload.tool_input && typeof payload.tool_input === "object"
       ? (payload.tool_input as Record<string, unknown>)
       : {};
-  return { tool, adapter, input, ...(typeof payload.tool_use_id === "string" ? { toolUseId: payload.tool_use_id } : {}) };
+  const call: CanonicalAtlassianCall = adapter === "jira" ? canonicalAtlassianCall(tool, input) : { tool, input, unplaced: [] };
+  const toolUse = typeof payload.tool_use_id === "string" ? { toolUseId: payload.tool_use_id } : {};
+  // Another server's tool that only shares an execute name carries none of its keys.
+  if (wrapped && !/atlassian/i.test(full) && !["name", "inputs", "cloudId"].some((k) => Object.hasOwn(input, k))) return null;
+  // A wrapped call is gated by the operation it names.
+  if (wrapped && !(ATLASSIAN_WRITE_TOOLS as readonly string[]).includes(call.tool)) {
+    const unplaceable = unplaceableOperation(tool, input);
+    // No operation, so no container: an empty input binds every declared target.
+    const unlisted = typeof input.name === "string" && input.name !== "" && !(ATLASSIAN_WRITE_TOOLS as readonly string[]).includes(input.name) && !Object.hasOwn(UNGATED_WRITE_TOOLS, input.name);
+    return unplaceable === null ? null : { tool, adapter, input: {}, unplaced: [], unplaceable, unlisted, ...toolUse };
+  }
+  return {
+    tool: call.tool,
+    adapter,
+    input: call.input,
+    unplaced: call.unplaced,
+    ...(call.wrapperKeys ? { wrapperKeys: call.wrapperKeys } : {}),
+    ...(tool === "executeDestructive" ? { destructive: String(input.name) } : {}),
+    ...toolUse,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -408,30 +535,70 @@ const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..", "..");
  * under `simpleCommandWords`, the module path must be this plugin's own file
  * — a same-named file elsewhere, a module mentioned in an argument, or a
  * comment naming one runs nothing here — and the subcommand must be the
- * module's receipt-writing one (`RECEIPT_WRITING_SUBCOMMANDS`).
+ * module's receipt-writing one (`writesReceipt`). A run from another copy of
+ * this plugin is null here too; `foreignCopyRun` names it for the refusal.
  */
 export function invokedDecidingModule(command: string): string | null {
   const run = bunInvocation(command, OWN_PLUGIN_ROOT);
   if (run === null) return null;
   for (const m of RECEIPT_ANNOUNCING_MODULES) {
     if (run.module !== realpathOr(join(OWN_PLUGIN_ROOT, "adapters", "_shared", "src", m))) continue;
-    const sub = RECEIPT_WRITING_SUBCOMMANDS[m];
-    if (sub === null) return NO_SUBCOMMAND_ARGV[m]?.(run.args) === true ? m : null;
-    return run.args[0] === sub ? m : null;
+    return writesReceipt(m, run.args) ? m : null;
   }
   return null;
 }
 
+/** Whether `args` is an argv under which deciding module `m` writes a receipt. */
+function writesReceipt(m: string, args: string[]): boolean {
+  const sub = RECEIPT_WRITING_SUBCOMMANDS[m];
+  return sub === null ? NO_SUBCOMMAND_ARGV[m]?.(args) === true : args[0] === sub;
+}
+
+const PLUGIN_NAME = "dev-process-toolkit";
+
+/** The name and version a plugin root's manifest carries; null for each it does not. Never throws. */
+function pluginManifestOf(root: string): { name: string | null; version: string | null } {
+  try {
+    const m = JSON.parse(readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf-8")) as Record<string, unknown> | null;
+    return { name: typeof m?.name === "string" ? m.name : null, version: typeof m?.version === "string" ? m.version : null };
+  } catch {
+    return { name: null, version: null };
+  }
+}
+
+/** Whether a root is spelled as this plugin's install: `cache/<marketplace>/dev-process-toolkit/<version>`. */
+function inPluginCache(root: string): boolean {
+  const [cache, , plugin] = root.split(sep).slice(-4);
+  return cache === "cache" && plugin === PLUGIN_NAME;
+}
+
+/** A deciding run from another copy of this plugin; its receipt authorises nothing. */
+export interface ForeignCopyRun {
+  module: string;
+  /** The other copy's plugin root. */
+  root: string;
+  /** Its manifest's version; null when the manifest carries none. */
+  version: string | null;
+}
+
 /**
- * A Bash command that names a deciding module's receipt-writing subcommand
- * but is NOT accepted by `invokedDecidingModule` — chained, redirected,
- * `cd`-prefixed, or quoted beyond the grammar. Its receipt is ignored, so the
- * refusal names it instead of leaving the model to repeat the same shape.
- * STE-650 AC.12 — the recogniser reads what RAN: `bun` spelled by an absolute
- * path, a `bash -c` body and a backslash-continued line count; a segment that
- * only echoes the invocation does not. The receipt's own accepted shape
- * (`invokedDecidingModule`) is unchanged.
+ * STE-868 — the run of a command `invokedDecidingModule` would accept but for
+ * its module path lying in another copy of this plugin; null otherwise.
  */
+function foreignCopyRun(command: string): ForeignCopyRun | null {
+  const run = bunInvocation(command, OWN_PLUGIN_ROOT);
+  if (run === null) return null;
+  for (const m of RECEIPT_ANNOUNCING_MODULES) {
+    const suffix = sep + join("adapters", "_shared", "src", m);
+    if (!run.module.endsWith(suffix)) continue;
+    const root = run.module.slice(0, -suffix.length);
+    if (root === realpathOr(OWN_PLUGIN_ROOT) || !writesReceipt(m, run.args)) return null;
+    const { name, version } = pluginManifestOf(root);
+    return name === PLUGIN_NAME || (name === null && inPluginCache(root)) ? { module: m, root, version } : null;
+  }
+  return null;
+}
+
 /** `bun` as a command word, bare or spelled by a path ending in `/bun` (STE-650 AC.12). */
 const BUN_WORD = `(?:^|\\s)(?:[^\\s"'=]*/)?bun\\b`;
 const DECIDING_MODULE_PATTERNS = Object.entries(RECEIPT_WRITING_SUBCOMMANDS).map(([m, sub]) => {
@@ -445,7 +612,19 @@ const DECIDING_MODULE_PATTERNS = Object.entries(RECEIPT_WRITING_SUBCOMMANDS).map
   };
 });
 
-/** The deciding modules a rejected command ran (`[]` when it is accepted or runs none). */
+/**
+ * The deciding modules a rejected command ran; `[]` when it is accepted or
+ * runs none. A rejected command names a receipt-writing subcommand but is NOT
+ * accepted by `invokedDecidingModule` — chained, redirected, `cd`-prefixed,
+ * quoted beyond the grammar, or plain with a module path that is not this
+ * plugin's own file (`scanAnnouncements` asks `foreignCopyRun` first, so a run
+ * from another copy of the plugin never reaches here). Its receipt is ignored,
+ * so the refusal names it instead of leaving the model to repeat the same shape.
+ * STE-650 AC.12 — the recogniser reads what RAN: `bun` spelled by an absolute
+ * path, a `bash -c` body and a backslash-continued line count; a segment that
+ * only echoes the invocation does not. The receipt's own accepted shape
+ * (`invokedDecidingModule`) is unchanged.
+ */
 function rejectedDecidingModules(command: string): string[] {
   if (invokedDecidingModule(command) !== null) return [];
   // Only a segment that RUNS a deciding module under `bun` counts; one that
@@ -517,13 +696,15 @@ export interface Announcement {
   intact: boolean;
 }
 
-/** The session's announcements, plus the deciding commands whose shape the gate ignored. */
+/** The session's announcements, plus the deciding commands whose receipts the gate ignored. */
 export interface AnnouncementScan {
   announcements: Announcement[];
-  /** Bash commands naming a receipt-writing subcommand in a shape `invokedDecidingModule` rejects. */
+  /** Bash commands naming a receipt-writing subcommand that `invokedDecidingModule` rejects and no later run superseded; never one in `foreignCopies`. */
   rejected: string[];
   /** STE-649 (D-7) — accepted announcements of a receipt filed under another session's directory; they authorise nothing. */
   foreign: Array<{ path: string; session: string }>;
+  /** STE-868 — per deciding module, the latest run from another copy of this plugin that no later accepted run superseded. */
+  foreignCopies: ForeignCopyRun[];
 }
 
 /** Whether the receipt file still carries the bytes its announcement hashed. */
@@ -554,11 +735,12 @@ export function announcedReceipts(lines: string[], sessionId: string): Announcem
 export function scanAnnouncements(lines: string[], sessionId: string): AnnouncementScan {
   const announcingBash = new Map<string, string>(); // tool_use id → the deciding module it ran
   const out: Announcement[] = [];
-  // STE-797 AC.4 — a rejected command whose every module a later accepted run
-  // of that module re-ran is superseded and left out of `rejected`. "Ran" is
+  // STE-797 AC.4 / STE-868 AC.4 — a rejected command or foreign-copy run whose
+  // every module a later accepted run of that module re-ran is superseded and
+  // left out of `rejected` and `foreignCopies`. "Ran" is
   // read off the accepted run's result: a success or an `Exit code N` error
   // executed; a denied call or one with no result yet supersedes nothing.
-  const pending: Array<{ cmd: string; modules: Set<string> }> = [];
+  const pending: Array<{ cmd: string; modules: Set<string>; copy: ForeignCopyRun | null }> = [];
   const acceptedAt = new Map<string, number>(); // accepted tool_use id → pending entries before it
   const foreign: Array<{ path: string; session: string }> = [];
   // STE-696 — a call or result written twice under one id is read once: the
@@ -574,8 +756,9 @@ export function scanAnnouncements(lines: string[], sessionId: string): Announcem
         announcingBash.set(b.id, module);
         acceptedAt.set(b.id, pending.length);
       } else {
-        const modules = rejectedDecidingModules(cmd);
-        if (modules.length > 0) pending.push({ cmd, modules: new Set(modules) });
+        const copy = foreignCopyRun(cmd);
+        const modules = copy !== null ? [copy.module] : rejectedDecidingModules(cmd);
+        if (modules.length > 0) pending.push({ cmd, modules: new Set(modules), copy });
       }
     } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
       const before = acceptedAt.get(b.tool_use_id);
@@ -602,8 +785,11 @@ export function scanAnnouncements(lines: string[], sessionId: string): Announcem
       }
     }
   }
-  const rejected = pending.filter((p) => p.modules.size > 0).map((p) => p.cmd);
-  return { announcements: out, rejected, foreign };
+  const standing = pending.filter((p) => p.modules.size > 0);
+  const rejected = standing.filter((p) => p.copy === null).map((p) => p.cmd);
+  const latestCopy = new Map<string, ForeignCopyRun>();
+  for (const { copy } of standing) if (copy !== null) latestCopy.set(copy.module, copy);
+  return { announcements: out, rejected, foreign, foreignCopies: [...latestCopy.values()] };
 }
 
 export function candidateRoots(payload: HookPayload, announcements: Announcement[]): string[] {
@@ -903,7 +1089,7 @@ function createsBefore(
   const neverReached = new Set<string>();
   for (const { block, record } of view) {
     const b = block as ContentBlock;
-    if (b.type === "tool_result" && typeof b.tool_use_id === "string" && b.is_error === true && neverRan(record, b)) neverReached.add(b.tool_use_id);
+    if (b.type === "tool_result" && typeof b.tool_use_id === "string" && isErrorResult(adapter, b) && neverRan(adapter, record, b)) neverReached.add(b.tool_use_id);
   }
   const out: Array<{ line: number; shape: CreateShape }> = [];
   for (const { block, line: idx } of view) {
@@ -920,17 +1106,28 @@ function createsBefore(
 /** `toolDenialKind` values Claude Code records on a tool call that never ran. */
 const NEVER_RAN_DENIALS: ReadonlySet<string> = new Set(["permission-rule", "automode-blocked", "automode-unavailable", "user-rejected"]);
 
+/** STE-867 — a result that is an error: by the call's own flag, or in-band in a v2 answer. */
+function isErrorResult(adapter: WorkspaceAdapterKey, b: ContentBlock): boolean {
+  return b.is_error === true || inBandError(adapter, b.content) !== null;
+}
+
 /**
  * Whether an error tool_result proves its call never reached the tracker: a
- * PreToolUse hook or permission denial, a user rejection, or an input the
- * harness refused to send. Claude Code writes these records; the model cannot.
+ * PreToolUse hook or permission denial, a user rejection, an input the
+ * harness refused to send, or a 4xx the tracker answered with. Claude Code
+ * writes these records; the model cannot. An in-band error (STE-867) is read by
+ * its `status`; one saying it may have run proves nothing.
  * A timeout, a server error or an interrupt proves nothing: the create may
  * have made the ticket.
  */
-function neverRan(record: Record<string, unknown>, b: ContentBlock): boolean {
+function neverRan(adapter: WorkspaceAdapterKey, record: Record<string, unknown>, b: ContentBlock): boolean {
   const kind = record.toolDenialKind;
   if (typeof kind === "string") return NEVER_RAN_DENIALS.has(kind);
   const text = resultText(b.content).trimStart();
+  const inBand = inBandError(adapter, b.content);
+  if (inBand !== null) return trackerRejected(`status ${inBand.status}`) && !MAY_HAVE_RUN.test(inBand.said);
+  const flagged = flaggedError(adapter, text);
+  if (flagged !== null) return trackerRejected(`status ${flagged.status}`) && !MAY_HAVE_RUN.test(flagged.said);
   return (
     text.startsWith("PreToolUse:") ||
     text.startsWith("The user doesn't want to proceed") ||
@@ -1037,13 +1234,14 @@ function priorCreates(
       const c = kind.pick(b, adapter);
       if (c) creates.set(b.id, { ordinal, line: idx, message: messageIdOf(record), shape: kind.shape(c), call: c });
     } else if (b.type === "tool_result" && typeof b.tool_use_id === "string" && creates.has(b.tool_use_id)) {
-      const lost = b.is_error === true && !neverRan(record, b);
+      const failed = isErrorResult(adapter, b);
+      const lost = failed && !neverRan(adapter, record, b);
       outcome.set(b.tool_use_id, lost ? `its result was an error: ${resultText(b.content).trim().split("\n")[0]!.slice(0, 120)}` : null);
       const made = creates.get(b.tool_use_id)!;
       const text = resultText(b.content).trim();
-      const key = b.is_error === true ? null : createdKeyOf(text, made.call) ?? (kind === MILESTONE_CREATES && adapter === "linear" ? createdMilestoneIdOf(text) : null);
+      const key = failed ? null : createdKeyOf(text, made.call) ?? (kind === MILESTONE_CREATES && adapter === "linear" ? createdMilestoneIdOf(text) : null);
       if (key !== null) keys.set(b.tool_use_id, key);
-      if (b.is_error !== true) succeeded.add(b.tool_use_id);
+      if (!failed) succeeded.add(b.tool_use_id);
     }
   }
   const out: PriorCreate[] = [];
@@ -1566,7 +1764,9 @@ function subjectValues(call: TrackerCall): unknown[] {
     const itemTarget = typeof i.relationshipType === "string" && TEAMWORK_ITEM_TARGETS.has(i.relationshipType);
     return itemTarget ? [i.objectIdentifier, i.targetObjectIdentifier] : [i.objectIdentifier];
   }
-  return [i.issueIdOrKey, i.id, i.issueId, i.issue];
+  // A wrapped call's inputs are checked by no schema: only the key Jira writes by is a subject.
+  if (call.adapter === "jira") return [i.issueIdOrKey];
+  return [i.id, i.issueId, i.issue];
 }
 
 /** A Jira `/browse/<KEY>` URL; its key is the item it names (STE-649). */
@@ -1631,7 +1831,7 @@ function namesKey(text: string, key: string): boolean {
 /**
  * The ONE key a create's result names as created, read by the shared reader
  * (`tracker_answer.ts`): a Jira create's `key` — plain, or the one node of a
- * wrapped answer — or a Linear create's top-level `id` (`STE-619`; the
+ * wrapped answer, either under a v2 `data` — or a Linear create's top-level `id` (`STE-619`; the
  * measured answer carries no `identifier`). Every other key the result echoes
  * — a parent Epic, a linked sibling — was not created by this call, and a
  * JSON answer in no measured shape names nothing. A result that is not JSON
@@ -1669,7 +1869,7 @@ function createdKeys(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapter
         if (typeof b.id === "string" && c) creates.set(b.id, { call: c, milestone: ticket === null });
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         const c = creates.get(b.tool_use_id);
-        if (b.is_error === true || !c) continue;
+        if (!c || isErrorResult(adapter, b)) continue;
         const text = resultText(b.content).trim();
         const key = createdKeyOf(text, c.call) ?? (c.milestone && adapter === "linear" ? createdMilestoneIdOf(text) : null);
         if (key !== null) out.add(key);
@@ -1797,45 +1997,79 @@ function trackedIds(ctx: OwnershipContext, root: string): Set<string> {
 /** STE-729 AC.5 — the get-ticket read tool of each adapter (any server spelling). Twin: `GET_TICKET_TOOLS` in adapters/_shared/src/shared_tracker_live_grader.ts */
 const GET_TICKET_TOOLS: Readonly<Record<WorkspaceAdapterKey, string>> = { jira: "getJiraIssue", linear: "get_issue" };
 
-/** The get-ticket call a transcript tool_use block made for `adapter`, or null. */
+/** The get-ticket call a transcript tool_use block made for `adapter`, direct or (STE-867) through `executeRead`, or null. */
 function getTicketCallIn(b: ContentBlock, adapter: WorkspaceAdapterKey): TrackerCall | null {
   if (b.type !== "tool_use" || typeof b.name !== "string" || !b.name.startsWith("mcp__")) return null;
   const tool = GET_TICKET_TOOLS[adapter];
-  if (!b.name.endsWith(`__${tool}`) || b.name.length <= `mcp____${tool}`.length) return null;
+  const bare = [tool, ...(adapter === "jira" ? TRACKER_EXECUTE_TOOLS : [])].find((t) => b.name!.endsWith(`__${t}`) && b.name!.length > `mcp____${t}`.length);
+  if (bare === undefined) return null;
   const input = b.input && typeof b.input === "object" ? (b.input as Record<string, unknown>) : {};
-  return { tool, adapter, input };
+  if (adapter !== "jira") return { tool, adapter, input, unplaced: [] };
+  // A key beside `inputs` is never read as an input, and the answer names its own key.
+  const call = canonicalAtlassianCall(bare, input);
+  return call.tool === tool ? { tool, adapter, input: call.input, unplaced: call.unplaced } : null;
 }
 
 /**
- * STE-729 AC.5 — the NEWEST non-error tool_result of a get-ticket call on
- * `key` in this session reads as `key`, and `decideTicketOwnership` on that
- * answer in `root` says `owned` — or `unowned` with an `Adopt <key>` answer.
- * Twin: `fetchedOwned` in adapters/_shared/src/shared_tracker_live_grader.ts
+ * The NEWEST non-error tool_result of a get-ticket call on `key` in this
+ * session, when it reads as `key` or is an item carrying no key at all (which
+ * owns nothing: its ownership decision throws); else null. An in-band error is an error (STE-867).
+ * A wrapped fetch naming two sites proves nothing, and nothing older than it does.
  */
-function fetchedOwned(ctx: OwnershipContext, root: string, key: string): boolean {
-  const fetches = new Set<string>();
+function newestFetch(ctx: OwnershipContext, key: string): unknown {
+  const fetches = new Map<string, boolean>(); // tool_use id → its site is one
   let newest: string | null = null;
   for (const p of ctx.parsed) {
     if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_use") {
         const c = getTicketCallIn(b, ctx.adapter);
-        if (c && typeof b.id === "string" && subjectKeys(c).includes(key)) fetches.add(b.id);
+        if (c && typeof b.id === "string" && subjectKeys(c).includes(key)) fetches.set(b.id, c.unplaced.length === 0);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
-        if (b.is_error === true || !fetches.has(b.tool_use_id)) continue;
-        newest = resultText(b.content).trim();
+        if (!fetches.has(b.tool_use_id) || isErrorResult(ctx.adapter, b)) continue;
+        newest = fetches.get(b.tool_use_id) === true ? resultText(b.content).trim() : null;
       }
     }
   }
-  if (newest === null) return false;
+  if (newest === null) return null;
   let answer: unknown;
   try {
     answer = JSON.parse(newest);
   } catch {
-    return false;
+    return null;
   }
   const read = readTrackerItem(ctx.adapter, answer);
-  if (!read.ok || trackerItemKey(ctx.adapter, read.item) !== key) return false;
+  if (!read.ok) return unkeyedJiraItem(answer) !== null && ctx.adapter === "jira" ? answer : null;
+  return trackerItemKey(ctx.adapter, read.item) === key ? answer : null;
+}
+
+/** STE-867 — the sentence naming the fields each fetched answer lacks for its ownership verdict, or "". */
+function missingFieldsNote(ctx: OwnershipContext, subjects: Array<{ key: string; targets: DeclaredTarget[] }>): string {
+  let out = "";
+  for (const { key, targets } of subjects) {
+    const answer = newestFetch(ctx, key);
+    if (answer === null) continue;
+    const missing = new Set<string>();
+    for (const t of targets) {
+      try {
+        for (const f of missingOwnershipFields(t.root, answer)) missing.add(f);
+      } catch {
+        // An unreadable binding names no field; the refusal stands without it.
+      }
+    }
+    if (missing.size > 0) out += ` The answer fetched for ${key} is missing fields the ownership verdict needs: ${[...missing].join(", ")}.`;
+  }
+  return out;
+}
+
+/**
+ * STE-729 AC.5 — `newestFetch` of `key` exists, and `decideTicketOwnership` on
+ * that answer in `root` says `owned` — or `unowned` with an `Adopt <key>` answer.
+ * Twin: `fetchedOwned` in adapters/_shared/src/shared_tracker_live_grader.ts
+ */
+function fetchedOwned(ctx: OwnershipContext, root: string, key: string): boolean {
+  const answer = newestFetch(ctx, key);
+  if (answer === null) return false;
   let verdict: string;
   try {
     verdict = decideTicketOwnership({ projectRoot: root, ticket: answer }).verdict;
@@ -1977,6 +2211,26 @@ function namedAnswers(questions: unknown, names: (question: string) => boolean, 
   return out;
 }
 
+/** A Jira project key; anything else a move names (an id, a name, a URL) resolves to no project. */
+const PROJECT_KEY = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+/**
+ * The declared target an edit's `project` field moves a ticket into, or null:
+ * some subject is outside it, and the field names its key or cannot be resolved
+ * to any key (so it may name it).
+ * Twin: `movedInto` in adapters/_shared/src/shared_tracker_live_grader.ts
+ */
+function movedInto(call: TrackerCall, declared: DeclaredTarget[], keys: string[]): DeclaredTarget | null {
+  const blocks = [call.input.fields, call.input.additional_fields].filter((b): b is Record<string, unknown> => b !== null && typeof b === "object" && !Array.isArray(b));
+  for (const b of blocks) {
+    if (b.project === undefined || b.project === null) continue;
+    const p = asKey(b.project).trim();
+    const hit = declared.find((d) => (!PROJECT_KEY.test(p) || sameName(d.binding.project, p)) && keys.some((k) => !bindsKey(call.adapter, d.binding, k)));
+    if (hit !== undefined) return hit;
+  }
+  return null;
+}
+
 function gateTicket(
   call: TrackerCall,
   sessionId: string,
@@ -2003,6 +2257,14 @@ function gateTicket(
     );
   }
   const inScope = keys.map((k) => ({ key: k, targets: declared.filter((d) => bindsKey(call.adapter, d.binding, k)) }));
+  // A move: the fields name a declared project the ticket is not in.
+  const moved = call.tool === "editJiraIssue" ? movedInto(call, declared, keys) : null;
+  if (moved !== null) {
+    return refuse(
+      `${call.tool} on ${keys.join(", ")} sets a project that is, or cannot be told apart from, the one ${moved.root} declares, so it may move a ticket into that shared project unchecked.${note}`,
+      `leave the move to a person in the tracker, or create the ticket in the project through its decided create.`,
+    );
+  }
   if (inScope.every((k) => k.targets.length === 0)) return 0; // §3 — no declared target binds the container
   // STE-655 AC.16 — a Linear relation target is a link side for resolution
   // only: it must resolve to a key inside the team that binds the issue. It is
@@ -2039,11 +2301,12 @@ function gateTicket(
   const linkComment = isLink && linkNeedsEverySide(call.input);
   const permitted = isLink && !linkComment ? bound.some(ownedKey) : unowned.length === 0;
   if (permitted) return 0;
+  const lacking = missingFieldsNote(ctx, unowned);
   if (linkComment) {
     const named = unowned.map((k) => k.key);
     const roots = [...new Set(inScope.flatMap((k) => k.targets.map((t) => t.root)))].join(", ");
     return refuse(
-      `${call.tool} on ${inScope.map((k) => k.key).join(", ")} carries a non-empty comment, and its side ${named.join(", ")} is not owned by the declared target ${roots} — a link's comment lands on a ticket the link names, so every side must be owned.${note}`,
+      `${call.tool} on ${inScope.map((k) => k.key).join(", ")} carries a non-empty comment, and its side ${named.join(", ")} is not owned by the declared target ${roots} — a link's comment lands on a ticket the link names, so every side must be owned.${lacking}${note}`,
       `drop the comment from the link and retry, or post the comment on your own ticket in a separate call.`,
     );
   }
@@ -2053,7 +2316,7 @@ function gateTicket(
   // written only after its PreToolUse hook returns, so retrying cannot help.
   const lag = stale === null ? "" : ` (The transcript read did not yet hold this call's own tool_use ${stale.id}; it was graded as the last call of its turn.)`;
   return refuse(
-    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${lag}${note}`,
+    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${lacking}${lag}${note}`,
     // STE-729 AC.7 — the order: the fetch leads, the Epic routes (epic_edit.ts
     // for a description or summary, epic_close.ts for a close) follow, and the
     // `<ticket.json>` confirm route comes last.
@@ -2227,6 +2490,20 @@ interface Relist {
 }
 
 /**
+ * The input of a call to the adapter's listing tool, direct or (STE-867) wrapped
+ * in an execute tool; null for any other call, and for a wrapped one whose keys
+ * the translator could not place.
+ */
+function relistRequest(adapter: WorkspaceAdapterKey, name: string, input: unknown): unknown {
+  if (!name.startsWith("mcp__")) return null;
+  if (name.endsWith(`__${RELIST_TOOLS[adapter]}`)) return input;
+  const wrapper = TRACKER_EXECUTE_TOOLS.find((t) => name.endsWith(`__${t}`));
+  if (adapter !== "jira" || wrapper === undefined || input === null || typeof input !== "object") return null;
+  const call = canonicalAtlassianCall(wrapper, input as Record<string, unknown>);
+  return call.tool === RELIST_TOOLS.jira && call.unplaced.length === 0 && call.wrapperKeys === undefined ? call.input : null;
+}
+
+/**
  * STE-644 — the complete, canonical-scope listings of `project`'s containers
  * recorded after line `from`: non-error results of the adapter's listing tool
  * whose request `isCanonicalContainerListing` admits, chained from an unpaged
@@ -2243,7 +2520,6 @@ interface Relist {
  * bundle and cannot check all of it (see there).
  */
 function relistsAfter(parsed: Array<ParsedLine | null>, from: number, adapter: WorkspaceAdapterKey, project: string, consented = false): Relist[] {
-  const tool = RELIST_TOOLS[adapter];
   const requests = new Map<string, unknown>();
   const out: Relist[] = [];
   let pages: unknown[] | null = null;
@@ -2252,7 +2528,8 @@ function relistsAfter(parsed: Array<ParsedLine | null>, from: number, adapter: W
     if (!p) continue;
     for (const b of p.blocks) {
       if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
-        if (b.name.startsWith("mcp__") && b.name.endsWith(`__${tool}`) && isCanonicalContainerListing(adapter, b.input, project)) requests.set(b.id, b.input);
+        const input = relistRequest(adapter, b.name, b.input);
+        if (input !== null && isCanonicalContainerListing(adapter, input, project)) requests.set(b.id, input);
         continue;
       }
       if (b.type !== "tool_result" || typeof b.tool_use_id !== "string" || !requests.has(b.tool_use_id)) continue;
@@ -2636,13 +2913,15 @@ function gateJoinedLabels(
  * unresolvable write is floor-checked against all of them (fail safe).
  */
 function bindsCall(call: TrackerCall, d: DeclaredTarget): boolean {
+  // A second project hidden in additional_fields: which one the server writes is unmeasured.
+  if (call.tool === "createJiraIssue" && call.unplaced.includes("additional_fields.project")) return true;
   if (isCreate(call.tool, call.input) || isContainer(call.tool, call.input)) {
     const shape = callShape(call.adapter, call.input);
     if (shape.project === "" && shape.team === "") return true;
     return bindsContainer(call.adapter, d.binding, shape) || opaqueContainer(call.adapter, shape) !== null;
   }
   const keys = subjectKeys(call);
-  if (keys.length === 0) return true;
+  if (keys.length === 0 || (call.tool === "addTeamworkGraphContext" && call.unplaced.length > 0)) return true;
   return keys.some((k) => bindsKey(call.adapter, d.binding, k));
 }
 
@@ -2676,9 +2955,11 @@ function checkFloors(call: TrackerCall, declared: DeclaredTarget[]): ExitCode {
 
 /**
  * §6 — the refusal suffix naming inputs the hook could not read: an unreadable
- * transcript (no announced roots, no session-created keys), the count of
- * announced receipt files that could not be read (with their errno codes), and
- * the count that were read but failed to parse.
+ * transcript (no announced roots, no session-created keys), the
+ * announced receipt files ignored because they could not be read (with their
+ * errno codes), failed to parse, changed after their announcement or belong to
+ * another session; and the deciding commands whose receipts were ignored, for
+ * their shape or (STE-868) because another copy of this plugin ran them.
  */
 function unreadableInputsNote(payload: HookPayload, transcript: string[] | null, scan: AnnouncementScan): string {
   const { announcements } = scan;
@@ -2727,6 +3008,12 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
     const last = scan.rejected[scan.rejected.length - 1]!;
     notes.push(
       ` ${scan.rejected.length} Bash command(s) ran a deciding subcommand in a shape that is not a plain invocation, so any receipt they wrote was ignored — the latest: \`${last.length > 240 ? `${last.slice(0, 240)}…` : last}\`.`,
+    );
+  }
+  const spelled = (version: string | null): string => `version ${version ?? "unknown"}`;
+  for (const { module, root, version } of scan.foreignCopies) {
+    notes.push(
+      ` ${module} ran from another copy of this plugin, ${root} (${spelled(version)}), so any receipt it wrote was ignored — this hook trusts only its own copy, ${realpathOr(OWN_PLUGIN_ROOT)} (${spelled(pluginManifestOf(OWN_PLUGIN_ROOT).version)}): rerun the command from there.`,
     );
   }
   return notes.join("");
@@ -2812,6 +3099,73 @@ function declaredTargetBinds(payload: HookPayload, call: TrackerCall): boolean {
   return declarations.some((d) => !d.ok || (d.binding.shared && bindsCall(call, d)));
 }
 
+/**
+ * Why a call cannot be checked whatever was decided for it, or null: the first
+ * reason in this order. `run` refuses it in every declared target it binds.
+ */
+function uncheckableCall(call: TrackerCall): { subject: string; why: string; remedy: string } | null {
+  // AC-STE-866.3 — an operation the gate cannot place.
+  if (call.unplaceable !== undefined) {
+    return {
+      subject: call.tool,
+      why: `${call.unplaceable}, so the write cannot be checked`,
+      remedy: call.unlisted === true
+        ? `the toolkit does not list this operation, so no spelling of it is permitted here: a person performs the write by hand, or the toolkit lists the operation with a reason in a reviewed change. For a Jira ticket write, use an operation the gate knows.`
+        : `name the operation in \`name\`, with its fields as an object in \`inputs\`, then retry.`,
+    };
+  }
+  // AC-STE-866.5 — no Jira write the gate checks is sent as a destructive one.
+  if (call.destructive !== undefined) {
+    return {
+      subject: call.destructive,
+      why: `a Jira operation sent through executeDestructive is always refused in a shared container`,
+      remedy: `if the operation is meant, send it through the tool that lists it (executeWrite, or the operation's own tool), where it is checked.`,
+    };
+  }
+  // AC-STE-866.1 — two sites named: the write has no one container to be checked against.
+  if (call.unplaced.includes("cloudId")) {
+    return {
+      subject: call.tool,
+      why: `the call carries two different cloudId values, one beside inputs and one inside it, so its site is ambiguous`,
+      remedy: `send the call with one cloudId, then retry.`,
+    };
+  }
+  // AC-STE-866.2 — a direct call has no place for a key beside its inputs, so no other rule would read it.
+  const extraKeys = call.wrapperKeys ?? [];
+  if (extraKeys.length > 0) {
+    return {
+      subject: call.tool,
+      why: `the wrapped call carries ${extraKeys.join(", ")} beside inputs, which the execute tool's schema does not have and the gate cannot check`,
+      remedy: `put every field of the operation inside inputs, then retry.`,
+    };
+  }
+  // AC-STE-865.7 — a graph link whose sides the gate cannot read.
+  if (call.tool === "addTeamworkGraphContext" && call.unplaced.length > 0) {
+    return {
+      subject: call.tool,
+      why: `the gate cannot read ${call.unplaced.join(", ")} of this graph link, so the tickets it writes are unknown`,
+      remedy: `link the tickets with createIssueLink, or name objectIdentifier, targetObjectIdentifier and a known relationshipType and nothing else, then retry.`,
+    };
+  }
+  const twice = call.tool === "createJiraIssue" ? call.unplaced.filter((k) => k.startsWith("additional_fields.")) : [];
+  if (twice.length > 0) {
+    return {
+      subject: call.tool,
+      why: `the create names ${twice.join(", ")} beside, or in place of, the top-level input, so what it writes is ambiguous`,
+      remedy: `send each of project, type, labels and parent once, under the top-level input, then retry.`,
+    };
+  }
+  // AC-STE-865.4 — a create whose type is ambiguous has no class to be decided as.
+  if (call.tool === "createJiraIssue" && call.unplaced.length > 0) {
+    return {
+      subject: call.tool,
+      why: `the issue type is ambiguous — ${call.unplaced.join(", ")} is unusable or names a different type than issueTypeName, so the create cannot be classed as an Epic or a ticket`,
+      remedy: `send the create with one issue type, under the one key the tool's schema names, then retry.`,
+    };
+  }
+  return null;
+}
+
 export function run(stdin: string): ExitCode {
   const payload = parseHookPayload(stdin);
   if (!payload) return 0; // §6 — fail-open outside a session
@@ -2882,6 +3236,17 @@ export function run(stdin: string): ExitCode {
   const announcements = scan.announcements;
 
   const note = unreadableInputsNote(payload, transcript, scan);
+  const uncheckable = uncheckableCall(call);
+  if (uncheckable !== null) {
+    // An operation the gate cannot place carries no container: every declared target refuses it.
+    const refusing = call.unplaceable !== undefined ? declared : declared.filter((d) => bindsCall(call, d));
+    if (call.unplaceable !== undefined || refusing.length > 0) {
+      return refuse(
+        `${uncheckable.subject} in ${refusing.map((d) => d.root).join(", ")}: ${uncheckable.why}.${note}`,
+        uncheckable.remedy,
+      );
+    }
+  }
   if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note, cwdTop);
   if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note);
   const joined = gateJoinedLabels(call, sessionId, announcements, declared, note, lines);

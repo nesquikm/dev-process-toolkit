@@ -53,9 +53,26 @@ export function undoSte756(text: string): string {
   return lines.join("\n");
 }
 
-/** Every M_d1e7b1 admission to gate-check/SKILL.md undone, later edits first. Amended by AC-STE-756.6 (M_d1e7b1) */
+/**
+ * STE-869 (M_b054b1) — probe #26's one in-place insertion: the v2 name of the
+ * parent write, on the probe's own line. Amended by AC-STE-869.3 (M_b054b1)
+ */
+export const STE_869_LINE = 82;
+export const STE_869_BEFORE = "`mcp__atlassian__editJiraIssue additional_fields.parent` write that binds it";
+export const STE_869_AFTER = "`mcp__atlassian__editJiraIssue additional_fields.parent` (v2: `fields.parent`) write that binds it";
+
+/** The file with the STE-869 insertion taken out, or the input unchanged if it is not byte-for-byte in place. */
+export function undoSte869(text: string): string {
+  const lines = text.split("\n");
+  const line = lines[STE_869_LINE - 1];
+  if (line === undefined || !line.startsWith("26. ") || line.split(STE_869_AFTER).length !== 2) return text;
+  lines[STE_869_LINE - 1] = line.replace(STE_869_AFTER, STE_869_BEFORE);
+  return lines.join("\n");
+}
+
+/** Every admission to gate-check/SKILL.md undone, later edits first. Amended by AC-STE-756.6 (M_d1e7b1); Amended by AC-STE-869.3 (M_b054b1) */
 export function undoGateCheckM_d1e7b1(text: string): string {
-  return undoSte825(undoSte756(text));
+  return undoSte825(undoSte756(undoSte869(text)));
 }
 
 /** Where a pre-M_d1e7b1 1-based line of gate-check/SKILL.md sits now (both insertions). */

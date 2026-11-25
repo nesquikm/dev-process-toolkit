@@ -1,0 +1,34 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+      "issueIdOrKey": "ZZ-101",
+      "transitionId": "99"
+    },
+    "note": "transitionJiraIssue refused: an error inside a success, returned with NO is_error flag; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "data": {
+      "error": "EXAMPLE_VALIDATION_ERROR",
+      "message": "Example refusal",
+      "problems": [
+        {
+          "field": "transitionId",
+          "reason": "example reason"
+        }
+      ],
+      "repairHint": "Example hint",
+      "status": 400,
+      "upstreamErrors": {
+        "errorMessages": [
+          "Example refusal"
+        ],
+        "errors": {
+          "transition": "example reason"
+        }
+      }
+    }
+  }
+}

@@ -21,6 +21,12 @@
 //                  plain   `{ issues: [...], isLast: boolean, nextPageToken? }`
 //                  wrapped `{ context, issues: { nodes: [...],
 //                            pageInfo: { hasNextPage, endCursor } } }`
+//   Jira v2        (2026-11-24) the plain page, list or item under one `data`
+//                  key with nothing beside it. `requestCursor` beside `data`
+//                  is the toolkit's own key on a saved page. Pages,
+//                  items and both lists of `readCompleteList` (v2 names
+//                  listJiraProjects, listJiraProjectIssueTypesMetadata) were
+//                  recorded.
 //   Lists          `readCompleteList`: Linear list_issue_statuses (a bare
 //                  array), Jira getVisibleJiraProjects, Jira
 //                  getJiraProjectIssueTypesMetadata.
@@ -58,6 +64,129 @@ export const LINEAR_MILESTONE_WINDOW = 50;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v !== "";
 const rows = (v: unknown[]): Record<string, unknown>[] | null => (v.every(isObj) ? (v as Record<string, unknown>[]) : null);
+
+type AnswerRead = { ok: true; answer: Record<string, unknown> } | { ok: false; reason: string };
+
+/**
+ * STE-867 — the object a Jira answer carries: the answer itself, or the one
+ * object under a v2 answer's `data`. `saved` names the keys the toolkit itself
+ * writes beside `data`; any other key there fails closed, as does a nested `data`.
+ * An `error` key under `data`, whatever its value or the keys beside it, is an
+ * error: the server answers a failed call that way inside a success.
+ */
+function unwrapJira(a: Record<string, unknown>, saved: readonly string[] = []): AnswerRead {
+  if (!("data" in a)) return { ok: true, answer: a };
+  const beside = Object.keys(a).filter((k) => k !== "data" && !saved.includes(k));
+  if (beside.length > 0) return { ok: false, reason: `a Jira answer carrying \`${beside[0]}\` beside \`data\` is not a shape the server was observed to send` };
+  if (!isObj(a.data)) return { ok: false, reason: "a Jira answer whose `data` is not an object" };
+  if ("error" in a.data) return { ok: false, reason: `the Jira answer is an error: ${JSON.stringify(a.data.error)}` };
+  if ("context" in a.data) return { ok: false, reason: "a Jira answer wrapping `context` under `data` is not a shape the server was observed to send" };
+  if ("data" in a.data) return { ok: false, reason: "a Jira answer with a nested `data` is not a shape the server was observed to send" };
+  return { ok: true, answer: a.data };
+}
+
+/** Spans `objectsIn` rescans from inside after they fail to parse; past it a failed span is skipped whole, so the scan stays linear. */
+const RESCANS = 32;
+
+/** The JSON objects written in `text`, whole or beside other text, outermost first. */
+function objectsIn(text: string): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  let rescans = 0;
+  for (let i = text.indexOf("{"); i >= 0; i = text.indexOf("{", i)) {
+    let depth = 0;
+    let quoted = false;
+    let end = -1;
+    for (let k = i; k < text.length; k++) {
+      const c = text[k];
+      if (quoted) {
+        if (c === "\\") k++;
+        else if (c === '"') quoted = false;
+      } else if (c === '"') quoted = true;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) {
+        end = k + 1;
+        break;
+      }
+    }
+    if (end < 0) {
+      if (rescans++ >= RESCANS) break;
+      i += 1;
+      continue;
+    }
+    try {
+      const v: unknown = JSON.parse(text.slice(i, end));
+      if (isObj(v)) out.push(v);
+      i = end;
+    } catch {
+      i = rescans++ < RESCANS ? i + 1 : end;
+    }
+  }
+  return out;
+}
+
+/** Error text beside itself with its JSON escapes (of any depth) read as spaces, so a word after a line break starts a word. */
+const saying = (text: string): string => `${text}\n${text.replace(/\\+(?:[nrtbf]|u[0-9a-fA-F]{4})/g, " ")}`;
+
+/**
+ * STE-867 — the error a Jira result carries inside its answer
+ * (`{data: {error, status, …}}`, whatever the call's own error flag says), or
+ * null when it carries none. `content` is the result's text, or its content
+ * blocks: an error object anywhere in a text block counts, so a notice beside
+ * it hides nothing. `status` is null when it is not an integer, when a key sits
+ * beside `data` or a created key or id beside the error, or when two errors disagree; `said` is the errors serialised,
+ * their key names and numbers included, and once more with the escapes read (`saying`).
+ */
+export function inBandError(tracker: TrackerKind, content: unknown): { status: number | null; said: string } | null {
+  if (tracker !== "jira") return null;
+  const blocks = Array.isArray(content) ? content.map((b) => (isObj(b) && typeof b.text === "string" ? b.text : "")) : [content];
+  const statuses = new Set<number | null>();
+  const said: string[] = [];
+  for (const text of blocks) {
+    if (typeof text !== "string" || !text.includes('"error"')) continue;
+    for (const a of objectsIn(text)) {
+      if (!isObj(a.data) || !("error" in a.data)) continue;
+      // A created key or id beside the error leaves the status proving nothing (AC-STE-867.3).
+      const d = a.data;
+      const made = [d.key, d.id].some((v) => v !== undefined && v !== null && v !== "");
+      const alone = Object.keys(a).length === 1 && !made;
+      statuses.add(alone && Number.isInteger(a.data.status) ? (a.data.status as number) : null);
+      said.push(JSON.stringify(a.data));
+    }
+  }
+  if (statuses.size === 0) return null;
+  return { status: statuses.size === 1 ? [...statuses][0]! : null, said: saying(said.join("\n")) };
+}
+
+/**
+ * STE-867 — an error result the server FLAGGED, in the recorded v2 form
+ * `{error: boolean, message, statusCode}`; null for any other text, and for any
+ * tracker but Jira. `status` is null when any other key sits in it (it may name
+ * a created ticket) or it is no integer; `said` is the text, escapes read too.
+ */
+export function flaggedError(tracker: TrackerKind, text: string): { status: number | null; said: string } | null {
+  if (tracker !== "jira") return null;
+  let a: unknown;
+  try {
+    a = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isObj(a) || typeof a.error !== "boolean" || !("statusCode" in a)) return null;
+  const recorded = Object.keys(a).every((k) => k === "error" || k === "message" || k === "statusCode");
+  return { status: recorded && Number.isInteger(a.statusCode) ? (a.statusCode as number) : null, said: saying(text) };
+}
+
+/** STE-867 — the object a Jira answer carries (`unwrapJira`), for a reader whose rows this module does not read. */
+export function readJiraAnswer(answer: Record<string, unknown>): { ok: true; answer: Record<string, unknown> } | { ok: false; reason: string } {
+  return unwrapJira(answer);
+}
+
+/** STE-867 — a Jira item answer that carries `fields` and no key: the item, for naming what it lacks; null for any other answer. */
+export function unkeyedJiraItem(answer: unknown): Record<string, unknown> | null {
+  if (!isObj(answer)) return null;
+  const un = unwrapJira(answer);
+  return un.ok && isObj(un.answer.fields) && !nonEmpty(un.answer.key) ? un.answer : null;
+}
 
 function linearPage(a: Record<string, unknown>, itemsKey: string): PageRead {
   const list = a[itemsKey];
@@ -103,7 +232,9 @@ function jiraPage(a: Record<string, unknown>): PageRead {
 /** Read one listing answer into the canonical page, or say why it cannot be read. `itemsKey` is Linear's list key. */
 export function readTrackerPage(tracker: TrackerKind, answer: unknown, itemsKey = "issues"): PageRead {
   if (!isObj(answer)) return { ok: false, reason: "the answer is not a JSON object" };
-  return tracker === "linear" ? linearPage(answer, itemsKey) : jiraPage(answer);
+  if (tracker === "linear") return linearPage(answer, itemsKey);
+  const un = unwrapJira(answer, ["requestCursor"]);
+  return un.ok ? jiraPage(un.answer) : un;
 }
 
 export type ListingRead = { ok: true; items: Record<string, unknown>[]; last: boolean } | { ok: false; reason: string };
@@ -190,9 +321,12 @@ export function readTrackerItem(tracker: TrackerKind, answer: unknown): ItemRead
     if (!nonEmpty(answer.id)) return { ok: false, reason: "a Linear item answer with no top-level `id`" };
     return { ok: true, item: answer };
   }
-  if (nonEmpty(answer.key) && !("context" in answer)) return { ok: true, item: answer };
-  if (isObj(answer.context) && isObj(answer.issues) && Array.isArray(answer.issues.nodes)) {
-    const nodes = answer.issues.nodes;
+  const un = unwrapJira(answer);
+  if (!un.ok) return un;
+  const a = un.answer;
+  if (nonEmpty(a.key) && !("context" in a)) return { ok: true, item: a };
+  if (isObj(a.context) && isObj(a.issues) && Array.isArray(a.issues.nodes)) {
+    const nodes = a.issues.nodes;
     if (nodes.length !== 1 || !isObj(nodes[0])) return { ok: false, reason: `a wrapped Jira item answer holds ${nodes.length} nodes, not one item` };
     return { ok: true, item: nodes[0] };
   }
@@ -227,19 +361,22 @@ export function readCompleteList(tool: CompleteListTool, answer: unknown): ListR
     return items ? { ok: true, items, complete: true } : { ok: false, reason: "a Linear status row is not an object" };
   }
   if (!isObj(answer)) return { ok: false, reason: "the answer is not a JSON object" };
+  const un = unwrapJira(answer);
+  if (!un.ok) return un;
+  const a = un.answer;
   if (tool === "jira:getVisibleJiraProjects") {
-    if (!Array.isArray(answer.values)) return { ok: false, reason: "not a getVisibleJiraProjects answer: no `values` array" };
-    const items = rows(answer.values);
+    if (!Array.isArray(a.values)) return { ok: false, reason: "not a getVisibleJiraProjects answer: no `values` array" };
+    const items = rows(a.values);
     if (!items) return { ok: false, reason: "a Jira project row is not an object" };
-    if (typeof answer.isLast !== "boolean") return { ok: false, reason: "a getVisibleJiraProjects answer with no boolean `isLast` does not say whether it is the whole list" };
-    return { ok: true, items, complete: answer.isLast };
+    if (typeof a.isLast !== "boolean") return { ok: false, reason: "a getVisibleJiraProjects answer with no boolean `isLast` does not say whether it is the whole list" };
+    return { ok: true, items, complete: a.isLast };
   }
   if (tool === "jira:getJiraProjectIssueTypesMetadata") {
-    if (!Array.isArray(answer.issueTypes)) return { ok: false, reason: "not a getJiraProjectIssueTypesMetadata answer: no `issueTypes` array" };
-    const items = rows(answer.issueTypes);
+    if (!Array.isArray(a.issueTypes)) return { ok: false, reason: "not a getJiraProjectIssueTypesMetadata answer: no `issueTypes` array" };
+    const items = rows(a.issueTypes);
     if (!items) return { ok: false, reason: "a Jira issue-type row is not an object" };
-    if (typeof answer.total !== "number" || typeof answer.startAt !== "number") return { ok: false, reason: "a getJiraProjectIssueTypesMetadata answer with no numeric `total` and `startAt` cannot show it is the whole list" };
-    return { ok: true, items, complete: answer.startAt === 0 && items.length === answer.total };
+    if (typeof a.total !== "number" || typeof a.startAt !== "number") return { ok: false, reason: "a getJiraProjectIssueTypesMetadata answer with no numeric `total` and `startAt` cannot show it is the whole list" };
+    return { ok: true, items, complete: a.startAt === 0 && items.length === a.total };
   }
   return { ok: false, reason: `no measured list shape for ${String(tool)}` };
 }

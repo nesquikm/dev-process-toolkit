@@ -726,6 +726,8 @@ const SEARCH_TOOL: Record<"jira" | "linear", RegExp> = {
   jira: /^mcp__[^_].*__searchJiraIssuesUsingJql$/,
   linear: /^mcp__[^_].*__list_issues$/,
 };
+/** STE-867 — the v2 read tool that runs the operation it names. */
+const EXECUTE_READ = /^mcp__[^_].*__executeRead$/;
 
 /** JSON with sorted object keys: two values are equal iff their canonical forms are. */
 function canonical(v: unknown): string {
@@ -754,8 +756,10 @@ function resultText(content: unknown): string {
  * STE-704 — read each named search call and its result out of the session
  * transcript (through the ONE transcript reader), in the order given. A call
  * is accepted only when its input equals the printed search exactly — plus the
- * page cursor after the first page, plus `cloudId` on Jira. A narrowed search
- * (an extra `query`, a changed label) is never read as a complete miss.
+ * page cursor after the first page, plus `cloudId` and a `full` view on Jira. A
+ * narrowed search (an extra `query`, a changed label) is never read as a complete
+ * miss. A Jira search through `executeRead` (STE-867) is unwrapped first and held
+ * to the same.
  */
 async function readTranscriptPages(
   mode: "jira" | "linear",
@@ -764,6 +768,7 @@ async function readTranscriptPages(
 ): Promise<unknown[]> {
   const { readTranscriptLines } = await import("../../../templates/hooks/_lib/session");
   const { listingRequestCursor, withoutListingRequestPaging } = await import("./tracker_answer");
+  const { canonicalAtlassianCall } = await import("./atlassian_call");
   const lines = readTranscriptLines({ transcript_path: t.path } as Parameters<typeof readTranscriptLines>[0]);
   if (lines === null) throw new UnreadablePage(`transcript ${t.path} is missing or unreadable`);
 
@@ -792,14 +797,26 @@ async function readTranscriptPages(
   return t.ids.map((id, n) => {
     const call = calls.get(id);
     if (!call) throw new UnreadablePage(`no tool call ${id} in the transcript`);
-    if (typeof call.name !== "string" || !SEARCH_TOOL[mode].test(call.name)) {
+    let { name, input: request } = call;
+    if (mode === "jira" && typeof name === "string" && EXECUTE_READ.test(name) && isObj(request)) {
+      const wrapped = canonicalAtlassianCall("executeRead", request);
+      // `responseFields` and any view but the full one narrow the answer: a row without its parent would read as a miss.
+      const narrowed = "responseFields" in request || ("view" in request && request.view !== "full");
+      if (narrowed || wrapped.unplaced.length > 0 || wrapped.wrapperKeys !== undefined) {
+        throw new PageViolatesQuery(`tool call ${id} carries a key the search does not take`);
+      }
+      name = name.replace(/executeRead$/, wrapped.tool);
+      request = wrapped.input;
+    }
+    if (typeof name !== "string" || !SEARCH_TOOL[mode].test(name)) {
       throw new UnreadablePage(`tool call ${id} is not the ${mode} search`);
     }
-    if (!isObj(call.input)) throw new PageViolatesQuery(`tool call ${id} carries no input object`);
-    const cursor = listingRequestCursor(mode, call.input);
+    if (!isObj(request)) throw new PageViolatesQuery(`tool call ${id} carries no input object`);
+    const cursor = listingRequestCursor(mode, request);
     if (n === 0 && cursor !== null) throw new PageViolatesQuery(`tool call ${id} is a later page, named first`);
-    const input = withoutListingRequestPaging(mode, call.input);
+    const input = withoutListingRequestPaging(mode, request);
     if (mode === "jira" && typeof input.cloudId === "string") delete input.cloudId;
+    if (mode === "jira" && input.view === "full") delete input.view; // v2: the widest view narrows nothing
     if (canonical(input) !== expected) {
       throw new PageViolatesQuery(`tool call ${id} did not run the printed search`);
     }

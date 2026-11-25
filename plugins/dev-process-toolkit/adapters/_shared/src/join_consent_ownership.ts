@@ -11,8 +11,9 @@
 // STE-655 adds the other rules the hook and the grader must read alike: the
 // labels-write envelope, the link-comment side rule, Linear relation targets,
 // and the per-question consent verdict; STE-699 adds the status-only Epic-close
-// transition shape. Each is imported by both callers; this
-// module imports nothing, so the hook stays import-light.
+// transition shape, which STE-865 widens to the v2 designators. Each is
+// imported by both callers; this module imports nothing, so the hook stays
+// import-light.
 
 /** The route by which a session owns a ticket key. */
 export type OwnershipRoute = "created" | "fr-binding" | "reuse-receipt" | "binding-receipt" | "import-receipt";
@@ -55,7 +56,8 @@ const ENVELOPE_KEYS: ReadonlySet<string> = new Set([...EPIC_EDIT_INPUT_KEYS, "up
 /**
  * STE-655 AC.8: the ONE labels-write envelope the hook (gateJoinedLabels) and
  * the live grader (gatedWrites) both read. Null when the write carries neither
- * `fields.labels` nor a top-level `update` block; otherwise `extraKeys` lists
+ * `fields.labels`, nor a top-level `update` block, nor an unplaced
+ * `additional_fields` block (AC-STE-865.5); otherwise `extraKeys` lists
  * the keys under `fields` other than `labels`, plus `update` when that block
  * is present, plus every top-level key outside ENVELOPE_KEYS (a `transition`,
  * `properties` or any key the gate does not know). Only the CALL_KEYS
@@ -70,7 +72,10 @@ export function labelsEnvelope(input: unknown): { extraKeys: string[] } | null {
   const hasLabels = fields !== null && Object.prototype.hasOwnProperty.call(fields, "labels");
   // A labels write is `fields.labels` OR a top-level `update` block (which can
   // carry `update.labels`, or any other field edit — STE-655 review r0).
-  if (!hasLabels && !hasUpdate) return null;
+  // So is an `additional_fields` block the Atlassian translator could not place
+  // (AC-STE-865.5): it may carry labels, and it counts as an extra key below.
+  const hasUnplaced = Object.prototype.hasOwnProperty.call(input, "additional_fields");
+  if (!hasLabels && !hasUpdate && !hasUnplaced) return null;
   const extraKeys = fields === null ? [] : Object.keys(fields).filter((k) => k !== "labels");
   // A top-level `update` block edits fields too (M_685ff6 review): it counts
   // as an extra key, though it sits beside `fields` rather than under it.
@@ -188,16 +193,26 @@ export function typedAdopts(answer: string, key: string): boolean {
   return true;
 }
 
-/** The only input keys a status-only `transitionJiraIssue` carries (STE-699 AC.4). */
-const STATUS_ONLY_KEYS: ReadonlySet<string> = new Set([...CALL_KEYS, "transition"]);
+/** The keys that can designate a transition: the v1 object, the v2 id and the v2 name (AC-STE-865.2). */
+const TRANSITION_DESIGNATORS = ["transition", "transitionId", "transitionName"] as const;
+
+/** The only input keys a status-only `transitionJiraIssue` may carry (STE-699 AC.4, AC-STE-865.2). */
+const STATUS_ONLY_KEYS: ReadonlySet<string> = new Set([...CALL_KEYS, ...TRANSITION_DESIGNATORS]);
 
 /**
- * STE-699 AC.4 — true when a `transitionJiraIssue` input carries nothing but
- * the issue key and the transition: the only shape an `epic-close` receipt
- * permits on a key the session does not otherwise own.
+ * STE-699 AC.4 + AC-STE-865.2 — true when a `transitionJiraIssue` input carries
+ * nothing but the issue key, exactly one usable transition designator and the
+ * call keys: the only shape an `epic-close` receipt permits on a key the
+ * session does not otherwise own.
  */
 export function isStatusOnlyTransition(input: Record<string, unknown>): boolean {
   if (typeof input.issueIdOrKey !== "string") return false;
-  if (input.transition === undefined || input.transition === null) return false;
+  const designators = TRANSITION_DESIGNATORS.filter((k) => k in input);
+  if (designators.length !== 1) return false;
+  const designator = designators[0]!;
+  const value = input[designator];
+  if (designator === "transition") {
+    if (value === undefined || value === null) return false;
+  } else if (typeof value !== "string" || value === "") return false;
   return Object.keys(input).every((k) => STATUS_ONLY_KEYS.has(k));
 }

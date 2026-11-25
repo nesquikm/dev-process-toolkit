@@ -99,12 +99,12 @@ Each fires before any side effects (pre-flight #4's own fresh `fail` verdict wri
 
    Linear-mode invocations skip this probe entirely.
 
-8. **(Jira-only) Jira project (Space) not visible / `--jira-project` missing.** When `--tracker jira` is active, `--jira-project <KEY>` is required and the configured key MUST appear in the response of `mcp__atlassian__getVisibleJiraProjects(searchString=<KEY>)` — i.e., the authenticated principal can see the Space. The probe inspects `response.values[].key`; refusal fires for the missing-flag case and the not-visible case across **three message variants** keyed on the response shape (smoke #9 / Jira run 1 driver-side caveat — STE-191):
+8. **(Jira-only) Jira project (Space) not visible / `--jira-project` missing.** When `--tracker jira` is active, `--jira-project <KEY>` is required and the configured key MUST appear in the response of `mcp__atlassian__getVisibleJiraProjects(searchString=<KEY>)` (v2: `mcp__atlassian__executeRead` with name `listJiraProjects` and `query=<KEY>`) — i.e., the authenticated principal can see the Space. The probe inspects `response.values[].key`; refusal fires for the missing-flag case and the not-visible case across **three message variants** keyed on the response shape (smoke #9 / Jira run 1 driver-side caveat — STE-191):
 
    | Response shape | Variant | Refusal message |
    |----------------|---------|-----------------|
    | flag missing | (a) | `--jira-project <KEY> is required when --tracker jira is passed.` |
-   | `values[]` empty | (b) generic | `Probe: mcp__atlassian__getVisibleJiraProjects(searchString=<X>) → response.values[].key did not contain '<X>'.` |
+   | `values[]` empty | (b) generic | `Probe: mcp__atlassian__getVisibleJiraProjects(searchString=<X>) → response.values[].key did not contain '<X>'.` (v2: the call named is `mcp__atlassian__executeRead(listJiraProjects)`) |
    | `values[]` has exactly one entry whose `name` matched `<X>` and whose `key` did NOT match `<X>` | (c) single-hit name-match | `'<X>' matched Space "<matched-name>" by display name, but the KEY is "<matched-key>". Pass --jira-project <matched-key> and retry.` |
    | `values[]` has 2+ entries | (b) generic | (same as empty — surfacing one KEY out of N would mislead) |
 
@@ -116,7 +116,7 @@ Each fires before any side effects (pre-flight #4's own fresh `fail` verdict wri
 
    ```
    Jira project '<KEY>' not visible to the authenticated principal.
-   Probe: mcp__atlassian__getVisibleJiraProjects(searchString=<KEY>) → response.values[].key did not contain '<KEY>'.
+   Probe: mcp__atlassian__getVisibleJiraProjects(searchString=<KEY>) → response.values[].key did not contain '<KEY>'. (v2: listJiraProjects through mcp__atlassian__executeRead)
    Remedy: create the Space in the Jira UI before running /smoke-test, or grant the OAuth principal membership; then re-run.
    Context: tracker=jira, project=<KEY>, skill=smoke-test
    ```
@@ -268,7 +268,7 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
 
      Save the project ID + URL to the findings file's header. The Phase 1 setup print line at step 7 (which prints the project URL) carries the resolved name implicitly — a suffixed name in the print indicates the same-day collision was auto-handled; an unsuffixed canonical-name print indicates no prior project existed.
    - **Tracker-less path (`--tracker none`). SKIPPED ENTIRELY — no workspace is created, and no MCP tool is called (STE-448 AC.4/AC.6).** There is no remote workspace for a `mode: none` project to bind to: identity is minted locally by `Provider.mintId()` and the milestone token is derived from it, so there is nothing to allocate and nothing to name. The findings file's header records `tracker: none` and no workspace URL, because there is no URL to record — an empty or placeholder URL field would read as a failed lookup rather than as the absence it is. This is also the step that makes Phase 5's tracker-side teardown vacuous on this leg: teardown archives what setup created, and setup created nothing.
-   - **Jira path (`--tracker jira`).** **No creation call** — the Atlassian Rovo MCP exposes no `createJiraProject` tool, so the operator must have created the Space (Jira project) in the Jira UI manually before running `/smoke-test`. Pre-flight #8 has already verified visibility via `mcp__atlassian__getVisibleJiraProjects`; this step is a vacuous re-affirmation. Save the Space key (e.g., `DST`) and the Atlassian site URL to the findings file's header. Document: the Space is reused across runs (no per-run isolation); Phase 5 teardown closes only the work items this run created (matched by label `dpt-smoke` + creation-time window).
+   - **Jira path (`--tracker jira`).** **No creation call** — the Atlassian Rovo MCP exposes no `createJiraProject` tool, so the operator must have created the Space (Jira project) in the Jira UI manually before running `/smoke-test`. Pre-flight #8 has already verified visibility via `mcp__atlassian__getVisibleJiraProjects` (v2: `listJiraProjects` through `executeRead`); this step is a vacuous re-affirmation. Save the Space key (e.g., `DST`) and the Atlassian site URL to the findings file's header. Document: the Space is reused across runs (no per-run isolation); Phase 5 teardown closes only the work items this run created (matched by label `dpt-smoke` + creation-time window).
 5. **MCP config — branches on `--tracker`:**
 
    - **Linear path.** Construct the wrapped Linear MCP config at `/tmp/dpt-smoke-mcp-config-linear.json`. Source: `~/.claude-st/plugins/marketplaces/claude-plugins-official/external_plugins/linear/.mcp.json` (a bare server entry without the `mcpServers:` envelope). Wrap it as `{"mcpServers": <source>}` and write to /tmp. This is required because `--plugin-dir` (used to load the in-tree plugin under test) shadows plugin-loaded MCPs, so the active tracker MCP must be passed via `--mcp-config` from a per-tracker wrapper file written to `/tmp/`.
@@ -363,7 +363,7 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
    default_labels: [dpt-smoke]
    ```
 
-   `jira_ac_field: description` is the zero-config sentinel from STE-154 AC-STE-154.3 — ACs live as a bullet list under a `## Acceptance Criteria` heading inside each Jira issue's description body; pull_acs / push_ac_toggle parse and rewrite that section atomically. `default_labels: [dpt-smoke]` is the free-form `### Jira` sub-section field (per `docs/patterns.md` § Schema L Workspace binding sub-sections); the Jira adapter forwards every entry into `mcp__atlassian__createJiraIssue.additional_fields.labels` on every issue created during the run, which is what makes Phase 5 teardown's `labels = "dpt-smoke"` JQL find them.
+   `jira_ac_field: description` is the zero-config sentinel from STE-154 AC-STE-154.3 — ACs live as a bullet list under a `## Acceptance Criteria` heading inside each Jira issue's description body; pull_acs / push_ac_toggle parse and rewrite that section atomically. `default_labels: [dpt-smoke]` is the free-form `### Jira` sub-section field (per `docs/patterns.md` § Schema L Workspace binding sub-sections); the Jira adapter forwards every entry into `mcp__atlassian__createJiraIssue.additional_fields.labels` (v2: the top-level `labels` input) on every issue created during the run, which is what makes Phase 5 teardown's `labels = "dpt-smoke"` JQL find them.
 
    On the **tracker-less path** there is nothing to pre-stage, and that is the point rather than an omission (STE-448 AC.5). `/setup` step 7b's `none` branch emits **no `## Task Tracking` section at all** — absence IS the canonical form for `mode: none`, so there is no Schema L block to seed, no workspace-binding sub-section to render, and no `mode: none` line to look for afterwards. A driver that pre-staged a `## Task Tracking` section here carrying `mode: none` would produce a CLAUDE.md that gate-check probe #21 and the Phase 4 row below both read as WRONG, and it would quietly convert the leg into a fourth, non-canonical tracker shape that no downstream project has.
 
@@ -412,7 +412,7 @@ Skills to run, in order:
 1. `/dev-process-toolkit:setup` — pre-baked answers branch on `--tracker`:
 
    - **Linear path:** `stack=Bun+TS, tracker=linear, mcp_server=linear, team=STE, project=<the smoke-test project from Phase 1>, jira_ac_field=blank, branch_template=default, docs flags=all-false`. The pre-baked workspace-binding sub-section emits `### Linear` with `team:` + `project:` (and optionally `default_labels:` if downstream callers want labels — not used by the Linear smoke today).
-   - **Jira path:** `stack=Bun+TS, tracker=jira, mcp_server=atlassian, project=<--jira-project flag value>, jira_ac_field=description, branch_template=default, docs flags=all-false, default_labels=[dpt-smoke]`. The pre-baked workspace-binding sub-section emits `### Jira` with `project:` + `default_labels:` so the Jira adapter forwards `dpt-smoke` into every `mcp__atlassian__createJiraIssue.additional_fields.labels` call. **Skip Jira AC custom-field discovery** — the pre-baked `jira_ac_field: description` answer short-circuits `/setup` step 7b's discover_field.ts call (zero-config sentinel path). **Skip the Linear team/project probe** — the workspace binding is fully resolved from the flag.
+   - **Jira path:** `stack=Bun+TS, tracker=jira, mcp_server=atlassian, project=<--jira-project flag value>, jira_ac_field=description, branch_template=default, docs flags=all-false, default_labels=[dpt-smoke]`. The pre-baked workspace-binding sub-section emits `### Jira` with `project:` + `default_labels:` so the Jira adapter forwards `dpt-smoke` into every `mcp__atlassian__createJiraIssue.additional_fields.labels` (v2: top-level `labels`) call. **Skip Jira AC custom-field discovery** — the pre-baked `jira_ac_field: description` answer short-circuits `/setup` step 7b's discover_field.ts call (zero-config sentinel path). **Skip the Linear team/project probe** — the workspace binding is fully resolved from the flag.
    - **Tracker-less path:** `stack=Bun+TS, tracker=none, docs flags=all-false`. **No `mcp_server`, no workspace binding, no `jira_ac_field`, and NO `## Task Tracking` section in the emitted CLAUDE.md (STE-448 AC.5).** Step 7b's option `1` is what the pre-baked `tracker_mode: none` answer selects, and its documented behavior is to emit no such section — absence is the canonical form, so the correct output is a CLAUDE.md with the section missing rather than one declaring `mode: none`. Both the Linear and Jira probes are skipped for the same reason there is nothing to probe. Phase 4's verify-on-disk row asserts the ABSENCE positively (§ Phase 4), because a section that was never written and a section nobody checked for produce the same file and different evidence.
 
    **In both modes, the prompt MUST acknowledge the pre-existing `.claude/settings.json` and `.mcp.json`** (Phase 1 step 6) and instruct the child to take the idempotent-merge branch — do not blindly let it try to overwrite, since the sensitive-path classification block (see Phase 0 — Pre-approval gate) aborts the chain when the child attempts a fresh write. The canonical pre-baked prompt body is inlined into the Phase 2 child-spawn heredoc below (§ STE-185); do not write it to a file on disk.
@@ -1049,13 +1049,14 @@ STE-356 regression: allow-list inert — <child> (workspace untrusted)
 
 #### Comment-path probe (Jira-only)
 
-After step 6 returns, on the **Jira branch only**, issue a stand-alone `mcp__atlassian__addCommentToJiraIssue` call against the run's freshly-created work item. The probe closes AC-STE-154.9 AC 6 — the canonical chain doesn't naturally exercise the comment endpoint, so a regression there would slip past every smoke run. Stand-alone probe (vs. side-effect-of-`/implement` narration) was chosen during M49 spec authoring: validates the MCP tool independent of `/implement`'s narration policy, which can change without affecting the underlying contract.
+After step 6 returns, on the **Jira branch only**, issue a stand-alone `mcp__atlassian__addCommentToJiraIssue` (v2: `mcp__atlassian__addOrEditJiraIssueComment`) call against the run's freshly-created work item. The probe closes AC-STE-154.9 AC 6 — the canonical chain doesn't naturally exercise the comment endpoint, so a regression there would slip past every smoke run. Stand-alone probe (vs. side-effect-of-`/implement` narration) was chosen during M49 spec authoring: validates the MCP tool independent of `/implement`'s narration policy, which can change without affecting the underlying contract.
 
 ```
+# v2: mcp__atlassian__addOrEditJiraIssueComment, the same inputs
 mcp__atlassian__addCommentToJiraIssue \
   cloudId=<resolved> \
   issueIdOrKey=<latest work item key> \
-  comment="Smoke probe — AC-STE-154.9 AC 6 coverage. Run: <date> <tracker> v<plugin-version>."
+  commentBody="Smoke probe — AC-STE-154.9 AC 6 coverage. Run: <date> <tracker> v<plugin-version>."
 ```
 
 Fires only when `--tracker jira` is active. The Linear branch skips this probe entirely — Linear's MCP comment surface is exercised by other paths and isn't part of AC-STE-154.9 scope. The comment surfaces in `/tmp/dpt-smoke-jira-comment-probe.log` and the run's findings file (Phase 3 capture appends "comment exercised" to the run notes).
@@ -1397,7 +1398,7 @@ STE-227 runtime regression: <fixture-name>
 
 ##### Sub-fixture 4b — Jira (`--tracker jira`)
 
-Same 4-step block as 4a, parameterized for `--tracker jira`. Stdout per step lands at `/tmp/dpt-smoke-jira-no-tech-step-{1,2,3,4}.log`. Step 4 ticket-state assertion uses `mcp__atlassian__getJiraIssue` → `Done` workflow status (or its `getTransitionsForJiraIssue` `to.statusCategory.key == "done"` fallback) instead of Linear's `mcp__linear__get_issue`. All other assertions identical to 4a (with `linear` substituted by `jira` in every log path and project directory).
+Same 4-step block as 4a, parameterized for `--tracker jira`. Stdout per step lands at `/tmp/dpt-smoke-jira-no-tech-step-{1,2,3,4}.log`. Step 4 ticket-state assertion uses `mcp__atlassian__getJiraIssue` → `Done` workflow status (or its `getTransitionsForJiraIssue` (v2: `listJiraIssueTransitions` through `executeRead`) `to.statusCategory.key == "done"` fallback) instead of Linear's `mcp__linear__get_issue`. All other assertions identical to 4a (with `linear` substituted by `jira` in every log path and project directory).
 
 **Diagnostic on any step failure:**
 
@@ -1975,7 +1976,7 @@ For each major output the skills claim to produce, verify it actually landed on 
 - `../dpt-test-project-<tracker>/.mcp.json` — on the Linear path exists with the `linear` adapter entry, on the Jira path exists with the `atlassian` adapter entry (post-M29 STE-106); on the **tracker-less path** it is ABSENT (Phase 1 step 6 writes none — STE-448 AC.4).
 - `../dpt-test-project-<tracker>/specs/{requirements.md, technical-spec.md, testing-spec.md}` — exist. The plan file's name is mode-dependent: `plan/M1.md` in tracker mode, `plan/M_<TAIL>.md` on the tracker-less path (next row but three).
 - `../dpt-test-project-<tracker>/specs/frs/<feature-id>.md` OR `specs/frs/archive/<feature-id>.md` — on a tracker leg, exists with no `id:` field (post-M29 STE-110) and a compact tracker block `{ linear: STE-N }` on the Linear path or `{ jira: <KEY>-N }` on the Jira path.
-- Tracker ticket exists, status = `Done`, assignee = current user, completion timestamp populated. **Linear path:** `mcp__linear__get_issue` returns `status: "Done"`, `completedAt` set. **Jira path:** `mcp__atlassian__getJiraIssue` returns the work item in the `Done` status (or its workflow-level equivalent reached via the `getTransitionsForJiraIssue` `to.statusCategory.key == "done"` fallback). **Tracker-less path:** this row does not apply and is rendered `n/a — mode: none has no ticket`; the release evidence this row carries on a tracker leg is carried by the lock-file row below instead.
+- Tracker ticket exists, status = `Done`, assignee = current user, completion timestamp populated. **Linear path:** `mcp__linear__get_issue` returns `status: "Done"`, `completedAt` set. **Jira path:** `mcp__atlassian__getJiraIssue` returns the work item in the `Done` status (or its workflow-level equivalent reached via the `getTransitionsForJiraIssue` (v2: `listJiraIssueTransitions` through `executeRead`) `to.statusCategory.key == "done"` fallback). **Tracker-less path:** this row does not apply and is rendered `n/a — mode: none has no ticket`; the release evidence this row carries on a tracker leg is carried by the lock-file row below instead.
 - `bunx tsc --noEmit && bun test` exits 0; expected feature-stub test count.
 
 ##### Tracker-less rows — the three a `mode: none` run can make and a tracker run cannot (STE-448)
@@ -2071,8 +2072,8 @@ Workspace trust is left in place (STE-367 — operator-owned, persistent; see th
    ```
 
    Call `mcp__atlassian__searchJiraIssuesUsingJql(cloudId=<resolved>, jql=<above>, fields=["summary","status","created","labels"])`. Empty `issues[]` ⇒ nothing to clean up; print "Phase 5: no `dpt-smoke`-labeled work items in <flag-value> within run window — nothing to transition" and proceed to the dir-cleanup prompt.
-3. For each work item returned, resolve the canonical `Done` transition id once via `mcp__atlassian__getTransitionsForJiraIssue(cloudId, issueIdOrKey=<first-result>)`. Match `transitions[].to.name == "Done"` first; fallback to `transitions[].to.statusCategory.key == "done"` (canonical category, per `adapters/jira.md` § MCP tool names — the same category-key fallback `transition_status` uses). Cache the transition id for subsequent items in the same workflow.
-4. For each work item, call `mcp__atlassian__transitionJiraIssue(cloudId, issueIdOrKey, transition={id: <resolved>})`. Idempotent — items already in `Done` round-trip cleanly (the transition either no-ops or re-fires). Per the Jira adapter's silent-no-op trap (`adapters/jira.md` § Silent no-op trap), re-fetch each item after the call and assert `updated`/`statuscategorychangedate` advanced past pre-call; otherwise raise NFR-10 canonical refusal naming the work item key + observed timestamps.
+3. For each work item returned, resolve the canonical `Done` transition id once via `mcp__atlassian__getTransitionsForJiraIssue(cloudId, issueIdOrKey=<first-result>)` (v2: `mcp__atlassian__executeRead` with name `listJiraIssueTransitions`). Match `transitions[].to.name == "Done"` first; fallback to `transitions[].to.statusCategory.key == "done"` (canonical category, per `adapters/jira.md` § MCP tool names — the same category-key fallback `transition_status` uses). Cache the transition id for subsequent items in the same workflow.
+4. For each work item, call `mcp__atlassian__transitionJiraIssue(cloudId, issueIdOrKey, transition={id: <resolved>})` (v2: `transitionId=<resolved>` in place of `transition`). Idempotent — items already in `Done` round-trip cleanly (the transition either no-ops or re-fires). Per the Jira adapter's silent-no-op trap (`adapters/jira.md` § Silent no-op trap), re-fetch each item after the call and assert `updated`/`statuscategorychangedate` advanced past pre-call; otherwise raise NFR-10 canonical refusal naming the work item key + observed timestamps.
 5. **On `--keep` (default off):** print the teardown checklist for the operator and exit:
 
    ```
@@ -2461,14 +2462,14 @@ The MCP-tool column lists the **Linear path** in plain text and the **Jira path*
 
 | Skill | Bash patterns | MCP tools |
 |-------|---------------|-----------|
-| /setup | `git *`, `bun *`, `bunx *`, `ls *`, `mkdir *`, `grep *`, `rm *`, `mv *`, `cp *`, `find *`, `jq *` | `mcp__linear__{list_teams,get_team,list_projects,get_project}` *or `mcp__atlassian__{atlassianUserInfo,getVisibleJiraProjects}` (Jira path)* |
+| /setup | `git *`, `bun *`, `bunx *`, `ls *`, `mkdir *`, `grep *`, `rm *`, `mv *`, `cp *`, `find *`, `jq *` | `mcp__linear__{list_teams,get_team,list_projects,get_project}` *or `mcp__atlassian__{atlassianUserInfo,getVisibleJiraProjects}` (Jira path; v2: `mcp__atlassian__{atlassianUserInfo,discover,executeRead}`)* |
 | /spec-write | (same) + `date *` | (above) + `mcp__linear__{save_issue,list_issues,get_issue,list_issue_statuses,list_issue_labels,list_users}` *or `mcp__atlassian__{createJiraIssue,editJiraIssue,getJiraIssue,searchJiraIssuesUsingJql} (Jira path)`* |
-| /implement | (same) | (above) + `mcp__linear__{save_comment,list_comments}` *or `mcp__atlassian__{addCommentToJiraIssue,getTransitionsForJiraIssue,transitionJiraIssue} (Jira path)`* |
+| /implement | (same) | (above) + `mcp__linear__{save_comment,list_comments}` *or `mcp__atlassian__{addCommentToJiraIssue,getTransitionsForJiraIssue,transitionJiraIssue} (Jira path)`; v2: `mcp__atlassian__{addOrEditJiraIssueComment,discover,executeRead,transitionJiraIssue}`* |
 | /gate-check | `git *`, `bun *`, `bunx *`, `ls *`, `grep *`, `find *`, `jq *`, `test *` | `mcp__linear__{get_issue,list_issues}` (read-only) *or `mcp__atlassian__{getJiraIssue,searchJiraIssuesUsingJql}` (read-only, Jira path)* |
 | /spec-review | (same as gate-check) | (read-only) |
 | /simplify | `git *`, `bun *`, `bunx *`, `ls *`, `grep *`, `find *` | (none) |
 
-Driver-side tools (parent only, not in any child): `mcp__atlassian__{searchJiraIssuesUsingJql,getTransitionsForJiraIssue,transitionJiraIssue}` for Phase 5 teardown on the Jira path; `mcp__linear__save_project` for Phase 1 step 4 + Phase 5 teardown on the Linear path.
+Driver-side tools (parent only, not in any child): `mcp__atlassian__{searchJiraIssuesUsingJql,getTransitionsForJiraIssue,transitionJiraIssue}` (v2: `discover` and `executeRead` in place of `getTransitionsForJiraIssue`) for Phase 5 teardown on the Jira path; `mcp__linear__save_project` for Phase 1 step 4 + Phase 5 teardown on the Linear path.
 
 Tools surface common to all: `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Skill`, `TaskCreate`, `TaskUpdate`, `TaskList`, plus `Agent` for `/implement` (sub-agent invocations during Stage B code review).
 

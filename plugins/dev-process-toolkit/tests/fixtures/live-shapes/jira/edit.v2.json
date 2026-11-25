@@ -1,0 +1,24 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+      "issueIdOrKey": "ZZ-101",
+      "fields": {
+        "summary": "Example one"
+      }
+    },
+    "note": "editJiraIssue; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "data": {
+      "id": "10101",
+      "key": "ZZ-101",
+      "appliedContentFormat": "markdown",
+      "fields": {
+        "summary": "Example one"
+      }
+    }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "recorded-transcript",
+    "request": {
+      "cloudId": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+      "jql": "project = ZZ ORDER BY created DESC",
+      "fields": [
+        "summary",
+        "status",
+        "issuetype",
+        "labels",
+        "parent"
+      ],
+      "maxResults": 2
+    },
+    "note": "direct searchJiraIssuesUsingJql, final page; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "data": {
+      "appliedContentFormat": "markdown",
+      "isLast": true,
+      "issues": [
+        {
+          "id": "10101",
+          "key": "ZZ-101",
+          "fields": {
+            "summary": "Example one",
+            "status": {
+              "id": "10001",
+              "name": "To Do",
+              "description": "",
+              "statusCategory": {
+                "id": 2,
+                "key": "new",
+                "name": "To Do",
+                "colorName": "blue-gray"
+              }
+            },
+            "issuetype": {
+              "id": "10002",
+              "name": "Task",
+              "hierarchyLevel": 0,
+              "subtask": false,
+              "description": "",
+              "entityId": "aaaaaaaa-aaaa-4aaa-8aaa-000000000002"
+            },
+            "labels": [
+              "zz-be"
+            ],
+            "parent": {
+              "id": "10085",
+              "key": "ZZ-85",
+              "fields": {
+                "summary": "Example epic"
+              }
+            }
+          }
+        },
+        {
+          "id": "10102",
+          "key": "ZZ-102",
+          "fields": {
+            "summary": "Example two",
+            "status": {
+              "id": "10001",
+              "name": "To Do",
+              "description": "",
+              "statusCategory": {
+                "id": 2,
+                "key": "new",
+                "name": "To Do",
+                "colorName": "blue-gray"
+              }
+            },
+            "issuetype": {
+              "id": "10002",
+              "name": "Task",
+              "hierarchyLevel": 0,
+              "subtask": false,
+              "description": "",
+              "entityId": "aaaaaaaa-aaaa-4aaa-8aaa-000000000002"
+            },
+            "labels": [
+              "zz-be"
+            ],
+            "parent": {
+              "id": "10085",
+              "key": "ZZ-85",
+              "fields": {
+                "summary": "Example epic"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

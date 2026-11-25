@@ -4,7 +4,7 @@
 
 **Project:** Dev Process Toolkit — a Claude Code plugin that bootstraps Spec-Driven Development (SDD) + TDD workflows into any project.
 **Users:** Claude Code plugin users running SDD/TDD workflows.
-**Latest shipped release:** **v3.9.0 ("Read Back")**.
+**Latest shipped release:** **v3.10.0 ("Both Dialects")**.
 
 ### Shipped milestones
 
@@ -659,4 +659,9 @@ Violations are review-blocking: a canonical reference doc that includes LLM-inve
 | AC-STE-814.1..6 | plugins/dev-process-toolkit/adapters/_shared/src/retro_trend.ts, plugins/dev-process-toolkit/docs/retro-reference.md | plugins/dev-process-toolkit/tests/m_c46877-ste-813-run-unit.test.ts, plugins/dev-process-toolkit/tests/m_c46877-ste-814-per-run-signals.test.ts |
 | AC-STE-815.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/project_settings_writer.ts, plugins/dev-process-toolkit/adapters/_shared/src/retro_proposal.ts, plugins/dev-process-toolkit/docs/retro-reference.md | plugins/dev-process-toolkit/tests/m_c46877-ste-815-change-receipt.test.ts, plugins/dev-process-toolkit/tests/m_d1b4b7-ste-728-apply.test.ts |
 | AC-STE-816.1..7 | plugins/dev-process-toolkit/adapters/_shared/src/project_settings_writer.ts, plugins/dev-process-toolkit/adapters/_shared/src/retro_proposal.ts, plugins/dev-process-toolkit/docs/retro-reference.md | plugins/dev-process-toolkit/tests/m_c46877-ste-816-revert.test.ts |
+| AC-STE-865.1..9 | plugins/dev-process-toolkit/adapters/_shared/src/atlassian_call.ts | plugins/dev-process-toolkit/tests/m_b054b1-ste-865-atlassian-call.test.ts |
+| AC-STE-866.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/atlassian_call.ts, plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-tracker-write-gate.ts | plugins/dev-process-toolkit/tests/m_b054b1-ste-866-execute-tools.test.ts |
+| AC-STE-867.1..8 | plugins/dev-process-toolkit/adapters/_shared/src/tracker_answer.ts | plugins/dev-process-toolkit/tests/m_b054b1-ste-867-v2-answers.test.ts |
+| AC-STE-868.1..6 | plugins/dev-process-toolkit/templates/hooks/_lib/hooks/pre-tracker-write-gate.ts | plugins/dev-process-toolkit/tests/m_b054b1-ste-868-foreign-copy.test.ts |
+| AC-STE-869.1..7 | plugins/dev-process-toolkit/adapters/jira.md, plugins/dev-process-toolkit/adapters/_shared/data/tracker-tool-inventory.json | plugins/dev-process-toolkit/tests/m_b054b1-ste-869-both-surfaces.test.ts |
 

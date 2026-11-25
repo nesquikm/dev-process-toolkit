@@ -1,0 +1,16 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-24",
+    "method": "read-only-call",
+    "request": {
+      "name": "exampleRead",
+      "inputs": {}
+    },
+    "note": "a refused read, returned WITH the is_error flag; the shape (key names, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "error": true,
+    "message": "Example refusal",
+    "statusCode": 400
+  }
+}

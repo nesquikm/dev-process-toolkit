@@ -176,7 +176,10 @@ describe("Jira pages — BOTH measured shapes, one canonical page", () => {
   });
   test("REFUSE — a third wrapper nobody recorded fails closed", () => {
     const a = answer("jira", "search.plain.last");
-    refused(readTrackerPage("jira", { data: a }));
+    // Amended by AC-STE-867.1: `{data}` is now the recorded v2 envelope, for Jira only.
+    refused(readTrackerPage("jira", { payload: a }));
+    refused(readTrackerPage("jira", { data: a, extra: 1 }));
+    refused(readTrackerPage("linear", { data: answer("linear", "list_issues.last") }));
     refused(readTrackerPage("jira", { context: {}, results: a.issues }));
   });
 });
@@ -213,7 +216,10 @@ describe("single items — create and get answers, both trackers", () => {
     expect(trackerItemKey("linear", a)).toBeNull();
   });
   test("REFUSE — an unrecorded item wrapper fails closed", () => {
-    refused(readTrackerItem("jira", { data: answer("jira", "create.plain") }));
+    // Amended by AC-STE-867.1: `{data}` is now the recorded v2 envelope, for Jira only.
+    refused(readTrackerItem("jira", { payload: answer("jira", "create.plain") }));
+    refused(readTrackerItem("jira", { data: answer("jira", "create.plain"), extra: 1 }));
+    refused(readTrackerItem("linear", { data: answer("linear", "save_issue.create") }));
     refused(readTrackerItem("linear", { issue: answer("linear", "save_issue.create") }));
   });
 });

@@ -594,6 +594,983 @@
       }
     }
   },
+  "atlassian_v2": {
+    "captured_at": "2026-11-24",
+    "source": "Deferred-tool registry recorded in local session transcripts of 2026-11-16 to 2026-11-24, identical under both server spellings: mcp__atlassian__ and mcp__claude_ai_Atlassian__.",
+    "prefix": "mcp__atlassian__",
+    "count": 26,
+    "tools": [
+      "addGraphContext",
+      "addOrEditJiraIssueComment",
+      "atlassianUserInfo",
+      "createConfluenceContent",
+      "createJiraIssue",
+      "discover",
+      "editJiraIssue",
+      "executeDestructive",
+      "executeRead",
+      "executeWrite",
+      "getAccessibleAtlassianResources",
+      "getCollaborators",
+      "getConfluenceContent",
+      "getGraphContext",
+      "getGraphObject",
+      "getJiraIssue",
+      "getLoomObjectsContent",
+      "getPeopleInfo",
+      "getWorkActivity",
+      "getWorkPortfolio",
+      "listJiraIssueComments",
+      "search",
+      "searchConfluence",
+      "searchJiraIssuesUsingJql",
+      "transitionJiraIssue",
+      "updateConfluenceContent"
+    ],
+    "classification": {
+      "addGraphContext": {
+        "class": "gated-write"
+      },
+      "addOrEditJiraIssueComment": {
+        "class": "gated-write"
+      },
+      "atlassianUserInfo": {
+        "class": "read"
+      },
+      "createConfluenceContent": {
+        "class": "out-of-scope",
+        "reason": "Confluence content write; the toolkit binds no FR to Confluence content."
+      },
+      "createJiraIssue": {
+        "class": "gated-write"
+      },
+      "discover": {
+        "class": "read"
+      },
+      "editJiraIssue": {
+        "class": "gated-write"
+      },
+      "executeDestructive": {
+        "class": "execute"
+      },
+      "executeRead": {
+        "class": "execute"
+      },
+      "executeWrite": {
+        "class": "execute"
+      },
+      "getAccessibleAtlassianResources": {
+        "class": "read"
+      },
+      "getCollaborators": {
+        "class": "read"
+      },
+      "getConfluenceContent": {
+        "class": "read"
+      },
+      "getGraphContext": {
+        "class": "read"
+      },
+      "getGraphObject": {
+        "class": "read"
+      },
+      "getJiraIssue": {
+        "class": "read"
+      },
+      "getLoomObjectsContent": {
+        "class": "read"
+      },
+      "getPeopleInfo": {
+        "class": "read"
+      },
+      "getWorkActivity": {
+        "class": "read"
+      },
+      "getWorkPortfolio": {
+        "class": "read"
+      },
+      "listJiraIssueComments": {
+        "class": "read"
+      },
+      "search": {
+        "class": "read"
+      },
+      "searchConfluence": {
+        "class": "read"
+      },
+      "searchJiraIssuesUsingJql": {
+        "class": "read"
+      },
+      "transitionJiraIssue": {
+        "class": "gated-write"
+      },
+      "updateConfluenceContent": {
+        "class": "out-of-scope",
+        "reason": "Confluence content write; the toolkit binds no FR to Confluence content."
+      }
+    },
+    "operations": {
+      "captured_at": "2026-11-24",
+      "source": "Operation names, products, execute tools and input names listed by `discover` on a live v2 server (read-only catalogue text; nothing executed).",
+      "count": 65,
+      "classification": {
+        "addConfluenceReaction": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence comment; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "emojiId",
+            "access_link"
+          ]
+        },
+        "addLabelsToConfluenceContent": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence content write; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "labels",
+            "access_link"
+          ]
+        },
+        "addLoomInteraction": {
+          "product": "loom",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "identifier",
+            "interactionType",
+            "timestampMs",
+            "body",
+            "emoji"
+          ]
+        },
+        "addOrEditJiraIssueWorklog": {
+          "product": "jira",
+          "execute_tool": "executeWrite",
+          "class": "gated-write",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "timeSpent",
+            "comment",
+            "contentFormat",
+            "started",
+            "visibility",
+            "worklogId"
+          ]
+        },
+        "convertJiraIssueHierarchy": {
+          "product": "jira",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "targetIssueType",
+            "parentIssueKey",
+            "targetProjectKey",
+            "fieldRemap",
+            "mode",
+            "confirm",
+            "acknowledgeChildReparent",
+            "acknowledgeMove"
+          ]
+        },
+        "createConfluenceAttachment": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence content write; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "localFilePath",
+            "fileSize",
+            "comment",
+            "access_link"
+          ]
+        },
+        "createConfluenceComment": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence comment; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "commentType",
+            "body",
+            "inlineSelection",
+            "parentCommentId",
+            "access_link"
+          ]
+        },
+        "createConfluenceInfographicForPage": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence content write; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "prompt",
+            "theme",
+            "aspectRatio"
+          ]
+        },
+        "createConfluenceMauiApp": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence content write; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "prompt"
+          ]
+        },
+        "createConfluenceSpace": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence space write; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "name",
+            "key",
+            "alias",
+            "description",
+            "roleAssignments",
+            "createPrivateSpace",
+            "copySpaceAccessConfiguration",
+            "templateKey"
+          ]
+        },
+        "createJiraIssueLink": {
+          "product": "jira",
+          "execute_tool": "executeWrite",
+          "class": "gated-write",
+          "inputs": [
+            "cloudId",
+            "linkType",
+            "inwardIssue",
+            "outwardIssue",
+            "comment"
+          ]
+        },
+        "createJiraIssueRemoteIssueLink": {
+          "product": "jira",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "url",
+            "title",
+            "summary",
+            "relationship"
+          ]
+        },
+        "downloadJiraIssueAttachment": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "attachmentId",
+            "outputPath"
+          ]
+        },
+        "editConfluenceInfographicForPage": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence content write; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "mediaFileId",
+            "prompt",
+            "theme",
+            "aspectRatio"
+          ]
+        },
+        "editConfluenceMauiApp": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence content write; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "mauiId",
+            "prompt"
+          ]
+        },
+        "editJiraEntityProperty": {
+          "product": "jira",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "entityType",
+            "propertyKey",
+            "value",
+            "issueIdOrKey",
+            "commentId",
+            "worklogId",
+            "dashboardId",
+            "itemId",
+            "accountId"
+          ]
+        },
+        "getConfluenceComment": {
+          "product": "confluence",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "commentId",
+            "comment-type",
+            "body-format",
+            "include-replies",
+            "access_link"
+          ]
+        },
+        "getContentFormatGuide": {
+          "product": "system",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "toolName",
+            "reference"
+          ]
+        },
+        "getJiraAlignTerminology": {
+          "product": "jira-align",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId"
+          ]
+        },
+        "getJiraBoardConfig": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "boardId"
+          ]
+        },
+        "getJiraBoardIssueData": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "boardId",
+            "dataset",
+            "searchResultMode",
+            "jql",
+            "maxResults",
+            "fields",
+            "nextPageToken",
+            "responseContentFormat"
+          ]
+        },
+        "getJiraBoardSprintData": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "boardId",
+            "boardName",
+            "projectKeyOrId",
+            "boardType",
+            "sprintId",
+            "sprintName",
+            "includeIssues"
+          ]
+        },
+        "getJiraCurrentUser": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "expand"
+          ]
+        },
+        "getJiraEntityProperty": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "entityType",
+            "propertyKey",
+            "issueIdOrKey",
+            "commentId",
+            "worklogId",
+            "dashboardId",
+            "itemId",
+            "accountId"
+          ]
+        },
+        "getJiraIssueTypeMetaWithFields": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "projectIdOrKey",
+            "issueTypeId",
+            "startAt",
+            "maxResults",
+            "requiredFieldsOnly"
+          ]
+        },
+        "getJiraProjectVersionRelatedWork": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "versionId"
+          ]
+        },
+        "getJiraProjectVersions": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "projectIdOrKey",
+            "versionId",
+            "startAt",
+            "maxResults",
+            "query",
+            "status",
+            "orderBy",
+            "include"
+          ]
+        },
+        "getJiraUser": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "accountId",
+            "expand"
+          ]
+        },
+        "getJsmRequest": {
+          "product": "jsm",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "include"
+          ]
+        },
+        "getJsmRequestActionMetadata": {
+          "product": "jsm",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "serviceDeskId",
+            "requestTypeId",
+            "include"
+          ]
+        },
+        "getJsmRequestCreationOptions": {
+          "product": "jsm",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "projectKey"
+          ]
+        },
+        "getMyWork": {
+          "product": "twg",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "type",
+            "product",
+            "limit",
+            "sinceDays",
+            "cursor"
+          ]
+        },
+        "getPullRequests": {
+          "product": "twg",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "text",
+            "scope",
+            "accountId",
+            "name",
+            "email",
+            "author",
+            "reviewer",
+            "role",
+            "state",
+            "createdSince",
+            "createdBefore",
+            "updatedSince",
+            "updatedBefore",
+            "workspace",
+            "repo",
+            "query",
+            "limit",
+            "hydrate",
+            "onlyCounts",
+            "themes"
+          ]
+        },
+        "linkToFocusArea": {
+          "product": "focus",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "focusAreaIdentifier",
+            "connection",
+            "cloudId"
+          ]
+        },
+        "listConfluenceComments": {
+          "product": "confluence",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "content-id",
+            "comment-type",
+            "limit",
+            "cursor",
+            "sort",
+            "status",
+            "resolution-status",
+            "body-format",
+            "include-replies",
+            "content-type",
+            "access_link"
+          ]
+        },
+        "listJiraBoardSprints": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "boardId",
+            "state",
+            "startAt",
+            "maxResults"
+          ]
+        },
+        "listJiraBoards": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "startAt",
+            "maxResults",
+            "type",
+            "name",
+            "projectKeyOrId",
+            "includePrivate",
+            "negateLocationFiltering",
+            "orderBy",
+            "expand",
+            "projectTypeLocation",
+            "filterId"
+          ]
+        },
+        "listJiraIssueAssignableUsers": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "project",
+            "query",
+            "issueKey",
+            "actionSource"
+          ]
+        },
+        "listJiraIssueChangelogs": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "startAt",
+            "maxResults"
+          ]
+        },
+        "listJiraIssueLinkTypes": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId"
+          ]
+        },
+        "listJiraIssueRemoteIssueLinks": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "globalId"
+          ]
+        },
+        "listJiraIssueTransitions": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "transitionId",
+            "expand",
+            "skipRemoteOnlyCondition",
+            "includeUnavailableTransitions",
+            "sortByOpsBarAndStatus",
+            "actionSource"
+          ]
+        },
+        "listJiraIssueWorklogs": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "startAt",
+            "maxResults",
+            "startedAfter",
+            "startedBefore",
+            "expand",
+            "responseContentFormat"
+          ]
+        },
+        "listJiraProjectComponents": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "projectIdOrKey",
+            "query",
+            "componentSource",
+            "orderBy",
+            "startAt",
+            "maxResults"
+          ]
+        },
+        "listJiraProjectIssueTypesMetadata": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "projectIdOrKey",
+            "startAt",
+            "maxResults"
+          ]
+        },
+        "listJiraProjects": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "query",
+            "action",
+            "startAt",
+            "maxResults",
+            "expand"
+          ]
+        },
+        "listJiraStatuses": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "mode",
+            "projectKey",
+            "issueType",
+            "statusIdOrName",
+            "nameContains",
+            "statusCategory"
+          ]
+        },
+        "lookupJiraAccountId": {
+          "product": "jira",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "query",
+            "maxResults",
+            "actionSource"
+          ]
+        },
+        "manageConfluenceApproval": {
+          "product": "confluence",
+          "execute_tool": "executeDestructive",
+          "class": "out-of-scope",
+          "reason": "Confluence content write; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "contentStatus",
+            "action",
+            "reviewId",
+            "reviewers",
+            "addReviewers",
+            "removeReviewers",
+            "message",
+            "dueDate",
+            "clearDueDate",
+            "comment"
+          ]
+        },
+        "manageJiraProjectVersion": {
+          "product": "jira",
+          "execute_tool": "executeDestructive",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "action",
+            "projectIdOrKey",
+            "versionId",
+            "name",
+            "description",
+            "releaseDate",
+            "startDate",
+            "released",
+            "archived",
+            "driver",
+            "moveUnfixedIssuesTo"
+          ]
+        },
+        "manageJiraProjectVersionRelatedWork": {
+          "product": "jira",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "action",
+            "versionId",
+            "relatedWorkId",
+            "title",
+            "url",
+            "category"
+          ]
+        },
+        "manageJiraSprint": {
+          "product": "jira",
+          "execute_tool": "executeDestructive",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "action",
+            "boardId",
+            "sprintId",
+            "name",
+            "goal",
+            "startDate",
+            "endDate",
+            "issueIdsOrKeys",
+            "storyPoints"
+          ]
+        },
+        "searchJsmRequests": {
+          "product": "jsm",
+          "execute_tool": "executeRead",
+          "class": "read",
+          "inputs": [
+            "cloudId",
+            "jql",
+            "first",
+            "nextPageToken"
+          ]
+        },
+        "setJsmAgentAvailability": {
+          "product": "jsm",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "projectKey",
+            "agentAccountId",
+            "status"
+          ]
+        },
+        "transitionJsmRequest": {
+          "product": "jsm",
+          "execute_tool": "executeDestructive",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "transitionId",
+            "additionalComment"
+          ]
+        },
+        "unwatchConfluenceLabel": {
+          "product": "confluence",
+          "execute_tool": "executeDestructive",
+          "class": "out-of-scope",
+          "reason": "Confluence watch state; no Jira ticket or container is touched.",
+          "inputs": [
+            "cloudId",
+            "labelName"
+          ]
+        },
+        "unwatchConfluenceSpace": {
+          "product": "confluence",
+          "execute_tool": "executeDestructive",
+          "class": "out-of-scope",
+          "reason": "Confluence watch state; no Jira ticket or container is touched.",
+          "inputs": [
+            "cloudId",
+            "spaceKey",
+            "spaceId"
+          ]
+        },
+        "updateConfluenceComment": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence comment; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "commentId",
+            "body",
+            "commentType",
+            "expectedVersion",
+            "access_link"
+          ]
+        },
+        "updateConfluenceCommentResolution": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence comment; the toolkit binds no FR to Confluence content.",
+          "inputs": [
+            "cloudId",
+            "commentId",
+            "resolved",
+            "commentType",
+            "access_link"
+          ]
+        },
+        "updateJiraAlignItem": {
+          "product": "jira-align",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "entityType",
+            "id",
+            "fields"
+          ]
+        },
+        "uploadAttachmentToJiraIssue": {
+          "product": "jira",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "filePath",
+            "fileId"
+          ]
+        },
+        "watchConfluenceContent": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence watch state; no Jira ticket or container is touched.",
+          "inputs": [
+            "cloudId",
+            "contentId",
+            "access_link"
+          ]
+        },
+        "watchConfluenceLabel": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence watch state; no Jira ticket or container is touched.",
+          "inputs": [
+            "cloudId",
+            "labelName"
+          ]
+        },
+        "watchConfluenceSpace": {
+          "product": "confluence",
+          "execute_tool": "executeWrite",
+          "class": "out-of-scope",
+          "reason": "Confluence watch state; no Jira ticket or container is touched.",
+          "inputs": [
+            "cloudId",
+            "spaceKey",
+            "spaceId"
+          ]
+        },
+        "watchJiraIssue": {
+          "product": "jira",
+          "execute_tool": "executeWrite",
+          "class": "refused",
+          "reason": "A write the gate has no rule for: refused through an execute tool in a declared container.",
+          "inputs": [
+            "cloudId",
+            "issueIdOrKey",
+            "action"
+          ]
+        }
+      }
+    }
+  },
   "parameters_captured_at": "2026-09-21",
   "parameters_source": "Live MCP input schemas (additionalProperties: false) of the tools the STE-616 tracker doubles implement, captured for AC-STE-616.2; classification per tool for AC-STE-616.11."
 }

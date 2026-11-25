@@ -63,10 +63,23 @@ function refuseField(field: string, key: string | undefined): never {
 // empty, which reads as no back-link. Only an absent description was never requested.
 const NULLABLE_SHARED = new Set(["description"]);
 
-function requireShared(obj: Record<string, unknown>, fields: string[], key: string): void {
-  for (const f of fields) {
-    if (obj[f] === undefined || (obj[f] === null && !NULLABLE_SHARED.has(f))) refuseField(f, key);
+function missingShared(obj: Record<string, unknown>, fields: string[]): string[] {
+  return fields.filter((f) => obj[f] === undefined || (obj[f] === null && !NULLABLE_SHARED.has(f)));
+}
+
+/** STE-867 — every field `normalizeContainerItems` requires of `row` and does not find, in the order it refuses them. */
+export function missingContainerFields(row: Record<string, unknown>, adapter: WorkspaceAdapterKey, shared = false): string[] {
+  const missing: string[] = [];
+  if (adapter === "jira") {
+    const fields = (row["fields"] ?? {}) as Record<string, unknown>;
+    if (str(row["key"]) === undefined) missing.push("key");
+    if (str(fields["summary"]) === undefined) missing.push("summary");
+    if (str((fields["issuetype"] as { name?: unknown } | null | undefined)?.name) === undefined) missing.push("issuetype");
+    return shared ? [...missing, ...missingShared(fields, ["labels", "description", "creator"])] : missing;
   }
+  if (trackerItemKey("linear", row) === null) missing.push("id");
+  if (str(row["title"]) === undefined) missing.push("title");
+  return shared ? [...missing, ...missingShared(row, ["labels", "description", "createdBy"])] : missing;
 }
 
 function str(v: unknown): string | undefined {
@@ -131,6 +144,13 @@ export function normalizeContainerPage(json: unknown, adapter: WorkspaceAdapterK
   return normalizeContainerItems(readPage(json, adapter).items, adapter, shared);
 }
 
+/** The project a row names — a Jira project key, a Linear project name — or null. */
+export function containerProject(row: Record<string, unknown>, adapter: WorkspaceAdapterKey): string | null {
+  if (adapter === "linear") return nameOf(row["project"]);
+  const fields = (row["fields"] ?? {}) as Record<string, unknown>;
+  return str((fields["project"] as { key?: unknown } | null | undefined)?.key) ?? null;
+}
+
 /**
  * Read items the shared reader already returned — a page's items, or the one
  * item of a fetched ticket — into tickets.
@@ -141,15 +161,13 @@ export function normalizeContainerItems(
   shared = false,
 ): ContainerTicket[] {
   return items.map((row) => {
+    const [missing] = missingContainerFields(row, adapter, shared);
+    if (missing !== undefined) refuseField(missing, adapter === "jira" ? str(row["key"]) : trackerItemKey("linear", row) ?? undefined);
     if (adapter === "jira") {
-      const key = str(row["key"]);
-      const fields = (row["fields"] ?? {}) as Record<string, unknown>;
-      if (key === undefined) refuseField("key", undefined);
-      const title = str(fields["summary"]);
-      if (title === undefined) refuseField("summary", key);
-      const type = fields["issuetype"] as { name?: unknown; hierarchyLevel?: unknown } | undefined;
-      if (!type || str(type.name) === undefined) refuseField("issuetype", key);
-      if (shared) requireShared(fields, ["labels", "description", "creator"], key);
+      const key = row["key"] as string;
+      const fields = row["fields"] as Record<string, unknown>;
+      const title = fields["summary"] as string;
+      const type = fields["issuetype"] as { name: string; hierarchyLevel?: unknown };
       const level = typeof type.hierarchyLevel === "number" ? type.hierarchyLevel : 0;
       const description = typeof fields["description"] === "string" ? (fields["description"] as string) : "";
       return {
@@ -157,7 +175,7 @@ export function normalizeContainerItems(
         title,
         labels: labelsOf(fields["labels"]),
         isContainer: type.name === "Epic" || level > 0,
-        project: str((fields["project"] as { key?: unknown } | undefined)?.key) ?? null,
+        project: containerProject(row, adapter),
         creator: nameOf(fields["creator"]),
         hasBackLink: BACK_LINK_RE.test(description),
         closed: jiraClosed(fields),
@@ -165,11 +183,8 @@ export function normalizeContainerItems(
     }
     // A Linear row's key is its top-level `id` (`STE-618`); an id that is not
     // key-shaped (a uuid) names no ticket this repository could bind.
-    const key = trackerItemKey("linear", row) ?? undefined;
-    if (key === undefined) refuseField("id", undefined);
-    const title = str(row["title"]);
-    if (title === undefined) refuseField("title", key);
-    if (shared) requireShared(row, ["labels", "description", "createdBy"], key);
+    const key = trackerItemKey("linear", row)!;
+    const title = row["title"] as string;
     const description = typeof row["description"] === "string" ? (row["description"] as string) : "";
     return {
       key,
@@ -177,7 +192,7 @@ export function normalizeContainerItems(
       labels: labelsOf(row["labels"]),
       // Linear milestones are not issues: nothing on a Linear page is a container.
       isContainer: false,
-      project: nameOf(row["project"]),
+      project: containerProject(row, adapter),
       creator: nameOf(row["createdBy"]),
       hasBackLink: BACK_LINK_RE.test(description),
       closed: linearClosed(row),

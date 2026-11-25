@@ -141,7 +141,8 @@ Only on test-call success does `/setup` write `task_tracking` through
 Jira Space (project) in the Jira UI manually** — the Atlassian Rovo MCP
 exposes no project-creation tool, so the toolkit cannot do this for them.
 After the operator supplies the project key (`### Jira`.project), run
-`mcp__atlassian__getVisibleJiraProjects` and assert the configured key
+`mcp__atlassian__getVisibleJiraProjects` (v2: `mcp__atlassian__executeRead` with
+name `listJiraProjects` and the key as `query`) and assert the configured key
 appears in the response. On miss, refuse with NFR-10 canonical shape and
 **do not record mode**:
 
@@ -153,11 +154,16 @@ Context: mode=jira, project=<key>, skill=setup
 
 After visibility passes, run one-time AC-field discovery:
 
-1. Invoke the Atlassian MCP to fetch `GET /rest/api/3/field` (equivalent
-   tool, e.g., `mcp__atlassian__list_fields`).
-2. Pipe the response array into
+1. Fetch the project's fields: `mcp__atlassian__getJiraIssueTypeMetaWithFields`
+   (v2: `mcp__atlassian__executeRead` with that name), with the project as
+   `projectIdOrKey`, `requiredFieldsOnly: false` (an AC field is rarely required)
+   and as `issueTypeId` the id of the type `/spec-write` creates, from
+   `mcp__atlassian__getJiraProjectIssueTypesMetadata` (v2: `executeRead` with name
+   `listJiraProjectIssueTypesMetadata`). While rows are missing from `total`, fetch
+   the next page with `startAt`.
+2. Pipe the answer verbatim (several pages: their JSON array) into
    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` with
-   `{"fields": <response>}` on stdin.
+   `{"fields": <answer>}` on stdin; exit 1 is an unreadable answer, not a missing field.
 3. On `{ok: true, gid: "customfield_XXXXX"}`, append
    `jira_ac_field: customfield_XXXXX` to the `## Task Tracking` section
    (legacy tree; `writeProjectSettings` sets `task_tracking.jira_ac_field` otherwise).

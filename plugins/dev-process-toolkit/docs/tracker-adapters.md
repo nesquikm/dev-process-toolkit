@@ -287,7 +287,7 @@ own adapter markdown.
 ### Jira
 
 - AC custom-field GID is **per-tenant**. `/setup` runs one-time discovery
-  via `/rest/api/3/field` introspection and records
+  from the create metadata (`getJiraIssueTypeMetaWithFields`; v2: through `executeRead`) and records
   `jira_ac_field: customfield_XXXXX` in `## Task Tracking`.
   `adapters/jira/src/discover_field.ts` is the helper that performs the
   lookup.
