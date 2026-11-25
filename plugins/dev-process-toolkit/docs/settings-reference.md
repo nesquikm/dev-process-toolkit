@@ -58,7 +58,12 @@ One sub-map per adapter; either or both may be present. Each replaces the legacy
 | `min_dpt_version` | strict `X.Y.Z` string (shared container only) | absent | `### Linear` / `### Jira` `min_dpt_version:` |
 | `linear_bug_label` | string | absent | `### Linear` `linear_bug_label:` |
 | `jira_bug_issue_type` | string | absent | `### Jira` `jira_bug_issue_type:` |
+| `jira_bug_type_standard` | boolean | absent | `### Jira` `jira_bug_type_standard:` |
 | `jira_issue_type` | string | absent | `### Jira` `jira_issue_type:` |
+| `site` | host string (Jira only, optional), stored lower case, no scheme, port or path | absent | `### Jira` `site:` |
+| `cloud_id` | UUID string (Jira only, optional) | absent | `### Jira` `cloud_id:` |
+
+`site` and `cloud_id` declare the one Jira site this repository writes to. Both are optional, and a blank value reads as absent. Read the values from `getAccessibleAtlassianResources`: `cloud_id` is the site's `id`, and `site` is the host of its `url`. An older client refuses an unknown key, so raise the top-level `min_dpt_version` of `specs/settings.yaml` to the release that added these keys when you add either. The floor is checked before the keys, so an older client then says to upgrade the plugin; without the raised floor it reports an unrecognised key.
 
 In a tracker mode the binding is required: `/gate-check` probe #25 (`task-tracking-workspace-binding-present`) hard-fails without it. `task_tracking.linear` needs `team` and `project`; `task_tracking.jira` needs `project`. A missing sub-map, a missing key or an empty value all fail. Tickets created without `project` silently landed on the wrong board, which is why the probe exists.
 

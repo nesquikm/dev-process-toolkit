@@ -48,6 +48,8 @@ export const PROBE_ID = "claudemd_probe_managed_guard";
  * route it through `./toolkit_managed`.
  */
 export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
+  bug_tracker_type:
+    "the --bug front door (STE-872) reads the Jira binding only through readWorkspaceBinding, which routes to the settings loader; it decides no applicability of its own.",
   gate_reuse_key:
     "the gate reuse key (M_7bc805/STE-715) hashes the bytes of CLAUDE.md's Key Commands section into an input digest; it decides no applicability and runs only once the outcome switch, read through the loader, is on.",
   project_settings:
@@ -72,6 +74,8 @@ export const CLAUDEMD_GUARD_EXEMPT: Record<string, string> = {
     "the orphan listing's front door reads the tracker binding through `readWorkspaceBinding`; applicability is the declared tracker `mode:` and `repo_tag`, and an undeclared tree lists every candidate in managed and unmanaged trees alike.",
   create_idempotency_probe:
     "the create decision's front door reads the tracker binding (mode + sub-section) through `readWorkspaceBinding`; applicability is the declared tracker `mode:`, and an undeclared tree decides exactly as before in managed and unmanaged trees alike.",
+  shared_tracker_live_grader:
+    "the live bundle's extract reads each root's Jira binding through `readWorkspaceBinding` for `site` and `cloud_id` alone (STE-871); applicability is the tracker the run names, and a root that declares no site extracts exactly as before in managed and unmanaged trees alike.",
   workspace_binding:
     "the shared-declaration reader's front door: applicability derives from the declared tracker `mode:` (read via `readTaskTrackingSection`) and the active sub-section's own keys; an undeclared tree answers `shared:false` in managed and unmanaged trees alike.",
   import:

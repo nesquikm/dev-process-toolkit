@@ -1021,6 +1021,7 @@ const SKIP_BASELINE_LOCAL_DEPS = [
   // `milestone_token` gained `./create_idempotency_probe` under M_8f07e0 / STE-586,
   // which gained `./tracker_answer` under M_2306b6.
   "create_idempotency_probe",
+  "atlassian_site", // Amended by AC-STE-871.4 (M_e8850b): a dependency of create_idempotency_probe
   "tracker_answer",
   "ulid",
 ] as const;

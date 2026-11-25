@@ -19,6 +19,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { normalizeSite } from "./atlassian_site";
 import { checkVersionFloor, runningDptVersion } from "./dpt_version";
 import { SETTINGS_FILE, viewProjectSection } from "./project_settings";
 import {
@@ -72,7 +73,7 @@ function readLegacyBinding(claudeMdPath: string, adapterKey: WorkspaceAdapterKey
   }
   const parsed = parseBindingSubsection(content, adapterKey);
   if (!parsed) return { shared: false };
-  return finishBinding(parsed.result, parsed.occurrences, context);
+  return finishBinding(parsed.result, parsed.occurrences, context, adapterKey);
 }
 
 /** The one validation pass and the binding's final shape, for both homes. */
@@ -80,8 +81,9 @@ function finishBinding(
   result: Omit<WorkspaceBinding, "shared">,
   occurrences: Record<string, string[]>,
   context: string,
+  adapterKey: WorkspaceAdapterKey,
 ): WorkspaceBinding {
-  validateBindingDeclaration(result, occurrences, context);
+  validateBindingDeclaration(result, occurrences, context, adapterKey);
   return { ...result, shared: result.repoTag !== undefined };
 }
 
@@ -103,9 +105,13 @@ function bindingFromSettings(raw: unknown, adapterKey: WorkspaceAdapterKey): Wor
   set("repoTag", str("repo_tag"));
   set("minDptVersion", str("min_dpt_version"));
   if (adapterKey === "jira") set("jiraBugIssueType", str("jira_bug_issue_type"));
+  if (adapterKey === "jira" && typeof b.jira_bug_type_standard === "boolean") result.jiraBugTypeStandard = b.jira_bug_type_standard;
   if (adapterKey === "linear") set("linearBugLabel", str("linear_bug_label"));
+  const site = str("site");
+  set("site", site === undefined ? undefined : normalizeSite(site));
+  set("cloudId", str("cloud_id"));
   const context = `file=${SETTINGS_FILE}, key=task_tracking.${adapterKey}, adapter=${adapterKey}, helper=readWorkspaceBinding`;
-  return finishBinding(result, {}, context);
+  return finishBinding(result, {}, context, adapterKey);
 }
 
 /**

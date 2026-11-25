@@ -40,7 +40,8 @@ import { milestoneLabel } from "../../../../adapters/_shared/src/attach_project_
 import { containerListingRowsComplete, governingDecision, isCanonicalContainerListing, normalizeMilestoneTitle } from "../../../../adapters/_shared/src/milestone_token.ts";
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
 import { EPIC_EDIT_INPUT_KEYS, exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
-import { ATLASSIAN_EXECUTE_TOOLS, canonicalAtlassianCall, type CanonicalAtlassianCall } from "../../../../adapters/_shared/src/atlassian_call.ts";
+import { ATLASSIAN_EXECUTE_TOOLS, canonicalAtlassianCall, GRAPH_ITEM_TARGET_TYPES, type CanonicalAtlassianCall } from "../../../../adapters/_shared/src/atlassian_call.ts";
+import { browseHostMatches, isCloudId, isSiteHost, siteMatches } from "../../../../adapters/_shared/src/atlassian_site.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
@@ -338,6 +339,10 @@ export interface TrackerCall {
   unplaced: string[];
   /** Keys beside a wrapped call's `inputs` that the execute tools' schema does not have (STE-866). */
   wrapperKeys?: string[];
+  /** A graph link's unknown relationship type and the types known for the tool called (STE-870). */
+  unknownGraphType?: CanonicalAtlassianCall["unknownGraphType"];
+  /** The browse URL the subject key was read from (STE-871). */
+  subjectUrl?: string;
   /** The operation an `executeDestructive` call names, spelled as the call spells it (STE-866); `tool` is its canonical name. */
   destructive?: string;
   /** Why an execute call names no operation the gate can place (STE-866); `tool` is then the wrapper and `input` is empty. */
@@ -403,6 +408,8 @@ export function identifyTrackerCall(payload: HookPayload): TrackerCall | null {
     input: call.input,
     unplaced: call.unplaced,
     ...(call.wrapperKeys ? { wrapperKeys: call.wrapperKeys } : {}),
+    ...(call.unknownGraphType ? { unknownGraphType: call.unknownGraphType } : {}),
+    ...(call.subjectUrl !== undefined ? { subjectUrl: call.subjectUrl } : {}),
     ...(tool === "executeDestructive" ? { destructive: String(input.name) } : {}),
     ...toolUse,
   };
@@ -814,8 +821,36 @@ export type Declaration =
   | { root: string; ok: true; binding: WorkspaceBinding }
   | { root: string; ok: false; error: string };
 
-/** A readable declaration that declares a shared container. */
-type DeclaredTarget = { root: string; binding: WorkspaceBinding };
+/**
+ * A readable declaration that declares a shared container. `siteFrom` names the
+ * sibling roots whose Jira site this target was given (STE-871, `inheritSites`).
+ */
+type DeclaredTarget = { root: string; binding: WorkspaceBinding; siteFrom?: string[] };
+
+/** STE-871 — whether a binding declares its Jira site, by either key. */
+function declaresSite(b: WorkspaceBinding): boolean {
+  return !!b.site || !!b.cloudId;
+}
+
+/**
+ * STE-871 — a Jira target that declares no site, while a sibling target binding
+ * the same project declares one, takes that sibling's site. Without this, the
+ * undeclared target would accept any site and launder a write, a fetch or a
+ * browse URL past the sibling's declaration. With several declaring siblings,
+ * the first `site` and the first `cloud_id` are taken; a write in scope of all
+ * of them must match each one anyway (`gateTicket`).
+ */
+function inheritSites(adapter: WorkspaceAdapterKey, declared: DeclaredTarget[]): DeclaredTarget[] {
+  if (adapter !== "jira") return declared;
+  return declared.map((t) => {
+    if (declaresSite(t.binding) || t.binding.project === undefined) return t;
+    const from = declared.filter((s) => s !== t && declaresSite(s.binding) && sameName(s.binding.project, t.binding.project));
+    if (from.length === 0) return t;
+    const site = from.find((s) => s.binding.site)?.binding.site;
+    const cloudId = from.find((s) => s.binding.cloudId)?.binding.cloudId;
+    return { ...t, binding: { ...t.binding, ...(site ? { site } : {}), ...(cloudId ? { cloudId } : {}) }, siteFrom: from.map((s) => s.root) };
+  });
+}
 
 /** Each candidate's declaration through the STE-602 reader. Malformed/unreadable → `ok: false`. */
 export function readDeclarations(roots: string[], adapter: WorkspaceAdapterKey): Declaration[] {
@@ -1075,7 +1110,9 @@ function readCreateReceipt(path: string, sessionId: string, adapter: WorkspaceAd
  * receipt on it anyway, and the corrected create was refused as "spent" with no
  * legal path left (`decide --attempt retry-1` answered miss). A create with no
  * result yet (a pending parallel sibling) or an ambiguous one (a timeout, a 5xx)
- * still spends, exactly as before.
+ * still spends, exactly as before. A create sent under any cloudId spends
+ * (STE-871): the hook cannot tell a site's UUID from its host, so a create
+ * under another spelling of the same site may have made the ticket.
  */
 function createsBefore(
   parsed: Array<ParsedLine | null>,
@@ -1202,7 +1239,9 @@ function messageIdOf(record: Record<string, unknown>): string {
  * whose line Claude Code writes only after its hook returns (STE-641
  * § Re-cut), a payload with no tool_use_id, or a subagent's call — the call is
  * placed after every recorded line and a create with no result yet is not
- * counted as lost, exactly as at v2.90.0.
+ * counted as lost, exactly as at v2.90.0. A create sent under any cloudId
+ * counts (STE-871): another spelling of the declared site may name the same
+ * site, and a duplicate is worse than a refusal.
  */
 function priorCreates(
   parsed: Array<ParsedLine | null>,
@@ -1339,6 +1378,7 @@ function gateCreate(
     }
     target = tagged[0];
   }
+  if (targetsAtSite(call, [target]).length === 0) return refuseOtherSite(call, [target], note);
   const tag = target.binding.repoTag ?? "";
   const where = `${call.tool} in ${target.root}`;
   // STE-642 — a create of this ticket that returned its key settled it: no
@@ -1387,7 +1427,7 @@ function gateCreate(
   }
   const matching = seen.filter((r) => createMismatch(call.adapter, shape, r.shape, tag) === null);
   if (matching.some((r) => !r.spent)) {
-    const created = createdKeys(parsed, call.adapter);
+    const created = createdKeys(parsed, call.adapter, target.binding);
     return gateAttachTarget(call, shape, sessionId, announcements, created, target, note, parsed);
   }
 
@@ -1747,8 +1787,31 @@ export function isContainer(tool: string, input: Record<string, unknown>): boole
   );
 }
 
-/** The Teamwork Graph relationship types whose target is a Jira item (STE-649). */
-const TEAMWORK_ITEM_TARGETS = new Set(["jira-work-item-links-jira-work-item", "jira-work-item-blocks-jira-work-item"]);
+/** STE-871 — the targets whose declared Jira site the call names; a target that declares none is always one. */
+function targetsAtSite(call: TrackerCall, targets: DeclaredTarget[]): DeclaredTarget[] {
+  return targets.filter((t) => siteMatches(t.binding, call.input.cloudId));
+}
+
+/** AC-STE-871.3 — refuse a write in scope of `targets`, none of which declares the site it names. */
+function refuseOtherSite(call: TrackerCall, targets: DeclaredTarget[], note: string): 2 {
+  const value = call.input.cloudId;
+  const raw = JSON.stringify(value);
+  const shown = value === undefined ? "no cloudId" : `cloudId ${raw.length > 200 ? `${raw.slice(0, 200)}…` : raw}`;
+  const roots = targets.map(({ root, binding: b, siteFrom }) => {
+    const keys = [...(b.site ? [`site ${b.site}`] : []), ...(b.cloudId ? [`cloud_id ${b.cloudId}`] : [])];
+    return `${root} (${keys.join(", ")}${siteFrom ? `, taken from ${siteFrom.join(", ")}, which binds the same project` : ""})`;
+  });
+  const host = typeof value === "string" ? value.replace(/^https:\/\//i, "").toLowerCase() : "";
+  const hints = targets.flatMap(({ root, binding: b, siteFrom }) => {
+    if (siteFrom) return [];
+    const key = !b.cloudId && isCloudId(host) ? "cloud_id" : !b.site && isSiteHost(host) ? "site" : null;
+    return key === null ? [] : [` If ${raw} is the site ${root} declares, have the operator add \`${key}: ${host}\` to its task_tracking.jira settings.`];
+  });
+  return refuse(
+    `${call.tool} names ${shown}, which is not the Jira site declared by ${roots.join(", ")}.${note}`,
+    `send the call with the declared site as its cloudId, then retry.${hints.join("")}`,
+  );
+}
 
 /** A call that links two tickets: `createIssueLink`, or a Teamwork Graph link. */
 function isLinkTool(tool: string): boolean {
@@ -1761,7 +1824,7 @@ function subjectValues(call: TrackerCall): unknown[] {
   if (call.tool === "createIssueLink") return [i.inwardIssue, i.outwardIssue];
   if (call.tool === "addTeamworkGraphContext") {
     // The object is always a Jira item; the target is one only for item↔item relationship types.
-    const itemTarget = typeof i.relationshipType === "string" && TEAMWORK_ITEM_TARGETS.has(i.relationshipType);
+    const itemTarget = GRAPH_ITEM_TARGET_TYPES.has(i.relationshipType);
     return itemTarget ? [i.objectIdentifier, i.targetObjectIdentifier] : [i.objectIdentifier];
   }
   // A wrapped call's inputs are checked by no schema: only the key Jira writes by is a subject.
@@ -1814,6 +1877,32 @@ function rawSubjects(call: TrackerCall): string {
   return raw.length > 0 ? ` (got ${raw.map((v) => `"${v}"`).join(", ")})` : "";
 }
 
+/** The browse URLs a ticket call names its subjects by: a link's URL sides, else the URL its key was read from. */
+function subjectUrls(call: TrackerCall): string[] {
+  if (isLinkTool(call.tool)) return subjectValues(call).map(sideText).filter((s) => BROWSE_URL.test(s));
+  return call.subjectUrl === undefined ? [] : [call.subjectUrl];
+}
+
+/**
+ * AC-STE-871.5 — a browse URL resolves only on the `site` of the targets that
+ * bind its key at the call's site; with no target binding the key, on the host
+ * of some declared target. A target that declares no `site` accepts any host.
+ */
+function gateBrowseHosts(call: TrackerCall, declared: DeclaredTarget[], note: string): ExitCode {
+  const unresolved = subjectUrls(call).filter((url) => {
+    const key = resolveItemSide(url);
+    const binding = key === null ? [] : declared.filter((d) => bindsKey(call.adapter, d.binding, key));
+    const onHost = (d: DeclaredTarget): boolean => browseHostMatches(d.binding, url);
+    return binding.length > 0 ? !targetsAtSite(call, binding).every(onHost) : !declared.some(onHost);
+  });
+  if (unresolved.length === 0) return 0;
+  const sites = [...new Set(declared.flatMap((d) => (d.binding.site ? [`${d.binding.site} (${d.root})`] : [])))].join(", ");
+  return refuse(
+    `${call.tool}: ${unresolved.map((u) => `"${u}"`).join(", ")} cannot be resolved to a ticket key — a /browse/<KEY> URL resolves only over https on the declared Jira site: ${sites}.${note}`,
+    `pass the ticket's key or its /browse/<KEY> URL on the declared site, then retry.`,
+  );
+}
+
 function keyPrefix(key: string): string {
   return key.slice(0, key.lastIndexOf("-"));
 }
@@ -1855,9 +1944,11 @@ function createdKeyOf(text: string, call: TrackerCall): string | null {
 /**
  * Keys a create tool_use of this session — a ticket create, or an Epic create
  * the milestone decision permitted — returned as created in its paired,
- * non-error tool_result.
+ * non-error tool_result. STE-871 — a create naming another site than `binding`
+ * declares, or two sites, created nothing there.
  */
-function createdKeys(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapterKey): Set<string> {
+function createdKeys(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapterKey, binding: WorkspaceBinding): Set<string> {
+  const declaresSite = Boolean(binding.site || binding.cloudId);
   const creates = new Map<string, { call: TrackerCall; milestone: boolean }>();
   const out = new Set<string>();
   for (const p of parsed) {
@@ -1866,7 +1957,9 @@ function createdKeys(parsed: Array<ParsedLine | null>, adapter: WorkspaceAdapter
       if (b.type === "tool_use") {
         const ticket = createCallIn(b, adapter);
         const c = ticket ?? MILESTONE_CREATES.pick(b, adapter);
-        if (typeof b.id === "string" && c) creates.set(b.id, { call: c, milestone: ticket === null });
+        if (typeof b.id !== "string" || !c || !siteMatches(binding, c.input.cloudId)) continue;
+        if (declaresSite && c.unplaced.includes("cloudId")) continue;
+        creates.set(b.id, { call: c, milestone: ticket === null });
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         const c = creates.get(b.tool_use_id);
         if (!c || isErrorResult(adapter, b)) continue;
@@ -1979,7 +2072,8 @@ function consentedBefore(parsed: Array<ParsedLine | null>, key: string, verb: "I
 interface OwnershipContext {
   parsed: Array<ParsedLine | null>;
   announcements: Announcement[];
-  created: Set<string>;
+  /** Keys this session created at each root's site (STE-871), read once per root. */
+  created: Map<string, Set<string>>;
   sessionId: string;
   adapter: WorkspaceAdapterKey;
   tracked: Map<string, Set<string>>;
@@ -1992,6 +2086,15 @@ function trackedIds(ctx: OwnershipContext, root: string): Set<string> {
     ctx.tracked.set(root, ids);
   }
   return ids;
+}
+
+function createdAt(ctx: OwnershipContext, target: DeclaredTarget): Set<string> {
+  let keys = ctx.created.get(target.root);
+  if (!keys) {
+    keys = createdKeys(ctx.parsed, ctx.adapter, target.binding);
+    ctx.created.set(target.root, keys);
+  }
+  return keys;
 }
 
 /** STE-729 AC.5 — the get-ticket read tool of each adapter (any server spelling). Twin: `GET_TICKET_TOOLS` in adapters/_shared/src/shared_tracker_live_grader.ts */
@@ -2007,7 +2110,8 @@ function getTicketCallIn(b: ContentBlock, adapter: WorkspaceAdapterKey): Tracker
   if (adapter !== "jira") return { tool, adapter, input, unplaced: [] };
   // A key beside `inputs` is never read as an input, and the answer names its own key.
   const call = canonicalAtlassianCall(bare, input);
-  return call.tool === tool ? { tool, adapter, input: call.input, unplaced: call.unplaced } : null;
+  if (call.tool !== tool) return null;
+  return { tool, adapter, input: call.input, unplaced: call.unplaced, ...(call.subjectUrl !== undefined ? { subjectUrl: call.subjectUrl } : {}) };
 }
 
 /**
@@ -2015,8 +2119,10 @@ function getTicketCallIn(b: ContentBlock, adapter: WorkspaceAdapterKey): Tracker
  * session, when it reads as `key` or is an item carrying no key at all (which
  * owns nothing: its ownership decision throws); else null. An in-band error is an error (STE-867).
  * A wrapped fetch naming two sites proves nothing, and nothing older than it does.
+ * A fetch from another site than `binding` declares is not a fetch of `key` (STE-871);
+ * one at that site by a browse URL on another host names two sites as well.
  */
-function newestFetch(ctx: OwnershipContext, key: string): unknown {
+function newestFetch(ctx: OwnershipContext, key: string, binding: WorkspaceBinding): unknown {
   const fetches = new Map<string, boolean>(); // tool_use id → its site is one
   let newest: string | null = null;
   for (const p of ctx.parsed) {
@@ -2024,7 +2130,9 @@ function newestFetch(ctx: OwnershipContext, key: string): unknown {
     for (const b of p.blocks) {
       if (b.type === "tool_use") {
         const c = getTicketCallIn(b, ctx.adapter);
-        if (c && typeof b.id === "string" && subjectKeys(c).includes(key)) fetches.set(b.id, c.unplaced.length === 0);
+        if (!c || typeof b.id !== "string" || !subjectKeys(c).includes(key)) continue;
+        const onHost = c.subjectUrl === undefined || browseHostMatches(binding, c.subjectUrl);
+        if (c.unplaced.includes("cloudId") || siteMatches(binding, c.input.cloudId)) fetches.set(b.id, c.unplaced.length === 0 && onHost);
       } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
         if (!fetches.has(b.tool_use_id) || isErrorResult(ctx.adapter, b)) continue;
         newest = fetches.get(b.tool_use_id) === true ? resultText(b.content).trim() : null;
@@ -2047,10 +2155,10 @@ function newestFetch(ctx: OwnershipContext, key: string): unknown {
 function missingFieldsNote(ctx: OwnershipContext, subjects: Array<{ key: string; targets: DeclaredTarget[] }>): string {
   let out = "";
   for (const { key, targets } of subjects) {
-    const answer = newestFetch(ctx, key);
-    if (answer === null) continue;
     const missing = new Set<string>();
     for (const t of targets) {
+      const answer = newestFetch(ctx, key, t.binding);
+      if (answer === null) continue;
       try {
         for (const f of missingOwnershipFields(t.root, answer)) missing.add(f);
       } catch {
@@ -2067,12 +2175,12 @@ function missingFieldsNote(ctx: OwnershipContext, subjects: Array<{ key: string;
  * that answer in `root` says `owned` — or `unowned` with an `Adopt <key>` answer.
  * Twin: `fetchedOwned` in adapters/_shared/src/shared_tracker_live_grader.ts
  */
-function fetchedOwned(ctx: OwnershipContext, root: string, key: string): boolean {
-  const answer = newestFetch(ctx, key);
+function fetchedOwned(ctx: OwnershipContext, target: DeclaredTarget, key: string): boolean {
+  const answer = newestFetch(ctx, key, target.binding);
   if (answer === null) return false;
   let verdict: string;
   try {
-    verdict = decideTicketOwnership({ projectRoot: root, ticket: answer }).verdict;
+    verdict = decideTicketOwnership({ projectRoot: target.root, ticket: answer }).verdict;
   } catch {
     return false;
   }
@@ -2080,11 +2188,12 @@ function fetchedOwned(ctx: OwnershipContext, root: string, key: string): boolean
   return verdict === "unowned" && consentedBefore(ctx.parsed, key, "Adopt", ctx.parsed.length);
 }
 
-/** §4 — does `root` own `key`: tracked FR binding, created this session, an owned fetch, or an announced receipt. */
-function owns(ctx: OwnershipContext, root: string, key: string): boolean {
+/** §4 — does `target` own `key`: tracked FR binding, created this session, an owned fetch, or an announced receipt. */
+function owns(ctx: OwnershipContext, target: DeclaredTarget, key: string): boolean {
+  const { root } = target;
   if (trackedIds(ctx, root).has(key)) return true;
-  if (ctx.created.has(key)) return true;
-  if (fetchedOwned(ctx, root, key)) return true;
+  if (createdAt(ctx, target).has(key)) return true;
+  if (fetchedOwned(ctx, target, key)) return true;
   for (const a of ctx.announcements) {
     if (a.root !== root || !a.intact) continue;
     const r = readSessionReceipt(a.receiptPath, ctx.sessionId, ctx.adapter);
@@ -2256,7 +2365,7 @@ function gateTicket(
       `pass the ticket's key (e.g. ${call.adapter === "jira" ? "GK-123" : "STE-123"}) rather than an internal id, then retry.`,
     );
   }
-  const inScope = keys.map((k) => ({ key: k, targets: declared.filter((d) => bindsKey(call.adapter, d.binding, k)) }));
+  const inDeclared = keys.map((k) => ({ key: k, targets: declared.filter((d) => bindsKey(call.adapter, d.binding, k)) }));
   // A move: the fields name a declared project the ticket is not in.
   const moved = call.tool === "editJiraIssue" ? movedInto(call, declared, keys) : null;
   if (moved !== null) {
@@ -2265,7 +2374,13 @@ function gateTicket(
       `leave the move to a person in the tracker, or create the ticket in the project through its decided create.`,
     );
   }
-  if (inScope.every((k) => k.targets.length === 0)) return 0; // §3 — no declared target binds the container
+  if (inDeclared.every((k) => k.targets.length === 0)) return 0; // §3 — no declared target binds the container
+  // STE-871 — a call in scope of several targets must match the site of each
+  // target that binds one of its keys; a target that declares no site took a
+  // sibling's (`inheritSites`), so it launders nothing.
+  const elsewhere = [...new Set(inDeclared.flatMap((k) => k.targets.filter((t) => targetsAtSite(call, [t]).length === 0)))];
+  if (elsewhere.length > 0) return refuseOtherSite(call, elsewhere, note);
+  const inScope = inDeclared;
   // STE-655 AC.16 — a Linear relation target is a link side for resolution
   // only: it must resolve to a key inside the team that binds the issue. It is
   // never a subject, so owning it never permits writing an unowned `id`.
@@ -2286,13 +2401,13 @@ function gateTicket(
   const ctx: OwnershipContext = {
     parsed,
     announcements,
-    created: createdKeys(parsed, call.adapter),
+    created: new Map(),
     sessionId,
     adapter: call.adapter,
     tracked: new Map(),
   };
   const ownedKey = (k: { key: string; targets: DeclaredTarget[] }) =>
-    k.targets.length === 0 || k.targets.some((t) => owns(ctx, t.root, k.key) || epicClosed(call, ctx, t.root, k.key) || epicEdited(call, ctx, t.root, k.key));
+    k.targets.length === 0 || k.targets.some((t) => owns(ctx, t, k.key) || epicClosed(call, ctx, t.root, k.key) || epicEdited(call, ctx, t.root, k.key));
   const isLink = isLinkTool(call.tool);
   const bound = inScope.filter((k) => k.targets.length > 0);
   const unowned = inScope.filter((k) => !ownedKey(k));
@@ -2371,6 +2486,8 @@ const MILESTONE_CREATES: CreateKind = {
 };
 
 interface MilestoneDecision {
+  /** The repository whose front door decided it. */
+  root: string;
   line: number;
   path: string;
   project: string;
@@ -2411,6 +2528,7 @@ function milestoneDecisions(
   )) {
     if (ev.act !== "create" && ev.act !== "join") continue;
     out.push({
+      root: a.root,
       line: a.line,
       path: a.receiptPath,
       project: container,
@@ -2515,11 +2633,12 @@ function relistRequest(adapter: WorkspaceAdapterKey, name: string, input: unknow
  * does not qualify. `consented` (a forbidden decision the operator answered)
  * admits a full Linear milestone window, which never proves the last page:
  * the answer is the only way past it. Freshness is not checked here; the
- * caller filters by `freshBefore`. Twin: `relistedAfter` in
+ * caller filters by `freshBefore`. A page from another site than `binding`
+ * declares joins, ends and breaks no chain (STE-871). Twin: `relistedAfter` in
  * shared_tracker_live_grader.ts, which grades the same rule on a recorded
  * bundle and cannot check all of it (see there).
  */
-function relistsAfter(parsed: Array<ParsedLine | null>, from: number, adapter: WorkspaceAdapterKey, project: string, consented = false): Relist[] {
+function relistsAfter(parsed: Array<ParsedLine | null>, from: number, adapter: WorkspaceAdapterKey, project: string, binding: WorkspaceBinding, consented = false): Relist[] {
   const requests = new Map<string, unknown>();
   const out: Relist[] = [];
   let pages: unknown[] | null = null;
@@ -2529,7 +2648,8 @@ function relistsAfter(parsed: Array<ParsedLine | null>, from: number, adapter: W
     for (const b of p.blocks) {
       if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
         const input = relistRequest(adapter, b.name, b.input);
-        if (input !== null && isCanonicalContainerListing(adapter, input, project)) requests.set(b.id, input);
+        if (input === null || !isCanonicalContainerListing(adapter, input, project)) continue;
+        if (siteMatches(binding, (input as Record<string, unknown>).cloudId)) requests.set(b.id, input);
         continue;
       }
       if (b.type !== "tool_result" || typeof b.tool_use_id !== "string" || !requests.has(b.tool_use_id)) continue;
@@ -2699,8 +2819,9 @@ function gateMilestoneCreate(
     // operator's consent answer, exactly like a forbidden one.
     const label = consentLabel(permitting);
     const consented = permitting.forbidden || (call.adapter === "linear" && answeredAfter(parsed, permitting, label));
-    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, consented).filter((r) => freshBefore(parsed, r));
-    const capped = consented || call.adapter !== "linear" ? [] : relistsAfter(parsed, permitting.line, call.adapter, want.project, true).filter((r) => freshBefore(parsed, r));
+    const { binding } = targets.find((t) => t.root === permitting.root)!;
+    const fresh = relistsAfter(parsed, permitting.line, call.adapter, want.project, binding, consented).filter((r) => freshBefore(parsed, r));
+    const capped = consented || call.adapter !== "linear" ? [] : relistsAfter(parsed, permitting.line, call.adapter, want.project, binding, true).filter((r) => freshBefore(parsed, r));
     const dup = [...fresh, ...capped].map((r) => openSameTitle(call.adapter, r, want.title)).find((k) => k !== null);
     if (dup !== undefined) {
       return refuse(
@@ -2781,7 +2902,10 @@ function gateContainer(
   const decideRemedy = `milestone containers are decided by ${frontDoor("--title <title>")} (or \`--join-key <key>\` to take an existing one) ${PLAIN_RULE}`;
 
   if (isMilestoneCreate(call.tool, call.input)) {
-    return gateMilestoneCreate(call, sessionId, transcript, announcements, targets, where, note);
+    // STE-871 — only a decision of a root at the call's site can authorise it.
+    const atSite = targetsAtSite(call, targets);
+    if (atSite.length === 0) return refuseOtherSite(call, targets, note);
+    return gateMilestoneCreate(call, sessionId, transcript, announcements, atSite, where, note);
   }
   if (call.tool === "save_milestone") {
     return refuse(
@@ -2847,8 +2971,9 @@ function gateJoinedLabels(
   const keys = subjectKeys(call);
   if (keys.length !== 1) return null;
   const key = keys[0]!;
+  // STE-871 — as gateTicket: every target binding the key must be at the call's site.
   const targets = declared.filter((d) => bindsKey(call.adapter, d.binding, key));
-  if (targets.length === 0) return null;
+  if (targets.length === 0 || targetsAtSite(call, targets).length < targets.length) return null;
   const roots = new Set(targets.map((t) => t.root));
   const joins = milestoneDecisions(announcements, roots, sessionId, call.adapter).filter(
     (d) => d.act === "join" && d.key.toUpperCase() === key,
@@ -2877,7 +3002,8 @@ function gateJoinedLabels(
   // hook tells only "created" from every other route (an FR binding, a reuse,
   // binding or import receipt), and none of those is exempt.
   const parsed = parseLines(transcript);
-  const route = createdKeys(parsed, call.adapter).has(key) ? "created" : "not-created";
+  const { binding } = targets.find((t) => t.root === join.root)!;
+  const route = createdKeys(parsed, call.adapter, binding).has(key) ? "created" : "not-created";
   const consent = consentLabel(join);
   const unconsented = !exemptsJoinConsent(route) && join.forbidden && !answeredAfter(parsed, join, consent);
   if (unconsented) {
@@ -3085,7 +3211,7 @@ function gradeRead(payload: HookPayload, call: TrackerCall, lines: string[], ses
   if (declared.length === 0) return { exit: 0 }; // §3 — byte-identical when undeclared
   const floor = checkFloors(call, declared);
   if (floor !== 0) return { exit: floor };
-  return { scan, declared, cwdTop };
+  return { scan, declared: inheritSites(call.adapter, declared), cwdTop };
 }
 
 /**
@@ -3139,11 +3265,13 @@ function uncheckableCall(call: TrackerCall): { subject: string; why: string; rem
       remedy: `put every field of the operation inside inputs, then retry.`,
     };
   }
-  // AC-STE-865.7 — a graph link whose sides the gate cannot read.
+  // AC-STE-865.7, AC-STE-870.1 — a graph link whose sides the gate cannot read.
   if (call.tool === "addTeamworkGraphContext" && call.unplaced.length > 0) {
+    const type = call.unknownGraphType;
+    const typeNote = type === undefined ? "" : ` (relationshipType ${type.given === undefined ? "is missing" : `${JSON.stringify(type.given)} is not a known type`}; the known types are ${type.known.join(", ")})`;
     return {
       subject: call.tool,
-      why: `the gate cannot read ${call.unplaced.join(", ")} of this graph link, so the tickets it writes are unknown`,
+      why: `the gate cannot read ${call.unplaced.join(", ")} of this graph link${typeNote}, so the tickets it writes are unknown`,
       remedy: `link the tickets with createIssueLink, or name objectIdentifier, targetObjectIdentifier and a known relationshipType and nothing else, then retry.`,
     };
   }
@@ -3249,6 +3377,8 @@ export function run(stdin: string): ExitCode {
   }
   if (isCreate(call.tool, call.input)) return gateCreate(call, sessionId, lines, announcements, declared, note, cwdTop);
   if (isContainer(call.tool, call.input)) return gateContainer(call, sessionId, lines, announcements, declared, note);
+  const offHost = gateBrowseHosts(call, declared, note);
+  if (offHost !== 0) return offHost;
   const joined = gateJoinedLabels(call, sessionId, announcements, declared, note, lines);
   if (joined !== null) return joined;
   return gateTicket(call, sessionId, lines, announcements, declared, note, stale);

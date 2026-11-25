@@ -39,6 +39,7 @@
 // thing, so a project that never sets the key never starts refusing runs that
 // worked yesterday.
 
+import { type SiteDeclaration, siteMatches } from "./atlassian_site";
 import { linearTeamKeyOf, readTrackerListing, trackerItemKey } from "./tracker_answer";
 
 // ---------------------------------------------------------------- the compare
@@ -759,12 +760,14 @@ function resultText(content: unknown): string {
  * page cursor after the first page, plus `cloudId` and a `full` view on Jira. A
  * narrowed search (an extra `query`, a changed label) is never read as a complete
  * miss. A Jira search through `executeRead` (STE-867) is unwrapped first and held
- * to the same.
+ * to the same. A Jira page from another site than the binding declares is refused
+ * (STE-871).
  */
 async function readTranscriptPages(
   mode: "jira" | "linear",
   t: { path: string; ids: string[] },
   printed: Record<string, unknown>,
+  site: SiteDeclaration,
 ): Promise<unknown[]> {
   const { readTranscriptLines } = await import("../../../templates/hooks/_lib/session");
   const { listingRequestCursor, withoutListingRequestPaging } = await import("./tracker_answer");
@@ -815,6 +818,9 @@ async function readTranscriptPages(
     const cursor = listingRequestCursor(mode, request);
     if (n === 0 && cursor !== null) throw new PageViolatesQuery(`tool call ${id} is a later page, named first`);
     const input = withoutListingRequestPaging(mode, request);
+    if (mode === "jira" && !siteMatches(site, input.cloudId)) {
+      throw new PageViolatesQuery(`tool call ${id} searched another site than the binding declares`);
+    }
     if (mode === "jira" && typeof input.cloudId === "string") delete input.cloudId;
     if (mode === "jira" && input.view === "full") delete input.view; // v2: the widest view narrows nothing
     if (canonical(input) !== expected) {
@@ -888,7 +894,7 @@ async function runDecideCommand(args: DecideArgs): Promise<string> {
     // Both sources yield the same raw pages; the chain / cap / match logic
     // below never knows which one it read.
     const raw = args.transcript
-      ? await readTranscriptPages(mode, args.transcript, printedSearch(loaded, args))
+      ? await readTranscriptPages(mode, args.transcript, printedSearch(loaded, args), binding)
       : await readPageFiles(args.pages);
     const page = mode === "jira" ? readJiraPages(raw, query) : readLinearPages(raw, query);
     decision = decideCreate(query, page, args.attempt);

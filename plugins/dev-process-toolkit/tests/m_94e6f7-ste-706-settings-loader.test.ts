@@ -978,6 +978,11 @@ const MAPPING: Record<string, Row> = {
       [`task_tracking.jira.${k}`, { kind: "legacy", replaces: `### Jira ${k}: (readWorkspaceBinding / writeTrackerSubsection)` }],
     ]),
   ),
+  // Amended by AC-STE-871.1 (M_e8850b): the Jira binding may declare its site; Linear stays closed to both keys.
+  "task_tracking.jira.site": { kind: "legacy", replaces: "### Jira site: (readWorkspaceBinding)" },
+  "task_tracking.jira.cloud_id": { kind: "legacy", replaces: "### Jira cloud_id: (readWorkspaceBinding)" },
+  // Amended by AC-STE-872.7 (M_e8850b)
+  "task_tracking.jira.jira_bug_type_standard": { kind: "legacy", replaces: "### Jira jira_bug_type_standard: (readWorkspaceBinding)" },
   "task_tracking.status_vocabulary.tracker_key": { kind: "legacy", replaces: "specs/tracker-config.yaml tracker_key (readTrackerConfig)" },
   "task_tracking.status_vocabulary.statuses": { kind: "legacy", replaces: "specs/tracker-config.yaml statuses (readTrackerConfig)" },
   "task_tracking.status_vocabulary.roles": { kind: "legacy", replaces: "specs/tracker-config.yaml roles (readTrackerConfig)" },
