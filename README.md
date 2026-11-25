@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.10.0 — "Both Dialects"** (M_b054b1, full support for both Atlassian tool surfaces. The tracker-write gate reads v1 and v2 calls through one translator, gates writes sent through the generic execute tools, reads v2 answers with their in-band errors, and names the plugin copy a foreign deciding command ran from)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.11.0 — "Return Address"** (M_e8850b, the gate checks every address it is given. A Jira binding may declare its site, and then reads, writes and browse URLs must all point there; graph links of an unknown type are refused; a crashed test child is named as a crash; and the live-checkout pin stays green between the archive and the release)
 
 ## Core Philosophy
 
