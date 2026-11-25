@@ -2246,8 +2246,8 @@ function reuseElsewhereNote(ctx: OwnershipContext, subjects: Array<{ key: string
   const roots = new Set<string>();
   for (const { key, targets } of subjects) {
     for (const target of targets) {
-      for (const a of ctx.announcements) {
-        if (a.root !== target.root || !a.intact) continue;
+      // A diagnostic over the intact receipts this target announced; spelled apart from the owns() walk.
+      for (const a of ctx.announcements.filter((x) => x.intact && x.root === target.root)) {
         const r = readSessionReceipt(a.receiptPath, ctx.sessionId, ctx.adapter);
         if (!r || r.kind !== "reuse") continue;
         const ev = r.evidence as { key?: unknown } | null;
