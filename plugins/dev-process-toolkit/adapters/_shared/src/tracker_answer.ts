@@ -124,6 +124,9 @@ function objectsIn(text: string): Record<string, unknown>[] {
   return out;
 }
 
+/** Error text beside itself with its JSON escapes (of any depth) read as spaces, so a word after a line break starts a word. */
+const saying = (text: string): string => `${text}\n${text.replace(/\\+(?:[nrtbf]|u[0-9a-fA-F]{4})/g, " ")}`;
+
 /**
  * STE-867 — the error a Jira result carries inside its answer
  * (`{data: {error, status, …}}`, whatever the call's own error flag says), or
@@ -131,7 +134,7 @@ function objectsIn(text: string): Record<string, unknown>[] {
  * blocks: an error object anywhere in a text block counts, so a notice beside
  * it hides nothing. `status` is null when it is not an integer, when a key sits
  * beside `data` or a created key or id beside the error, or when two errors disagree; `said` is the errors serialised,
- * their key names and numbers included.
+ * their key names and numbers included, and once more with the escapes read (`saying`).
  */
 export function inBandError(tracker: TrackerKind, content: unknown): { status: number | null; said: string } | null {
   if (tracker !== "jira") return null;
@@ -151,20 +154,26 @@ export function inBandError(tracker: TrackerKind, content: unknown): { status: n
     }
   }
   if (statuses.size === 0) return null;
-  return { status: statuses.size === 1 ? [...statuses][0]! : null, said: said.join("\n") };
+  return { status: statuses.size === 1 ? [...statuses][0]! : null, said: saying(said.join("\n")) };
 }
 
 /**
- * STE-867 — the status of an error result the server FLAGGED, in the recorded
- * v2 form `{error: boolean, message, statusCode}`; null for any other text.
+ * STE-867 — an error result the server FLAGGED, in the recorded v2 form
+ * `{error: boolean, message, statusCode}`; null for any other text, and for any
+ * tracker but Jira. `status` is null when any other key sits in it (it may name
+ * a created ticket) or it is no integer; `said` is the text, escapes read too.
  */
-export function flaggedStatus(text: string): number | null {
+export function flaggedError(tracker: TrackerKind, text: string): { status: number | null; said: string } | null {
+  if (tracker !== "jira") return null;
+  let a: unknown;
   try {
-    const a: unknown = JSON.parse(text);
-    return isObj(a) && typeof a.error === "boolean" && Number.isInteger(a.statusCode) ? (a.statusCode as number) : null;
+    a = JSON.parse(text);
   } catch {
     return null;
   }
+  if (!isObj(a) || typeof a.error !== "boolean" || !("statusCode" in a)) return null;
+  const recorded = Object.keys(a).every((k) => k === "error" || k === "message" || k === "statusCode");
+  return { status: recorded && Number.isInteger(a.statusCode) ? (a.statusCode as number) : null, said: saying(text) };
 }
 
 /** STE-867 — the object a Jira answer carries (`unwrapJira`), for a reader whose rows this module does not read. */

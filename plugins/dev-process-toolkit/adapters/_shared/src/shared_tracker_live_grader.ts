@@ -38,7 +38,7 @@ import { resolveInterviewAnswer } from "./auto_answers";
 import { TOOLKIT_LABELS } from "./container_ownership";
 import { EPIC_EDIT_INPUT_KEYS, exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets, type OwnershipRoute } from "./join_consent_ownership";
 import { normalizeTitleForCompare } from "./create_idempotency_probe";
-import { flaggedStatus, inBandError, listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
+import { flaggedError, inBandError, listingRequestCursor, readTrackerItem, readTrackerPage } from "./tracker_answer";
 import { isCanonicalContainerListing, milestoneIdFromEpicKey, milestoneIdFromLinearMilestone, normalizeMilestoneTitle } from "./milestone_token";
 
 import {
@@ -2287,16 +2287,35 @@ const MAY_HAVE_RUN = /time[ds]?[\s-]*out|\b5\d\d\b|interrupt|aborted|reset/i;
  * 4xx; an in-band error's text holds its status alone, see `parseSession`). Twin: `neverRan` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
  * (the bundle keeps no `toolDenialKind`, so only the text arm is mirrored).
  */
-function createNeverRan(c: ToolCall): boolean {
+function createNeverRan(tracker: SharedTrackerId, c: ToolCall): boolean {
   const text = c.result.text.trimStart();
-  const flagged = flaggedStatus(text);
-  if (flagged !== null) return TRACKER_4XX.test(`status ${flagged}`) && !MAY_HAVE_RUN.test(text);
+  const flagged = flaggedError(tracker, text);
+  if (flagged !== null) return TRACKER_4XX.test(`status ${flagged.status}`) && !MAY_HAVE_RUN.test(flagged.said);
   return (
     text.startsWith("PreToolUse:") ||
     text.startsWith("The user doesn't want to proceed") ||
     text.startsWith("<tool_use_error>InputValidationError") ||
     (TRACKER_4XX.test(text) && !MAY_HAVE_RUN.test(text))
   );
+}
+
+/** A Jira project key. Twin: `PROJECT_KEY` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
+const PROJECT_KEY = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+/**
+ * Whether an edit's `project` field moves a subject into one of the run's
+ * spaces it is not in: the field names that space, or resolves to no key.
+ * Twin: `movedInto` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ * (the run's spaces stand for the declared targets a bundle does not keep).
+ */
+function movedInto(input: Record<string, unknown>, keys: string[], spaces: string[]): boolean {
+  return [input.fields, input.additional_fields].some((b) => {
+    if (b === null || typeof b !== "object" || Array.isArray(b)) return false;
+    const { project } = b as Record<string, unknown>;
+    if (project === undefined || project === null) return false;
+    const p = asKey(project).trim();
+    return spaces.some((sp) => (!PROJECT_KEY.test(p) || sameName(sp, p)) && keys.some((k) => !sameName(sp, k.slice(0, k.lastIndexOf("-")))));
+  });
 }
 
 /** A ticket key as the hook resolves one (`GK-123`, `STE-9`). */
@@ -2811,7 +2830,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           const prior = s.calls.slice(0, i).find((p) => {
             if (!isCreateAttempt(p) || writeClass(p) !== "ticket-create" || p.sidechain !== c.sidechain) return false;
             if (!sameTicket(callShape(tracker, p.input), shape)) return false;
-            return !p.result.isError || !createNeverRan(p);
+            return !p.result.isError || !createNeverRan(tracker, p);
           });
           const receipt = prior ? undefined : mine
             .map((a) => receiptOf(a, "create"))
@@ -2845,7 +2864,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
         const prior = s.calls.slice(0, i).find((p) => {
           if (!isCreateAttempt(p) || writeClass(p) !== "milestone-create" || p.sidechain !== c.sidechain) return false;
           if (!sameContainer(containerShape(tracker, p.input), { project, title: name })) return false;
-          return !p.result.isError || !createNeverRan(p);
+          return !p.result.isError || !createNeverRan(tracker, p);
         });
         if (prior) why = `milestone-container create of "${name}" in ${project} repeats an earlier create of that container (${prior.ref}) that ${prior.result.isError ? "may have made it" : `returned ${itemKeys(prior).join(", ") || "no key"}`}, and no decision authorises a second create of it`;
         else if (!decision) why = `milestone-container create of "${name}" in ${project} follows no unspent create decision announced by resolve_milestone_identity.ts for that project and title`;
@@ -2880,6 +2899,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
         if (outsideTargets.length > 0) why = `update names the relation target ${outsideTargets.map((v) => `"${v}"`).join(", ")} that resolves to no key in this run's team, whatever its issue`;
         else if (unresolved.length > 0) why = `link names the Jira-item side ${unresolved.map((v) => `"${v}"`).join(", ")} that resolves to no ticket key (only a key or a /browse/<KEY> URL does), whatever its other side`;
         else if (subjects.length === 0) why = "ticket write names no ticket key the hook could resolve";
+        else if (bareTool(c.name) === "editJiraIssue" && movedInto(c.input, subjects, spaces ?? [])) why = `update of ${subjects.join(", ")} sets a project that is, or cannot be told apart from, one of this run's, so it may move a ticket into it unchecked`;
         else if (keys.length === 0) {
           // THE THIRD CASE, which used to fall through to `why = null` and grade
           // as gated: every key this write names is outside the run's own

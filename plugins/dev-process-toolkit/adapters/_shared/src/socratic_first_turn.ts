@@ -16,6 +16,8 @@
 
 import { resolve, sep } from "node:path";
 
+import { ATLASSIAN_EXECUTE_TOOLS } from "./atlassian_call";
+
 /** Tool names that count as scaffolding for the first-turn contract. */
 export const SCAFFOLDING_TOOLS = ["Write", "Edit", "NotebookEdit"] as const;
 
@@ -37,6 +39,9 @@ export const TRACKER_CREATE_TOOLS = [
 ] as const;
 
 export type TrackerCreateTool = (typeof TRACKER_CREATE_TOOLS)[number];
+
+/** An MCP tool under any server spelling. */
+const MCP_TOOL = /^mcp__.+__([A-Za-z]+)$/;
 
 /** Tool name whose first occurrence satisfies the Socratic loop entry. */
 export const ASK_TOOL = "AskUserQuestion";
@@ -60,6 +65,8 @@ export interface TranscriptEntry {
    * path. Consumed by the `projectRoot` scope check in assertFirstTurnShape.
    */
   path?: string;
+  /** The operation a v2 Atlassian execute tool names, "" when it names none; absent for any other tool. */
+  operation?: string;
 }
 
 // STE-399 AC-STE-399.1 as narrowed by STE-479 AC-STE-479.5: `vacuous` is the
@@ -117,11 +124,17 @@ function isScaffoldingTool(name: string | undefined): name is ScaffoldingTool {
   return (SCAFFOLDING_TOOLS as readonly string[]).includes(name);
 }
 
-function isTrackerCreateTool(
-  name: string | undefined,
-): name is TrackerCreateTool {
+/**
+ * A tracker create, direct or through a v2 execute tool. A write through one
+ * that names no operation may be a create, so it counts as one.
+ */
+function isTrackerCreate({ name, operation }: TranscriptEntry): boolean {
   if (!name) return false;
-  return (TRACKER_CREATE_TOOLS as readonly string[]).includes(name);
+  if ((TRACKER_CREATE_TOOLS as readonly string[]).includes(name)) return true;
+  const tool = MCP_TOOL.exec(name)?.[1];
+  if (tool === undefined || !ATLASSIAN_EXECUTE_TOOLS.includes(tool)) return tool === "createJiraIssue";
+  const unnamed = operation === "" || (operation === undefined && /atlassian/i.test(name));
+  return unnamed ? tool !== "executeRead" : operation === "createJiraIssue";
 }
 
 /**
@@ -196,8 +209,8 @@ export function assertFirstTurnShape(
       // STE-404: a tracker create before the first ask/refusal is the F4
       // gate-bypass shape. Name-only, path-agnostic (no projectRoot check) —
       // a create is scope-agnostic and always a first-turn violation.
-      if (isTrackerCreateTool(entry.name)) {
-        throw new SocraticFirstTurnViolationError(entry.name, i);
+      if (isTrackerCreate(entry)) {
+        throw new SocraticFirstTurnViolationError(entry.name!, i);
       }
     }
   }

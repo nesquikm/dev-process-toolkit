@@ -19,7 +19,8 @@ import { join } from "node:path";
 import { importFromTracker, ticketImportOwnership } from "../adapters/_shared/src/import";
 import type { Provider } from "../adapters/_shared/src/provider";
 import { milestoneIdFromEpicKey } from "../adapters/_shared/src/milestone_token";
-import { readCompleteList, readTrackerItem, readTrackerListing, readTrackerPage, trackerItemKey, type CompleteListTool } from "../adapters/_shared/src/tracker_answer";
+import { discoverAcField, fieldRows } from "../adapters/jira/src/discover_field";
+import { flaggedError, readCompleteList, readTrackerItem, readTrackerListing, readTrackerPage, trackerItemKey, type CompleteListTool } from "../adapters/_shared/src/tracker_answer";
 import { announceReceipt, writeReceipt, type ReceiptInput } from "../adapters/_shared/src/tracker_receipts";
 import { commitAll, git } from "./_span_fixture";
 import { BE_TAG, FE_TAG, declareJira } from "./_orphan_pages";
@@ -505,6 +506,15 @@ describe("AC-STE-867.3 — an in-band error on a create", () => {
       expectRefusal(await call("direct", "createJiraIssue", TICKET_V2, tried(ticketDecided(), "direct", TICKET_V2, inBand(400, over))), "may have made the ticket");
     });
   }
+  // Review r3 — the words count after a line break or a tab too, at any depth of escaping.
+  for (const message of ["Upstream said:\n503 Service Unavailable", "request timed\nout", "gateway\t502", JSON.stringify({ said: "Upstream:\r\n503" })]) {
+    test(`status 400 saying ${JSON.stringify(message)}: the create may have made its ticket`, async () => {
+      expectRefusal(await call("direct", "createJiraIssue", TICKET_V2, tried(ticketDecided(), "direct", TICKET_V2, inBand(400, { message }))), "may have made the ticket");
+    });
+  }
+  test("CONTROL — a line break alone adds no doubt: status 400 never landed", async () => {
+    expectPermit(await call("direct", "createJiraIssue", TICKET_V2, tried(ticketDecided(), "direct", TICKET_V2, inBand(400, { message: "Bad\nrequest" }))));
+  });
   // Review r2 — an in-band error in any text block is an error.
   const NOTICE = "Notice: this server will be upgraded.";
   const twoBlocks = (t: Transcript, how: Spelling, over: Obj, order: "error first" | "notice first"): Transcript => {
@@ -575,6 +585,13 @@ describe("AC-STE-867.3 — an in-band error on a create", () => {
     ["statusCode 503", { error: true, message: "x", statusCode: 503 }, true],
     ["statusCode 400 whose message says it timed out", { error: true, message: "upstream timed out", statusCode: 400 }, true],
     ["no statusCode", { error: true, message: "bad request" }, true],
+    ["statusCode 400 beside a created key", { error: true, message: "x", statusCode: 400, key: MADE }, true],
+    ["statusCode 400 beside a created id", { error: true, message: "status 400", statusCode: 400, id: 10150 }, true],
+    ["statusCode 400 beside an unrecorded key", { error: true, message: "x", statusCode: 400, issue: { key: MADE } }, true],
+    ["statusCode 400 under an error: false", { error: false, message: "bad request", statusCode: 400 }, false],
+    ["statusCode 400 whose message breaks a line before 503", { error: true, message: "Upstream said:\n503 Service Unavailable", statusCode: 400 }, true],
+    ["statusCode 400 whose message holds escaped JSON with a break before 503", { error: true, message: JSON.stringify({ said: "Upstream:\n503" }), statusCode: 400 }, true],
+    ["statusCode 400 whose message breaks a line after a plain word", { error: true, message: "Bad\nrequest", statusCode: 400 }, false],
   ] as Array<[string, Obj, boolean]>) {
     test(`a flagged error, ${title}: ${landed ? "may have made its ticket" : "never landed"}`, async () => {
       const r = await call("direct", "createJiraIssue", TICKET_V2, tried(ticketDecided(), "direct", TICKET_V2, answer, true));
@@ -942,6 +959,24 @@ describe("AC-STE-867.3 / .4 — the grader reads v2 answers as it reads v1 answe
   });
   test("direct create answering 400 beside a created key: may have landed, the retry is ungated", async () => {
     expect(await retried("direct", inBand(400, { key: "DST-9150" }))).toEqual({ first: false, second: true });
+  });
+  for (const [title, answer, isError, again] of [
+    ["in-band 400 with a break before 503", inBand(400, { message: "Upstream said:\n503" }), false, true],
+    ["flagged 400 with a break before 503", { error: true, message: "Upstream said:\n503", statusCode: 400 }, true, true],
+    ["flagged 400 beside a created key", { error: true, message: "x", statusCode: 400, key: "DST-9150" }, true, true],
+    ["flagged 400 alone", { error: true, message: "bad request", statusCode: 400 }, true, false],
+  ] as Array<[string, unknown, boolean, boolean]>) {
+    test(`direct create answering ${title}: the retry is ${again ? "ungated" : "gated"}`, async () => {
+      expect(await retried("direct", answer, isError)).toEqual({ first: false, second: again });
+    });
+  }
+  test("a Linear create answering the Jira flagged form may have landed: the retry is ungated, as in the hook", async () => {
+    const b = buildPassingBundle("linear");
+    const s = marked(b, "S1", "A");
+    const at = s.calls.findIndex((c) => c.name.endsWith("__save_issue") && c.input.id === undefined);
+    const made = s.calls[at]!;
+    s.calls.splice(at, 0, toolCall(s, "save_issue", clone(made.input), raw({ error: true, message: "Bad", statusCode: 400 }, true), made.at));
+    expect(ungated(await grade(b), made)).toBe(true);
   });
   test("a 4xx only in the message of a 500 proves nothing", async () => {
     expect(await retried("direct", inBand(500, { message: "Error: status 400 Bad Request" }))).toEqual({ first: false, second: true });
@@ -1424,9 +1459,9 @@ describe("AC-STE-867.5 — the bug-type check on the recorded v2 issue types, wh
 describe("AC-STE-867.7 — each accepted v2 shape has a sanitised fixture", () => {
   const load = (f: string): { provenance: Obj; answer?: Obj } => JSON.parse(readFileSync(join(SHAPES, "jira", `${f}.v2.json`), "utf-8")) as { provenance: Obj; answer?: Obj };
   const RECORDED = ["comment", "create", "edit", "error", "get.compact", "get.full", "search.executeRead", "search.last", "search.more", "transition"];
-  const CALLED = ["listJiraIssueLinkTypes", "listJiraIssueTransitions", "listJiraProjectIssueTypesMetadata", "listJiraProjects.last", "listJiraProjects.more"];
+  const CALLED = ["getJiraIssueTypeMetaWithFields", "listJiraIssueLinkTypes", "listJiraIssueTransitions", "listJiraProjectIssueTypesMetadata", "listJiraProjects.last", "listJiraProjects.more"];
   test("the fixture set", () => {
-    expect(shapeFiles().filter((f) => f.endsWith(".v2.json"))).toEqual([...RECORDED, ...CALLED].map((f) => `jira/${f}.v2.json`).sort());
+    expect(shapeFiles().filter((f) => f.endsWith(".v2.json"))).toEqual([...RECORDED, ...CALLED, "error.flagged"].map((f) => `jira/${f}.v2.json`).sort());
   });
   for (const f of RECORDED) {
     test(`${f}: provenance and date`, () => {
@@ -1458,7 +1493,7 @@ describe("AC-STE-867.7 — each accepted v2 shape has a sanitised fixture", () =
     expect(readCompleteList("jira:getJiraProjectIssueTypesMetadata", a)).toMatchObject({ ok: true, complete: true });
     expect(readCompleteList("jira:getJiraProjectIssueTypesMetadata", { data: { ...a.data, total: 9 } })).toMatchObject({ ok: true, complete: false });
   });
-  for (const f of [...RECORDED, ...CALLED]) {
+  for (const f of [...RECORDED, ...CALLED, "error.flagged"]) {
     test(`${f}: no real key, site, name, address or account id`, () => {
       const text = readFileSync(join(SHAPES, "jira", `${f}.v2.json`), "utf-8");
       expect([...text.matchAll(/\b[A-Z][A-Z0-9]+-\d+\b/g)].map((m) => m[0]).filter((k) => !/^ZZ-\d+$/.test(k) && !/^STE-867$/.test(k))).toEqual([]);
@@ -1482,6 +1517,18 @@ describe("AC-STE-867.7 — each accepted v2 shape has a sanitised fixture", () =
       expect(readTrackerItem("jira", load(f).answer)).toMatchObject({ ok: true, item: { key: want } });
     });
   }
+  test("error.flagged: recorded by a read-only call, dated, and read as its status; no other tracker reads it", () => {
+    const { provenance: p, answer } = load("error.flagged");
+    expect([p.method, p.measured_at]).toEqual(["read-only-call", "2026-11-24"]);
+    expect(String(p.note)).toContain("every value is invented");
+    expect(Object.keys(answer!)).toEqual(["error", "message", "statusCode"]);
+    expect(flaggedError("jira", JSON.stringify(answer))?.status).toBe(400);
+    expect(flaggedError("linear", JSON.stringify(answer))).toBeNull();
+    expect(readTrackerItem("jira", answer).ok).toBe(false);
+  });
+  test("getJiraIssueTypeMetaWithFields reads as its field rows, named by fieldId", () => {
+    expect(discoverAcField(fieldRows(load("getJiraIssueTypeMetaWithFields").answer))).toEqual({ ok: true, gid: "customfield_10050", name: "Acceptance Criteria" });
+  });
   test("error reads as the named error", () => {
     expect(readTrackerItem("jira", load("error").answer)).toMatchObject({ ok: false, reason: expect.stringContaining("EXAMPLE_VALIDATION_ERROR") });
   });

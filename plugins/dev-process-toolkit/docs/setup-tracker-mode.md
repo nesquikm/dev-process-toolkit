@@ -155,10 +155,15 @@ Context: mode=jira, project=<key>, skill=setup
 After visibility passes, run one-time AC-field discovery:
 
 1. Fetch the project's fields: `mcp__atlassian__getJiraIssueTypeMetaWithFields`
-   (v2: `mcp__atlassian__executeRead` with that name).
-2. Pipe the response array into
+   (v2: `mcp__atlassian__executeRead` with that name), with the project as
+   `projectIdOrKey`, `requiredFieldsOnly: false` (an AC field is rarely required)
+   and as `issueTypeId` the id of the type `/spec-write` creates, from
+   `mcp__atlassian__getJiraProjectIssueTypesMetadata` (v2: `executeRead` with name
+   `listJiraProjectIssueTypesMetadata`). While rows are missing from `total`, fetch
+   the next page with `startAt`.
+2. Pipe the answer verbatim (several pages: their JSON array) into
    `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/jira/src/discover_field.ts` with
-   `{"fields": <response>}` on stdin.
+   `{"fields": <answer>}` on stdin; exit 1 is an unreadable answer, not a missing field.
 3. On `{ok: true, gid: "customfield_XXXXX"}`, append
    `jira_ac_field: customfield_XXXXX` to the `## Task Tracking` section
    (legacy tree; `writeProjectSettings` sets `task_tracking.jira_ac_field` otherwise).

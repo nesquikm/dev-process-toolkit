@@ -37,7 +37,7 @@ ACs live in one of two places, dispatched by the value of the existing
 top-level Schema L key `jira_ac_field:` under `## Task Tracking`:
 
 - `jira_ac_field: customfield_XXXXX` — per-tenant **custom field** path. The
-  GID varies per Jira project; `/setup` runs `/rest/api/3/field`
+  GID varies per Jira project; `/setup` runs field
   introspection (via `discover_field.ts`) and records the GID. AC reads /
   writes go through that field.
 - `jira_ac_field: description` — **description-body** path (sentinel value).
@@ -512,7 +512,8 @@ conformance iter-2 2026-07-02 finding F5):
    (the same visibility probe `/setup` step 7b already runs; reuse its
    response rather than re-calling). A project entry carrying
    `"simplified": true` is team-managed (next-gen); absent or `false`
-   means company-managed.
+   means company-managed. A v2 row has no `simplified`: there
+   `"style": "next-gen"` is team-managed and `"classic"` company-managed.
 2. **Company-managed ⇒ `allowedValues` path** (the original path,
    unchanged). `mcp__atlassian__getJiraIssueTypeMetaWithFields` (v2: through `executeRead`) → the
    `status` field's `allowedValues` array; extract each
@@ -791,7 +792,11 @@ and the cross-branch git leg.
 One-time per-project custom-field GID discovery. Called by `/setup` when the
 user picks `jira` (AC-30.6).
 
-- JSON on stdin: `{ fields: <full response of GET /rest/api/3/field> }`
+- JSON on stdin: `{ fields: <answer> }`, the answer of
+  `mcp__atlassian__getJiraIssueTypeMetaWithFields` (v2: through `executeRead`)
+  with `projectIdOrKey`, `issueTypeId` and `requiredFieldsOnly: false`, verbatim,
+  or the JSON array of its pages
+- Exit 1 on an error answer, an unread shape or a partial listing
 - JSON on stdout: `{ ok: true, gid: "customfield_XXXXX", name: "..." }` on
   success, or `{ ok: false, reason: "..." }` if no AC field is found.
 - No network calls (Schema P pure function); the caller shells out to the

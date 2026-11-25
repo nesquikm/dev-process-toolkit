@@ -15,6 +15,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 
 import { CLOUD, JIRA, PLUGIN_ROOT, SIBLING_TAG, Transcript, cleanupTemps, gate, jiraTicket, makeWorld, permitProblem, refusalProblem, show, type Run, type World } from "./_m_b2fdc0_ste729_fixture";
+import { SocraticFirstTurnViolationError, assertFirstTurnShape } from "../adapters/_shared/src/socratic_first_turn";
+import { parseStreamJsonTranscript } from "../adapters/_shared/src/socratic_first_turn_stream";
 import { buildPassingBundle, clone, serverPrefix, type LiveBundle, type ToolCall } from "./_live_bundle_fixtures";
 
 setDefaultTimeout(120_000);
@@ -242,6 +244,21 @@ describe("AC-STE-865.4 / AC-STE-866.2 — a create or a move that names its proj
     test(`REFUSE — a move whose project cannot be resolved (${JSON.stringify(project)})`, async () => refused(await ask("editJiraIssue", { cloudId: CLOUD, issueIdOrKey: "OTHER-1", fields: { project } })));
   }
   test("CONTROL — an edit naming the ticket's own project is judged as any edit of it", async () => permitted(await ask("editJiraIssue", { cloudId: CLOUD, issueIdOrKey: OWN, fields: { project: { key: "PROJ" }, summary: "x" } })));
+  // Review r3 — the grader's twin, on a run with an old space beside the shared one.
+  for (const block of ["fields", "additional_fields"]) {
+    for (const [title, project, out] of [["the shared project", { key: "SHARED" }, true], ["a project it cannot resolve", { id: "10000" }, true], ["its own project", { key: "OWN" }, false], ["another project", { key: "ELSE" }, false]] as Array<[string, Obj, boolean]>) {
+      test(`the grader ${out ? "reports" : "passes"} an edit of an owned old-space ticket that names ${title} (${block})`, async () => {
+        const b = buildPassingBundle("jira");
+        b.run.repointFrom = "DST2";
+        const s = b.sessions.find((x) => x.marker === "S13")!;
+        b.repos[s.root].frBindings.push({ path: "specs/frs/fr-5.md", title: "Own", key: "DST2-5", milestone: null });
+        const key = project.key === "SHARED" ? b.run.container.toLowerCase() : project.key === "OWN" ? "DST2" : project.key;
+        const input = { issueIdOrKey: "DST2-5", [block]: { project: key === undefined ? project : { key } } };
+        expect(await ungated(b, s.sessionId, "editJiraIssue", input)).toBe(out);
+        expect(await ungated(b, s.sessionId, "executeWrite", wrap("editJiraIssue", input))).toBe(out);
+      });
+    }
+  }
   test("CONTROL — an edit that moves it elsewhere passes", async () => permitted(await ask("editJiraIssue", { cloudId: CLOUD, issueIdOrKey: "OTHER-1", fields: { project: { key: "ELSE" } } })));
 });
 
@@ -283,6 +300,44 @@ describe("AC-STE-867.4 — the grader's fetch and re-list rules on a wrapped rea
       expect(v.findings.some((f) => f.code === "ungated-write" && /listing/.test(f.detail ?? ""))).toBe(want);
     });
   }
+});
+
+describe("AC-STE-869.3 — the first-turn detector sees a create on both surfaces", () => {
+  const line = (name: string, input: Obj): string => JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name, input }] } });
+  const turn = (name: string, input: Obj) => parseStreamJsonTranscript(`${line(name, input)}\n${line("AskUserQuestion", {})}`);
+  for (const [name, input] of [
+    ["mcp__atlassian__createJiraIssue", {}],
+    ["mcp__claude_ai_Atlassian__createJiraIssue", {}],
+    ["mcp__atlassian__executeWrite", wrap("createJiraIssue", {})],
+    ["mcp__claude_ai_Atlassian__executeWrite", wrap("createJiraIssue", {})],
+    ["mcp__atlassian__executeRead", wrap("createJiraIssue", {})],
+    ["mcp__atlassian__executeWrite", { inputs: {} }],
+    ["mcp__atlassian__executeDestructive", { name: 7 }],
+    ["mcp__jira_cloud__createJiraIssue", {}],
+    ["mcp__jira_cloud__executeWrite", wrap("createJiraIssue", {})],
+    ["mcp__jira_cloud__executeWrite", { inputs: {} }],
+  ] as Array<[string, Obj]>) {
+    test(`VIOLATION — ${name} ${JSON.stringify(input)}`, () => expect(() => assertFirstTurnShape(turn(name, input))).toThrow(SocraticFirstTurnViolationError));
+  }
+  for (const [name, input] of [["mcp__atlassian__executeRead", wrap("searchJiraIssuesUsingJql", {})], ["mcp__atlassian__executeRead", {}], ["mcp__atlassian__executeWrite", wrap("editJiraIssue", {})], ["mcp__db__executeWrite", { sql: "x" }], ["mcp__atlassian__getJiraIssue", {}]] as Array<[string, Obj]>) {
+    test(`CONTROL — ${name} ${JSON.stringify(input)} is no create`, () => expect(assertFirstTurnShape(turn(name, input)).outcome).toBe("ok-asked"));
+  }
+});
+
+describe("AC-STE-869.1 / .3 — the docs an agent follows on v2", () => {
+  const read = (p: string): string => readFileSync(join(PLUGIN_ROOT, p), "utf-8");
+  test("the project style has a v2 signal", () => {
+    for (const p of ["adapters/jira.md", "skills/setup/SKILL.md"]) {
+      expect(read(p), p).toContain('`"simplified": true`');
+      expect(read(p), p).toContain('`"style": "next-gen"`');
+    }
+  });
+  test("AC-field discovery names its inputs, and no doc names the REST call as the step's source", () => {
+    const step = read("docs/setup-tracker-mode.md").split("one-time AC-field discovery")[1]!.slice(0, 1400);
+    const ref = read("docs/setup-reference.md").split("\n").find((l) => l.startsWith("4. For Jira"))!;
+    for (const doc of [step, ref]) for (const word of ["getJiraIssueTypeMetaWithFields", "projectIdOrKey", "issueTypeId", "requiredFieldsOnly: false", "executeRead"]) expect(doc).toContain(word);
+    expect(ref).not.toContain("GET /rest/api/3/field");
+  });
 });
 
 describe("AC-STE-869.3 — the shared-tracker smoke's pre-flight fence reads both surfaces", () => {

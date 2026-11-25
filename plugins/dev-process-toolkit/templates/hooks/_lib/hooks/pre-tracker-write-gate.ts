@@ -48,7 +48,7 @@ import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shar
 import { forgedSettingsFiles, trackerWriteGateSetting } from "../../../../adapters/_shared/src/tracker_write_gate_setting.ts";
 import { detectSettingsSource, SETTINGS_FILE } from "../../../../adapters/_shared/src/project_settings.ts";
 import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
-import { flaggedStatus, inBandError, listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey, unkeyedJiraItem } from "../../../../adapters/_shared/src/tracker_answer.ts";
+import { flaggedError, inBandError, listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey, unkeyedJiraItem } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
 /** Kept exported from here, where it was declared until the two gates started sharing it. */
 export { simpleCommandWords } from "../../../../adapters/_shared/src/shell_invocations.ts";
@@ -1126,8 +1126,8 @@ function neverRan(adapter: WorkspaceAdapterKey, record: Record<string, unknown>,
   const text = resultText(b.content).trimStart();
   const inBand = inBandError(adapter, b.content);
   if (inBand !== null) return trackerRejected(`status ${inBand.status}`) && !MAY_HAVE_RUN.test(inBand.said);
-  const flagged = adapter === "jira" ? flaggedStatus(text) : null;
-  if (flagged !== null) return trackerRejected(`status ${flagged}`) && !MAY_HAVE_RUN.test(text);
+  const flagged = flaggedError(adapter, text);
+  if (flagged !== null) return trackerRejected(`status ${flagged.status}`) && !MAY_HAVE_RUN.test(flagged.said);
   return (
     text.startsWith("PreToolUse:") ||
     text.startsWith("The user doesn't want to proceed") ||
@@ -2218,6 +2218,7 @@ const PROJECT_KEY = /^[A-Za-z][A-Za-z0-9_]*$/;
  * The declared target an edit's `project` field moves a ticket into, or null:
  * some subject is outside it, and the field names its key or cannot be resolved
  * to any key (so it may name it).
+ * Twin: `movedInto` in adapters/_shared/src/shared_tracker_live_grader.ts
  */
 function movedInto(call: TrackerCall, declared: DeclaredTarget[], keys: string[]): DeclaredTarget | null {
   const blocks = [call.input.fields, call.input.additional_fields].filter((b): b is Record<string, unknown> => b !== null && typeof b === "object" && !Array.isArray(b));
