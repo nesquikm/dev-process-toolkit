@@ -327,6 +327,8 @@ function runM7bc805Against(requirements: string): { status: number | null; pass:
     mkdirSync(join(root, "specs"), { recursive: true });
     copyFileSync(M_7BC805_TEST, join(plugin, "tests", "m_7bc805-ste-716-out-of-scope.test.ts"));
     copyFileSync(M_7BC805_FIXTURE, join(plugin, "tests", "_m_7bc805_gate_outcome_fixture.ts"));
+    // Amended by AC-STE-872.2 (M_e8850b): the fixture reads its child through ./_child_result.
+    copyFileSync(join(PLUGIN_ROOT, "tests", "_child_result.ts"), join(plugin, "tests", "_child_result.ts"));
     symlinkSync(join(PLUGIN_ROOT, "adapters"), join(plugin, "adapters"));
     writeFileSync(join(root, "specs", "requirements.md"), requirements);
     const p = runNestedBunTest(["tests/m_7bc805-ste-716-out-of-scope.test.ts", "--test-name-pattern", "AC-STE-716.13"], {

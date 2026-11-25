@@ -23,6 +23,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { childResult } from "./_child_result";
 
 import { cwdToSlug } from "../adapters/_shared/src/find_current_session";
 import { gateReuseKey } from "../adapters/_shared/src/gate_reuse_key";
@@ -164,7 +165,8 @@ function runStep(root: string, cfg: string, label: string, command: string): Cli
     env: envFor(cfg, SID),
     encoding: "utf-8",
   });
-  return { exitCode: p.status ?? -1, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const c = childResult(p, "bun run gate_reuse run");
+  return { exitCode: c.code, stdout: p.stdout ?? "", stderr: `${p.stderr ?? ""}${c.note ? `\n${c.note}\n` : ""}` };
 }
 
 /** The verdict verb, spawned as `/simplify` would issue it. */
@@ -175,7 +177,8 @@ function runVerdict(b: { root: string; cfg: string }, o: { sid?: string | null; 
     encoding: "utf-8",
     timeout: 120_000,
   });
-  return { exitCode: p.status ?? -1, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const c = childResult(p, "bun run gate_reuse verdict");
+  return { exitCode: c.code, stdout: p.stdout ?? "", stderr: `${p.stderr ?? ""}${c.note ? `\n${c.note}\n` : ""}` };
 }
 
 /** The verdict's printed word: its stdout, trimmed. */

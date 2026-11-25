@@ -1391,6 +1391,8 @@ const V1_READS: Array<[string, string, string]> = [
   ["jira/get.plain.json", "------+---", "babed70bea63f9075dd403ce87e4c327b2e7c78d5ba7fee8d5bb0c0a973c15a8"],
   ["jira/get.wrapped.json", "------+---", "023f9529cd2bf7773559c7a282d1c31c4f707de94fb8d9a99e8c7c0c7405b699"],
   ["jira/getAccessibleAtlassianResources.json", "-------+--", "94209844a0e9d8e006dfe57a702760b3d41ef6177402a218a17b21c39d3aa324"],
+  // Amended by AC-STE-872.5 (M_e8850b): the v1 create-metadata fixture this FR adds; no shared reader reads it.
+  ["jira/getJiraIssueTypeMetaWithFields.json", "----------", "4a98cc60268ec64279d665b586193d598135ac0a3d6bd6a4975892346566695d"],
   ["jira/getJiraProjectIssueTypesMetadata.json", "---------+", "b31a5ea15c73634c0ec9998aa72e6a1d81738317703fd4fa0935ee2eb19fe1d4"],
   ["jira/getVisibleJiraProjects.json", "--------+-", "0b6578f565f39b3320fe9fd6e2d9808e029ecf77cdba8f446b38e9c42e6bdc47"],
   ["jira/search.plain.last.json", "++++++----", "1562bb3f03a85db3fa547cded892ee2c6b9d0ee5cad827da0dde2b586ede9364"],

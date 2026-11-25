@@ -1,0 +1,104 @@
+{
+  "provenance": {
+    "measured_at": "2026-11-25",
+    "method": "read-only-call",
+    "request": {
+      "name": "getJiraIssueTypeMetaWithFields",
+      "inputs": {
+        "cloudId": "aaaaaaaa-aaaa-4aaa-8aaa-000000000001",
+        "projectIdOrKey": "ZZ",
+        "issueTypeId": "10002",
+        "requiredFieldsOnly": false,
+        "startAt": 0,
+        "maxResults": 5
+      }
+    },
+    "note": "v1 getJiraIssueTypeMetaWithFields, one page of a longer listing (startAt 0, maxResults 5, total 17): plain JSON, no data wrapper; rows carry key AND fieldId and no id; the shape (key names, nesting, value types) is recorded, every value is invented"
+  },
+  "answer": {
+    "startAt": 0,
+    "maxResults": 5,
+    "total": 17,
+    "fields": [
+      {
+        "required": false,
+        "schema": {
+          "type": "user",
+          "system": "assignee"
+        },
+        "name": "Assignee",
+        "key": "assignee",
+        "autoCompleteUrl": "https://example.invalid/ex/jira/aaaaaaaa-aaaa-4aaa-8aaa-000000000001/rest/api/2/user/assignable/search?project=ZZ&query=",
+        "hasDefaultValue": false,
+        "operations": [
+          "set"
+        ],
+        "fieldId": "assignee"
+      },
+      {
+        "required": false,
+        "schema": {
+          "type": "array",
+          "items": "attachment",
+          "system": "attachment"
+        },
+        "name": "Attachment",
+        "key": "attachment",
+        "hasDefaultValue": false,
+        "operations": [
+          "set",
+          "copy"
+        ],
+        "fieldId": "attachment"
+      },
+      {
+        "required": false,
+        "schema": {
+          "type": "date",
+          "custom": "com.atlassian.jira.plugin.system.customfieldtypes:datepicker",
+          "customId": 10015
+        },
+        "name": "Start date",
+        "key": "customfield_10015",
+        "hasDefaultValue": false,
+        "operations": [
+          "set"
+        ],
+        "fieldId": "customfield_10015"
+      },
+      {
+        "required": false,
+        "schema": {
+          "type": "any",
+          "custom": "com.example.zz-plugin:zz-field",
+          "customId": 10091
+        },
+        "name": "Zz Plugin Field",
+        "key": "customfield_10091",
+        "hasDefaultValue": false,
+        "operations": [
+          "set"
+        ],
+        "fieldId": "customfield_10091"
+      },
+      {
+        "required": false,
+        "schema": {
+          "type": "team",
+          "custom": "com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team",
+          "customId": 10001,
+          "configuration": {
+            "com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team": true
+          }
+        },
+        "name": "Team",
+        "key": "customfield_10001",
+        "hasDefaultValue": false,
+        "operations": [
+          "set"
+        ],
+        "fieldId": "customfield_10001"
+      }
+    ]
+  }
+}

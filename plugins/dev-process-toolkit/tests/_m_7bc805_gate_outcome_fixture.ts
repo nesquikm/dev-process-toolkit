@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { childResult } from "./_child_result";
 
 import { receiptsDir } from "../adapters/_shared/src/dpt_paths";
 
@@ -144,7 +145,8 @@ export function runCli(
     env,
     encoding: "utf-8",
   });
-  return { exitCode: p.status ?? -1, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const c = childResult(p, "bun run gate-outcome front door");
+  return { exitCode: c.code, stdout: p.stdout ?? "", stderr: (p.stderr ?? "") + (c.note ? `\n${c.note}\n` : "") };
 }
 
 export const SID = "m7bc805s715";

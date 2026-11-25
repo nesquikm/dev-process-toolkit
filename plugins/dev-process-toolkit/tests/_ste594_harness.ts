@@ -41,6 +41,7 @@ import { expect } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { childResult } from "./_child_result";
 
 import { parseSpawnFenceGroups } from "../adapters/_shared/src/leg_prose_surfaces";
 import {
@@ -320,10 +321,12 @@ export function runScript(sb: Sandbox, script: string, env: Record<string, strin
     timeout: timeoutMs,
   });
   const elapsedMs = Date.now() - t0;
+  const c = childResult(r, "bun hook child");
+  const errText = existsSync(err) ? readFileSync(err, "utf-8") : "";
   return {
-    exitCode: r.exitCode ?? -1,
+    exitCode: c.code,
     out: existsSync(out) ? readFileSync(out, "utf-8") : "",
-    err: existsSync(err) ? readFileSync(err, "utf-8") : "",
+    err: c.note ? `${errText}\n${c.note}\n` : errText,
     elapsedMs,
     timedOut: elapsedMs >= timeoutMs - 250,
   };

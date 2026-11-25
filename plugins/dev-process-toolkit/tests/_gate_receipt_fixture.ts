@@ -11,6 +11,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { childResult } from "./_child_result";
 
 import { receiptsDir } from "../adapters/_shared/src/dpt_paths";
 
@@ -49,10 +50,11 @@ export function runFrontDoor(
     env,
     encoding: "utf-8",
   });
+  const c = childResult(proc, ["bun", "run", FRONT_DOOR, skill, path]);
   return {
-    exitCode: proc.status ?? -1,
+    exitCode: c.code,
     stdout: proc.stdout ?? "",
-    stderr: proc.stderr ?? "",
+    stderr: (proc.stderr ?? "") + (c.note ? `\n${c.note}\n` : ""),
   };
 }
 

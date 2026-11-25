@@ -38,6 +38,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 // below is per test, not per suite, so it costs nothing on a healthy machine.
 setDefaultTimeout(60_000);
 import { Glob } from "bun";
+import { childResult } from "./_child_result";
 import {
   existsSync,
   mkdirSync,
@@ -113,15 +114,15 @@ function runModule(args: string[], env: Record<string, string> = {}): Run {
   });
   // `exitCode` is null when the child was KILLED BY A SIGNAL, and collapsing that
   // into -1 with an empty stderr is why a `-1` here has been undiagnosable: the
-  // assertion printed nothing about the cause. The signal is surfaced in the
-  // stderr the assertions carry, so the next occurrence names itself instead of
-  // being re-run until it passes.
-  const signal = proc.signalCode ?? null;
+  // assertion printed nothing about the cause. The shared reader (STE-872) names
+  // the signal in the stderr the assertions carry, so the next occurrence names
+  // itself instead of being re-run until it passes.
+  const c = childResult(proc, ["bun", "run", MODULE, ...args]);
   const stderr = proc.stderr.toString();
   return {
-    code: proc.exitCode ?? -1,
+    code: c.code,
     stdout: proc.stdout.toString(),
-    stderr: signal === null ? stderr : `${stderr}\n[the child was killed by ${signal}; it did not exit on its own — this is a HARNESS or machine-load failure, not a module verdict]`,
+    stderr: c.note ? `${stderr}\n${c.note}` : stderr,
   };
 }
 
