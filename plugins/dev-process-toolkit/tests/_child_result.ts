@@ -10,8 +10,9 @@
 // the command and that it did not exit on its own; a child killed by its own
 // timeout is named as a timeout instead. A child that never started (a node
 // result whose error.code is ENOENT, EACCES or the like) is named as a start
-// failure, and one killed because its output passed maxBuffer (ENOBUFS) is
-// named as that; both still read as -1. This module only reads: it starts no
+// failure, and one whose output passed maxBuffer (ENOBUFS) is named as that,
+// even when it then exited on its own, since its output was cut; both still
+// read as -1. This module only reads: it starts no
 // process and never retries, so a failure can never turn into a pass here.
 
 export interface ChildResult {
@@ -81,12 +82,18 @@ export function childResult(
     };
   }
   const error = pickError(r);
-  if (exit === null && error !== null && error.code === "ENOBUFS") {
+  // ENOBUFS is named whatever the exit: a child that ignores the kill and exits
+  // on its own still had its output cut, so its exit code is no clean pass.
+  if (error !== null && error.code === "ENOBUFS") {
+    const how =
+      exit === null
+        ? `so it was killed${signal ? ` by ${signal}` : ""}`
+        : `so its output was cut; it then exited with code ${exit}, but on cut output`;
     return {
       code: -1,
       signal,
       timedOut: false,
-      note: `[the child \`${cmd}\` wrote more output than maxBuffer allows, so it was killed${signal ? ` by ${signal}` : ""} (ENOBUFS) — a buffer limit, not a module verdict]`,
+      note: `[the child \`${cmd}\` wrote more output than maxBuffer allows, ${how} (ENOBUFS) — a buffer limit, not a module verdict]`,
     };
   }
   if (exit === null && error !== null && signal === null) {

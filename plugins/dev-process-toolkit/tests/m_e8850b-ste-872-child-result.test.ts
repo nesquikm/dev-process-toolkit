@@ -186,6 +186,25 @@ describe("AC-STE-872.1 — one helper, three result shapes, and a failure never 
     expect(out.note).not.toContain("machine-load");
   });
 
+  // Review delta D4: a child that ignores SIGTERM outlives the maxBuffer kill and
+  // exits 0 on its own, with its output cut. That is never a clean pass.
+  test("AC-STE-872.1: an ENOBUFS child that ignores SIGTERM and exits 0 on its own is still named as a buffer limit, never a clean pass", async () => {
+    const childResult = await helper();
+    const cmd = ["sh", "-c", "trap '' TERM; head -c 500000 /dev/zero; exit 0"];
+    const r = spawnSync(cmd[0]!, cmd.slice(1), { maxBuffer: 1000 });
+    expect((r.error as NodeJS.ErrnoException | undefined)?.code, "precondition: the output passed maxBuffer").toBe("ENOBUFS");
+    expect(r.status, "precondition: the child exited on its own with 0").toBe(0);
+    expect(r.signal, "precondition: no signal ended the child").toBeNull();
+    const out = childResult(r, cmd);
+    expect(out.code).toBe(-1);
+    expect(out.timedOut).toBe(false);
+    expect(out.note).not.toBe("");
+    expect(out.note).toContain("maxBuffer");
+    expect(out.note).toContain("ENOBUFS");
+    expect(out.note).toContain("cut");
+    expect(out.note).not.toContain("machine-load");
+  });
+
   test("AC-STE-872.1: withNote adds a note to stderr on its own line, and an empty note adds nothing", async () => {
     const mod = (await import(HELPER)) as { withNote?: (stderr: string, note: string) => string };
     expect(typeof mod.withNote).toBe("function");

@@ -328,7 +328,7 @@ function enclosingTitle(src: string, at: number): string | undefined {
 
 describe("AC-STE-847.5 every live-checkout test that grades probe #63 accepts the window", () => {
   const LIVE: ReadonlyArray<[suite: string, title: string]> = [
-    [PIN_SUITE, PIN_TITLE],
+    [PIN_SUITE, `${PIN_TITLE} \`conformance-probes pass: 74/74\``],
     ["m141-ste-546-surface-agreement.test.ts", "probe #63 over the live tree is clean, unshipped debt excluded"],
     ["gate-check-plan-ship-coherence.test.ts", "every stamped archive plan resolves to a CHANGELOG heading (no corrupt stamps)"],
     ["m_79b1f6-ste-588-sibling-coherence.test.ts", "the live repo root declares no span and yields no sibling row and no sibling note"],
@@ -354,10 +354,23 @@ describe("AC-STE-847.5 every live-checkout test that grades probe #63 accepts th
   });
 
   // Live-root grades that run the whole table but read no #63 verdict, so the window cannot red them.
-  const NOT_63: ReadonlyArray<[suite: string, title: string, why: string]> = [
-    [PIN_SUITE, "AC-STE-756.3 — the runner over this repository checkout does not grade #81's warning catalogue row as `fail`", "reads only the #81 row"],
-    [PIN_SUITE, "AC-STE-756.4 — every shipped entry's real report has a known shape, on this checkout and on an empty project", "reads only the report shapes"],
+  // Each is keyed by its suite, its exact title and the exact grade lines inside that test.
+  // The test is spared only while it holds exactly those lines, and none of them grades #63 alone.
+  const NOT_63: ReadonlyArray<[suite: string, title: string, lines: readonly string[], why: string]> = [
+    [
+      PIN_SUITE,
+      "AC-STE-756.3 — the runner over this repository checkout does not grade #81's warning catalogue row as `fail`",
+      ["const out = await runGateProbes(REPO_ROOT);"],
+      "reads only the #81 row",
+    ],
+    [
+      PIN_SUITE,
+      "AC-STE-756.4 — every shipped entry's real report has a known shape, on this checkout and on an empty project",
+      ["const out = await runGateProbes(root);"],
+      "reads only the report shapes",
+    ],
   ];
+  const ONLY_63 = /\b(?:runPlanShipCoherenceProbe|gradeLiveCheckout)\s*\(/;
   const suites = (): Map<string, string> =>
     new Map(
       readdirSync(import.meta.dir)
@@ -369,15 +382,29 @@ describe("AC-STE-847.5 every live-checkout test that grades probe #63 accepts th
     [...files].flatMap(([suite, src]) =>
       liveRootGrades(src).map((g) => {
         const title = enclosingTitle(src, g.at);
-        return { suite, title, where: `${suite}:${lineOf(src, g.at)} (${title ?? "outside any test"})` };
+        const line = src.split("\n")[lineOf(src, g.at) - 1]!.trim();
+        return { suite, title, line, where: `${suite}:${lineOf(src, g.at)} (${title ?? "outside any test"})` };
       }),
     );
-  // `-t` matches a title by substring, as the window run selects it.
-  const listed = (rows: ReadonlyArray<readonly [string, string, ...string[]]>, suite: string, title?: string) =>
-    rows.some(([s, t]) => s === suite && title !== undefined && title.includes(t));
+  // An exact title: a test whose title only extends a listed one is not that test.
+  const listed = (rows: ReadonlyArray<readonly [string, string, ...unknown[]]>, suite: string, title?: string) =>
+    rows.some(([s, t]) => s === suite && title === t);
+  /** A NOT_63 test is spared only while its grade lines are exactly the expected ones, none a #63 grade. */
+  const sparedTitles = (sites: ReturnType<typeof gradesBySite>): Set<string> => {
+    const spared = new Set<string>();
+    for (const [suite, title, lines] of NOT_63) {
+      const got = sites.filter((g) => g.suite === suite && g.title === title).map((g) => g.line).sort();
+      const clean = got.every((l) => !ONLY_63.test(l));
+      if (clean && JSON.stringify(got) === JSON.stringify([...lines].sort())) spared.add(`${suite}\0${title}`);
+    }
+    return spared;
+  };
   /** The live-root grades the window run does not cover. */
-  const unlisted = (files: Map<string, string>): string[] =>
-    gradesBySite(files).filter((g) => !listed(LIVE, g.suite, g.title) && !listed(NOT_63, g.suite, g.title)).map((g) => g.where);
+  const unlisted = (files: Map<string, string>): string[] => {
+    const sites = gradesBySite(files);
+    const spared = sparedTitles(sites);
+    return sites.filter((g) => !listed(LIVE, g.suite, g.title) && !spared.has(`${g.suite}\0${g.title}`)).map((g) => g.where);
+  };
 
   test("every live-root grade sits inside a listed title, or is a named grade that reads no #63 verdict", () => {
     const files = suites();
@@ -386,6 +413,36 @@ describe("AC-STE-847.5 every live-checkout test that grades probe #63 accepts th
     const sites = gradesBySite(files);
     for (const [suite, title] of [...LIVE.filter(([s]) => !s.startsWith("m120-")), ...NOT_63]) {
       expect(sites.some((g) => listed([[suite, title]], g.suite, g.title)), `${suite}: ${title}`).toBe(true);
+    }
+    expect([...sparedTitles(sites)].sort()).toEqual(NOT_63.map(([s, t]) => `${s}\0${t}`).sort());
+  });
+
+  const NOT_63_TITLE = NOT_63[0]![1];
+  /** The pin's suite with `add` placed as the first statement of the first NOT_63 test. */
+  const withInNot63 = (add: string): Map<string, string> => {
+    const files = suites();
+    const src = files.get(PIN_SUITE)!;
+    const head = `test("${NOT_63_TITLE}", async () => {\n`;
+    expect(src.split(head).length - 1).toBe(1);
+    files.set(PIN_SUITE, src.replace(head, `${head}${add}\n`));
+    return files;
+  };
+
+  test("control: a #63 grade added inside a spared test is caught", () => {
+    expect(unlisted(withInNot63("    expect((await runPlanShipCoherenceProbe(REPO_ROOT)).violations).toEqual([]);"))).toEqual([
+      expect.stringContaining(`(${NOT_63_TITLE})`),
+      expect.stringContaining(`(${NOT_63_TITLE})`),
+    ]);
+    // A second whole-table grade in the same test is caught too.
+    expect(unlisted(withInNot63("    await runGateProbes(REPO_ROOT);"))).toHaveLength(2);
+  });
+
+  test("control: a new test whose title extends a spared or listed title is caught", () => {
+    const grade = "  expect((await runPlanShipCoherenceProbe(REPO_ROOT)).violations).toEqual([]);";
+    for (const [suite, title] of [[PIN_SUITE, NOT_63_TITLE], LIVE[1]!] as const) {
+      const files = suites();
+      files.set(suite, `${files.get(suite)!}\ntest("${title} (plan coherence too)", async () => {\n${grade}\n});\n`);
+      expect(unlisted(files), title).toEqual([expect.stringContaining(`(${title} (plan coherence too))`)]);
     }
   });
 
