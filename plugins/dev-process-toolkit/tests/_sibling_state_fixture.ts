@@ -28,6 +28,7 @@
 // Callers own teardown: `cleanup()` in a `finally`.
 
 import { spawnSync } from "node:child_process";
+import { childResult, withNote } from "./_child_result";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -292,13 +293,15 @@ export const describeRun = (r: Run): string =>
  * time, never an unbounded fan-out.
  */
 export function runModule(relPath: string, args: readonly string[]): Run {
-  const proc = spawnSync("bun", ["run", relPath, ...args], {
+  const cmd = ["bun", "run", relPath, ...args];
+  const proc = spawnSync(cmd[0]!, cmd.slice(1), {
     cwd: PLUGIN_ROOT,
     env: { ...GIT_ENV, NO_COLOR: "1" },
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
   });
-  return { status: proc.status, stdout: proc.stdout ?? "", stderr: proc.stderr ?? "" };
+  const child = childResult(proc, cmd);
+  return { status: child.code, stdout: proc.stdout ?? "", stderr: withNote(proc.stderr ?? "", child.note) };
 }
 
 /** Refusal #4's front door. */

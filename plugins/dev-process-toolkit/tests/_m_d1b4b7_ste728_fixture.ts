@@ -18,6 +18,7 @@
 // (00000000-0000-4000-8000-0000000000NN / 00000000-0000-4000-8000-0000001000NN).
 
 import { spawnSync } from "node:child_process";
+import { childResult, withNote } from "./_child_result";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -261,13 +262,15 @@ export function childEnv(o: RunOpts): Record<string, string> {
 
 /** `bun run retro_proposal.ts <args…>` (cwd defaults to the first arg after the verb). */
 export function runProposal(args: string[], o: RunOpts = {}): RunResult {
-  const p = spawnSync(process.execPath, ["run", o.module ?? MODULE, ...args], {
+  const cmd = [process.execPath, "run", o.module ?? MODULE, ...args];
+  const p = spawnSync(cmd[0]!, cmd.slice(1), {
     cwd: o.cwd ?? args[1],
     encoding: "utf-8",
     env: childEnv(o),
     timeout: 60_000,
   });
-  return { status: p.status, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const child = childResult(p, cmd, { timeoutMs: 60_000 });
+  return { status: child.code, stdout: p.stdout ?? "", stderr: withNote(p.stderr ?? "", child.note) };
 }
 
 export function propose(root: string, report: string, o: RunOpts = {}): RunResult {
@@ -280,12 +283,16 @@ export function apply(root: string, report: string, digest: string, o: RunOpts =
 
 /** `capture_registration.ts status <root>` stdout. */
 export function captureStatus(root: string, o: RunOpts = {}): string {
-  const p = spawnSync(process.execPath, ["run", o.module ? join(o.module, "..", "capture_registration.ts") : CAPTURE_REGISTRATION, "status", root], {
+  const cmd = [process.execPath, "run", o.module ? join(o.module, "..", "capture_registration.ts") : CAPTURE_REGISTRATION, "status", root];
+  const p = spawnSync(cmd[0]!, cmd.slice(1), {
     cwd: root,
     encoding: "utf-8",
     env: childEnv(o),
     timeout: 60_000,
   });
+  // A child that did not exit on its own has no stdout to trust: say so, never return "".
+  const child = childResult(p, cmd, { timeoutMs: 60_000 });
+  if (child.note !== "") throw new Error(`${child.note}\n${p.stderr ?? ""}`);
   return p.stdout ?? "";
 }
 

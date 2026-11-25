@@ -8,7 +8,10 @@
 // A child that exited on its own keeps its exit code and an empty note. A child
 // killed by a signal reads as code -1 (never 0) with a note naming the signal,
 // the command and that it did not exit on its own; a child killed by its own
-// timeout is named as a timeout instead. This module only reads: it starts no
+// timeout is named as a timeout instead. A child that never started (a node
+// result whose error.code is ENOENT, EACCES or the like) is named as a start
+// failure, and one killed because its output passed maxBuffer (ENOBUFS) is
+// named as that; both still read as -1. This module only reads: it starts no
 // process and never retries, so a failure can never turn into a pass here.
 
 export interface ChildResult {
@@ -40,10 +43,21 @@ function pickSignal(r: Loose): string | null {
   return null;
 }
 
+function pickError(r: Loose): { code: string; message: string } | null {
+  const err = r.error as { code?: unknown; message?: unknown } | undefined;
+  if (!err || typeof err !== "object" || typeof err.code !== "string") return null;
+  return { code: err.code, message: typeof err.message === "string" ? err.message : "" };
+}
+
 function pickTimedOut(r: Loose): boolean {
   if (r.exitedDueToTimeout === true) return true;
-  const err = r.error as { code?: unknown } | undefined;
-  return !!err && typeof err === "object" && err.code === "ETIMEDOUT";
+  return pickError(r)?.code === "ETIMEDOUT";
+}
+
+/** Add a child's note to its stderr, on a line of its own. An empty note adds nothing. */
+export function withNote(stderr: string, note: string): string {
+  if (note === "") return stderr;
+  return stderr === "" || stderr.endsWith("\n") ? `${stderr}${note}\n` : `${stderr}\n${note}\n`;
 }
 
 export function childResult(
@@ -64,6 +78,24 @@ export function childResult(
       signal,
       timedOut: true,
       note: `[the child \`${cmd}\` timed out: it was killed${signal ? ` by ${signal}` : ""} when ${limit} ran out — a timeout, not a module verdict]`,
+    };
+  }
+  const error = pickError(r);
+  if (exit === null && error !== null && error.code === "ENOBUFS") {
+    return {
+      code: -1,
+      signal,
+      timedOut: false,
+      note: `[the child \`${cmd}\` wrote more output than maxBuffer allows, so it was killed${signal ? ` by ${signal}` : ""} (ENOBUFS) — a buffer limit, not a module verdict]`,
+    };
+  }
+  if (exit === null && error !== null && signal === null) {
+    const why = error.message === "" ? "" : `: ${error.message}`;
+    return {
+      code: -1,
+      signal: null,
+      timedOut: false,
+      note: `[the child \`${cmd}\` failed to start (${error.code})${why} — it never ran, so this is not a module verdict]`,
     };
   }
   if (exit !== null && signal === null) {

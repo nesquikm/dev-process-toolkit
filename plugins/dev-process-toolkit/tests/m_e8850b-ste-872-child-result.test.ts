@@ -139,6 +139,62 @@ describe("AC-STE-872.1 — one helper, three result shapes, and a failure never 
     expect(out.note).not.toContain("did not exit on its own");
   });
 
+  // Amended by AC-STE-872.1 (M_e8850b, review F7): a child that never started, or
+  // one killed for passing maxBuffer, is named as that, not as a machine-load kill.
+  test("AC-STE-872.1: node spawnSync of a missing command is named as a start failure (ENOENT), not a kill", async () => {
+    const childResult = await helper();
+    const r = spawnSync("dpt-no-such-command-a1", []);
+    expect((r.error as NodeJS.ErrnoException | undefined)?.code, "precondition: the command was not found").toBe("ENOENT");
+    const out = childResult(r, "dpt-no-such-command-a1");
+    expect(out.code).toBe(-1);
+    expect(out.signal).toBeNull();
+    expect(out.timedOut).toBe(false);
+    expect(out.note).toContain("failed to start (ENOENT)");
+    expect(out.note).toContain("dpt-no-such-command-a1");
+    expect(out.note).not.toContain("killed");
+    expect(out.note).not.toContain("machine-load");
+  });
+
+  test("AC-STE-872.1: node spawnSync of a file that is not executable is named as a start failure (EACCES)", async () => {
+    const childResult = await helper();
+    const dir = mkdtempSync(join(tmpdir(), "ste-872-eacces-"));
+    try {
+      const file = join(dir, "not-executable.sh");
+      writeFileSync(file, "#!/bin/sh\nexit 0\n", { mode: 0o644 });
+      const r = spawnSync(file, []);
+      expect((r.error as NodeJS.ErrnoException | undefined)?.code, "precondition: the file could not be run").toBe("EACCES");
+      const out = childResult(r, file);
+      expect(out.code).toBe(-1);
+      expect(out.note).toContain("failed to start (EACCES)");
+      expect(out.note).not.toContain("machine-load");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("AC-STE-872.1: node spawnSync whose output passes maxBuffer is named as a buffer limit (ENOBUFS), not a machine-load kill", async () => {
+    const childResult = await helper();
+    const cmd = ["sh", "-c", "yes | head -c 2000000"];
+    const r = spawnSync(cmd[0]!, cmd.slice(1), { maxBuffer: 1000 });
+    expect((r.error as NodeJS.ErrnoException | undefined)?.code, "precondition: the output passed maxBuffer").toBe("ENOBUFS");
+    const out = childResult(r, cmd);
+    expect(out.code).toBe(-1);
+    expect(out.timedOut).toBe(false);
+    expect(out.note).toContain("maxBuffer");
+    expect(out.note).toContain("ENOBUFS");
+    expect(out.note).toContain("yes | head -c 2000000");
+    expect(out.note).not.toContain("machine-load");
+  });
+
+  test("AC-STE-872.1: withNote adds a note to stderr on its own line, and an empty note adds nothing", async () => {
+    const mod = (await import(HELPER)) as { withNote?: (stderr: string, note: string) => string };
+    expect(typeof mod.withNote).toBe("function");
+    expect(mod.withNote!("boom", "")).toBe("boom");
+    expect(mod.withNote!("", "[n]")).toBe("[n]\n");
+    expect(mod.withNote!("boom", "[n]")).toBe("boom\n[n]\n");
+    expect(mod.withNote!("boom\n", "[n]")).toBe("boom\n[n]\n");
+  });
+
   test("AC-STE-872.1: the helper imports only node builtins and starts no process (it never retries)", () => {
     const src = readFileSync(HELPER, "utf-8");
     const imports = [...src.matchAll(/(?:import|from)\s*\(?\s*["']([^"']+)["']/g)].map((m) => m[1]!);
@@ -194,6 +250,9 @@ const SELF_CONTAINED = ["_nested_bun_test.ts"];
 const read = (f: string): string => readFileSync(join(TESTS, f), "utf-8");
 const bunRunners = (): string[] => readdirSync(TESTS).filter((f) => /^_.*\.ts$/.test(f) && f !== "_child_result.ts" && startsBun(read(f))).sort();
 const importsHelper = (src: string): boolean => /from\s+["']\.\/_child_result(\.ts)?["']/.test(src);
+/** The bun runners, other than the self-contained ones, that do not import the helper. */
+const runnersWithoutHelper = (files: Array<{ name: string; src: string }>): string[] =>
+  files.filter((f) => !SELF_CONTAINED.includes(f.name) && startsBun(f.src) && !importsHelper(f.src)).map((f) => f.name).sort();
 
 describe("AC-STE-872.2 — no runner that starts bun collapses a null exit code without the helper", () => {
   test("AC-STE-872.2: the sweep sees every named runner (a vacuous sweep proves nothing)", () => {
@@ -217,11 +276,63 @@ describe("AC-STE-872.2 — no runner that starts bun collapses a null exit code 
     expect(nullCollapses("const c = p.exitCode ?? null;")).toEqual([]);
   });
 
-  for (const f of [...new Set([...RUNNERS])]) {
+  // Amended by AC-STE-872.2 (M_e8850b, review F6): every bun runner the sweep
+  // finds must read its child through the helper, not only a hard-coded list,
+  // so a new runner that skips the helper turns this red.
+  for (const f of [...new Set([...RUNNERS, ...bunRunners().filter((r) => !SELF_CONTAINED.includes(r))])].sort()) {
     test(`AC-STE-872.2: ${f} reads its child through tests/_child_result.ts`, () => {
       expect(importsHelper(read(f))).toBe(true);
     });
   }
+
+  test("AC-STE-872.2: every runner under tests/ that starts bun, other than the self-contained ones, imports the helper", () => {
+    const files = bunRunners().map((name) => ({ name, src: read(name) }));
+    expect(files.length).toBeGreaterThanOrEqual(RUNNERS.length);
+    expect(runnersWithoutHelper(files)).toEqual([]);
+  });
+
+  test("AC-STE-872.2: mutation control — a synthetic bun runner without the helper reds the sweep", () => {
+    const files = bunRunners().map((name) => ({ name, src: read(name) }));
+    const synthetic = {
+      name: "_synthetic_runner.ts",
+      src: 'import { spawnSync } from "node:child_process";\nexport const run = (m: string) => {\n  const p = spawnSync("bun", ["run", m]);\n  return { status: p.status, stderr: p.stderr };\n};\n',
+    };
+    expect(startsBun(synthetic.src), "the synthetic runner starts bun").toBe(true);
+    expect(nullCollapses(synthetic.src), "it collapses nothing, so only the import sweep can catch it").toEqual([]);
+    expect(runnersWithoutHelper([...files, synthetic])).toEqual(["_synthetic_runner.ts"]);
+    const adopted = { name: "_synthetic_runner.ts", src: `import { childResult } from "./_child_result";\n${synthetic.src}` };
+    expect(runnersWithoutHelper([...files, adopted])).toEqual([]);
+    const exempt = { name: SELF_CONTAINED[0]!, src: synthetic.src };
+    expect(runnersWithoutHelper([exempt])).toEqual([]);
+  });
+
+  test("AC-STE-872.2: the shared runners name a bun child killed by a signal: non-zero code and the note on stderr", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ste-872-runners-"));
+    try {
+      const mod = join(dir, "self-kill.ts");
+      writeFileSync(mod, 'process.kill(process.pid, "SIGKILL");\n');
+      const { spawnDoor } = await import("./_span_declare_fixture");
+      const { runModule } = await import("./_sibling_state_fixture");
+      const { runRetro } = await import("./_m_d1b4b7_retro_fixture");
+      const { runProposal } = await import("./_m_d1b4b7_ste728_fixture");
+      const { runFrontDoor } = await import("./_m_d1b4b7_ste720_fixture");
+      const runs: Array<[string, { status: number | null; stderr: string }]> = [
+        ["spawnDoor", spawnDoor(mod, [], dir)],
+        ["runModule", runModule(mod, [])],
+        ["runRetro", runRetro(dir, [], {}, mod)],
+        ["runProposal", runProposal(["propose", dir], { module: mod, cwd: dir })],
+        ["runFrontDoor", runFrontDoor(dir, dir, [], { door: mod })],
+      ];
+      for (const [name, r] of runs) {
+        expect(typeof r.status, `${name}: the code is a number`).toBe("number");
+        expect(r.status, `${name}: a signal kill is never 0`).not.toBe(0);
+        expect(r.stderr, `${name}: stderr names the signal`).toContain("SIGKILL");
+        expect(r.stderr, `${name}: stderr says the child did not exit on its own`).toContain("did not exit on its own");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 
   test("AC-STE-872.2: no runner under tests/ that starts bun collapses a null exit code", () => {
     const offenders = bunRunners()
