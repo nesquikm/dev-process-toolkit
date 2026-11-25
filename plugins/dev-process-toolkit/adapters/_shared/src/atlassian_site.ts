@@ -47,6 +47,18 @@ export function siteHostOf(value: string): string {
   return (httpsAuthority(value) ?? value).toLowerCase();
 }
 
+/**
+ * The settings key, and its value, that would make `siteMatches` accept a call's
+ * `cloudId` value, or null. A cloud id counts only as the whole value, since
+ * `siteMatches` compares `cloud_id` with the raw value; a site is read from the
+ * value as `siteHostOf` reads it.
+ */
+export function siteKeyFor(value: string): { key: "cloud_id" | "site"; value: string } | null {
+  if (isCloudId(value)) return { key: "cloud_id", value: value.toLowerCase() };
+  const host = siteHostOf(value);
+  return isSiteHost(host) ? { key: "site", value: host } : null;
+}
+
 /** True when a call's `cloudId` names the declared site, or when no site is declared. */
 export function siteMatches(binding: SiteDeclaration, cloudId: unknown): boolean {
   if (!binding.site && !binding.cloudId) return true;

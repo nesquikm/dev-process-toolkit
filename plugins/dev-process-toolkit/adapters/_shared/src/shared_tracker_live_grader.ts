@@ -847,7 +847,12 @@ function siteTokens(declared: Record<Root, { site?: string; cloudId?: string }>)
     if (!ids.has(id)) ids.set(id, `<cloud-${r}>`);
     tokens[r].cloudId = ids.get(id)!;
   }
-  const cloudRes = [...ids].map(([id, tok]) => ({ tok, whole: new RegExp(`(?<![A-Za-z0-9-])${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9-])`, "gi") }));
+  // Matched anywhere, with no word boundaries: a UUID does not occur inside
+  // another token by chance, and a boundary would miss it after `%2F` in a
+  // URL-encoded path, leaving it for the backstop to abort on (D3).
+  const cloudRes = [...ids]
+    .sort(([x], [y]) => y.length - x.length)
+    .map(([id, tok]) => ({ tok, whole: new RegExp(id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi") }));
   if (res.length === 0 && cloudRes.length === 0) return { tokens, tokenise: (s) => s, redactRest: (s) => s };
   return {
     tokens,

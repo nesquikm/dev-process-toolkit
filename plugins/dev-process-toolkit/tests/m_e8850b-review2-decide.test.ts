@@ -10,13 +10,18 @@
 // F5: the other-site refusal names the `site` key to add for an https URL with
 // a path or a trailing slash, as `siteMatches` reads that value.
 //
+// D1: the `cloud_id` hint is offered only for a value `siteMatches` would take
+// as that cloud id: the whole value, never an https URL around it.
+//
+// D2: the ownership refusal names a reuse receipt it dropped for its site.
+//
 // Invented hosts, UUIDs and keys only.
 
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { siteHostOf, siteMatches } from "../adapters/_shared/src/atlassian_site";
+import { siteHostOf, siteKeyFor, siteMatches } from "../adapters/_shared/src/atlassian_site";
 import { announceReceipt, writeReceipt, type ReceiptInput } from "../adapters/_shared/src/tracker_receipts";
 import { EPIC, MILESTONE, PLUGIN_ROOT, SESSION, SIBLING_TAG, Transcript, cleanupTemps, gate, jiraTicket, makeWorld, moduleRel, permitProblem, refusalProblem, runModule, show, type Run, type World } from "./_m_b2fdc0_ste729_fixture";
 import { commitAll } from "./_span_fixture";
@@ -43,7 +48,13 @@ function declareSite(w: World, lines: string[]): void {
 let A: World; // declares the site, is the session's cwd
 let C: World; // declares no site, binds the same project
 let idOnly: World; // F5: declares only cloud_id
+let siteOnly: World; // D1: declares only site
+let followed: World; // D1: siteOnly with the hinted cloud_id added
 beforeAll(() => {
+  siteOnly = makeWorld({ boundFr: "PROJ-520" });
+  declareSite(siteOnly, [`site: ${HOST}`]);
+  followed = makeWorld({ boundFr: "PROJ-520" });
+  declareSite(followed, [`site: ${HOST}`, `cloud_id: ${OTHER_UUID}`]);
   A = makeWorld({ boundFr: "PROJ-520" });
   declareSite(A, [`site: ${HOST}`, `cloud_id: ${UUID}`]);
   C = makeWorld({ tag: SIBLING_TAG, boundFr: "PROJ-530" });
@@ -185,5 +196,48 @@ describe("F5 — the add-key hint reads the host as siteMatches does", () => {
   test("TWIN — a bare host gets the same hint", async () => {
     const r = await gate(PLUGIN_ROOT, "mcp__atlassian__editJiraIssue", { cloudId: OTHER_HOST, issueIdOrKey: "PROJ-520", fields: { summary: "Retitled" } }, new Transcript(), idOnly.root);
     refuses(r, `add \`site: ${OTHER_HOST}\``);
+  });
+});
+
+describe("D1 — the cloud_id hint is offered only where siteMatches would read it", () => {
+  test("every hint siteKeyFor gives is accepted by siteMatches once declared", () => {
+    const values = [OTHER_UUID, OTHER_UUID.toUpperCase(), `https://${OTHER_UUID}`, `https://${OTHER_UUID}/`, `https://${OTHER_UUID}/jira`, `https://${OTHER_HOST}/`, `https://${OTHER_HOST}/jira`, OTHER_HOST];
+    for (const v of values) {
+      const h = siteKeyFor(v);
+      if (h === null) continue;
+      expect(siteMatches(h.key === "cloud_id" ? { cloudId: h.value } : { site: h.value }, v), `${v} -> ${JSON.stringify(h)}`).toBe(true);
+    }
+    expect(siteKeyFor(OTHER_UUID)).toEqual({ key: "cloud_id", value: OTHER_UUID });
+    expect(siteKeyFor(`https://${OTHER_UUID}/`)).toBeNull();
+  });
+  const editAt = (root: string, cloudId: string): Promise<Run> =>
+    gate(PLUGIN_ROOT, "mcp__atlassian__editJiraIssue", { cloudId, issueIdOrKey: "PROJ-520", fields: { summary: "Retitled" } }, new Transcript(), root);
+  for (const value of [`https://${OTHER_UUID}`, `https://${OTHER_UUID}/`, `https://${OTHER_UUID}/jira`]) {
+    test(`REFUSE with no cloud_id hint — cloudId ${value}`, async () => {
+      const r = await editAt(siteOnly.root, value);
+      refuses(r, "not the Jira site");
+      expect(r.stderr).not.toContain("add `cloud_id");
+      // Following the old hint would not have helped: the same call is still refused.
+      refuses(await editAt(followed.root, value), "not the Jira site");
+    });
+  }
+  test("TWIN — a bare cloud id gets the cloud_id hint, and following it permits the call", async () => {
+    refuses(await editAt(siteOnly.root, OTHER_UUID), `add \`cloud_id: ${OTHER_UUID}\``);
+    permits(await editAt(followed.root, OTHER_UUID));
+  });
+});
+
+describe("D2 — the ownership refusal names a reuse receipt dropped for its site", () => {
+  test("REFUSE — names the receipt, its count and the site rule", async () => {
+    const { t, out } = decided(C, [OTHER_UUID], true);
+    const path = out.split("\n").find((l) => l.startsWith("dpt-receipt:"))!.replace(/^dpt-receipt:\s*/, "").replace(/\s+sha256:\S+\s*$/, "");
+    const r = await editKey(t, UUID);
+    refuses(r, "1 reuse receipt(s) name it but were decided from a search at another site than", path);
+    expect(r.stderr).not.toContain("no reuse, binding or consented import receipt names it");
+  });
+  test("TWIN — with no decide at all, the refusal names no dropped receipt", async () => {
+    const r = await editKey(new Transcript(), UUID);
+    refuses(r, "no reuse, binding or consented import receipt names it");
+    expect(r.stderr).not.toContain("reuse receipt(s) name it");
   });
 });

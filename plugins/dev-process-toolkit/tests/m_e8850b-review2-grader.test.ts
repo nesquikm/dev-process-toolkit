@@ -192,6 +192,48 @@ describe("F3 — a declared cloud_id is a token in the bundle", () => {
     expect(JSON.stringify(e.verdict).toLowerCase()).not.toContain(CLOUD);
   });
 
+  // D3: an id right after a letter or digit, as in a URL-encoded path
+  // (`%2F<id>%2F`), is still the declared id. It becomes the token, so the
+  // backstop has nothing to abort on, the same as a declared host there.
+  test("D3 — an encoded id after %2F in result text, an input field and an item becomes the token, and the run extracts", async () => {
+    let ref = "";
+    let textRef = "";
+    const e = await extracted([`site: ${HOST}`, `cloud_id: ${CLOUD}`], CLOUD, (s, b) => {
+      const key = `${b.run.container}-890`;
+      b.repos[s.root].frBindings.push({ path: "specs/frs/fr-890.md", title: "Own", key, milestone: null });
+      const item = { ...itemOf(b, s, key), summary: `see ex%2Fjira%2F${CLOUD.toUpperCase()}%2Frest` };
+      ref = push(s, "editJiraIssue", { cloudId: CLOUD, issueIdOrKey: key, fields: { summary: "Retitled", description: `x%2F${CLOUD}%2Fy` } }, [item]).ref;
+      const t = push(s, "editJiraIssue", { cloudId: CLOUD, issueIdOrKey: key, fields: { summary: "Retitled" } }, [itemOf(b, s, key)]);
+      t.result.items = null;
+      t.result.text = `see ex%2Fjira%2F${CLOUD}%2Frest`;
+      textRef = t.ref;
+    });
+    if (!e.ok) throw new Error(`not extracted: ${JSON.stringify(e.verdict)}`);
+    expect(JSON.stringify(e.bundle).toLowerCase()).not.toContain(CLOUD);
+    const calls = e.bundle.sessions.flatMap((x) => x.calls);
+    const c = calls.find((x) => x.ref === ref)!;
+    expect((c.input.fields as Obj).description).toBe("x%2F<cloud-A>%2Fy");
+    expect(c.result.items![0]!.summary).toBe("see ex%2Fjira%2F<cloud-A>%2Frest");
+    expect(c.input.cloudId).toBe("<cloud-A>");
+    expect(calls.find((x) => x.ref === textRef)!.result.text).toBe("see ex%2Fjira%2F<cloud-A>%2Frest");
+    expect(await flaggedIn(e.bundle, ref)).toBe(false);
+  });
+
+  test("D3 — two encoded ids keep their own tokens", async () => {
+    let ref = "";
+    const e = await extracted([`cloud_id: ${CLOUD}`, `#B cloud_id: ${CLOUD_B}`], CLOUD, (s, b) => {
+      const key = `${b.run.container}-890`;
+      b.repos[s.root].frBindings.push({ path: "specs/frs/fr-890.md", title: "Own", key, milestone: null });
+      const c = push(s, "editJiraIssue", { cloudId: CLOUD_B, issueIdOrKey: key, fields: { summary: "Retitled" } }, [itemOf(b, s, key)]);
+      c.result.items = null;
+      c.result.text = `a%2F${CLOUD}%2Fb%2F${CLOUD_B.toUpperCase()}%2Fc`;
+      ref = c.ref;
+    });
+    if (!e.ok) throw new Error(`not extracted: ${JSON.stringify(e.verdict)}`);
+    const c = e.bundle.sessions.flatMap((x) => x.calls).find((x) => x.ref === ref)!;
+    expect(c.result.text).toBe("a%2F<cloud-A>%2Fb%2F<cloud-B>%2Fc");
+  });
+
   test("CONTROL — the same run meta without the id extracts", async () => {
     const e = await extracted([`cloud_id: ${CLOUD}`], CLOUD, () => {}, (m) => {
       m.run.auditQuery = `${m.run.auditQuery} cloud none`;

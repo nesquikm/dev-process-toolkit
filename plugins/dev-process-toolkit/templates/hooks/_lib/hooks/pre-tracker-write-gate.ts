@@ -41,7 +41,7 @@ import { containerListingRowsComplete, governingDecision, isCanonicalContainerLi
 import { resolveInterviewAnswer } from "../../../../adapters/_shared/src/auto_answers.ts";
 import { EPIC_EDIT_INPUT_KEYS, exemptsJoinConsent, isStatusOnlyTransition, labelsEnvelope, linkNeedsEverySide, perQuestionConsent, relationTargets } from "../../../../adapters/_shared/src/join_consent_ownership.ts";
 import { ATLASSIAN_EXECUTE_TOOLS, canonicalAtlassianCall, GRAPH_ITEM_TARGET_TYPES, type CanonicalAtlassianCall } from "../../../../adapters/_shared/src/atlassian_call.ts";
-import { browseHostMatches, isCloudId, isSiteHost, siteHostOf, siteMatches } from "../../../../adapters/_shared/src/atlassian_site.ts";
+import { browseHostMatches, siteKeyFor, siteMatches } from "../../../../adapters/_shared/src/atlassian_site.ts";
 import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shared/src/dpt_version.ts";
 // The ONE reading of "which command ran which module" (M_85e846 review). Both
 // this gate and the gate-receipt front door reach it here; a second copy is how
@@ -1820,12 +1820,12 @@ function refuseOtherSite(call: TrackerCall, targets: DeclaredTarget[], note: str
     const keys = [...(b.site ? [`site ${b.site}`] : []), ...(b.cloudId ? [`cloud_id ${b.cloudId}`] : [])];
     return `${root} (${keys.join(", ")}${siteFrom ? `, taken from ${siteFrom.join(", ")}, which binds the same project` : ""})`;
   });
-  // The host `siteMatches` reads (F5): a path or a trailing slash is not part of it.
-  const host = typeof value === "string" ? siteHostOf(value) : "";
+  // The key `siteMatches` would accept the value under (F5, D1): a cloud id only as
+  // the whole value, a site as the https authority without its path.
+  const hint = typeof value === "string" ? siteKeyFor(value) : null;
   const hints = targets.flatMap(({ root, binding: b, siteFrom }) => {
-    if (siteFrom) return [];
-    const key = !b.cloudId && isCloudId(host) ? "cloud_id" : !b.site && isSiteHost(host) ? "site" : null;
-    return key === null ? [] : [` If ${raw} is the site ${root} declares, have the operator add \`${key}: ${host}\` to its task_tracking.jira settings.`];
+    if (siteFrom || hint === null || (hint.key === "cloud_id" ? b.cloudId : b.site)) return [];
+    return [` If ${raw} is the site ${root} declares, have the operator add \`${hint.key}: ${hint.value}\` to its task_tracking.jira settings.`];
   });
   return refuse(
     `${call.tool} names ${shown}, which is not the Jira site declared by ${roots.join(", ")}.${note}`,
@@ -2236,6 +2236,32 @@ function owns(ctx: OwnershipContext, target: DeclaredTarget, key: string): boole
   return false;
 }
 
+/**
+ * D2 — the intact reuse receipts that name one of `subjects` but were decided
+ * from a search at another site than their target is given, so `owns` drops them.
+ * Named in the refusal as `gateCreate` names its create receipts.
+ */
+function reuseElsewhereNote(ctx: OwnershipContext, subjects: Array<{ key: string; targets: DeclaredTarget[] }>): string {
+  const paths = new Set<string>();
+  const roots = new Set<string>();
+  for (const { key, targets } of subjects) {
+    for (const target of targets) {
+      for (const a of ctx.announcements) {
+        if (a.root !== target.root || !a.intact) continue;
+        const r = readSessionReceipt(a.receiptPath, ctx.sessionId, ctx.adapter);
+        if (!r || r.kind !== "reuse") continue;
+        const ev = r.evidence as { key?: unknown } | null;
+        if (ev && typeof ev.key === "string" && ev.key.toUpperCase() === key && !decidedAtSite(ev, target)) {
+          paths.add(a.receiptPath);
+          roots.add(target.root);
+        }
+      }
+    }
+  }
+  if (paths.size === 0) return "";
+  return ` ${paths.size} reuse receipt(s) name it but were decided from a search at another site than ${[...roots].join(", ")} is given, so they authorise nothing here (${[...paths].join(", ")}).`;
+}
+
 /** STE-699 — the Epic close: the ONE module whose `epic-close` receipt permits a status-only close. */
 const EPIC_CLOSE_MODULE = "epic_close.ts";
 
@@ -2449,9 +2475,10 @@ function gateTicket(
   const targetRoots = [...new Set(inScope.flatMap((k) => k.targets.map((t) => t.root)))].join(", ");
   // STE-641 — name the lag as a fact, not a retry: a lone call's own line is
   // written only after its PreToolUse hook returns, so retrying cannot help.
+  const otherSite = reuseElsewhereNote(ctx, isLink ? bound : unowned);
   const lag = stale === null ? "" : ` (The transcript read did not yet hold this call's own tool_use ${stale.id}; it was graded as the last call of its turn.)`;
   return refuse(
-    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no reuse, binding or consented import receipt names it.${lacking}${lag}${note}`,
+    `${call.tool} on ${named.join(", ")}: ${isLink ? "neither side is" : "the ticket is not"} owned by the declared target ${targetRoots} — no tracked FR file binds it, no create of it is visible in this session's transcript, and no ${otherSite ? "reuse receipt decided at its site, and no " : "reuse, "}binding or consented import receipt names it.${otherSite}${lacking}${lag}${note}`,
     // STE-729 AC.7 — the order: the fetch leads, the Epic routes (epic_edit.ts
     // for a description or summary, epic_close.ts for a close) follow, and the
     // `<ticket.json>` confirm route comes last.
