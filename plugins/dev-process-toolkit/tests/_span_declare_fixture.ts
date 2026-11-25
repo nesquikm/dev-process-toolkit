@@ -8,6 +8,7 @@
 // `finally`. Every subprocess is spawned synchronously — one child at a time.
 
 import { spawnSync } from "node:child_process";
+import { childResult, withNote } from "./_child_result";
 import {
   existsSync,
   mkdirSync,
@@ -165,13 +166,15 @@ export function spawnDoor(module: string, args: readonly string[], cwd: string =
   delete env.CLAUDE_PLUGIN_ROOT;
   delete env.CLAUDE_PROJECT_DIR;
   env.CLAUDE_CODE_SESSION_ID = SESSION;
-  const proc = spawnSync("bun", ["run", module, ...args], {
+  const cmd = ["bun", "run", module, ...args];
+  const proc = spawnSync(cmd[0]!, cmd.slice(1), {
     cwd,
     env,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
   });
-  return { status: proc.status, stdout: proc.stdout ?? "", stderr: proc.stderr ?? "" };
+  const child = childResult(proc, cmd);
+  return { status: child.code, stdout: proc.stdout ?? "", stderr: withNote(proc.stderr ?? "", child.note) };
 }
 
 /** The declare front door, run from the invoking checkout `cwd`. */

@@ -65,8 +65,31 @@ project's issue-type listing and be able to take the milestone Epic as its
 parent; otherwise the run refuses in NFR-10 canonical shape, naming
 `jira_bug_issue_type` (no label fallback). The Linear counterpart is
 `linear_bug_label` (see `adapters/linear.md`).
+The check is `bun run ${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/bug_tracker_type.ts jira <listing.json> <issueType> [<epicKey>] --root <projectRoot>`.
+When the listing gives the type no hierarchy level, a type outside Bug, Task and
+Story passes only when the binding declares `jira_bug_type_standard: true`
+(a boolean; any other value refuses in NFR-10 shape, as does the key under
+`### Linear`); `--root` names the project whose binding is read.
+An older client refuses the unknown key, so raise the top-level
+`min_dpt_version` to 3.11.0 when you add `jira_bug_type_standard`.
 The run appends `--bug` to each `create_idempotency_probe.ts` `decide` call
 below, which is how the create payload gets the bug type.
+
+## Jira site — `site` and `cloud_id`
+
+`task_tracking.jira` takes two optional keys. They declare the one Jira site this
+repository writes to: `site` is its host and `cloud_id` is its UUID. Declare
+either one or both. Read the values from `getAccessibleAtlassianResources`:
+`cloud_id` is the site's `id`, and `site` is the host of its `url`. With a site
+declared, pass one of the declared values as `cloudId` in every Jira call
+(`site` may also be sent as its `https://` URL). In a shared project the
+tracker-write gate refuses a write that names another site. With neither key,
+the site is not checked.
+
+An older client refuses a settings file with an unknown key. So when you add
+either key, raise the top-level `min_dpt_version` to the release that added
+these keys. The older client checks that floor first, so it then says to upgrade
+the plugin and does not report an unrecognised key.
 
 ## MCP tool names
 

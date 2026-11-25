@@ -266,6 +266,8 @@ const BINDING_KEYS = [
   "jira_bug_issue_type",
   "jira_issue_type",
 ];
+/** STE-871 — the Jira binding's own keys on top; `task_tracking.linear` stays closed to them. */
+const JIRA_BINDING_KEYS = [...BINDING_KEYS, "site", "cloud_id", "jira_bug_type_standard"];
 const STATUS_VOCABULARY_KEYS = ["tracker_key", "statuses", "roles"];
 const DOCS_KEYS = ["user_facing_mode", "packages_mode", "changelog_ci_owned", "changelog_unversioned"];
 const ORCHESTRATION_KEYS = ["default_effort", "merge_policy"];
@@ -304,7 +306,7 @@ export function settingsKeyOrder(path: string): readonly string[] {
     "": TOP_KEYS,
     task_tracking: taskTrackingKeys(),
     "task_tracking.linear": BINDING_KEYS,
-    "task_tracking.jira": BINDING_KEYS,
+    "task_tracking.jira": JIRA_BINDING_KEYS,
     "task_tracking.status_vocabulary": STATUS_VOCABULARY_KEYS,
     // STE-730: `test_commands` has no legacy home — the `## Verification` heading stays closed to
     // VERIFICATION_KEYS, so it never supplies the key. Spread here, not at module load (import cycle).
@@ -387,10 +389,12 @@ export function checkRetroPriority(v: unknown): void {
 
 function validateBinding(v: unknown, path: string): void {
   const b = requireMap(v, path);
-  closeKeys(b, path, settingsKeyOrder(path));
-  for (const k of BINDING_KEYS) {
+  const keys = settingsKeyOrder(path);
+  closeKeys(b, path, keys);
+  for (const k of keys) {
     if (k === "default_labels") continue;
-    checkString(b, path, k);
+    if (k === "jira_bug_type_standard") checkBool(b, path, k);
+    else checkString(b, path, k);
   }
   if ("default_labels" in b) {
     const labels = b.default_labels;

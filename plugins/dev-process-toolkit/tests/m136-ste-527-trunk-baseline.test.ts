@@ -890,6 +890,7 @@ const MUTANT_DEPS = [
   "branch_proposal.ts",
   "milestone_token.ts",
   "create_idempotency_probe.ts",
+  "atlassian_site.ts", // Amended by AC-STE-871.4 (M_e8850b): a dependency of create_idempotency_probe
   "tracker_answer.ts",
   "ulid.ts",
 ];

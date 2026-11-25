@@ -30,6 +30,7 @@
 // an example.invalid committer.
 
 import { spawnSync } from "node:child_process";
+import { childResult, withNote } from "./_child_result";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -135,7 +136,9 @@ export async function runHook(
     stderr: "pipe",
   });
   const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-  return { exitCode: await proc.exited, stdout, stderr };
+  await proc.exited;
+  const child = childResult(proc, ["/bin/bash", which === "commit" ? COMMIT_SH : PR_SH]);
+  return { exitCode: child.code, stdout, stderr: withNote(stderr, child.note) };
 }
 
 /** null when `r` is a permit (exit 0, no refusal), else why not. */
@@ -254,8 +257,10 @@ export function mintReceipt(repo: string, skill: "spec-review" | "gate-check", s
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   delete env.CLAUDE_PROJECT_DIR;
   env.CLAUDE_CODE_SESSION_ID = session;
-  const p = spawnSync("bun", ["run", FRONT_DOOR, skill, repo], { env, encoding: "utf-8" });
-  if (p.status !== 0) throw new Error(`front door failed (exit ${p.status}): ${p.stderr}`);
+  const cmd = ["bun", "run", FRONT_DOOR, skill, repo];
+  const p = spawnSync(cmd[0]!, cmd.slice(1), { env, encoding: "utf-8" });
+  const child = childResult(p, cmd);
+  if (child.code !== 0) throw new Error(`front door failed (exit ${child.code}): ${withNote(p.stderr ?? "", child.note)}`);
   const line = (p.stdout ?? "").split("\n").find((l) => l.startsWith("dpt-receipt: "));
   if (!line) throw new Error(`front door printed no dpt-receipt line:\n${p.stdout}`);
   const m = /^dpt-receipt:\s+(\/\S+)\s+sha256:([0-9a-f]{64})\s*$/.exec(line.trim());

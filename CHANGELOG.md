@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.11.0] — 2026-11-25 — "Return Address"
+
+### Security
+
+- The tracker-write gate refuses a Teamwork Graph link whose relationship type it cannot place (STE-870). One shared list in the translator holds the five known types; the hook and the live grader read it and keep no copy. Links to goals, projects and web pages still pass with an owned object, and a repository with no shared declaration sees no change.
+- A Jira binding may declare its site with `site` and `cloud_id` (STE-871). With either declared, only reads, creates, searches and re-lists from that site count as evidence, writes must name that site, and a `/browse/<KEY>` URL resolves only on that host. A root that declares no site takes the site of a sibling binding the same project, and a create or reuse decision records the site it searched at. The hook, the live grader and `decide --from-transcript` apply one rule. Raise `min_dpt_version` to 3.11.0 when you add either key.
+
+### Fixed
+
+- The live-checkout probe pin stays green between a milestone's archive commit and its release commit (STE-847). It excuses only probe #63's unshipped debt, read through the shared `gradedViolations` predicate; the probe itself is unchanged.
+- A test child killed by a signal, stopped by its own timeout, unable to start or cut off at `maxBuffer` is named as such, never as a product failure or a clean pass (STE-872). Every shared bun runner reads its child through one helper. The Jira create-metadata fixtures carry the recorded v2 request fields and a recorded v1 page, and a v2 bug type with no hierarchy level passes only as Bug, Task or Story or with `jira_bug_type_standard: true`.
+
+Milestone M_e8850b, the gate checks every address it is given.
+
+Total test count at release: 28440 tests, 0 failures, 0 errors.
+
 ## [3.10.0] — 2026-11-25 — "Both Dialects"
 
 ### Changed

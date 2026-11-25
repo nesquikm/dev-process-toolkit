@@ -18,6 +18,7 @@ import { basename, join, relative } from "node:path";
 
 import { videoConfigPath, videoStylePath } from "./dpt_paths";
 
+import { isCloudId, isSiteHost, normalizeSite } from "./atlassian_site";
 import { assertRepoTagForwarded } from "./create_idempotency_probe";
 import { normalizeDocsSource } from "./docs_config";
 import { FIRST_GATED_DPT_VERSION, nfr10Message, STRICT_SEMVER_RE } from "./dpt_version";
@@ -192,8 +193,14 @@ export interface WorkspaceBinding {
   minDptVersion?: string;
   /** STE-679 — `jira_bug_issue_type:` override for `--bug` creates (Jira). */
   jiraBugIssueType?: string;
+  /** STE-872 — `jira_bug_type_standard:` declares the bug type standard when the listing has no level (Jira). */
+  jiraBugTypeStandard?: boolean;
   /** STE-679 — `linear_bug_label:` override for `--bug` creates (Linear). */
   linearBugLabel?: string;
+  /** STE-871 — the declared Jira site's host, lower case (Jira). */
+  site?: string;
+  /** STE-871 — the declared Jira site's cloud id, a UUID (Jira). */
+  cloudId?: string;
   /** STE-602 — always present; `true` exactly when a non-empty `repo_tag` is declared. */
   shared: boolean;
 }
@@ -276,13 +283,13 @@ export function parseWorkspaceBinding(claudeMdPath: string, adapterKey: Workspac
   }
   const parsed = parseBindingSubsection(content, adapterKey);
   if (!parsed) return { shared: false };
-  validateBindingDeclaration(parsed.result, parsed.occurrences, context);
+  validateBindingDeclaration(parsed.result, parsed.occurrences, context, adapterKey);
   return { ...parsed.result, shared: parsed.result.repoTag !== undefined };
 }
 
 /**
  * The `### Linear` / `### Jira` sub-section of CLAUDE.md text as the binding's
- * declared values plus every `repo_tag` / `min_dpt_version` occurrence; null
+ * declared values plus every occurrence of the keys a duplicate refuses; null
  * when there is no such sub-section. Validation is the caller's.
  */
 export function parseBindingSubsection(
@@ -294,7 +301,7 @@ export function parseBindingSubsection(
   if (!sub) return null;
 
   const result: Omit<WorkspaceBinding, "shared"> = {};
-  const occurrences: Record<string, string[]> = { repo_tag: [], min_dpt_version: [] };
+  const occurrences: Record<string, string[]> = { repo_tag: [], min_dpt_version: [], site: [], cloud_id: [], jira_bug_type_standard: [] };
   for (const raw of sub) {
     const trimmed = raw.trim();
     if (trimmed.length === 0) continue;
@@ -313,7 +320,11 @@ export function parseBindingSubsection(
     else if (key === "repo_tag") result.repoTag = value;
     else if (key === "min_dpt_version") result.minDptVersion = value;
     else if (key === "jira_bug_issue_type" && adapterKey === "jira") result.jiraBugIssueType = value;
+    else if (key === "jira_bug_type_standard" && adapterKey === "jira" && (value === "true" || value === "false")) result.jiraBugTypeStandard = value === "true";
     else if (key === "linear_bug_label" && adapterKey === "linear") result.linearBugLabel = value;
+    // Under either adapter: validation refuses them under Linear.
+    else if (key === "site") result.site = normalizeSite(value);
+    else if (key === "cloud_id") result.cloudId = value;
   }
   return { result, occurrences };
 }
@@ -323,13 +334,15 @@ export function refuseBinding(verdict: string, remedy: string, context: string):
 }
 
 /**
- * STE-602 — the one validation pass over `repo_tag` / `min_dpt_version`.
+ * STE-602 — the one validation pass over `repo_tag` / `min_dpt_version`, and
+ * STE-871's `site` / `cloud_id`.
  * Vacuous for an undeclared sub-section, so that path is unchanged.
  */
 export function validateBindingDeclaration(
   result: Omit<WorkspaceBinding, "shared">,
   occurrences: Record<string, string[]>,
   context: string,
+  adapterKey: WorkspaceAdapterKey,
 ): void {
   // Class 5 — a key written twice is refused, never last-wins.
   for (const [key, values] of Object.entries(occurrences)) {
@@ -340,6 +353,47 @@ export function validateBindingDeclaration(
         `${context}, key=${key}, value="${values[values.length - 1]}"`,
       );
     }
+  }
+  // STE-872 — `jira_bug_type_standard` is a Jira boolean; any other value, or the key under Linear, refuses.
+  const standard = (occurrences.jira_bug_type_standard ?? []).find((v) => v !== "");
+  if (standard !== undefined && adapterKey !== "jira") {
+    refuseBinding(
+      `\`jira_bug_type_standard\` is a Jira key, and this is a ${adapterKey} binding.`,
+      `remove the \`jira_bug_type_standard:\` line from the ${adapterKey} binding.`,
+      `${context}, key=jira_bug_type_standard, value="${standard}"`,
+    );
+  }
+  if (standard !== undefined && standard !== "true" && standard !== "false") {
+    refuseBinding(
+      `jira_bug_type_standard "${standard}" is not a boolean.`,
+      `write \`jira_bug_type_standard: true\` or \`jira_bug_type_standard: false\`, or remove the line.`,
+      `${context}, key=jira_bug_type_standard, value="${standard}"`,
+    );
+  }
+  const { site, cloudId } = result;
+  if (adapterKey !== "jira") {
+    for (const [key, value] of [["site", site], ["cloud_id", cloudId]] as const) {
+      if (value === undefined) continue;
+      refuseBinding(
+        `\`${key}\` names a Jira site, and this is a ${adapterKey} binding.`,
+        `remove the \`${key}:\` line from the ${adapterKey} binding.`,
+        `${context}, key=${key}, value="${value}"`,
+      );
+    }
+  }
+  if (site !== undefined && !isSiteHost(site)) {
+    refuseBinding(
+      `site "${site}" is not a host name.`,
+      `write the bare host with no scheme, port or path (e.g. "example.atlassian.net"), or remove \`site\`.`,
+      `${context}, key=site, value="${site}"`,
+    );
+  }
+  if (cloudId !== undefined && !isCloudId(cloudId)) {
+    refuseBinding(
+      `cloud_id "${cloudId}" is not a UUID.`,
+      `copy the site's \`id\` from getAccessibleAtlassianResources, or remove \`cloud_id\`.`,
+      `${context}, key=cloud_id, value="${cloudId}"`,
+    );
   }
   const tag = result.repoTag;
   const floor = result.minDptVersion;

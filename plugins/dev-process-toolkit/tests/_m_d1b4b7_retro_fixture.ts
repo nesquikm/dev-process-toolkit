@@ -16,6 +16,7 @@
 // Every session id is synthetic (00000000-0000-4000-8000-0000000000NN).
 
 import { spawnSync } from "node:child_process";
+import { childResult, withNote } from "./_child_result";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
@@ -313,13 +314,15 @@ export interface RunResult {
 
 /** Run the front door `bun run retro.ts <root> [scope]` with cwd = root. */
 export function runRetro(root: string, args: string[], env: Record<string, string> = {}, frontDoor = RETRO_FRONT_DOOR): RunResult {
-  const p = spawnSync(process.execPath, ["run", frontDoor, root, ...args], {
+  const cmd = [process.execPath, "run", frontDoor, root, ...args];
+  const p = spawnSync(cmd[0]!, cmd.slice(1), {
     cwd: root,
     encoding: "utf-8",
     env: { ...process.env, ...GIT_ENV, CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR ?? tempDir("empty-config"), ...env },
     timeout: 60_000,
   });
-  return { status: p.status, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const child = childResult(p, cmd, { timeoutMs: 60_000 });
+  return { status: child.code, stdout: p.stdout ?? "", stderr: withNote(p.stderr ?? "", child.note) };
 }
 
 export function retroDir(root: string): string {

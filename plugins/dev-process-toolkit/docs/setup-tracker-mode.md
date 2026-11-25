@@ -191,6 +191,15 @@ After visibility passes, run one-time AC-field discovery:
 The recorded value is the dispatch key for `pull_acs` / `push_ac_toggle`
 (see `adapters/jira.md` § Operations).
 
+**Jira site (optional).** A repository can declare the one Jira site it writes
+to with two keys under `task_tracking.jira`: `site` (the host) and `cloud_id`
+(the UUID). Both are optional; declare either one or both. Read the values from
+`getAccessibleAtlassianResources`: `cloud_id` is the site's `id`, and `site` is
+the host of its `url`. An older client refuses a settings file with an unknown
+key. So when you add either key, raise the top-level `min_dpt_version` to the
+release that added these keys. The older client checks that floor first, so it
+then says to upgrade the plugin and does not report an unrecognised key.
+
 ## Writing `## Task Tracking` to a legacy CLAUDE.md
 
 On successful completion of all the above, append this section to the

@@ -520,7 +520,7 @@ async function loadMutant(
   // and the leg goes red for a reason unrelated to its subject.
   // `milestone_token` gained `./create_idempotency_probe` under M_8f07e0 / STE-586,
   // which gained `./tracker_answer` (the one reader of tracker answers) under M_2306b6.
-  for (const dep of ["dpt_paths", "branch_proposal", "milestone_token", "create_idempotency_probe", "tracker_answer", "ulid"]) {
+  for (const dep of ["dpt_paths", "branch_proposal", "milestone_token", "create_idempotency_probe", "atlassian_site", "tracker_answer", "ulid"]) {
     const from = join(SHARED_SRC, `${dep}.ts`);
     expect(existsSync(from), `mutant dependency closure names a missing module: ${from}`).toBe(true);
     copyFileSync(from, join(dir, `${dep}.ts`));

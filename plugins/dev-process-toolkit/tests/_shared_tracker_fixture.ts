@@ -22,6 +22,7 @@
 // roots, worktrees and the scratch directory are all removed.
 
 import { spawnSync } from "node:child_process";
+import { childResult, withNote } from "./_child_result";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -151,12 +152,14 @@ function runWriter(pluginRoot: string, root: string, tracker: Tracker, tag: stri
   const args = [root, tracker, "--project", tracker === "jira" ? JIRA_PROJECT : LINEAR_PROJECT];
   if (tracker === "linear") args.push("--team", LINEAR_TEAM);
   args.push("--shared", tag);
-  const p = spawnSync("bun", ["run", join(pluginRoot, "adapters", "_shared", "src", "setup", "tracker_binding_write.ts"), ...args], {
+  const cmd = ["bun", "run", join(pluginRoot, "adapters", "_shared", "src", "setup", "tracker_binding_write.ts"), ...args];
+  const p = spawnSync(cmd[0]!, cmd.slice(1), {
     env: doorEnv(pluginRoot, "fixture-declare"),
     encoding: "utf-8",
   });
-  if (p.status !== 0) {
-    throw new Error(`the declaration front door refused in ${root} (exit ${p.status}):\n${p.stdout}\n${p.stderr}`);
+  const child = childResult(p, cmd);
+  if (child.code !== 0) {
+    throw new Error(`the declaration front door refused in ${root} (exit ${child.code}):\n${p.stdout}\n${withNote(p.stderr ?? "", child.note)}`);
   }
   return p.stdout ?? "";
 }

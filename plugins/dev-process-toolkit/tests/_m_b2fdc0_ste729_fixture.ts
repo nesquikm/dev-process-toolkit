@@ -25,6 +25,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { childResult } from "./_child_result";
 
 import { receiptsDir } from "../adapters/_shared/src/dpt_paths";
 import { milestoneIdFromEpicKey } from "../adapters/_shared/src/milestone_token";
@@ -271,10 +272,11 @@ export function childEnv(pluginRoot: string, session = SESSION): Record<string, 
 export function runModule(pluginRoot: string, module: string, args: string[], session = SESSION): ModuleRun {
   const path = join(pluginRoot, moduleRel(module));
   const p = Bun.spawnSync(["bun", "run", path, ...args], { cwd: neutralCwd(), env: childEnv(pluginRoot, session), stdout: "pipe", stderr: "pipe" });
+  const c = childResult(p, ["bun", "run", path, ...args]);
   return {
-    exitCode: p.exitCode ?? -1,
+    exitCode: c.code,
     stdout: p.stdout.toString(),
-    stderr: p.stderr.toString(),
+    stderr: p.stderr.toString() + (c.note ? `\n${c.note}\n` : ""),
     command: `bun run "${path}" ${args.join(" ")}`,
   };
 }

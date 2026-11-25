@@ -33,6 +33,7 @@
 // synchronous, one at a time, so no concurrency cap is needed.
 
 import { spawnSync } from "node:child_process";
+import { childResult, withNote } from "./_child_result";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -370,13 +371,15 @@ export interface RunResult {
 }
 
 export function runRepoint(args: string[], sessionId: string = SESSION_ID): RunResult {
-  const proc = spawnSync("bun", ["run", FRONT_DOOR, ...args], {
+  const cmd = ["bun", "run", FRONT_DOOR, ...args];
+  const proc = spawnSync(cmd[0]!, cmd.slice(1), {
     cwd: PLUGIN_ROOT,
     env: { ...GIT_ENV, CLAUDE_CODE_SESSION_ID: sessionId },
     encoding: "utf-8",
     timeout: 60_000,
   });
-  return { code: proc.status, stdout: proc.stdout ?? "", stderr: proc.stderr ?? "" };
+  const child = childResult(proc, cmd, { timeoutMs: 60_000 });
+  return { code: child.code, stdout: proc.stdout ?? "", stderr: withNote(proc.stderr ?? "", child.note) };
 }
 
 const ROW_RE = (n: number) => new RegExp(`^${n} (PASS|REFUSE|NOT-APPLICABLE)(?:\\s|$)`);

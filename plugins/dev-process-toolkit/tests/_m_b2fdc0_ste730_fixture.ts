@@ -23,6 +23,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { childResult } from "./_child_result";
 
 import { DPT_GITIGNORE_BODY } from "../adapters/_shared/src/setup/dpt_gitignore";
 
@@ -210,7 +211,8 @@ function runDoor(srcRoot: string, module: string, root: string, bin: FakeBin, en
     stderr: "pipe",
     timeout: 120_000,
   });
-  return { exitCode: p.exitCode ?? -1, stdout: p.stdout.toString(), stderr: p.stderr.toString() };
+  const c = childResult(p, [process.execPath, module, root]);
+  return { exitCode: c.code, stdout: p.stdout.toString(), stderr: p.stderr.toString() + (c.note ? `\n${c.note}\n` : "") };
 }
 
 export function runGateCapture(srcRoot: string, root: string, bin: FakeBin, env?: Record<string, string>): DoorRun {

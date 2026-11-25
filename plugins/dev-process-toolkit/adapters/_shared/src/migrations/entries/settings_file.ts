@@ -266,6 +266,21 @@ function detectSettingsFile(projectRoot: string): DetectResult {
 
 const MOVE_FLOOR = "3.0.0";
 
+/**
+ * The release that added the Jira binding keys `site`, `cloud_id` (STE-871) and
+ * `jira_bug_type_standard` (STE-872). An older 3.x client refuses an unknown key, so a
+ * moved file that carries any of them declares this floor: the floor is checked before
+ * the keys, and the older client then says to upgrade the plugin.
+ */
+const JIRA_SITE_KEYS_FLOOR = "3.11.0";
+const JIRA_SITE_KEYS = ["site", "cloud_id", "jira_bug_type_standard"] as const;
+
+/**
+ * Generic key names that are settings only under `### Jira`. Elsewhere in CLAUDE.md a
+ * `site:` or `cloud_id:` line is the project's own prose, not a moved key.
+ */
+const JIRA_SCOPED_KEYS: ReadonlySet<string> = new Set(["site", "cloud_id"]);
+
 type Obj = Record<string, unknown>;
 
 /** A JSON-clean copy: undefined and null values dropped (the settings file holds neither). */
@@ -311,26 +326,38 @@ function commentBlocks(lines: readonly string[]): CommentBlock[] {
 
 /** Every key the move takes out of CLAUDE.md. */
 function movedKeys(): string[] {
-  const keys = new Set<string>([...settingsKeyOrder("task_tracking"), ...settingsKeyOrder("task_tracking.linear")]);
+  const keys = new Set<string>([...settingsKeyOrder("task_tracking"), ...settingsKeyOrder("task_tracking.linear"), ...settingsKeyOrder("task_tracking.jira")]);
   for (const ks of Object.values(recognisedHeadingKeys())) for (const k of ks) keys.add(k);
   return [...keys];
+}
+
+/** Is line `start` under a `### Jira` sub-heading (the nearest heading of level 1-3 above it)? */
+function underJiraHeading(lines: readonly string[], start: number): boolean {
+  for (let i = start - 1; i >= 0; i--) {
+    if (/^#{1,3}\s/.test(lines[i]!)) return lines[i] === TRACKER_SUBSECTION_HEADINGS.jira;
+  }
+  return false;
 }
 
 /**
  * Does a kept comment block name a moved heading (`## Docs`, `### Linear`) or a
  * moved key in its `key:` form — a key line, at the start of a block line? A
- * mid-sentence `mode: none` is prose, not a key.
+ * mid-sentence `mode: none` is prose, not a key. The generic Jira names (`site`,
+ * `cloud_id`) count only in a block under `### Jira`.
  */
-function namesMoved(text: string): boolean {
+function namesMoved(lines: readonly string[], b: CommentBlock): boolean {
   const headings = [...MOVED_HEADINGS, ...Object.values(TRACKER_SUBSECTION_HEADINGS)];
-  if (headings.some((h) => text.includes(h))) return true;
-  return movedKeys().some((k) => new RegExp(`^\\s*(<!--\\s*)?([-*]\\s+)?${k}\\s*:`, "m").test(text));
+  if (headings.some((h) => b.text.includes(h))) return true;
+  const jira = underJiraHeading(lines, b.start);
+  return movedKeys()
+    .filter((k) => jira || !JIRA_SCOPED_KEYS.has(k))
+    .some((k) => new RegExp(`^\\s*(<!--\\s*)?([-*]\\s+)?${k}\\s*:`, "m").test(b.text));
 }
 
 /** Preview rows for the comment blocks the move keeps that name a moved heading or key (informational). */
 function keptBlockEvidence(lines: readonly string[], remove: ReadonlySet<number>): string[] {
   return commentBlocks(lines)
-    .filter((b) => !b.matched && b.text !== SETTINGS_COMMENT_POINTER && namesMoved(b.text))
+    .filter((b) => !b.matched && b.text !== SETTINGS_COMMENT_POINTER && namesMoved(lines, b))
     .map((b) => {
       let hosts = false;
       for (let k = b.start; k <= b.end; k++) if (remove.has(k) || lines[k]!.startsWith(MSF_PREFIX)) hosts = true;
@@ -386,7 +413,9 @@ function classifyMove(norm: readonly string[], blocks: readonly CommentBlock[]):
   });
   const keysByHeading = recognisedHeadingKeys();
   const sectionKeys = new Set(settingsKeyOrder("task_tracking"));
-  const bindingKeys = new Set(settingsKeyOrder("task_tracking.linear"));
+  // The Jira set holds every Linear key. Its extra keys (STE-871) under `### Linear` refuse in the
+  // binding parse when they carry a value, so only a blank one is taken out there.
+  const bindingKeys = new Set(settingsKeyOrder("task_tracking.jira"));
   const adapterOf = new Map(Object.entries(TRACKER_SUBSECTION_HEADINGS).map(([a, h]) => [h, a as "linear" | "jira"]));
 
   const remove = new Set<number>();
@@ -545,6 +574,9 @@ function applyMove(projectRoot: string): ApplyResult {
       if (msfLines.length > 0) tt.milestone_scan_fetch = legacy.task_tracking.milestone_scan_fetch;
       if (hasTrackerConfig) tt.status_vocabulary = legacy.task_tracking.status_vocabulary;
       built.task_tracking = clean(tt);
+      // A moved Jira mapping (active or not) that carries a key added in 3.11.0 raises the file's floor.
+      const jira = (built.task_tracking as Obj).jira as Obj | undefined;
+      if (jira !== undefined && JIRA_SITE_KEYS.some((k) => jira[k] !== undefined)) built.min_dpt_version = JIRA_SITE_KEYS_FLOOR;
     }
     if (homes.has(MOVED_HEADINGS[1])) built.verification = clean(legacy.verification);
     if (homes.has(MOVED_HEADINGS[2])) built.docs = clean(legacy.docs);
@@ -586,7 +618,7 @@ function applyMove(projectRoot: string): ApplyResult {
       for (let k = b.start; k <= b.end; k++) remove.add(k);
       if (firstMatched) replaceAt.set(b.start, [SETTINGS_COMMENT_POINTER]);
       firstMatched = false;
-    } else if (b.text !== SETTINGS_COMMENT_POINTER && namesMoved(b.text)) {
+    } else if (b.text !== SETTINGS_COMMENT_POINTER && namesMoved(norm, b)) {
       let hosts = false;
       for (let k = b.start; k <= b.end; k++) if (remove.has(k)) hosts = true;
       kept.push(`${CLAUDE_MD}:${b.start + 1} — comment block kept${hosts ? ", its moved key lines removed" : " byte-identical"} (it matches no template block); a pointer follows it`);
@@ -622,7 +654,7 @@ function applyMove(projectRoot: string): ApplyResult {
   }
   const ttSettings = (settings.task_tracking as Obj | undefined) ?? {};
   const mode = typeof ttSettings.mode === "string" ? ttSettings.mode : "none";
-  const section = [PROJECT_SETTINGS_HEADING, "", ...renderSettingsPointer(MOVE_FLOOR).replace(/\n+$/, "").split("\n"), ""];
+  const section = [PROJECT_SETTINGS_HEADING, "", ...renderSettingsPointer(String(settings.min_dpt_version)).replace(/\n+$/, "").split("\n"), ""];
   const binding = (mode === "linear" || mode === "jira" ? ttSettings[mode] : undefined) as Obj | undefined;
   if (binding !== undefined && typeof binding.repo_tag === "string" && typeof binding.min_dpt_version === "string") {
     section.push(
@@ -833,7 +865,8 @@ function unparsedBindingKeys(lines: string[], adapter: "linear" | "jira", have: 
     const key = m[1]!;
     const value = m[2]!.trim();
     if (!known.has(key) || key in have || key === "default_labels" || value === "") continue;
-    out[key] = value;
+    // STE-872 — a boolean key moves as a boolean; another value stays a string and the shape check refuses it.
+    out[key] = key === "jira_bug_type_standard" && (value === "true" || value === "false") ? value === "true" : value;
   }
   return out;
 }

@@ -44,6 +44,7 @@
 
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { childResult } from "./_child_result";
 import { claudeMd } from "./_span_fixture";
 
 export const PLUGIN_ROOT = join(import.meta.dir, "..");
@@ -309,10 +310,11 @@ export function spawnModule(module: string, args: string[], env: Record<string, 
     stdout: "pipe",
     stderr: "pipe",
   });
+  const c = childResult(proc, ["bun", "run", module, ...args]);
   return {
-    code: proc.exitCode ?? -1,
+    code: c.code,
     stdout: proc.stdout.toString(),
-    stderr: proc.stderr.toString(),
+    stderr: proc.stderr.toString() + (c.note ? `\n${c.note}\n` : ""),
   };
 }
 

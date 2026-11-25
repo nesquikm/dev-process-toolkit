@@ -50,6 +50,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
+import { childResult } from "./_child_result";
 import {
   doorEnv,
   type FixtureRepo,
@@ -343,7 +344,10 @@ export class Ctx {
       child.stdout.on("data", (d) => (stdout += d.toString()));
       child.stderr.on("data", (d) => (stderr += d.toString()));
       child.on("error", (e) => resolveRun({ exitCode: 127, stdout, stderr: stderr + String(e) }));
-      child.on("close", (code) => resolveRun({ exitCode: code ?? -1, stdout, stderr }));
+      child.on("close", (code, signal) => {
+        const c = childResult({ code, signal }, argv);
+        resolveRun({ exitCode: c.code, stdout, stderr: stderr + (c.note ? `\n${c.note}\n` : "") });
+      });
       child.stdin.end(opts.stdin ?? "");
     });
     this.noteLoadError(label, r);

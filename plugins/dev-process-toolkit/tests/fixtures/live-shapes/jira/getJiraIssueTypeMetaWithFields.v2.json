@@ -6,7 +6,9 @@
       "name": "getJiraIssueTypeMetaWithFields",
       "inputs": {
         "projectIdOrKey": "ZZ",
-        "issueTypeId": "10001"
+        "issueTypeId": "10001",
+        "requiredFieldsOnly": false,
+        "startAt": 0
       }
     },
     "note": "getJiraIssueTypeMetaWithFields through executeRead; the shape (key names, nesting, value types) is recorded, every value is invented"

@@ -87,19 +87,19 @@ function expectNfr10(message: string): void {
 
 const WITH_KEY_ABSENT = [
   `bug type refused: Jira issue type "Defect" is not available in this project`,
-  `Remedy: set jira_bug_issue_type in CLAUDE.md to one of: Task, Bug, Epic, Subtask, Story Group`,
+  `Remedy: set jira_bug_issue_type under task_tracking.jira in specs/settings.yaml (under ### Jira in CLAUDE.md before the settings move) to one of: Task, Bug, Epic, Subtask, Story Group`,
   `Context: mode=jira, jira_bug_issue_type=Defect, epic=GK-40, skill=/spec-write`,
 ].join("\n");
 
 const WITH_KEY_SUBTASK = [
   `bug type refused: Jira issue type "Subtask" cannot take the milestone Epic GK-40 as parent`,
-  `Remedy: set jira_bug_issue_type in CLAUDE.md to a standard issue type that sits under an Epic`,
+  `Remedy: set jira_bug_issue_type under task_tracking.jira in specs/settings.yaml (under ### Jira in CLAUDE.md before the settings move) to a standard issue type that sits under an Epic`,
   `Context: mode=jira, jira_bug_issue_type=Subtask, epic=GK-40, hierarchyLevel=-1, subtask=true, skill=/spec-write`,
 ].join("\n");
 
 const WITH_KEY_LEVEL = [
   `bug type refused: Jira issue type "Story Group" cannot take the milestone Epic GK-40 as parent`,
-  `Remedy: set jira_bug_issue_type in CLAUDE.md to a standard issue type that sits under an Epic`,
+  `Remedy: set jira_bug_issue_type under task_tracking.jira in specs/settings.yaml (under ### Jira in CLAUDE.md before the settings move) to a standard issue type that sits under an Epic`,
   `Context: mode=jira, jira_bug_issue_type=Story Group, epic=GK-40, hierarchyLevel=2, subtask=false, skill=/spec-write`,
 ].join("\n");
 

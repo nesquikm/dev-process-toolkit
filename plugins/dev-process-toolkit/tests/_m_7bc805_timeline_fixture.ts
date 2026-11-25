@@ -26,6 +26,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { childResult } from "./_child_result";
 
 import { readSpecFile } from "./_spec_tree";
 import { GIT_ENV, PLUGIN_REL, PLUGIN_ROOT, REPO_ROOT, V300, makeCheckout, recordFor, runRegistration, tempDir } from "./_m_7bc805_capture_fixture";
@@ -272,7 +273,8 @@ export function runTimelineCli(transcript: string, root: string, opts: { pluginR
     env: { ...(process.env as Record<string, string>), ...GIT_ENV, ...(opts.env ?? {}) },
     maxBuffer: 64 * 1024 * 1024,
   });
-  return { exitCode: p.status ?? -1, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const c = childResult(p, "bun run timeline CLI");
+  return { exitCode: c.code, stdout: p.stdout ?? "", stderr: (p.stderr ?? "") + (c.note ? `\n${c.note}\n` : "") };
 }
 
 export type Timeline = {
@@ -319,7 +321,8 @@ export function runLedgerHook(
       ...(opts.env ?? {}),
     },
   });
-  return { exitCode: p.status ?? -1, stdout: p.stdout ?? "", stderr: p.stderr ?? "", ms: performance.now() - started };
+  const c = childResult(p, "bash ledger wrapper");
+  return { exitCode: c.code, stdout: p.stdout ?? "", stderr: (p.stderr ?? "") + (c.note ? `\n${c.note}\n` : ""), ms: performance.now() - started };
 }
 
 export function ledgerPayload(sid: string, transcript: string, cwd: string, event: "SessionEnd" | "Stop" = "SessionEnd"): Record<string, unknown> {

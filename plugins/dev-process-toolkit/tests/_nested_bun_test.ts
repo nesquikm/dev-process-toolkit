@@ -6,8 +6,13 @@
 // SIGKILL, which a child cannot ignore. The result reports the exit code, both
 // output streams, and whether the child was killed for outliving its timeout.
 //
+// A child killed by a signal has no exit code. It reads as 128 (never 0), and
+// `signal` and `note` say which signal and that the child did not exit on its
+// own (STE-872), so a crash under load is not mistaken for a test verdict.
+//
 // This module imports only `node:` builtins, so a copy of it can be loaded from
-// any directory.
+// any directory. That is why it cannot import `tests/_child_result.ts`: its
+// note follows that helper's wording instead.
 
 import { spawnSync } from "node:child_process";
 
@@ -26,6 +31,10 @@ export interface NestedBunTestResult {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  /** The signal that ended the child, or null. */
+  signal: string | null;
+  /** Empty for a child that exited on its own; otherwise what happened. */
+  note: string;
 }
 
 /** Run `bun test <args...>` bounded by a timeout, SIGKILLing a child that outlives it. */
@@ -47,10 +56,21 @@ export function runNestedBunTest(args: string[], opts: NestedBunTestOptions = {}
   });
   const errorCode = (proc.error as NodeJS.ErrnoException | undefined)?.code;
   const timedOut = errorCode === "ETIMEDOUT";
+  const signal = proc.signal ?? null;
+  const cmd = `bun test ${args.join(" ")}`;
+  let note = "";
+  if (timedOut) {
+    note = `[the child \`${cmd}\` timed out: it was killed${signal ? ` by ${signal}` : ""} when its ${timeoutMs} ms timeout ran out — a timeout, not a module verdict]`;
+  } else if (proc.status === null) {
+    const how = signal === null ? "with no exit code and no signal" : `by ${signal}`;
+    note = `[the child \`${cmd}\` was killed ${how}; it did not exit on its own — this is a HARNESS or machine-load failure, not a module verdict]`;
+  }
   return {
-    exitCode: proc.status ?? (proc.signal !== null ? 128 : 1),
+    exitCode: proc.status ?? (signal !== null ? 128 : 1),
     stdout: proc.stdout ?? "",
     stderr: proc.stderr ?? "",
     timedOut,
+    signal,
+    note,
   };
 }

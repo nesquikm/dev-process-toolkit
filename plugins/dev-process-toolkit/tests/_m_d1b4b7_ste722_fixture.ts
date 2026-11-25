@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { childResult } from "./_child_result";
 
 import { commitRows, sid, tokenRow, writeCaptureRows, writeTokenLedger } from "./_m_d1b4b7_retro_fixture";
 
@@ -228,7 +229,8 @@ export function spawnModule(file: string, args: readonly string[], cwd: string):
     },
     timeout: 120_000,
   });
-  return { stdout: p.stdout ?? "", stderr: p.stderr ?? "", code: p.status ?? -1 };
+  const c = childResult(p, ["bun", "run", file, ...args]);
+  return { stdout: p.stdout ?? "", stderr: (p.stderr ?? "") + (c.note ? `\n${c.note}\n` : ""), code: c.code };
 }
 
 export const describeRun = (r: Run): string => `exit ${r.code}\nstdout:\n${r.stdout}\nstderr:\n${r.stderr}`;

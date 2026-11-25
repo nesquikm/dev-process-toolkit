@@ -11,6 +11,7 @@
 // own instead of failing the whole file at load.
 
 import { spawnSync } from "node:child_process";
+import { childResult, withNote } from "./_child_result";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -257,7 +258,8 @@ export function runFrontDoor(workdir: string, projectRoot: string, flags: string
     env: { ...process.env, ...GIT_ENV, ...(opts.env ?? {}) },
     timeout: 60_000,
   });
-  return { status: p.status, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const child = childResult(p, [process.execPath, ...args], { timeoutMs: 60_000 });
+  return { status: child.code, stdout: p.stdout ?? "", stderr: withNote(p.stderr ?? "", child.note) };
 }
 
 /**

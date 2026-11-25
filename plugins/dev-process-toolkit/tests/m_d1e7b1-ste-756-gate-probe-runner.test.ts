@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gradeLiveCheckout } from "./_live_checkout_grading"; // Amended by AC-STE-847.2 (M_e8850b)
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REPO_ROOT = join(PLUGIN_ROOT, "..", "..");
@@ -1217,8 +1218,6 @@ describe("AC-STE-756.5 (fix round 1) the call shape, wherever it appears", () =>
   });
 
   test("the runner's summary on this checkout reads `conformance-probes pass: 74/74`", async () => {
-    const { runGateProbes } = await runnerMod();
-    const out = await runGateProbes(REPO_ROOT);
-    expect(out.summary.startsWith("conformance-probes pass: 74/74 [")).toBe(true);
+    expect(await gradeLiveCheckout(REPO_ROOT)).toEqual([]); // Amended by AC-STE-847.2 (M_e8850b)
   }, 300_000);
 });

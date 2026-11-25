@@ -32,7 +32,8 @@ import { fileURLToPath } from "node:url";
 import { CHILD_LISTING_REJECTED } from "./sibling_release.ts";
 import { cwdToSlug } from "./find_current_session";
 
-import { ATLASSIAN_EXECUTE_TOOLS, canonicalAtlassianCall } from "./atlassian_call";
+import { ATLASSIAN_EXECUTE_TOOLS, canonicalAtlassianCall, GRAPH_ITEM_TARGET_TYPES } from "./atlassian_call";
+import { browseHostMatches, siteMatches, type SiteDeclaration } from "./atlassian_site";
 import { milestoneLabel } from "./attach_project_milestone";
 import { resolveInterviewAnswer } from "./auto_answers";
 import { TOOLKIT_LABELS } from "./container_ownership";
@@ -53,6 +54,7 @@ import { legSessionIds, readRunLedger } from "./smoke_run_ledger";
 import { simpleCommandWords } from "./shell_invocations";
 import { indexTranscripts } from "./smoke_session_cleanup";
 import type { SmokeOutcome } from "./smoke_verdict";
+import { readWorkspaceBinding } from "./workspace_binding";
 
 // ---------------------------------------------------------------------------
 // types — the bundle shape (tests/_live_bundle_fixtures.ts documents it)
@@ -92,6 +94,8 @@ export interface ToolCall {
   unplaced?: string[];
   /** Set by `canonicalBundle`, never recorded: why the hook refuses this execute call whatever it was decided (STE-866). */
   executeRefusal?: string;
+  /** Set by `canonicalBundle`, never recorded: the browse URL the subject key was read from (STE-871). */
+  subjectUrl?: string;
   result: ToolResult;
   sidechain: boolean;
 }
@@ -151,11 +155,19 @@ export interface RunMeta {
   auditQuery: string;
 }
 
+/** One repository of the run; `site` (a token after extraction) and `cloudId` are its declared Jira site, when it declares one (STE-871). */
+export interface BundleRoot {
+  name: string;
+  tag: string;
+  site?: string;
+  cloudId?: string;
+}
+
 export interface LiveBundle {
   schema: 1;
   synthetic: boolean;
   run: RunMeta;
-  roots: { A: { name: string; tag: string }; B: { name: string; tag: string } };
+  roots: { A: BundleRoot; B: BundleRoot };
   ledger: string[];
   sessions: BundleSession[];
   repos: { A: RepoState; B: RepoState };
@@ -331,6 +343,44 @@ function rewriteDeep(v: unknown, rw: Rewriter): unknown {
   if (Array.isArray(v)) return v.map((x) => rewriteDeep(x, rw));
   if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, rewriteDeep(x, rw)]));
   return v;
+}
+
+/** The mark that keeps a browse URL from resolving to a key: an authority with userinfo never does. */
+const UNRESOLVED_MARK = "<unresolved>@";
+
+/**
+ * STE-871 — the subject the hook reads is decided on the RAW call. Redaction can
+ * change that: `https://u@<host>/browse/K` becomes `https://<email>/browse/K`,
+ * which loses the userinfo the hook refuses, so grade time would read K. When the
+ * raw call names no key from a URL but the redacted one does, the redacted URL
+ * gets an `@` in its authority again, so grade time leaves it unresolved too.
+ */
+function keepRawSubject(name: string, raw: Record<string, unknown>, redacted: Record<string, unknown>): Record<string, unknown> {
+  if (canonicalCall(name, raw).subjectUrl !== undefined) return redacted;
+  const url = canonicalCall(name, redacted).subjectUrl;
+  if (url === undefined) return redacted;
+  const mark = (v: unknown): unknown => {
+    if (typeof v === "string") return v.trim() === url ? v.replace(/^(\s*https?:\/\/)/i, `$1${UNRESOLVED_MARK}`) : v;
+    if (Array.isArray(v)) return v.map(mark);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mark(x)]));
+    return v;
+  };
+  return mark(redacted) as Record<string, unknown>;
+}
+
+/**
+ * STE-871 — whether an execute call names two sites is decided on the RAW call,
+ * as the hook's strict comparison of its outer cloudId with inputs.cloudId.
+ * Redaction can make two values one: two undeclared `*.atlassian.net` hosts both
+ * become `<site>`, and a declared host or cloud_id spelled in two cases both
+ * become its token. Then the inner value gets a mark, so grade time still reads
+ * two values and gives the hook's verdict (a write refused, a read proving nothing).
+ */
+const TWO_SITES_MARK = "<two-sites>";
+function keepTwoSites(name: string, raw: Record<string, unknown>, redacted: Record<string, unknown>): Record<string, unknown> {
+  if (!(canonicalCall(name, raw).unplaced ?? []).includes("cloudId") || (canonicalCall(name, redacted).unplaced ?? []).includes("cloudId")) return redacted;
+  const inputs = redacted.inputs as Record<string, unknown>;
+  return { ...redacted, inputs: { ...inputs, cloudId: `${String(inputs.cloudId)}${TWO_SITES_MARK}` } };
 }
 
 /** The server segment of an MCP tool name (`mcp__<server>__<tool>` → `<server>`). */
@@ -646,7 +696,8 @@ function parseSession(
     } else {
       result = { isError, text: rw(text), exitCode: null, items: null, lastPage: null };
     }
-    calls.push({ ref: `${sid}:${u.id}`, at: u.at, name: u.name, input: rewriteDeep(u.input, rw) as Record<string, unknown>, result, sidechain: u.sidechain });
+    const input = rewriteDeep(u.input, rw) as Record<string, unknown>;
+    calls.push({ ref: `${sid}:${u.id}`, at: u.at, name: u.name, input: tracker === "jira" && isTrackerTool(u.name) ? keepTwoSites(u.name, u.input, keepRawSubject(u.name, u.input, input)) : input, result, sidechain: u.sidechain });
   }
   const session: BundleSession = { sessionId: sid, marker: mk.marker, root, cwd: rw(cwd), client: mk.client, calls };
   if (Object.keys(answers).length > 0) {
@@ -764,6 +815,69 @@ function readRepo(rootPath: string, tag: Root, tracker: SharedTrackerId, rw: Rew
 }
 
 /**
+ * STE-871 — the rewrites that keep a declared site host apart from every other.
+ * `tokenise` turns a whole host (any case; not inside a longer host or an email
+ * address) into its root's token, after emptying any token the records already
+ * spell; `redactRest` makes what is left of the host the `<site>` of any other.
+ */
+function siteTokens(declared: Record<Root, { site?: string; cloudId?: string }>): {
+  tokens: Record<Root, { site?: string; cloudId?: string }>;
+  tokenise: (s: string) => string;
+  redactRest: (s: string) => string;
+} {
+  const a = declared.A.site;
+  const b = declared.B.site;
+  const tokens: Record<Root, { site?: string; cloudId?: string }> = { A: a ? { site: "<site-A>" } : {}, B: b ? { site: b === a ? "<site-A>" : "<site-B>" } : {} };
+  const hosts = new Map<string, string>();
+  for (const r of ["A", "B"] as const) if (declared[r].site) hosts.set(declared[r].site!, tokens[r].site!);
+  const res = [...hosts]
+    .sort(([x], [y]) => y.length - x.length)
+    .map(([host, tok]) => {
+      const h = host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return { tok, whole: new RegExp(`(?<![A-Za-z0-9._%+@-])${h}(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])`, "gi"), any: new RegExp(h, "gi") };
+    });
+  // A declared cloud_id is the operator's tenant id: it gets a token the same way,
+  // `<cloud-A>` / `<cloud-B>` (the same token when both declare the same id), in
+  // any case, so a call's cloudId and the root's declaration still compare alike.
+  // The invented placeholder the committed fixtures use is not a tenant id and stays.
+  const ids = new Map<string, string>();
+  for (const r of ["A", "B"] as const) {
+    const id = declared[r].cloudId?.toLowerCase();
+    if (!id || PLACEHOLDER_CLOUD_ID.test(id)) continue;
+    if (!ids.has(id)) ids.set(id, `<cloud-${r}>`);
+    tokens[r].cloudId = ids.get(id)!;
+  }
+  // Matched anywhere, with no word boundaries: a UUID does not occur inside
+  // another token by chance, and a boundary would miss it after `%2F` in a
+  // URL-encoded path, leaving it for the backstop to abort on (D3).
+  const cloudRes = [...ids]
+    .sort(([x], [y]) => y.length - x.length)
+    .map(([id, tok]) => ({ tok, whole: new RegExp(id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi") }));
+  if (res.length === 0 && cloudRes.length === 0) return { tokens, tokenise: (s) => s, redactRest: (s) => s };
+  return {
+    tokens,
+    tokenise: (s) =>
+      cloudRes.reduce(
+        (t, { tok, whole }) => t.replace(whole, tok),
+        res.reduce((t, { tok, whole }) => t.replace(whole, tok), s.replace(/<site-[AB]>/gi, "<site>").replace(/<cloud-[AB]>/gi, "<cloud>")),
+      ),
+    redactRest: (s) => res.reduce((t, { any }) => t.replace(any, "<site>"), s),
+  };
+}
+
+/** The invented cloud id the committed fixtures carry in place of a tenant's. */
+const PLACEHOLDER_CLOUD_ID = /^aaaaaaaa-aaaa-4aaa-8aaa-[0-9a-f]{12}$/i;
+
+/** STE-871 — the declared cloud ids a bundle still spells, in any case; the bundle is committed, so any is a leak. */
+function declaredCloudIdLeaks(bundle: unknown, declared: Record<Root, { cloudId?: string }>): Root[] {
+  const text = JSON.stringify(bundle).toLowerCase();
+  return (["A", "B"] as const).filter((r) => {
+    const id = declared[r].cloudId?.toLowerCase();
+    return !!id && !PLACEHOLDER_CLOUD_ID.test(id) && text.includes(id);
+  });
+}
+
+/**
  * Project a run's records into its evidence bundle: the ledgered sessions'
  * transcripts (through smoke_session_cleanup's transcript index, sidechains
  * included), both repositories' receipts and git state. Any session whose
@@ -826,15 +940,33 @@ export function extractBundle(o: ExtractOptions): ExtractResult {
       })
       .join("\n"),
   );
+  // STE-871: each root's declared Jira site. Its host is rewritten to the root's
+  // own token BEFORE the redaction that makes every other host `<site>`.
+  const declared: Record<Root, { site?: string; cloudId?: string }> = { A: {}, B: {} };
+  const unreadable: LiveFinding[] = [];
+  if (tracker === "jira") {
+    for (const [r, path] of [["A", A], ["B", B]] as const) {
+      try {
+        const { site, cloudId } = readWorkspaceBinding(join(path, "CLAUDE.md"), "jira");
+        declared[r] = { ...(site ? { site } : {}), ...(cloudId ? { cloudId } : {}) };
+      } catch (e) {
+        const message = boundary.reduce((t, [tok, re]) => t.replace(re, tok), (e as Error).message);
+        unreadable.push({ code: "binding-unreadable", detail: `repository <${r}>'s Jira binding cannot be read: ${redactPersonalData(message)}` });
+      }
+    }
+  }
+  if (unreadable.length > 0) return { ok: false, verdict: { outcome: "abort", findings: unreadable } };
+  const sites = siteTokens(declared);
   const rw: Rewriter = (s) => {
     let t = s;
     for (const [tok, re] of boundary) t = t.replace(re, tok);
+    t = sites.tokenise(t);
     t = redactDisplayNames(t, displayNames);
     // Then the personal-data classes the first live run leaked, each to an
     // identity token. The PROJECTION stops producing them; `privacyViolations`
     // is untouched and stays the fail-closed check over whatever remains.
     t = redactPersonalData(t);
-    return t;
+    return sites.redactRest(t);
   };
   const within = (cwd: string, root: string) => cwd === root || cwd.startsWith(`${root}/`);
   const rootOf = (cwd: string): Root | null =>
@@ -930,19 +1062,26 @@ export function extractBundle(o: ExtractOptions): ExtractResult {
   }
   unledgeredSessions.sort();
 
-  return {
-    ok: true,
-    bundle: {
-      schema: 1,
-      synthetic: o.synthetic === true,
-      run: o.run,
-      roots: { A: { name: basename(A), tag: o.roots.A.tag }, B: { name: basename(B), tag: o.roots.B.tag } },
-      ledger: [...o.ledgerSessionIds],
-      sessions,
-      repos: { A: readRepo(A, "A", tracker, rw), B: readRepo(B, "B", tracker, rw) },
-      unledgeredSessions,
+  const bundle: LiveBundle = {
+    schema: 1,
+    synthetic: o.synthetic === true,
+    run: o.run,
+    roots: {
+      A: { name: basename(A), tag: o.roots.A.tag, ...declared.A, ...sites.tokens.A },
+      B: { name: basename(B), tag: o.roots.B.tag, ...declared.B, ...sites.tokens.B },
     },
+    ledger: [...o.ledgerSessionIds],
+    sessions,
+    repos: { A: readRepo(A, "A", tracker, rw), B: readRepo(B, "B", tracker, rw) },
+    unledgeredSessions,
   };
+  // The backstop: a field no rewrite reaches (an object key, the run's own
+  // metadata) must not carry a declared cloud_id into the committed bundle.
+  const leaks = declaredCloudIdLeaks(bundle, declared);
+  if (leaks.length > 0) {
+    return { ok: false, verdict: { outcome: "abort", findings: leaks.map((r) => ({ code: "cloud-id-in-bundle", detail: `the bundle still spells repository <${r}>'s declared cloud_id, which must not be committed` })) } };
+  }
+  return { ok: true, bundle };
 }
 
 // ---------------------------------------------------------------------------
@@ -2325,8 +2464,6 @@ const TICKET_KEY = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
  * here rather than imported (the grader never imports hook code; the drift guard
  * in tests/m_2306b6-ste-617-live-grader.test.ts holds them equal).
  */
-/** The Teamwork Graph relationship types whose target is a Jira item. Twin: `TEAMWORK_ITEM_TARGETS` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
-const TEAMWORK_ITEM_TARGETS = new Set(["jira-work-item-links-jira-work-item", "jira-work-item-blocks-jira-work-item"]);
 /** A call that links two tickets. Twin: `isLinkTool` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
 const isLinkTool = (c: ToolCall): boolean => ["createIssueLink", "addTeamworkGraphContext"].includes(bareTool(c.name));
 /** The input fields a ticket call names its subject in. Twin: `subjectValues` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
@@ -2335,7 +2472,7 @@ function subjectValues(c: ToolCall): unknown[] {
   const t = bareTool(c.name);
   if (t === "createIssueLink") return [i.inwardIssue, i.outwardIssue];
   if (t === "addTeamworkGraphContext") {
-    const itemTarget = typeof i.relationshipType === "string" && TEAMWORK_ITEM_TARGETS.has(i.relationshipType);
+    const itemTarget = GRAPH_ITEM_TARGET_TYPES.has(i.relationshipType);
     return itemTarget ? [i.objectIdentifier, i.targetObjectIdentifier] : [i.objectIdentifier];
   }
   if (ATLASSIAN_WRITE_TOOL_NAMES.includes(t) || t === GET_TICKET_TOOLS.jira) return [i.issueIdOrKey];
@@ -2354,6 +2491,45 @@ function resolveItemSide(v: unknown): string | null {
 }
 /** A link's Jira-item sides that resolve to no ticket key, as spelled. Twin: `unresolvedItemSides` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts */
 const unresolvedSides = (c: ToolCall): string[] => (isLinkTool(c) ? subjectValues(c).filter((v) => resolveItemSide(v) === null).map(sideText) : []);
+/** The browse URLs a ticket call names its subjects by, as the hook's `subjectUrls` reads them (STE-871). */
+function subjectUrls(c: ToolCall): string[] {
+  if (isLinkTool(c)) return subjectValues(c).map(sideText).filter((v) => BROWSE_URL.test(v));
+  return c.subjectUrl === undefined ? [] : [c.subjectUrl];
+}
+/** A call naming two sites (STE-871). */
+const twoSites = (c: ToolCall): boolean => (c.unplaced ?? []).includes("cloudId");
+/** STE-871 — the roots whose Jira site the call names, as the hook's `targetsAtSite`; a root with no site is always one. */
+const rootsAtSite = (sites: Record<Root, SiteDeclaration>, c: ToolCall, roots: readonly Root[]): Root[] => roots.filter((r) => siteMatches(sites[r], c.input.cloudId));
+const declaresSite = (d: SiteDeclaration): boolean => !!d.site || !!d.cloudId;
+/**
+ * F1 — a `create` or `reuse` receipt holds at a root only when the search it was
+ * decided from ran at that root's (possibly inherited) site; one without
+ * `searchSite` (saved pages) is held to nothing more. Both sides carry the same
+ * site tokens, so the comparison is like with like.
+ * Twin: `decidedAtSite` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
+ */
+const decidedAtSite = (d: SiteDeclaration, ev: Record<string, unknown>): boolean => !("searchSite" in ev) || siteMatches(d, ev.searchSite);
+/**
+ * STE-871 — each root's Jira site for a write in scope of `roots`, as the
+ * hook's `inheritSites`: both roots bind the run's container, so a root in
+ * scope that declares no site takes the site of the one that does.
+ */
+// The bundle models one shared container (`run.container`), so both roots bind the same project and the
+// hook's same-project test (`inheritSites`) always holds here; a bundle spanning two projects would need it.
+function sitesOf(b: LiveBundle, roots: readonly Root[]): Record<Root, SiteDeclaration> {
+  const out: Record<Root, SiteDeclaration> = { A: b.roots.A, B: b.roots.B };
+  for (const r of roots) {
+    if (declaresSite(b.roots[r])) continue;
+    const from = roots.filter((x) => x !== r && declaresSite(b.roots[x]));
+    if (from.length === 0) continue;
+    const site = from.map((x) => b.roots[x].site).find((v) => !!v);
+    const cloudId = from.map((x) => b.roots[x].cloudId).find((v) => !!v);
+    out[r] = { ...(site ? { site } : {}), ...(cloudId ? { cloudId } : {}) };
+  }
+  return out;
+}
+/** AC-STE-871.3 — why the hook refuses a write at a site none of `roots` declares. */
+const otherSite = (roots: readonly Root[]): string => `write at a site that is not the Jira site declared by ${roots.map((r) => `<${r}>`).join(", ")}`;
 /** A ticket call's subject keys, as the hook reads them: the resolved sides of a link, else the issue fields. */
 function subjectKeys(c: ToolCall): string[] {
   if (isLinkTool(c)) return [...new Set(subjectValues(c).map(resolveItemSide).filter((k): k is string => k !== null))];
@@ -2614,7 +2790,7 @@ export const hookDemandsRelist = (b: LiveBundle): boolean => {
  * Twin: `relistsAfter` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
  * (separate modules by design — keep both in step).
  */
-function relistedAfter(s: BundleSession, tracker: SharedTrackerId, project: string, from: number, to: number, consented: boolean, title: string): { ok: boolean; dup: string | null } {
+function relistedAfter(s: BundleSession, tracker: SharedTrackerId, project: string, from: number, to: number, consented: boolean, title: string, binding: SiteDeclaration): { ok: boolean; dup: string | null } {
   const tool = tracker === "jira" ? "searchJiraIssuesUsingJql" : "list_milestones";
   const want = normalizeMilestoneTitle(title);
   let open = false;
@@ -2624,6 +2800,7 @@ function relistedAfter(s: BundleSession, tracker: SharedTrackerId, project: stri
     const c = s.calls[j]!;
     if (bareTool(c.name) !== tool || c.sidechain !== s.calls[to]?.sidechain || !isCanonicalContainerListing(tracker, c.input, project)) continue;
     if ((c.unplaced ?? []).length > 0) continue; // twin: `relistRequest`
+    if (!siteMatches(binding, c.input.cloudId)) continue; // STE-871: another site's page joins, ends and breaks no chain
     if (c.result.isError) {
       open = false;
       continue;
@@ -2803,9 +2980,21 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
       return null;
     };
     const spent = new Set<string>();
-    const created = new Set<string>();
+    /** The creates this session made, with the keys they returned; read per root at its site (STE-871). */
+    const made: Array<{ c: ToolCall; keys: string[] }> = [];
     for (const { c, i } of writes) {
-      const before = ann.filter((a) => a.index < i);
+      const announced = ann.filter((a) => a.index < i);
+      const roots = [...new Set<Root>([s.root, ...announced.map((a) => rootOfPath(a.path)).filter((r): r is Root => r !== null)])];
+      const sites = sitesOf(b, roots);
+      /** Whether `r` created `k` in this session at its site, as the hook's `createdKeys`. */
+      const createdBy = (r: Root, k: string): boolean =>
+        made.some((m) => m.keys.includes(k) && siteMatches(sites[r], m.c.input.cloudId) && !(twoSites(m.c) && declaresSite(sites[r])));
+      // STE-871 — only a root at the write's site can decide or own it.
+      const atSite = rootsAtSite(sites, c, roots);
+      const before = announced.filter((a) => {
+        const r = rootOfPath(a.path);
+        return r !== null && atSite.includes(r);
+      });
       const cls = writeClass(c);
       let why: string | null = null;
       if (c.executeRefusal !== undefined) {
@@ -2820,7 +3009,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           why = `create carries ${tagged.length === 0 ? "no" : "more than one"} repository tag, so no repository decided it`;
         } else {
           const root = tagged[0]!;
-          const mine = before.filter((a) => rootOfPath(a.path) === root);
+          const mine = announced.filter((a) => rootOfPath(a.path) === root);
           // STE-642 / STE-641 (AC-STE-650.5) — an earlier create of this
           // ticket that returned (settled or unkeyed), or whose error does not
           // prove it never ran (a timeout, a 5xx — the parallel duplicate
@@ -2828,14 +3017,16 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           // another create of it.
           // Twin: `priorCreates` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
           const prior = s.calls.slice(0, i).find((p) => {
+            // STE-871 — a create under any cloudId counts: another spelling may name the same site.
             if (!isCreateAttempt(p) || writeClass(p) !== "ticket-create" || p.sidechain !== c.sidechain) return false;
             if (!sameTicket(callShape(tracker, p.input), shape)) return false;
             return !p.result.isError || !createNeverRan(tracker, p);
           });
           const receipt = prior ? undefined : mine
             .map((a) => receiptOf(a, "create"))
-            .find((r) => r !== null && !spent.has(r.path) && createMismatch(tracker, shape, payloadShape(tracker, (r.evidence.createPayload ?? {}) as Record<string, unknown>), b.roots[root].tag) === null);
-          if (prior) why = `create of "${shape.title}" repeats an earlier create of that ticket (${prior.ref}) that ${prior.result.isError ? "may have made it" : `returned ${itemKeys(prior).join(", ") || "no key"}`}, and no create receipt authorises a second create of it`;
+            .find((r) => r !== null && !spent.has(r.path) && decidedAtSite(sites[root], r.evidence) && createMismatch(tracker, shape, payloadShape(tracker, (r.evidence.createPayload ?? {}) as Record<string, unknown>), b.roots[root].tag) === null);
+          if (rootsAtSite(sites, c, [root]).length === 0) why = otherSite([root]);
+          else if (prior) why = `create of "${shape.title}" repeats an earlier create of that ticket (${prior.ref}) that ${prior.result.isError ? "may have made it" : `returned ${itemKeys(prior).join(", ") || "no key"}`}, and no create receipt authorises a second create of it`;
           else if (!receipt) why = `create of "${shape.title}" follows no unspent create receipt announced by create_idempotency_probe.ts decide in <${root}> that records its project, title, tag and ${tracker === "jira" ? "parent" : "milestone"}`;
           else {
             spent.add(receipt.path);
@@ -2866,7 +3057,8 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           if (!sameContainer(containerShape(tracker, p.input), { project, title: name })) return false;
           return !p.result.isError || !createNeverRan(tracker, p);
         });
-        if (prior) why = `milestone-container create of "${name}" in ${project} repeats an earlier create of that container (${prior.ref}) that ${prior.result.isError ? "may have made it" : `returned ${itemKeys(prior).join(", ") || "no key"}`}, and no decision authorises a second create of it`;
+        if (atSite.length === 0) why = otherSite(roots);
+        else if (prior) why = `milestone-container create of "${name}" in ${project} repeats an earlier create of that container (${prior.ref}) that ${prior.result.isError ? "may have made it" : `returned ${itemKeys(prior).join(", ") || "no key"}`}, and no decision authorises a second create of it`;
         else if (!decision) why = `milestone-container create of "${name}" in ${project} follows no unspent create decision announced by resolve_milestone_identity.ts for that project and title`;
         else {
           spent.add(decision.path);
@@ -2875,7 +3067,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
             // The hook's bound (STE-650 AC.13): a forbidden decision, or an
             // allowed Linear one the operator answered, accepts a capped window.
             const consented = decision.evidence.default === "forbidden" || (tracker === "linear" && decisionAnswered(s, decision, found!.a.index, i));
-            const relist = relistedAfter(s, tracker, project, found!.a.index, i, consented, name);
+            const relist = relistedAfter(s, tracker, project, found!.a.index, i, consented, name, sites[rootOfPath(found!.a.path)!]);
             if (relist.dup !== null) why = `milestone-container create of "${name}" in ${project} follows a listing of the project's containers that holds the open container \`${relist.dup}\` of that title, so it duplicates it`;
             else if (!relist.ok) why = `milestone-container create of "${name}" in ${project} follows no complete, canonical listing of the project's containers recorded after its create decision (${decision.path})`;
           }
@@ -2896,8 +3088,15 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           // No team recorded for the run: no target can be shown in-team, so it
           // is not (fail closed, as the hook, which demands a declared binding).
           .filter((v) => !TICKET_KEY.test(v) || spaces === null || !spaces.some((sp) => sameName(sp, v.slice(0, v.lastIndexOf("-")))));
+        // AC-STE-871.5 — as the hook's `gateBrowseHosts`.
+        const offHost = subjectUrls(c).filter((url) => {
+          const key = resolveItemSide(url);
+          const onHost = (r: Root): boolean => browseHostMatches(sites[r], url);
+          return key !== null && inRunContainers(key) ? !atSite.every(onHost) : !roots.some(onHost);
+        });
         if (outsideTargets.length > 0) why = `update names the relation target ${outsideTargets.map((v) => `"${v}"`).join(", ")} that resolves to no key in this run's team, whatever its issue`;
         else if (unresolved.length > 0) why = `link names the Jira-item side ${unresolved.map((v) => `"${v}"`).join(", ")} that resolves to no ticket key (only a key or a /browse/<KEY> URL does), whatever its other side`;
+        else if (offHost.length > 0) why = `write names ${offHost.map((v) => `"${redactPersonalData(v)}"`).join(", ")}, a browse URL that is not on the declared Jira site`;
         else if (subjects.length === 0) why = "ticket write names no ticket key the hook could resolve";
         else if (bareTool(c.name) === "editJiraIssue" && movedInto(c.input, subjects, spaces ?? [])) why = `update of ${subjects.join(", ")} sets a project that is, or cannot be told apart from, one of this run's, so it may move a ticket into it unchecked`;
         else if (keys.length === 0) {
@@ -2909,19 +3108,19 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           // is true for every key because the run has one team.
           const containers = [b.run.container, b.run.repointFrom ?? ""].filter((x) => x !== "").join(", ");
           why = `write on ${subjects.join(", ")} names no ticket in this run's containers (${containers}), so it is a write on a ticket outside this run`;
-        } else {
-          const roots = new Set<Root>([s.root, ...before.map((a) => rootOfPath(a.path)).filter((r): r is Root => r !== null)]);
+        } else if (atSite.length < roots.length) why = otherSite(roots.filter((r) => !atSite.includes(r))); // STE-871: each root in scope must match
+        else {
           // STE-655 AC.8 — the hook's labels envelope, shared: a labels write on
           // a joined Epic carrying any other field key is not a read-merge.
           const envelope = bareTool(c.name) === "editJiraIssue" ? labelsEnvelope(c.input) : null;
           /** HOW the session owns `k` (STE-650 AC.2), or null when it does not. */
           const routeOf = (k: string): OwnershipRoute | "fetched-ticket" | null => {
-            if (created.has(k)) return "created";
-            if ([...roots].some((r) => b.repos[r].frBindings.some((f) => f.key.toUpperCase() === k))) return "fr-binding";
+            if (atSite.some((r) => createdBy(r, k))) return "created";
+            if (atSite.some((r) => b.repos[r].frBindings.some((f) => f.key.toUpperCase() === k))) return "fr-binding";
             if (fetchedOwned(k)) return "fetched-ticket";
             for (const a of before) {
               const reuse = receiptOf(a, "reuse");
-              if (reuse && str(reuse.evidence.key).toUpperCase() === k) return "reuse-receipt";
+              if (reuse && str(reuse.evidence.key).toUpperCase() === k && decidedAtSite(sites[rootOfPath(a.path)!], reuse.evidence)) return "reuse-receipt";
               const bind = receiptOf(a, "binding");
               if (bind && bind.subject.toUpperCase() === k && (bind.decision !== "adopt" || (answeredBefore(s, a.index, `Adopt ${k}`) && answeredBefore(s, i, `Adopt ${k}`)))) return "binding-receipt";
               const imp = receiptOf(a, "import");
@@ -2935,14 +3134,20 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
            * `owned` for this session's repository — or `unowned` with an
            * `Adopt <k>` answer. A container, another project, or a sibling
            * repository's label is refused (`decideTicketOwnership`).
+           * STE-871 — a fetch from another site is no fetch of `k`; one at the
+           * site by a browse URL on another host names two sites.
            * Twin: `fetchedOwned` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
            */
           function fetchedOwned(k: string): boolean {
+            if (!atSite.includes(s.root)) return false;
+            const binding = sites[s.root];
             let newest: TrackerItem | null | undefined;
             for (const p of s.calls.slice(0, i)) {
               if (p.sidechain !== c.sidechain || !p.name.startsWith("mcp__") || bareTool(p.name) !== GET_TICKET_TOOLS[tracker]) continue;
               if (p.result.isError || !subjectKeys(p).includes(k)) continue;
-              newest = p.result.items?.length === 1 && !(p.unplaced ?? []).includes("cloudId") ? p.result.items[0]! : null;
+              if (!twoSites(p) && !siteMatches(binding, p.input.cloudId)) continue;
+              const onHost = p.subjectUrl === undefined || browseHostMatches(binding, p.subjectUrl);
+              newest = p.result.items?.length === 1 && !twoSites(p) && onHost ? p.result.items[0]! : null;
             }
             if (!newest || (newest.absent?.length ?? 0) > 0 || newest.key.toUpperCase() !== k || itemClass(newest) === "container") return false;
             const project = tracker === "jira" ? k.slice(0, k.lastIndexOf("-")) : b.run.container;
@@ -2968,7 +3173,6 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           };
           const owned = (k: string): boolean => {
             const route = routeOf(k);
-            const exempt = route !== null && exemptsJoinConsent(route);
             if (tracker !== "jira" || envelope === null) return route !== null;
             // STE-643 — as in the hook's gateJoinedLabels, the LATEST join of
             // the key governs: a later forbidden, unanswered join is not
@@ -2984,6 +3188,8 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
             }
             if (latest === null) return route !== null;
             if (envelope.extraKeys.length > 0) return false;
+            // STE-871 — created at the site of the repository that joined it.
+            const exempt = exemptsJoinConsent(createdBy(rootOfPath(latest.a.path)!, k) ? "created" : "fr-binding");
             if (!exempt && !forbiddenDecisionConsented(s, latest.join, latest.a.index, i)) return false;
             return readMerged(latest.join);
           };
@@ -3037,7 +3243,7 @@ function gatedWrites(b: LiveBundle): { aborts: LiveFinding[]; findings: LiveFind
           if (!ok) why = `write on ${keys.join(", ")} follows no receipt, creation or FR binding in this session that makes the key its repository's`;
         }
       }
-      if (cls === "ticket-create" || cls === "milestone-create") for (const k of itemKeys(c)) created.add(k.toUpperCase());
+      if (cls === "ticket-create" || cls === "milestone-create") made.push({ c, keys: itemKeys(c).map((k) => k.toUpperCase()) });
       if (why !== null) {
         findings.push({
           code: "ungated-write",
@@ -3784,10 +3990,10 @@ function unplaceableOperation(wrapper: string, input: Record<string, unknown>): 
  * empty input, so no rule reads it as a call it is not.
  * Twin: `identifyTrackerCall` and the execute refusals of `uncheckableCall` in templates/hooks/_lib/hooks/pre-tracker-write-gate.ts
  */
-function canonicalCall(name: string, recorded: Record<string, unknown>): Pick<ToolCall, "name" | "input" | "unplaced" | "executeRefusal"> {
+function canonicalCall(name: string, recorded: Record<string, unknown>): Pick<ToolCall, "name" | "input" | "unplaced" | "executeRefusal" | "subjectUrl"> {
   const bare = bareTool(name);
-  const { tool, input, unplaced, wrapperKeys = [] } = canonicalAtlassianCall(bare, recorded);
-  const call = { name: name.slice(0, name.length - bare.length) + tool, input, unplaced };
+  const { tool, input, unplaced, wrapperKeys = [], subjectUrl } = canonicalAtlassianCall(bare, recorded);
+  const call = { name: name.slice(0, name.length - bare.length) + tool, input, unplaced, ...(subjectUrl !== undefined ? { subjectUrl } : {}) };
   // Twin: the graph-link refusal of `uncheckableCall`.
   if (tool === "addTeamworkGraphContext" && unplaced.length > 0) return { ...call, executeRefusal: `${tool} with unreadable ${unplaced.join(", ")}` };
   if (!ATLASSIAN_EXECUTE_TOOLS.includes(bare)) return call;
@@ -3865,7 +4071,7 @@ const PRIVACY_PATTERNS: ReadonlyArray<{ pattern: string; re: RegExp }> = [
   { pattern: "email address", re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g },
   { pattern: "Atlassian account id (24 hex)", re: /(?<![0-9A-Fa-f])[0-9a-f]{24}(?![0-9A-Fa-f])/g },
   { pattern: "Atlassian account id (prefixed)", re: /\b\d{6}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g },
-  { pattern: "*.atlassian.net site host", re: /\b[A-Za-z0-9-]+\.atlassian\.net\b/g },
+  { pattern: "*.atlassian.net site host", re: /\b[A-Za-z0-9-]+\.atlassian\.net\b/gi },
   { pattern: "linear.app/<workspace>", re: /\blinear\.app\/[A-Za-z0-9_-]+/g },
   { pattern: "/Users/<name>", re: /\/Users\/[^/\s"'`]+/g },
   { pattern: "/home/<name>", re: /\/home\/[^/\s"'`]+/g },
@@ -3974,7 +4180,7 @@ const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g, "<email>"],
   [/\b\d{6}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, "<account-id>"],
   [/(?<![0-9A-Fa-f])[0-9a-f]{24}(?![0-9A-Fa-f])/g, "<account-id>"],
-  [/\b[A-Za-z0-9-]+\.atlassian\.net\b/g, "<site>"],
+  [/\b[A-Za-z0-9-]+\.atlassian\.net\b/gi, "<site>"],
   [/\blinear\.app\/[A-Za-z0-9_-]+/g, "linear.app/<workspace>"],
   [/\/Users\/[^/\s"'`]+/g, "<home>"],
   [/\/home\/[^/\s"'`]+/g, "<home>"],

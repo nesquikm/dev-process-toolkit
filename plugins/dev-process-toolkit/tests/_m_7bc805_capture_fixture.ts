@@ -26,6 +26,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { childResult } from "./_child_result";
 
 import { DPT_GITIGNORE_BODY } from "../adapters/_shared/src/setup/dpt_gitignore";
 import { GIT_ENV as BASE_GIT_ENV, PLUGIN_ROOT, SETTINGS_HEAD, tempDir } from "./_m_7bc805_gate_outcome_fixture";
@@ -282,7 +283,8 @@ export function runCapture(
       ...(opts.env ?? {}),
     },
   });
-  return { exitCode: p.status ?? -1, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const c = childResult(p, "bash capture wrapper");
+  return { exitCode: c.code, stdout: p.stdout ?? "", stderr: (p.stderr ?? "") + (c.note ? `\n${c.note}\n` : "") };
 }
 
 /** Run a rendered registered command through `sh -c`, as Claude Code does. */
@@ -293,7 +295,8 @@ export function runShell(command: string, opts: { projectDir: string; stdin?: st
     encoding: "utf-8",
     env: { ...(process.env as Record<string, string>), ...GIT_ENV, CLAUDE_PROJECT_DIR: opts.projectDir, ...(opts.env ?? {}) },
   });
-  return { exitCode: p.status ?? -1, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const c = childResult(p, "sh -c command");
+  return { exitCode: c.code, stdout: p.stdout ?? "", stderr: (p.stderr ?? "") + (c.note ? `\n${c.note}\n` : "") };
 }
 
 /** The registration front door: `bun run capture_registration.ts <verb> <root>`. */
@@ -303,7 +306,8 @@ export function runRegistration(verb: string, root: string, opts: { cfg: string;
     encoding: "utf-8",
     env: { ...(process.env as Record<string, string>), ...GIT_ENV, CLAUDE_CONFIG_DIR: opts.cfg, ...(opts.env ?? {}) },
   });
-  return { exitCode: p.status ?? -1, stdout: p.stdout ?? "", stderr: p.stderr ?? "" };
+  const c = childResult(p, "bun run capture module");
+  return { exitCode: c.code, stdout: p.stdout ?? "", stderr: (p.stderr ?? "") + (c.note ? `\n${c.note}\n` : "") };
 }
 
 /** `status` output parsed into its three fields. */

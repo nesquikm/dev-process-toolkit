@@ -313,6 +313,9 @@ const STUB_RECOGNISED_KEYS = new Set([
   "linear_bug_label",
   "jira_bug_issue_type",
   "jira_issue_type",
+  "jira_bug_type_standard",
+  "site",
+  "cloud_id",
 ]);
 
 const UPGRADE = "/dev-process-toolkit:upgrade";

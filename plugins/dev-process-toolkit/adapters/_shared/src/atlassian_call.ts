@@ -18,6 +18,10 @@ export interface CanonicalAtlassianCall {
   unplaced: string[];
   /** Keys beside `name` and `inputs` that the execute tools' schema does not have; absent when there are none. */
   wrapperKeys?: string[];
+  /** A graph link's unknown relationship type and the types known for the tool called (STE-870); absent on any other call. */
+  unknownGraphType?: { given: unknown; known: string[] };
+  /** The browse URL `issueIdOrKey` was read from (STE-871): its host names a site too. Absent when the subject was no such URL. */
+  subjectUrl?: string;
 }
 
 const has = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
@@ -108,20 +112,43 @@ function canonicalSubject(input: Input): Input {
   return key === undefined ? input : { ...input, issueIdOrKey: key.toUpperCase() };
 }
 
+/** `call` with the browse URL its subject was rewritten from, when `canonicalSubject` rewrote one. */
+function withSubjectUrl(call: CanonicalAtlassianCall, given: Input): CanonicalAtlassianCall {
+  const { issueIdOrKey } = given;
+  return typeof issueIdOrKey === "string" && call.input.issueIdOrKey !== issueIdOrKey ? { ...call, subjectUrl: issueIdOrKey.trim() } : call;
+}
+
 /** STE-866 — the generic v2 tools, which run the operation `name` on `inputs`. */
 export const ATLASSIAN_EXECUTE_TOOLS: readonly string[] = ["executeRead", "executeWrite", "executeDestructive"];
 
 /** The execute tools' own input keys. */
 const WRAPPER_KEYS: readonly string[] = ["name", "inputs", "cloudId", "responseFields", "view"];
 
-/** The v1 graph keys and the relationship types whose both sides are Jira items. */
+/** The v1 graph keys. */
 const GRAPH_KEYS: readonly string[] = ["cloudId", "actionSource", "objectIdentifier", "targetObjectIdentifier", "relationshipType"];
-const GRAPH_ITEM_TYPES: readonly unknown[] = ["jira-work-item-links-jira-work-item", "jira-work-item-blocks-jira-work-item"];
 
-/** The v2 `addGraphContext` schema is unrecorded: every key the v1 rules cannot read, and a relationship type they do not know. */
-function unreadGraphKeys(input: Input): string[] {
-  const unread = Object.keys(input).filter((k) => !GRAPH_KEYS.includes(k));
-  return GRAPH_ITEM_TYPES.includes(input.relationshipType) ? unread : [...unread, "relationshipType"];
+/** The Teamwork Graph relationship types whose target is a Jira item, as the object always is. */
+export const GRAPH_ITEM_TARGET_TYPES: ReadonlySet<unknown> = new Set(["jira-work-item-links-jira-work-item", "jira-work-item-blocks-jira-work-item"]);
+
+/** The known relationship types whose target is not a Jira item (STE-870). */
+export const GRAPH_OTHER_TARGET_TYPES: ReadonlySet<unknown> = new Set([
+  "jira-work-item-links-jira-work-item-remote-link",
+  "jira-work-item-tracks-atlassian-project",
+  "jira-work-item-contributes-to-atlassian-goal",
+]);
+
+/**
+ * A graph link with the keys the rules cannot read as unplaced. v1 (STE-870):
+ * a relationship type in neither set. The v2 `addGraphContext` schema is
+ * unrecorded: every key v1 does not have, and a type that is not item-to-item.
+ */
+function canonicalGraph(input: Input, v2: boolean): CanonicalAtlassianCall {
+  const tool = "addTeamworkGraphContext";
+  const unread = v2 ? Object.keys(input).filter((k) => !GRAPH_KEYS.includes(k)) : [];
+  const known = v2 ? [...GRAPH_ITEM_TARGET_TYPES] : [...GRAPH_ITEM_TARGET_TYPES, ...GRAPH_OTHER_TARGET_TYPES];
+  const { relationshipType } = input;
+  if (known.includes(relationshipType)) return { tool, input, unplaced: unread };
+  return { tool, input, unplaced: [...unread, "relationshipType"], unknownGraphType: { given: relationshipType, known: known.map(String) } };
 }
 
 /** One direct Atlassian write call, v1 or v2, in the v1 vocabulary. */
@@ -144,7 +171,9 @@ function canonicalDirect(tool: string, input: Input): CanonicalAtlassianCall {
     case "getJiraIssue":
       return { tool, input: canonicalSubject(input), unplaced: [] };
     case "addGraphContext":
-      return { tool: "addTeamworkGraphContext", input, unplaced: unreadGraphKeys(input) };
+      return canonicalGraph(input, true);
+    case "addTeamworkGraphContext":
+      return canonicalGraph(input, false);
     default:
       return { tool, input, unplaced: [] };
   }
@@ -158,11 +187,11 @@ function canonicalDirect(tool: string, input: Input): CanonicalAtlassianCall {
  * `inputs` is never read as an input: it comes back in `wrapperKeys`.
  */
 export function canonicalAtlassianCall(tool: string, input: Input): CanonicalAtlassianCall {
-  if (!ATLASSIAN_EXECUTE_TOOLS.includes(tool)) return canonicalDirect(tool, input);
+  if (!ATLASSIAN_EXECUTE_TOOLS.includes(tool)) return withSubjectUrl(canonicalDirect(tool, input), input);
   const { name, inputs } = input;
   if (!isName(name) || !isBlock(inputs)) return { tool, input, unplaced: [] };
   const beside = has(input, "cloudId");
-  const call = canonicalDirect(name, beside && !has(inputs, "cloudId") ? { ...inputs, cloudId: input.cloudId } : inputs);
+  const call = withSubjectUrl(canonicalDirect(name, beside && !has(inputs, "cloudId") ? { ...inputs, cloudId: input.cloudId } : inputs), inputs);
   const twoSites = beside && has(inputs, "cloudId") && input.cloudId !== inputs.cloudId;
   const extra = Object.keys(input).filter((k) => !WRAPPER_KEYS.includes(k));
   return {
