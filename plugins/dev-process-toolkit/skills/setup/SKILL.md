@@ -297,7 +297,7 @@ Procedure: pre-flight `git status --porcelain` check, stage the canonical set (C
 
 **Toolkit version footer.** Append a `Toolkit: dev-process-toolkit v<plugin-version>` line to the commit body after any existing footers (`Refs:`, etc.). Read `<plugin-version>` from `plugins/dev-process-toolkit/.claude-plugin/plugin.json` `version` field. The read is **fault-tolerant** / **best-effort**: if `plugin.json` is missing or unparseable, **skip the footer entirely** (footer absent rather than malformed `v<unknown>`) and emit a Step 7 advisory under `setup_toolkit_version_unreadable`. The bootstrap commit is load-bearing; the footer is not.
 
-Full numbered procedure (decline + edit + failure paths): `docs/setup-reference.md` § Step 8b. Probes: `toolkit-bootstrap-committed` (#22, hard-fails on uncommitted toolkit-managed CLAUDE.md) + `setup-bootstrap-commit-subject` (#30, asserts subject + footer shape on the most recent `chore: bootstrap dev-process-toolkit*` commit; legacy-pre-FR-ship-date commits get a backwards-compat carve-out).
+Full numbered procedure (decline + edit + failure paths): `docs/setup-reference.md` § Step 8b. Probes: `toolkit-bootstrap-committed` (#22, hard-fails on uncommitted toolkit-managed CLAUDE.md) + `setup-bootstrap-commit-subject` (#30, asserts subject + footer shape on the most recent non-merge commit whose subject starts with `chore: bootstrap dev-process-toolkit`; legacy-pre-FR-ship-date commits get a backwards-compat carve-out).
 
 ### 8c. Seed a project check skill (opt-in)
 
