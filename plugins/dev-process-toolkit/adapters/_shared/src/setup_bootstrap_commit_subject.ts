@@ -1,7 +1,7 @@
 // setup_bootstrap_commit_subject — /gate-check probe (STE-183 AC-STE-183.4).
 //
-// Scans the most recent `chore: bootstrap dev-process-toolkit*` commit on the
-// current branch and asserts:
+// Selects the most recent non-merge commit on the current branch whose
+// SUBJECT starts with `chore: bootstrap dev-process-toolkit` and asserts:
 //   (a) subject is exactly `chore: bootstrap dev-process-toolkit` (no
 //       parenthesized version suffix), AND
 //   (b) body either has no `Toolkit:` line at all (best-effort footer per
@@ -12,8 +12,13 @@
 // treated as legacy and pass vacuously (covers downstream repos whose
 // bootstrap commit predates this FR).
 //
-// Vacuous when the project is not a git repository, or no
-// `chore: bootstrap dev-process-toolkit*` commit exists in the log.
+// Selection reads the subject only (STE-873). A merge commit is never
+// selected, and neither is a commit that merely quotes the prefix in its
+// body — `git log --grep` matches the whole message, so it only narrows the
+// candidates and the subject is re-checked here.
+//
+// Vacuous when the project is not a git repository, or no non-merge commit
+// with a `chore: bootstrap dev-process-toolkit*` subject exists in the log.
 
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -23,7 +28,8 @@ import { join } from "node:path";
 // legacy carve-out; commits at or after must match the new shape.
 const SHIP_DATE_CUTOFF = "2026-05-01T00:00:00Z";
 
-const SUBJECT_GREP = "^chore: bootstrap dev-process-toolkit";
+// The canonical subject. It is also the prefix a commit's subject must start
+// with to be selected as the bootstrap commit.
 const SUBJECT_EXACT = "chore: bootstrap dev-process-toolkit";
 const TOOLKIT_LINE_RE =
   /^Toolkit: dev-process-toolkit v\d+\.\d+\.\d+$/;
@@ -31,6 +37,10 @@ const TOOLKIT_LINE_RE =
 // formatters that strip literal NUL bytes from text files can't silently
 // degrade the split to whitespace and misparse every commit.
 const NUL = "\x00";
+// Record separator (ASCII RS) opening every commit record, written as an
+// escape for the same reason. Fields inside a record stay NUL-separated, so
+// one commit's body cannot run into the next commit's SHA.
+const RS = "\x1e";
 
 export interface SetupBootstrapCommitSubjectViolation {
   file: string;
@@ -48,25 +58,50 @@ function isGitRepo(projectRoot: string): boolean {
   return existsSync(join(projectRoot, ".git"));
 }
 
-function gitLog(projectRoot: string): string | null {
+// Candidate commit records, newest first, or null when git fails.
+function gitLogCandidates(projectRoot: string): string[] | null {
   try {
-    // %H = SHA, %x00 = NUL separator, %aI = ISO 8601 strict author date,
-    // %s = subject, %b = body. Limit to the most recent matching commit.
+    // %x1e = record separator, %H = SHA, %x00 = NUL field separator,
+    // %aI = ISO 8601 strict author date, %s = subject, %b = body.
+    // `--no-merges` keeps merge commits out. `--grep` matches anywhere in the
+    // message (a body line included), so it is a pre-filter only: every
+    // candidate is returned and the subject is re-checked by the caller.
+    // `--fixed-strings` keeps that pre-filter a plain substring match whatever
+    // `grep.patternType` the user has configured. Any git failure (no git, a
+    // refused repository, an overflowing buffer) is deliberately vacuous, as
+    // the header says, and git's stderr is kept out of the gate's output.
     const out = execFileSync(
       "git",
       [
         "log",
-        "-n",
-        "1",
-        `--grep=${SUBJECT_GREP}`,
-        "--format=%H%x00%aI%x00%s%x00%b",
+        "--no-merges",
+        "--fixed-strings",
+        `--grep=${SUBJECT_EXACT}`,
+        "--format=%x1e%H%x00%aI%x00%s%x00%b",
       ],
-      { cwd: projectRoot, encoding: "utf-8" },
+      {
+        cwd: projectRoot,
+        encoding: "utf-8",
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
     );
-    return out.trim().length === 0 ? null : out;
+    return out.split(RS);
   } catch {
     return null;
   }
+}
+
+// The first (newest) record whose subject starts with the canonical subject,
+// or null when no candidate qualifies.
+function selectBootstrapRecord(records: string[]): string | null {
+  for (const record of records) {
+    const subject = record.split(NUL)[2];
+    if (subject !== undefined && subject.startsWith(SUBJECT_EXACT)) {
+      return record;
+    }
+  }
+  return null;
 }
 
 function findMalformedToolkitLine(body: string): string | null {
@@ -92,10 +127,14 @@ export async function runSetupBootstrapCommitSubjectProbe(
 ): Promise<SetupBootstrapCommitSubjectReport> {
   if (!isGitRepo(projectRoot)) return { violations: [] };
 
-  const raw = gitLog(projectRoot);
+  const records = gitLogCandidates(projectRoot);
+  if (records === null) return { violations: [] };
+
+  const raw = selectBootstrapRecord(records);
   if (raw === null) return { violations: [] };
 
-  // Split on the NUL delimiter that `git log --format=%H%x00...` emits.
+  // `raw` is the one selected record. Split it on the NUL delimiter that
+  // `git log --format=%x1e%H%x00...` puts between its fields.
   // Re-join body parts with the same delimiter so a body containing a NUL
   // round-trips faithfully (rare, but `%b` is the raw commit body).
   const [sha, authorDateIso, subject, ...bodyParts] = raw.split(NUL);

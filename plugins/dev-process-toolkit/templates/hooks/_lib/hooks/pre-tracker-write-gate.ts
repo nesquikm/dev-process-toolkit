@@ -48,7 +48,7 @@ import { checkVersionFloor, runningDptVersion } from "../../../../adapters/_shar
 // the two gates came to disagree about the one rule.
 import { forgedSettingsFiles, trackerWriteGateSetting } from "../../../../adapters/_shared/src/tracker_write_gate_setting.ts";
 import { detectSettingsSource, SETTINGS_FILE } from "../../../../adapters/_shared/src/project_settings.ts";
-import { bunInvocation, realpathOr } from "../../../../adapters/_shared/src/shell_invocations.ts";
+import { bunInvocation, NESTED_SHELLS, pluginRootVarAt, realpathOr, simpleCommandWords } from "../../../../adapters/_shared/src/shell_invocations.ts";
 import { flaggedError, inBandError, listingRequestCursor, readTrackerItem, readTrackerListing, trackerItemKey, unkeyedJiraItem } from "../../../../adapters/_shared/src/tracker_answer.ts";
 
 /** Kept exported from here, where it was declared until the two gates started sharing it. */
@@ -652,6 +652,139 @@ function rejectedDecidingModules(command: string): string[] {
       return segments.slice(i + 1).some((later) => viaVar.test(later));
     });
   }).map(({ module }) => module);
+}
+
+/**
+ * STE-875 — the closed set of constructs that take a command outside the
+ * plain-invocation grammar (`bunInvocation` / `simpleCommandWords`): a stable
+ * key → the name the refusal note prints. No name contains another, so a note
+ * carrying one names no second.
+ */
+export const NON_PLAIN_CONSTRUCTS = Object.freeze({
+  semicolon: "`;`",
+  andAnd: "`&&`",
+  orOr: "`||`",
+  pipe: "`|`",
+  background: "`&`",
+  redirection: "a redirection",
+  subshell: "a subshell",
+  shellBody: "a `-c` shell body",
+  variable: "a `$` variable",
+  commandSubstitution: "a command substitution",
+  backslash: "a backslash",
+  newline: "a newline",
+  tilde: "`~`",
+  glob: "a glob character",
+  comment: "`#`",
+  brace: "a brace",
+  history: "`!`",
+  leadingWord: "a first word other than `bun`",
+  modulePath: "a module path that is not absolute",
+  other: "an unsupported character or quote",
+} as const);
+
+export type NonPlainConstruct = keyof typeof NON_PLAIN_CONSTRUCTS;
+
+/** Whitespace other than space and tab, or a control or format character: what `trimShellBlanks` refuses anywhere. */
+const NOT_A_SHELL_BLANK = /(?![ \t])[\p{White_Space}\p{Cc}\p{Cf}]/u;
+/** The unquoted characters the grammar refuses that name a construct on their own. */
+const UNQUOTED_CONSTRUCTS: Readonly<Record<string, NonPlainConstruct>> = {
+  ";": "semicolon",
+  "<": "redirection",
+  ">": "redirection",
+  "(": "subshell",
+  ")": "subshell",
+  "`": "commandSubstitution",
+  "\\": "backslash",
+  "~": "tilde",
+  "*": "glob",
+  "?": "glob",
+  "[": "glob",
+  "]": "glob",
+  "#": "comment",
+  "{": "brace",
+  "}": "brace",
+  "!": "history",
+};
+
+/**
+ * STE-875 — the first construct, by position in `command`, that takes it
+ * outside the plain-invocation grammar; null when `bunInvocation` reads it as
+ * one plain `bun [run] <absolute module> <args>` command. A command with no
+ * refused character is named by what the grammar finds once every character
+ * passed: a nested-shell `-c` body, a first word that is not `bun`, a module
+ * path that is not absolute. Pure: it reads the command and nothing else.
+ */
+export function nonPlainConstruct(command: string): NonPlainConstruct | null {
+  if (bunInvocation(command, OWN_PLUGIN_ROOT) !== null) return null;
+  // The grammar strips one final line ending before it reads the command.
+  const text = command.replace(/(?:\r\n|\r|\n)$/, "");
+  /** A character no quoting makes legal: a line break, or another blank or control character. */
+  const blank = (ch: string): NonPlainConstruct | null =>
+    ch === "\n" || ch === "\r" ? "newline" : NOT_A_SHELL_BLANK.test(ch) ? "other" : null;
+  /**
+   * What the `$` at `at` is: the length of the plugin-root variable, the one
+   * expansion the grammar allows (read by the grammar's own recogniser), or
+   * the construct it starts.
+   */
+  const dollar = (at: number): NonPlainConstruct | number => {
+    const root = pluginRootVarAt(text, at);
+    if (root !== null) return root.length;
+    return text[at + 1] === "(" ? "commandSubstitution" : "variable";
+  };
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i]!;
+    const refused = blank(ch);
+    if (refused !== null) return refused;
+    if (ch === "$") {
+      const d = dollar(i);
+      if (typeof d !== "number") return d;
+      i += d;
+    } else if (ch === "'") {
+      const end = text.indexOf("'", i + 1);
+      if (end < 0) return "other";
+      for (let j = i + 1; j < end; j++) {
+        const inQuote = blank(text[j]!);
+        if (inQuote !== null) return inQuote;
+      }
+      i = end + 1;
+    } else if (ch === '"') {
+      let j = i + 1;
+      for (; j < text.length && text[j] !== '"'; j++) {
+        const c = text[j]!;
+        const inQuote = blank(c);
+        if (inQuote !== null) return inQuote;
+        if (c === "$") {
+          const d = dollar(j);
+          if (typeof d !== "number") return d;
+          j += d - 1;
+        } else if (c === "`") {
+          return "commandSubstitution";
+        } else if (c === "\\") {
+          return "backslash";
+        }
+      }
+      if (j >= text.length) return "other";
+      i = j + 1;
+    } else if (ch === "&") {
+      return text[i + 1] === "&" ? "andAnd" : text[i + 1] === ">" ? "redirection" : "background";
+    } else if (ch === "|") {
+      return text[i + 1] === "|" ? "orOr" : "pipe";
+    } else if (ch === " " || ch === "\t" || /[A-Za-z0-9_./:=@%+,-]/.test(ch)) {
+      i++;
+    } else {
+      return UNQUOTED_CONSTRUCTS[ch] ?? "other";
+    }
+  }
+  // Every character passed: the words are what the grammar refuses.
+  const words = simpleCommandWords(text.replace(/^[ \t]+|[ \t]+$/g, ""), OWN_PLUGIN_ROOT);
+  if (words === null) return "other";
+  if (words[0] !== "bun") {
+    const shell = NESTED_SHELLS.has((words[0] ?? "").split("/").pop()!) && words.includes("-c");
+    return shell ? "shellBody" : "leadingWord";
+  }
+  return "modulePath";
 }
 
 /**
@@ -3179,8 +3312,11 @@ function unreadableInputsNote(payload: HookPayload, transcript: string[] | null,
   }
   if (scan.rejected.length > 0) {
     const last = scan.rejected[scan.rejected.length - 1]!;
+    // STE-875 — beside the quote, what made the latest command non-plain. A
+    // command the grammar reads as plain (a same-named module elsewhere) has none.
+    const construct = nonPlainConstruct(last);
     notes.push(
-      ` ${scan.rejected.length} Bash command(s) ran a deciding subcommand in a shape that is not a plain invocation, so any receipt they wrote was ignored — the latest: \`${last.length > 240 ? `${last.slice(0, 240)}…` : last}\`.`,
+      ` ${scan.rejected.length} Bash command(s) ran a deciding subcommand in a shape that is not a plain invocation, so any receipt they wrote was ignored — the latest: \`${last.length > 240 ? `${last.slice(0, 240)}…` : last}\`.${construct === null ? "" : ` What made it non-plain: ${NON_PLAIN_CONSTRUCTS[construct]}.`}`,
     );
   }
   const spelled = (version: string | null): string => `version ${version ?? "unknown"}`;

@@ -10,6 +10,9 @@
 // design rationale (no runtime dep, hand-rolled minimal parser tuned for
 // our schema).
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 // STE-545 AC-STE-545.3: the CHANGELOG's closing sentence is rendered by the
 // ONE renderer that lives beside the parser producing its numbers. This module
 // imports it rather than spelling the sentence out: a second copy here is
@@ -196,6 +199,17 @@ export function readReleaseFiles(projectRoot: string, readClaudeMd: () => string
     },
     () => parseReleaseFiles(readClaudeMd()),
   );
+}
+
+/**
+ * STE-874 — the declared release files of the project at `projectRoot`, for a
+ * reader that only needs the list: `readReleaseFiles` handed the legacy
+ * CLAUDE.md text from its one home. Throws exactly what `readReleaseFiles`
+ * throws, and the read error when a legacy tree has no CLAUDE.md, so a caller
+ * can tell a readable declaration from a missing or unreadable one.
+ */
+export function readDeclaredReleaseFiles(projectRoot: string): ReleaseFile[] {
+  return readReleaseFiles(projectRoot, () => readFileSync(join(projectRoot, "CLAUDE.md"), "utf-8"));
 }
 
 function parseFilesYaml(payload: string): ReleaseFile[] {
@@ -798,8 +812,8 @@ export function renderUnifiedDiff(
 // Imported by the suite, where `import.meta.main` is false and this block never
 // runs: the module stays side-effect-free at import.
 if (import.meta.main) {
-  const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
-  const { join, isAbsolute } = await import("node:path");
+  const { existsSync, writeFileSync } = await import("node:fs");
+  const { isAbsolute } = await import("node:path");
 
   const refuse = (verdict: string, remedy: string, context: string): void => {
     console.error(

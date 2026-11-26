@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.11.0 — "Return Address"** (M_e8850b, the gate checks every address it is given. A Jira binding may declare its site, and then reads, writes and browse URLs must all point there; graph links of an unknown type are refused; a crashed test child is named as a crash; and the live-checkout pin stays green between the archive and the release)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.11.1 — "Fine Print"** (M_4e7874, gate checks that read the whole project. Probe #30 grades the bootstrap commit itself, never a merge that quotes it; probe #63 no longer fails a project that keeps no changelog; and the tracker-write gate's refusal names what made a command non-plain)
 
 ## Core Philosophy
 
