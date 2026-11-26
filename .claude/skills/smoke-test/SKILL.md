@@ -275,7 +275,7 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
    - **Jira path.** Construct the wrapped Atlassian Rovo MCP config at `/tmp/dpt-smoke-mcp-config-jira.json` directly (the Rovo MCP entry is a single-line `http`-transport URL with no auth material — child sessions inherit OAuth state from `~/.claude-st/`):
 
      ```json
-     {"mcpServers": {"atlassian": {"type": "http", "url": "https://mcp.atlassian.com/v1/mcp/authv2"}}}
+     {"mcpServers": {"atlassian": {"type": "http", "url": "https://mcp.atlassian.com/v2/mcp"}}}
      ```
 
      The same `--plugin-dir` shadowing concern from the Linear path applies, so wrapping is required either way.
@@ -335,7 +335,7 @@ This closes smoke #6 F1 / smoke #7 F2 / smoke #7 F4 — stale prompt-template sc
      cat > .mcp.json <<'EOF'
      {
        "mcpServers": {
-         "atlassian": { "type": "http", "url": "https://mcp.atlassian.com/v1/mcp/authv2" }
+         "atlassian": { "type": "http", "url": "https://mcp.atlassian.com/v2/mcp" }
        }
      }
      EOF

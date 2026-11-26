@@ -544,7 +544,7 @@ Full reference: `docs/resolver-entry.md`.
 - **Bun runtime** — required in tracker mode and for the v1→v2 migration tool. Version floor: Bun ≥ 1.2. `/setup` verifies via `bun --version` and hard-stops mode recording until Bun is available. Helpers ship as `.ts` source only; no compile step, no per-platform binaries, no `package.json`.
 - **Tracker MCP servers** (external, user-installed via `claude mcp add`):
   - Linear: `https://mcp.linear.app/mcp` (Streamable HTTP).
-  - Jira: `https://mcp.atlassian.com/v1/mcp` (Rovo).
+  - Jira: `https://mcp.atlassian.com/v2/mcp` (Rovo; the v1 endpoint is removed on 2027-03-01).
 - **`claude mcp list` CLI** — used by `/setup` for MCP introspection across enterprise/user/project/local scopes.
 
 Downstream projects that adopt the plugin carry whatever dependencies their stack needs (npm, pip, cargo, …); those are the user's project dependencies, not plugin dependencies. CI starter configs under `plugins/dev-process-toolkit/examples/` are template YAML files, not generated artifacts.
