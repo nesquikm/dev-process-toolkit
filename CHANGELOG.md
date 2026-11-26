@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.11.1] — 2026-11-26 — "Fine Print"
+
+### Fixed
+
+- Probe #30 grades the bootstrap commit itself, never a merge that quotes it (STE-873). It picks the newest non-merge commit whose own subject starts with the bootstrap prefix. A commit that only quotes the subject in its body is ignored, and a repository with no such subject passes.
+- Probe #63 no longer fails a project that keeps no changelog (STE-874). When the declared release files are readable and hold no `kind: changelog` entry, a `shipped_in` stamp is not matched against CHANGELOG headings, and one notes row counts those stamps. A malformed stamp, unshipped debt and the sibling leg behave as before, and missing or unreadable release files keep the lookup.
+- The tracker-write gate's "not a plain invocation" refusal names what made the command non-plain (STE-875). After the quoted command it names the first construct, such as `;`, a pipe or a redirection, from a closed list the hook exports. Which commands pass is unchanged.
+
+Milestone M_4e7874, gate checks that read the whole project.
+
+Total test count at release: 28672 tests, 0 failures, 0 errors.
+
 ## [3.11.0] — 2026-11-25 — "Return Address"
 
 ### Security
