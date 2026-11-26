@@ -162,6 +162,10 @@ const RELEASE_FILES_BLOCK = [
   "  - path: plugin.json",
   "    kind: json",
   "    field: version",
+  // STE-874 — the fixture keeps a CHANGELOG.md, so it declares one: probe #63
+  // resolves `shipped_in` stamps against headings only for a declared changelog.
+  "  - path: CHANGELOG.md",
+  "    kind: changelog",
   "  - path: README.md",
   "    kind: regex",
   `    pattern: 'Latest: \\*\\*v(?<version>\\d+\\.\\d+\\.\\d+) — '`,

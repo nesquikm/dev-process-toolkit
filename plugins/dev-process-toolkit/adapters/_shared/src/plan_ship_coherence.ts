@@ -6,6 +6,15 @@
 // an ERROR-severity violation (corrupt stamp) in the NFR-10 canonical shape
 // naming the plan, the stamp value, and the remedy.
 //
+// STE-874: the heading lookup runs only for a project that keeps a changelog
+// through the toolkit. When the release files the project declares
+// (`release.files` in `specs/settings.yaml`, or the legacy CLAUDE.md
+// `## Release Files` block) are readable and hold no entry of kind
+// `changelog`, a well-formed `v<X.Y.Z>` stamp is not matched against
+// CHANGELOG.md headings, whatever the file holds; it is counted in one notes
+// row and the plan flows on to the sibling leg like a resolved one. A missing or unreadable declaration keeps the lookup.
+// The malformed-stamp check does not depend on the declaration.
+//
 // Scope guard: the LOCAL walk is archive-only — live plans under `specs/plan/`
 // are exempt by construction. The one reader outside that scope is the STE-588
 // sibling leg: for a stamped plan that spans repositories it reads each
@@ -40,6 +49,9 @@ import {
 import { sameRepository } from "./target_repo";
 import { detectSettingsSource, SETTINGS_FILE } from "./project_settings";
 import { UNRELEASED_STAMP, changelogUnversionedAt } from "./active_plan_ship_ready";
+// STE-874: the declared release files come from the one release-config reader;
+// this module never parses the declaration itself.
+import { readDeclaredReleaseFiles } from "./release_config";
 
 const PROBE = "plan_ship_coherence";
 
@@ -164,6 +176,20 @@ async function readChangelogVersions(projectRoot: string): Promise<Set<string>> 
     if (m) versions.add(m[1]!);
   }
   return versions;
+}
+
+/**
+ * STE-874 — whether a `v<X.Y.Z>` stamp is held to a CHANGELOG.md heading.
+ * False only when the declared release files are readable and none is of kind
+ * `changelog`; a missing or unreadable declaration (the reader throws) keeps
+ * the lookup.
+ */
+function headingLookupApplies(projectRoot: string): boolean {
+  try {
+    return readDeclaredReleaseFiles(projectRoot).some((entry) => entry.kind === "changelog");
+  } catch {
+    return true;
+  }
 }
 
 /** One shipped archived plan, as the sibling leg grades it. */
@@ -293,7 +319,9 @@ async function gradeSiblingLeg(projectRoot: string, plan: ShippedPlan): Promise<
 
 /**
  * Scan every `specs/plan/archive/M*.md` under `projectRoot` and check each
- * `shipped_in` stamp against the CHANGELOG.md release headings; a stamped
+ * `shipped_in` stamp against the CHANGELOG.md release headings — unless the
+ * declared release files are readable and hold no changelog (STE-874), in
+ * which case no heading is looked for; a stamped
  * plan that spans repositories also has its sibling halves graded (STE-588),
  * reading each sibling's plan at its live and its archive path. Pure
  * function — no side effects, no writes.
@@ -314,6 +342,9 @@ export async function runPlanShipCoherenceProbe(
   // STE-690 — the `unreleased` stamp is legal only under the project's own
   // `changelog_unversioned: true`; read the flag once per call.
   const unversioned = changelogUnversionedAt(projectRoot);
+  // STE-874 — read the declared release files once per call.
+  const lookupHeading = headingLookupApplies(projectRoot);
+  let unresolvedStamps = 0;
   // STE-707 AC-STE-707.6 — cite the home the flag is read from.
   const onSettingsFile = detectSettingsSource(projectRoot) === "settings";
   const unversionedHome = onSettingsFile ? `\`${SETTINGS_FILE}\`` : "CLAUDE.md's `## Docs`";
@@ -384,6 +415,10 @@ export async function runPlanShipCoherenceProbe(
     if (version === undefined) {
       // STE-690 — under `changelog_unversioned: true` an `unreleased` stamp
       // names no CHANGELOG heading, so none is looked for.
+    } else if (!lookupHeading) {
+      // STE-874 — no changelog is declared, so the stamp names no heading to find.
+      // Counted for the notes row whatever a stray CHANGELOG.md holds.
+      unresolvedStamps += 1;
     } else if (!changelogVersions.has(version)) {
       violations.push(
         makeViolation(
@@ -446,6 +481,12 @@ export async function runPlanShipCoherenceProbe(
   if (pendingSiblings.length > 0) {
     // STE-588 — one aggregated row for every pending sibling, never silent.
     notes.push(`siblings awaiting release: ${pendingSiblings.join(", ")}`);
+  }
+  if (unresolvedStamps > 0) {
+    // STE-874 — one row per report for every stamp whose heading lookup was skipped.
+    notes.push(
+      `shipped_in stamps not resolved to a CHANGELOG heading: ${unresolvedStamps} (no changelog release file is declared)`,
+    );
   }
 
   return { violations, notes };
