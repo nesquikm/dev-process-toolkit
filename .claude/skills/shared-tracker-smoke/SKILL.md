@@ -475,7 +475,7 @@ esac
 case "${TRACKER}" in
   jira)
     SERVER=atlassian; SECOND=claude_ai_Atlassian
-    SERVER_JSON='{"type":"http","url":"https://mcp.atlassian.com/v1/mcp/authv2"}' ;;
+    SERVER_JSON='{"type":"http","url":"https://mcp.atlassian.com/v2/mcp"}' ;;
   linear)
     SERVER=linear; SECOND=claude_ai_Linear
     SERVER_JSON=$(jq -c '.linear' ~/.claude-st/plugins/marketplaces/claude-plugins-official/external_plugins/linear/.mcp.json) ;;
