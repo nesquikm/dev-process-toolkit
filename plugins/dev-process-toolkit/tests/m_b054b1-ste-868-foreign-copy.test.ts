@@ -185,10 +185,17 @@ const todaysNote = (count: number, cmd: string): string =>
   ` ${count} Bash command(s) ran a deciding subcommand in a shape that is not a plain invocation, so any receipt they wrote was ignored — the latest: \`${cited(cmd)}\`.`;
 const NOT_PLAIN = "in a shape that is not a plain invocation, so any receipt";
 
-/** Today's note exactly, and nothing else beside the baseline refusal. */
+/**
+ * STE-875 — the note may go on to name what made the command non-plain, in one
+ * sentence straight after today's; no construct name carries a period.
+ */
+const CONSTRUCT_NAMED = / What made it non-plain: [^.\n]*\./;
+
+/** Today's note exactly — with at most its STE-875 construct sentence — and nothing else beside the baseline refusal. */
 function expectOnlyTodaysNote(stderr: string, count: number, cmd: string): void {
   expect(stderr).toContain(todaysNote(count, cmd));
-  expect(stderr.replace(todaysNote(count, cmd), "")).toBe(baseline);
+  const [before, after] = stderr.split(todaysNote(count, cmd));
+  expect(`${before}${(after ?? "").replace(new RegExp(`^${CONSTRUCT_NAMED.source}`), "")}`).toBe(baseline);
 }
 
 // ------------------------------------------------------------------- commands

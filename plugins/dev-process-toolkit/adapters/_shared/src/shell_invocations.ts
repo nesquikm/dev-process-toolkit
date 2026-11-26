@@ -1615,7 +1615,7 @@ export const OWN_PLUGIN_ROOT = resolve(import.meta.dir, "..", "..", "..");
 const PLUGIN_ROOT_VARS = ["${CLAUDE_PLUGIN_ROOT}", "$CLAUDE_PLUGIN_ROOT"];
 
 /** The plugin-root variable spelled at `command[i]`, or null. `$CLAUDE_PLUGIN_ROOTX` is another variable. */
-function pluginRootVarAt(command: string, i: number): string | null {
+export function pluginRootVarAt(command: string, i: number): string | null {
   for (const v of PLUGIN_ROOT_VARS) {
     if (!command.startsWith(v, i)) continue;
     if (v.startsWith("${") || !/[A-Za-z0-9_]/.test(command[i + v.length] ?? "")) return v;
