@@ -233,7 +233,7 @@ describe("AC-STE-721.8 report_issue_retro_seeded: the /spec-write § 7 map only"
     // Amended by AC-STE-752.1 (M_d1e7b1): reference shapes moved to docs/spec-write-reference.md
     // (NFR-1 overflow) and STE-752 added its skip-token bullet and § 7 row: trunk minus 21.
     // Amended by AC-STE-835.2 (M_d1e7b1): plus the STE-835 § 7 row, so trunk minus 20.
-    expect(cur.split("\n").length).toBe(base.split("\n").length - 20);
+    expect(cur.split("\n").length).toBe(base.split("\n").length - 19); // Amended by AC-STE-881.5 (M_43bc84): plus the spec_write_seed_applied § 7 row, so trunk minus 19.
     expect(cur.split("\n").length).toBeLessThanOrEqual(362); // Amended by AC-STE-745.1 (M_d1e7b1): NFR-1 raised 358 -> 362.
     expect(steTokens(cur)).toBe(steTokens(base));
   });

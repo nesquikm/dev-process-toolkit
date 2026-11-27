@@ -129,7 +129,7 @@ describe("AC-STE-654.2 — spec-write SKILL.md ticket-create line orders the re-
 
   test("AC-STE-654.2: SKILL.md keeps 358 split-lines and 54 STE tokens", () => {
     const body = read(SPEC_WRITE_SKILL);
-    expect(body.split("\n").length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
+    expect(body.split("\n").length).toBe(339); // Amended by AC-STE-881.5 (M_43bc84): +1 for the spec_write_seed_applied § 7 row (was 338 by AC-STE-835.2).
     expect(steTokens(body)).toBe(54);
   });
 
