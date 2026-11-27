@@ -199,7 +199,7 @@ dev-process-toolkit/
 
 ## Release Notes
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.11.1 — "Fine Print"** (M_4e7874, gate checks that read the whole project. Probe #30 grades the bootstrap commit itself, never a merge that quotes it; probe #63 no longer fails a project that keeps no changelog; and the tracker-write gate's refusal names what made a command non-plain)
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full release history. Latest: **v3.12.0 — "Lending Library"** (M_43bc84, specs a product can borrow. Deps resolve from a linked worktree; best-practices select prints size and hash and refuses oversized or changed documents; and /tdd --tests-provided and /spec-write --seed start from what the project already has)
 
 ## Core Philosophy
 

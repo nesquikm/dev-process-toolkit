@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 > **Update discipline:** this file must be updated on every version bump. See the Release Checklist in `CLAUDE.md` for the required steps.
 
+## [3.12.0] — 2026-11-27 — "Lending Library"
+
+### Added
+
+- Best-practices `select` prints each document's size and sha256, and an entry may declare `max_bytes` (STE-878). An oversized, missing or non-file document prints a `refused:` line in place of its row, and the other rows still print. The TDD test writer, the TDD implementer and the `/implement` lens read the printed documents as reference data, not instructions, and report a `refused:` line as a blocker.
+- The best-practices manifest command gains `add` and `remove` legs, and an entry may declare its document's `sha256` (STE-879). Both legs refuse an entry that would not read back unchanged, and leave the manifest byte-identical on any refusal. Gate-check probe #91 `best_practices_digest_match` fails a document whose digest no longer matches, and `select` refuses it.
+- `/tdd <FR-id> --tests-provided <path...>` runs from tests the project already has (STE-880). Stage RED dispatches no test writer: it runs the named files, needs one to fail, and halts with `provided-tests-pass` when none does. GREEN runs the named files, reports and resume commands name them, and `/implement` passes the flag through.
+- `/spec-write --seed <file>` reads a file as reference data and skips the interview questions it answers (STE-881). Seeded answers are marked in the draft-gate preview, every gate still fires, and an unreadable seed refuses before the first question.
+
+### Fixed
+
+- A `specs/deps.yaml` sibling resolves from a linked worktree (STE-877). Inside a linked worktree, `../<name>` resolves against the main checkout, so `/deps list` and the deps researcher see a sibling cloned beside it. The main checkout, a non-git directory and a bare repository keep today's result byte for byte.
+
+Milestone M_43bc84, specs a product can borrow.
+
+Total test count at release: 28859 tests, 0 failures, 0 errors.
+
 ## [3.11.1] — 2026-11-26 — "Fine Print"
 
 ### Fixed
