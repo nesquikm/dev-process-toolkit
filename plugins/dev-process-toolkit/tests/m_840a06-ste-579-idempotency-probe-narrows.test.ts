@@ -885,7 +885,7 @@ describe("AC-STE-579.9 — spec-write/SKILL.md stays exactly where it is", () =>
       lines.length,
       "line 109 is a one-line-for-one-line rewrite; NFR-1's cap on this file is enforced " +
         "by a test that pins the split-line count",
-    ).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
+    ).toBe(339); // Amended by AC-STE-881.5 (M_43bc84): +1 for the spec_write_seed_applied § 7 row (was 338 by AC-STE-835.2).
   });
 
   test("the milestone-attachment paragraph is still at line 111", () => {
@@ -1074,7 +1074,7 @@ describe("AC-STE-579.12 — the directive lands, the rendering stays singular", 
   test("the directive sits on line 109 — the in-place rewrite, not a new line", () => {
     const lines = read(SPEC_WRITE_SKILL).split("\n");
     expect(lines[86]).toContain(`MUST emit \`${NEW_KEY}\``); // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
-    expect(lines.length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
+    expect(lines.length).toBe(339); // Amended by AC-STE-881.5 (M_43bc84): +1 for the spec_write_seed_applied § 7 row (was 338 by AC-STE-835.2).
   });
 
   test("the MUST-emit directive for this key appears EXACTLY once", () => {

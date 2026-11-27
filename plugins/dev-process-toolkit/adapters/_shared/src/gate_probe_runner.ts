@@ -69,6 +69,7 @@ import { runPlanIdentityModeConditionalProbe } from "./plan_identity_mode_condit
 import { runClaudeMdProbeManagedGuardProbe } from "./claudemd_probe_managed_guard.ts";
 import { runActivePlanShipReadyProbe } from "./active_plan_ship_ready.ts";
 import { runBestPracticesManifestHygieneProbe } from "./best_practices_manifest_hygiene.ts";
+import { runBestPracticesDigestMatchProbe } from "./best_practices_digest_match.ts";
 import { runFirstTurnRefusalMarkerProbe } from "./first_turn_refusal_marker.ts";
 import { runDelegationIrreversibleExclusionProbe } from "./delegation_irreversible_exclusion.ts";
 import { runMergePolicyOverrideRatchetProbe } from "./merge_policy_override_ratchet.ts";
@@ -190,6 +191,7 @@ export const GATE_PROBES: GateProbeEntry[] = [
   { n: 88, id: "bug_fr_shape", severity: "error", run: runBugFrShapeProbe },
   { n: 89, id: "tracker_write_gate_setting", severity: "note", run: runTrackerWriteGateSettingProbe },
   { n: 90, id: "optimizations_reuse_only", severity: "error", run: runOptimizationsReuseOnlyProbe },
+  { n: 91, id: "best_practices_digest_match", severity: "error", run: runBestPracticesDigestMatchProbe },
 ];
 
 interface NormalisedReport {

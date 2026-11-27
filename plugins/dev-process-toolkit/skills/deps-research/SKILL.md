@@ -23,7 +23,7 @@ The orchestrator passes you (in its prompt body):
 
 1. **Read** the topic from `$ARGUMENTS`.
 2. **Read** `specs/deps.yaml` at the consumer repo root. If the file is **absent** or contains **zero entries**, take the vacuous-exit path (see below) — emit the canonical block with every section header present and the literal bullet `- (none found)` under each, and stop.
-3. **Resolve** each manifest entry's sibling path (entries' `path` always starts with `../`).
+3. **Resolve** each manifest entry's sibling path (entries' `path` always starts with `../`). Find the main checkout with Read alone: when `<root>/.git` is a file, read its `gitdir:` line (a relative value resolves against `<root>`): if it ends in `/.git/worktrees/<name>` (a linked worktree), strip that suffix to get the main checkout; if it does not end in `/.git/worktrees/<name>` (a submodule or a `--separate-git-dir` checkout), the main checkout is `<root>`; when `.git` is a directory, the main checkout is `<root>` itself. Resolve `../<name>` against that main checkout, so a sibling cloned beside it is present — not a missing dep.
 4. **Glob** each resolved sibling path's `docs/` tree (Diátaxis shape: `docs/tutorials/`, `docs/how-to/`, `docs/reference/`, `docs/explanation/`). Silently skip entries whose checkout is missing on disk and list them under the optional `## Missing deps` subsection.
 5. **Scan** each present package's matched `docs/` files for topic overlap (keyword + title match; LLM-quality ranking). For `## API Surface Highlights`: lift verbatim signature snippets from `docs/reference/` (never paraphrase). For `## Reusable Patterns`: lift decisions / patterns from `docs/explanation/`.
 6. **Select** the top ≤ 3 candidates per section by relevance.

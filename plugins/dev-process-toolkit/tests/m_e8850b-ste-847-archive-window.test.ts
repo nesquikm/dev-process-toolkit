@@ -47,22 +47,27 @@ function git(cwd: string, ...args: string[]): string {
   return p.stdout;
 }
 
+/** The paths whose uncommitted state the copy takes. Amended by AC-STE-879.4 (M_43bc84) */
+const OVERLAY = ["specs", "plugins", "README.md", "CLAUDE.md"] as const;
+
 /** Clone this checkout, uncommitted files included, and put it in the window. */
 async function buildWindow(dir: string): Promise<string> {
   const root = join(dir, "checkout");
   git(REPO_ROOT, "clone", "-q", "-s", REPO_ROOT, root);
   // The grading module and the pin may not be committed yet: overlay the working tree.
-  const list = (...args: string[]) => git(REPO_ROOT, "ls-files", "-z", ...args, "--", "specs", "plugins").split("\0").filter(Boolean);
+  // Amended by AC-STE-879.4 (M_43bc84): the root README.md and CLAUDE.md too, since probe #57 reads their
+  // probe counts against gate-check's rows, and a count bump not yet committed must reach the copy with its row.
+  const list = (...args: string[]) => git(REPO_ROOT, "ls-files", "-z", ...args, "--", ...OVERLAY).split("\0").filter(Boolean);
   for (const rel of new Set(list("-m", "-o", "--exclude-standard"))) {
     if (!existsSync(join(REPO_ROOT, rel))) continue;
     mkdirSync(dirname(join(root, rel)), { recursive: true });
     copyFileSync(join(REPO_ROOT, rel), join(root, rel));
   }
   // Every tracked file deleted here, staged or not.
-  const deleted = git(REPO_ROOT, "diff", "--no-renames", "--name-only", "--diff-filter=D", "-z", "HEAD", "--", "specs", "plugins");
+  const deleted = git(REPO_ROOT, "diff", "--no-renames", "--name-only", "--diff-filter=D", "-z", "HEAD", "--", ...OVERLAY);
   for (const rel of deleted.split("\0").filter(Boolean)) rmSync(join(root, rel), { force: true });
   // Staged additions and edits are neither -m nor -o.
-  const staged = git(REPO_ROOT, "diff", "--no-renames", "--name-only", "--diff-filter=AM", "-z", "HEAD", "--", "specs", "plugins");
+  const staged = git(REPO_ROOT, "diff", "--no-renames", "--name-only", "--diff-filter=AM", "-z", "HEAD", "--", ...OVERLAY);
   for (const rel of staged.split("\0").filter(Boolean)) {
     mkdirSync(dirname(join(root, rel)), { recursive: true });
     copyFileSync(join(REPO_ROOT, rel), join(root, rel));
@@ -328,7 +333,7 @@ function enclosingTitle(src: string, at: number): string | undefined {
 
 describe("AC-STE-847.5 every live-checkout test that grades probe #63 accepts the window", () => {
   const LIVE: ReadonlyArray<[suite: string, title: string]> = [
-    [PIN_SUITE, `${PIN_TITLE} \`conformance-probes pass: 74/74\``],
+    [PIN_SUITE, `${PIN_TITLE} \`conformance-probes pass: 75/75\``], // Amended by AC-STE-879.4 (M_43bc84): probe count 74 -> 75.
     ["m141-ste-546-surface-agreement.test.ts", "probe #63 over the live tree is clean, unshipped debt excluded"],
     ["gate-check-plan-ship-coherence.test.ts", "every stamped archive plan resolves to a CHANGELOG heading (no corrupt stamps)"],
     ["m_79b1f6-ste-588-sibling-coherence.test.ts", "the live repo root declares no span and yields no sibling row and no sibling note"],
@@ -526,33 +531,34 @@ function makeTree(kind: Tree): string {
 
 const ok = () => ({ violations: [] });
 /** The shipped table with every probe but #63 stubbed green. */
-const base74 = (): GateProbeEntry[] => GATE_PROBES.map((e) => (e.n === 63 ? { ...e } : { ...e, run: ok }));
-const patch = (n: number, run: GateProbeEntry["run"]) => base74().map((e) => (e.n === n ? { ...e, run } : e));
+// Amended by AC-STE-879.4 (M_43bc84): probe count 74 -> 75 (base74 -> base75).
+const base75 = (): GateProbeEntry[] => GATE_PROBES.map((e) => (e.n === 63 ? { ...e } : { ...e, run: ok }));
+const patch = (n: number, run: GateProbeEntry["run"]) => base75().map((e) => (e.n === n ? { ...e, run } : e));
 const boom = () => { throw new Error("boom"); };
 
 // Which refusals a case fires, in order: `ids` (the probes run are not the
 // registered ones), `owned` (a #63 violation the window does not excuse),
-// `row #N` (a failing row) and `summary N/74` (the summary that was expected).
+// `row #N` (a failing row) and `summary N/75` (the summary that was expected).
 const R37 = () => patch(37, () => ({ violations: [{ severity: "error" }] }));
-const EXTRA = () => [...base74(), { n: 999, id: "extra", severity: "error" as const, run: ok }];
+const EXTRA = () => [...base75(), { n: 999, id: "extra", severity: "error" as const, run: ok }];
 const CASES: ReadonlyArray<{ name: string; tree: Tree; table: () => GateProbeEntry[]; fires: string[] }> = [
-  { name: "every probe passes", tree: "clean", table: base74, fires: [] },
-  { name: "only #63 fails and only with unshipped debt", tree: "debt", table: base74, fires: [] },
-  { name: "another row fails, no window", tree: "clean", table: R37, fires: ["row #37", "summary 74/74"] },
-  { name: "another row fails beside the debt", tree: "debt", table: R37, fires: ["row #37", "summary 73/74"] },
-  { name: "another row throws", tree: "clean", table: () => patch(20, boom), fires: ["row #20", "summary 74/74"] },
-  { name: "#63 reports a corrupt stamp without the debt", tree: "corrupt", table: base74, fires: ["owned", "row #63", "summary 74/74"] },
-  { name: "#63 reports a corrupt stamp beside the debt", tree: "debt+corrupt", table: base74, fires: ["owned", "row #63", "summary 74/74"] },
-  { name: "#63 throws on a clean tree", tree: "clean", table: () => patch(63, boom), fires: ["row #63", "summary 74/74"] },
-  { name: "#63 throws on a debt tree", tree: "debt", table: () => patch(63, boom), fires: ["row #63", "summary 74/74"] },
-  { name: "#63 fails with no violation behind it", tree: "clean", table: () => patch(63, () => ({ violations: [{}] })), fires: ["row #63", "summary 74/74"] },
-  { name: "#63 counts more than the debt", tree: "debt", table: () => patch(63, () => ({ violations: [{}, {}] })), fires: ["row #63", "summary 74/74"] },
-  { name: "a missing row", tree: "clean", table: () => base74().filter((e) => e.n !== 37), fires: ["ids", "summary 74/74"] },
-  { name: "a missing row in the window", tree: "debt", table: () => base74().filter((e) => e.n !== 37), fires: ["ids", "summary 73/74"] },
-  { name: "#63 itself is missing", tree: "debt", table: () => base74().filter((e) => e.n !== 63), fires: ["ids", "summary 74/74"] },
-  { name: "an extra row", tree: "clean", table: EXTRA, fires: ["ids", "summary 74/74"] },
-  { name: "an extra row in the window", tree: "debt", table: EXTRA, fires: ["ids", "summary 73/74"] },
-  { name: "one row replaced by a copy of another, 74 in all", tree: "debt", table: () => [...base74().filter((e) => e.n !== 37), base74()[0]!], fires: ["ids"] },
+  { name: "every probe passes", tree: "clean", table: base75, fires: [] },
+  { name: "only #63 fails and only with unshipped debt", tree: "debt", table: base75, fires: [] },
+  { name: "another row fails, no window", tree: "clean", table: R37, fires: ["row #37", "summary 75/75"] },
+  { name: "another row fails beside the debt", tree: "debt", table: R37, fires: ["row #37", "summary 74/75"] },
+  { name: "another row throws", tree: "clean", table: () => patch(20, boom), fires: ["row #20", "summary 75/75"] },
+  { name: "#63 reports a corrupt stamp without the debt", tree: "corrupt", table: base75, fires: ["owned", "row #63", "summary 75/75"] },
+  { name: "#63 reports a corrupt stamp beside the debt", tree: "debt+corrupt", table: base75, fires: ["owned", "row #63", "summary 75/75"] },
+  { name: "#63 throws on a clean tree", tree: "clean", table: () => patch(63, boom), fires: ["row #63", "summary 75/75"] },
+  { name: "#63 throws on a debt tree", tree: "debt", table: () => patch(63, boom), fires: ["row #63", "summary 75/75"] },
+  { name: "#63 fails with no violation behind it", tree: "clean", table: () => patch(63, () => ({ violations: [{}] })), fires: ["row #63", "summary 75/75"] },
+  { name: "#63 counts more than the debt", tree: "debt", table: () => patch(63, () => ({ violations: [{}, {}] })), fires: ["row #63", "summary 75/75"] },
+  { name: "a missing row", tree: "clean", table: () => base75().filter((e) => e.n !== 37), fires: ["ids", "summary 75/75"] },
+  { name: "a missing row in the window", tree: "debt", table: () => base75().filter((e) => e.n !== 37), fires: ["ids", "summary 74/75"] },
+  { name: "#63 itself is missing", tree: "debt", table: () => base75().filter((e) => e.n !== 63), fires: ["ids", "summary 75/75"] },
+  { name: "an extra row", tree: "clean", table: EXTRA, fires: ["ids", "summary 75/75"] },
+  { name: "an extra row in the window", tree: "debt", table: EXTRA, fires: ["ids", "summary 74/75"] },
+  { name: "one row replaced by a copy of another, 75 in all", tree: "debt", table: () => [...base75().filter((e) => e.n !== 37), base75()[0]!], fires: ["ids"] },
 ];
 
 /** Name one refusal line by the check that produced it. */
@@ -578,6 +584,7 @@ async function grade(c: (typeof CASES)[number], fn?: GradeFn): Promise<string[]>
   }
 }
 
+// Amended by AC-STE-879.4 (M_43bc84): every summary pin in this table and below moves 74/74 -> 75/75, 73/74 -> 74/75.
 describe("AC-STE-847.2 / .3 / .4 the live-checkout verdicts", () => {
   for (const c of CASES) {
     test(`${c.fires.length === 0 ? "accepts" : "rejects"}: ${c.name}`, async () => {
@@ -588,10 +595,10 @@ describe("AC-STE-847.2 / .3 / .4 the live-checkout verdicts", () => {
     });
   }
 
-  test("AC-STE-847.4 — outside the window the summary is pinned to 74/74", async () => {
-    expect(GATE_PROBES.length).toBe(74);
+  test("AC-STE-847.4 — outside the window the summary is pinned to 75/75", async () => {
+    expect(GATE_PROBES.length).toBe(75); // Amended by AC-STE-879.4 (M_43bc84): probe count 74 -> 75.
     const refusals = await grade(CASES.find((c) => c.name === "a missing row")!);
-    expect(refusals.join("\n")).toContain("74/74");
+    expect(refusals.join("\n")).toContain("75/75");
   });
 
   test("AC-STE-847.2 — the grade calls gradedViolations and keeps no copy of it", () => {
@@ -609,7 +616,7 @@ describe("AC-STE-847.2 / .3 / .4 the live-checkout verdicts", () => {
     const src = readFileSync(join(import.meta.dir, PIN_SUITE), "utf8");
     const start = src.indexOf(`test("${PIN_TITLE}`);
     expect(start).toBeGreaterThan(-1);
-    // The body only: the title also says 74/74, so it must not count.
+    // The body only: the title also says 75/75, so it must not count.
     const open = src.indexOf("async () => {", start);
     expect(open).toBeGreaterThan(start);
     const body = src.slice(open, src.indexOf("300_000", start));
@@ -618,16 +625,16 @@ describe("AC-STE-847.2 / .3 / .4 the live-checkout verdicts", () => {
     expect(body).not.toContain("summary.startsWith(");
   });
 
-  test("AC-STE-847.4 — the grade, which the pin calls, holds the 74/74 floor", () => {
+  test("AC-STE-847.4 — the grade, which the pin calls, holds the 75/75 floor", () => {
     const src = readFileSync(GRADING, "utf8");
-    expect(src).toContain('const FULL_PASS = "conformance-probes pass: 74/74 [";');
-    expect(src).toContain('const WINDOW_PASS = "conformance-probes pass: 73/74 [";');
+    expect(src).toContain('const FULL_PASS = "conformance-probes pass: 75/75 [";');
+    expect(src).toContain('const WINDOW_PASS = "conformance-probes pass: 74/75 [";');
   });
 
   test("AC-STE-847.4 — a grade with a loose floor is caught by the verdict table", async () => {
-    const loose = await mutantGrade("loose-floor", [['"conformance-probes pass: 74/74 ["', '"conformance-probes pass: "']]);
+    const loose = await mutantGrade("loose-floor", [['"conformance-probes pass: 75/75 ["', '"conformance-probes pass: "']]);
     expect(await changedCases(loose)).toEqual(
-      CASES.filter((c) => c.fires.includes("summary 74/74")).map((c) => c.name),
+      CASES.filter((c) => c.fires.includes("summary 75/75")).map((c) => c.name),
     );
   });
 });
@@ -749,10 +756,10 @@ describe("AC-STE-847.6 probe #63 is unchanged", () => {
     expect(GATE_PROBES.find((e) => e.n === 63)?.severity).toBe("error");
     const root = makeTree("debt");
     try {
-      const out = await runGateProbes(root, base74());
+      const out = await runGateProbes(root, base75());
       expect(out.rows).toContain("probe #63 plan_ship_coherence: fail (1)");
       expect(out.exitCode).toBe(1);
-      expect(out.summary).toStartWith("conformance-probes pass: 73/74 [");
+      expect(out.summary).toStartWith("conformance-probes pass: 74/75 [");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

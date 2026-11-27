@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { STE_756_BLOCK, STE_756_BLOCK_LINE, STE_825_EDITS, STE_825_ROW, STE_825_ROW_LINE, currentGateCheckLine, currentGateCheckLineM_d1e7b1, undoGateCheckM_d1e7b1, undoSte756, undoSte825, undoSte869, STE_869_AFTER, STE_869_BEFORE, STE_869_LINE } from "./_m_d1e7b1_ste825_gate_check";
+import { STE_756_BLOCK, STE_756_BLOCK_LINE, STE_825_EDITS, STE_825_ROW, STE_825_ROW_LINE, currentGateCheckLine, currentGateCheckLineM_d1e7b1, undoGateCheckM_d1e7b1, undoSte756, undoSte825, undoSte869, STE_869_AFTER, STE_869_BEFORE, STE_869_LINE, undoSte879, STE_879_ROW, STE_879_ROW_LINE, STE_879_JOIN_BEFORE, STE_879_JOIN_LINE, STE_879_NEXT_AFTER, STE_879_NEXT_BEFORE, STE_879_NEXT_LINE } from "./_m_d1e7b1_ste825_gate_check"; // Amended by AC-STE-879.4 (M_43bc84)
 
 const PLUGIN_ROOT = join(import.meta.dir, "..");
 const REL = "plugins/dev-process-toolkit/skills/gate-check/SKILL.md";
@@ -19,7 +19,9 @@ const PRE_EDIT = "8a5a273f";
 
 // Amended by AC-STE-756.6 (M_d1e7b1): the STE-825 legs read the file with the later STE-756 block taken out.
 // Amended by AC-STE-869.3 (M_b054b1): read with the later STE-869 insertion taken out.
-const shipped = (): string => readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+// Amended by AC-STE-879.4 (M_43bc84): every leg reads the file with the later STE-879 registration taken out.
+const onDisk = (): string => readFileSync(join(PLUGIN_ROOT, "skills", "gate-check", "SKILL.md"), "utf-8");
+const shipped = (): string => undoSte879(onDisk());
 const raw = (): string => undoSte869(shipped());
 const now = (): string => undoSte756(raw());
 const preEdit = (): string => {
@@ -123,5 +125,65 @@ describe("AC-STE-869.3 — undoSte869 admits exactly probe #26's insertion", () 
     const undone = undoGateCheckM_d1e7b1(lines.join("\n")).split("\n");
     const before = preEdit().split("\n"); // one git spawn, not one per line
     expect(undone.map((l, i) => (l === before[i] ? -1 : i + 1)).filter((n) => n > 0)).toEqual([STE_869_LINE - 1]);
+  });
+});
+
+/** The last commit before the STE-879 registration (trunk, the M_4e7874 merge). Amended by AC-STE-879.4 (M_43bc84) */
+const PRE_879 = "8ebf1ea8";
+const pre879 = (): string => {
+  const r = spawnSync("git", ["show", `${PRE_879}:${REL}`], { cwd: PLUGIN_ROOT, encoding: "utf-8" });
+  expect(r.status, r.stderr).toBe(0);
+  return r.stdout;
+};
+
+// Amended by AC-STE-879.4 (M_43bc84)
+describe("AC-STE-879.4 — undoSte879 admits exactly probe #91's net-zero registration", () => {
+  test("the registration is in place: row 91 on line 179 after row 90, the join on 207, #92 on 253, line count unchanged", () => {
+    const l = onDisk().split("\n");
+    expect(l[STE_879_ROW_LINE - 1]).toBe(STE_879_ROW);
+    expect(l[STE_879_ROW_LINE - 2]!.startsWith("90. **`optimizations_reuse_only`**")).toBe(true);
+    expect(l[STE_879_ROW_LINE]).toBe("");
+    expect(l[STE_879_ROW_LINE + 1]!.startsWith("Full details:")).toBe(true);
+    expect(l[STE_879_JOIN_LINE - 1]).toBe(`${STE_879_JOIN_BEFORE[0]} ${STE_879_JOIN_BEFORE[1]}`);
+    expect(l[STE_879_NEXT_LINE - 1]).toContain(STE_879_NEXT_AFTER);
+    expect(l[STE_879_NEXT_LINE - 1]).not.toContain(STE_879_NEXT_BEFORE);
+    expect(l.length).toBe(pre879().split("\n").length);
+  });
+
+  test("undoing the registration yields the pre-registration file byte for byte", () => {
+    expect(undoSte879(onDisk()) === pre879()).toBe(true);
+  });
+
+  test("the pre-registration file is a fixed point (nothing to undo)", () => {
+    expect(undoSte879(pre879()) === pre879()).toBe(true);
+  });
+
+  test("CONTROL: a drifted row, join or #92 sentence is not undone at all", () => {
+    const at = (n: number, f: (s: string) => string): string => {
+      const l = onDisk().split("\n");
+      l[n - 1] = f(l[n - 1]!);
+      return l.join("\n");
+    };
+    for (const drifted of [
+      at(STE_879_ROW_LINE, (s) => `${s} `),
+      at(STE_879_JOIN_LINE, (s) => s.replace("corresponding `tests", "corresponding  `tests")),
+      at(STE_879_NEXT_LINE, (s) => s.replace(STE_879_NEXT_AFTER, STE_879_NEXT_AFTER.replace("#92", "#93"))),
+      at(STE_879_NEXT_LINE, (s) => `${s} ${STE_879_NEXT_BEFORE}`),
+    ]) expect(undoSte879(drifted)).toBe(drifted);
+  });
+
+  test("CONTROL: a change beside the registration survives the undo", () => {
+    const before = pre879().split("\n");
+    for (const [edit, expected] of [
+      [STE_879_ROW_LINE + 1, STE_879_ROW_LINE], // the blank line after row 91
+      [STE_879_JOIN_LINE + 1, STE_879_JOIN_LINE + 1], // the line after the join
+      [STE_879_NEXT_LINE - 1, STE_879_NEXT_LINE - 1], // the line above the #92 sentence
+    ] as const) {
+      const l = onDisk().split("\n");
+      l[edit - 1] = `${l[edit - 1]}x`;
+      const undone = undoSte879(l.join("\n")).split("\n");
+      expect(undone.length).toBe(before.length);
+      expect(undone.map((u, i) => (u === before[i] ? -1 : i + 1)).filter((n) => n > 0)).toEqual([expected]);
+    }
   });
 });

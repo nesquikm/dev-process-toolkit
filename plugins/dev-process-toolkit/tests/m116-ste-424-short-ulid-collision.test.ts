@@ -1195,7 +1195,7 @@ describe("STE-424 — the probe count tracks the live total", () => {
   // Amended by AC-STE-680.6: probe count 87 -> 88.
   // Amended by AC-STE-693.6: probe count 88 -> 89.
   // Amended by AC-STE-723.7: probe count 89 -> 90.
-  test("gate-check SKILL.md enumerates exactly 90 probes, contiguous", () => {
+  test("gate-check SKILL.md enumerates exactly 91 probes, contiguous", () => { // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // STE-424 deliberately spent no probe number: a new probe ripples to ~26
     // pinned count sites across README.md, skills/gate-check/SKILL.md and five
     // test files, and both of this FR's checks belong to probes #13 and #73,
@@ -1213,10 +1213,10 @@ describe("STE-424 — the probe count tracks the live total", () => {
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(numbers.length).toBe(90);
+    expect(numbers.length).toBe(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(Math.max(...numbers)).toBe(90);
+    expect(Math.max(...numbers)).toBe(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 });

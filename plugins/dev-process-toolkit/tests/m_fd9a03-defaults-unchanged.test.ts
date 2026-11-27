@@ -45,7 +45,7 @@
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"; // Amended by AC-STE-879.4 (M_43bc84)
 import { basename, join } from "node:path";
 
 import { runOptimizationsReuseOnlyProbe } from "../adapters/_shared/src/optimizations_config";
@@ -428,7 +428,7 @@ describe("AC-STE-725.11 named difference 1: the conformance-probes summary line 
     const then = registryRows(GATE_CHECK_V300_TEXT());
     const now = registryRows(skillText("gate-check"));
     expect(then.map((r) => r.n)).toEqual(Array.from({ length: V300_PROBE_COUNT }, (_, i) => i + 1));
-    expect(now.map((r) => r.n)).toEqual(Array.from({ length: V300_PROBE_COUNT + 1 }, (_, i) => i + 1));
+    expect(now.map((r) => r.n)).toEqual(Array.from({ length: V300_PROBE_COUNT + 2 }, (_, i) => i + 1)); // Amended by AC-STE-879.4 (M_43bc84): probe #91 follows row 90.
     expect(now.slice(0, V300_PROBE_COUNT).map((r) => r.id)).toEqual(then.map((r) => r.id));
     const added = now[ADDED_PROBE.row - 1]!;
     expect(added.id).toBe(ADDED_PROBE.id);
@@ -448,7 +448,8 @@ describe("AC-STE-725.11 named difference 1: the conformance-probes summary line 
       expect(report).toEqual({ violations: [], notes: [] });
       const n = registryRows(GATE_CHECK_V300_TEXT()).length;
       const nowN = registryRows(skillText("gate-check")).length;
-      expect(nowN).toBe(n + 1);
+      expect(nowN).toBe(n + 2); // Amended by AC-STE-879.4 (M_43bc84): probe #91 is the second added row.
+      expect(existsSync(join(root, "specs", "best-practices.yaml"))).toBe(false); // Amended by AC-STE-879.4 (M_43bc84): no manifest, so probe #91 is vacuous here.
       const vacuousAdded = report.violations.length === 0 && report.notes.length === 0 ? 1 : 0;
       // For any active/vacuous split of the 89 v3.0.0 probes on this tree:
       for (const [active, vacuous] of [
@@ -457,8 +458,8 @@ describe("AC-STE-725.11 named difference 1: the conformance-probes summary line 
         [40, n - 40],
       ] as const) {
         const then = renderSummary(SUMMARY_TEMPLATE_V300, n, active, vacuous);
-        const now = renderSummary(SUMMARY_TEMPLATE_V300, nowN, active, vacuous + vacuousAdded);
-        expect(now).toBe(`conformance-probes pass: ${n + 1}/${n + 1} [${active} active, ${vacuous + 1} vacuous]`);
+        const now = renderSummary(SUMMARY_TEMPLATE_V300, nowN, active, vacuous + vacuousAdded + 1); // Amended by AC-STE-879.4 (M_43bc84): probe #91 adds one vacuous.
+        expect(now).toBe(`conformance-probes pass: ${n + 2}/${n + 2} [${active} active, ${vacuous + 2} vacuous]`); // Amended by AC-STE-879.4 (M_43bc84): <N>+2 and <vacuous>+2.
         expect(then).toBe(`conformance-probes pass: ${n}/${n} [${active} active, ${vacuous} vacuous]`);
       }
     }, T);

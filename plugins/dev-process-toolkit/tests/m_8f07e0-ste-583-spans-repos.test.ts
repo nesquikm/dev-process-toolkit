@@ -809,7 +809,7 @@ describe("AC-STE-583.13 — no new probe, and the reachability ratchet holds", (
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(hits.length).toBe(90);
+    expect(hits.length).toBe(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("spans_repos.ts carries an `import.meta.main` front door", () => {

@@ -848,7 +848,7 @@ describe("AC-STE-616.16 — no new probe, capability key or smoke leg", () => {
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect([...body.matchAll(/^(\d+)\. \*\*/gm)].length).toBe(90);
+    expect([...body.matchAll(/^(\d+)\. \*\*/gm)].length).toBe(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
   test("CANONICAL_CAPABILITY_KEYS.length, SMOKE_LEGS and the head of ORDERED_UNREACHABLE_PIN_LEDGER equal the kickoff's (read in a subprocess)", () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "dpt-ste616-pins-")));

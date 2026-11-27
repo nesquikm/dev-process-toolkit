@@ -26,8 +26,9 @@
 // refusal shape (Refusing: ... / Remedy: ... / Context: ...) so callers
 // can surface the failure verbatim to the operator.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 export interface BestPracticesEntry {
   name: string;
@@ -35,15 +36,48 @@ export interface BestPracticesEntry {
   scope?: string[];
   topics?: string[];
   notes?: string;
+  max_bytes?: number;
+  sha256?: string;
 }
 
 export interface BestPracticesManifest {
   best_practices: BestPracticesEntry[];
 }
 
+/**
+ * True when `path` names a regular file — the only thing a best-practices
+ * document can be. A directory or other non-file passes `existsSync` and
+ * `statSync` but cannot be read as a document (EISDIR), so every reader asks
+ * this one question instead of `existsSync` alone.
+ */
+export function isRegularDocument(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** sha256 hex digest over bytes already in memory. */
+export function sha256Hex(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * sha256 hex digest over a document's bytes. Shared by the `select` leg and
+ * the /gate-check probe #91 (`best_practices_digest_match.ts`), so the two
+ * can never disagree on what a document's digest is (STE-879).
+ */
+export function documentSha256(path: string): string {
+  return sha256Hex(readFileSync(path));
+}
+
+/** A `max_bytes` value as text: a positive decimal integer, no sign, no leading zero. */
+const POSITIVE_INT_RE = /^[1-9][0-9]*$/;
+
 /** Closed-enum entry-key consts (M124) — the /best-practices add/edit field
  * prompts validate against these; exporting changes no behavior. */
-export const KNOWN_KEYS: readonly string[] = ["name", "path", "scope", "topics", "notes"];
+export const KNOWN_KEYS: readonly string[] = ["name", "path", "scope", "topics", "notes", "max_bytes", "sha256"];
 export const LIST_KEYS: readonly string[] = ["scope", "topics"];
 
 /**
@@ -212,6 +246,19 @@ function validateEntry(fields: Record<string, string>, lineNo: number): BestPrac
   if (fields["notes"] !== undefined && fields["notes"].length > 0) {
     entry.notes = stripQuotes(fields["notes"]);
   }
+  if (fields["max_bytes"] !== undefined) {
+    const raw = stripQuotes(fields["max_bytes"]);
+    if (!POSITIVE_INT_RE.test(raw)) {
+      throw new BestPracticesManifestShapeError(
+        `best-practices.yaml entry \`${name}\` at line ${lineNo}: field \`max_bytes\` must be a positive integer, got ${JSON.stringify(raw)}`,
+      );
+    }
+    entry.max_bytes = Number(raw);
+  }
+  if (fields["sha256"] !== undefined) {
+    entry.sha256 = stripQuotes(fields["sha256"]);
+    assertEntryShape(entry);
+  }
   return entry;
 }
 
@@ -240,6 +287,11 @@ export function readManifest(specsDir: string): BestPracticesManifest {
       `cannot read best-practices.yaml: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+  return parseManifestText(text);
+}
+
+/** Parse manifest TEXT exactly as `readManifest` parses the file — the one parser. */
+export function parseManifestText(text: string): BestPracticesManifest {
   const parsed = parseManifestYaml(text);
   const best_practices: BestPracticesEntry[] = [];
   const seen = new Set<string>();
@@ -263,11 +315,12 @@ export function readManifest(specsDir: string): BestPracticesManifest {
  * `best_practices: []\n`.
  */
 export function writeManifest(specsDir: string, manifest: BestPracticesManifest): void {
-  const manifestPath = join(specsDir, "best-practices.yaml");
-  if (manifest.best_practices.length === 0) {
-    writeFileSync(manifestPath, "best_practices: []\n");
-    return;
-  }
+  writeFileSync(join(specsDir, "best-practices.yaml"), renderManifestText(manifest));
+}
+
+/** The exact bytes `writeManifest` writes for `manifest`. */
+export function renderManifestText(manifest: BestPracticesManifest): string {
+  if (manifest.best_practices.length === 0) return "best_practices: []\n";
   const lines: string[] = ["best_practices:"];
   for (const entry of manifest.best_practices) {
     assertEntryShape(entry);
@@ -276,9 +329,47 @@ export function writeManifest(specsDir: string, manifest: BestPracticesManifest)
     if (entry.scope !== undefined) lines.push(`    scope: ${formatFlowList(entry.scope)}`);
     if (entry.topics !== undefined) lines.push(`    topics: ${formatFlowList(entry.topics)}`);
     if (entry.notes !== undefined) lines.push(`    notes: ${entry.notes}`);
+    if (entry.max_bytes !== undefined) lines.push(`    max_bytes: ${entry.max_bytes}`);
+    if (entry.sha256 !== undefined) lines.push(`    sha256: ${entry.sha256}`);
   }
   lines.push("");
-  writeFileSync(manifestPath, lines.join("\n"));
+  return lines.join("\n");
+}
+
+/** Entries compared field by field, key order ignored. */
+function canonicalEntries(manifest: BestPracticesManifest): string {
+  return JSON.stringify(
+    manifest.best_practices.map((e) =>
+      Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b))),
+    ),
+  );
+}
+
+/**
+ * Write `manifest` only if its rendered text reads back as exactly these
+ * entries (STE-879 review). The parser trims and strips quotes, so a value
+ * written verbatim could otherwise read back as another — a `kettle ` beside
+ * `kettle` would leave a manifest every later read refuses. A refusal throws
+ * before any write, so the file on disk stays byte-identical.
+ */
+function writeManifestVerified(specsDir: string, manifest: BestPracticesManifest): void {
+  const text = renderManifestText(manifest);
+  let readBack: BestPracticesManifest;
+  try {
+    readBack = parseManifestText(text);
+  } catch (err) {
+    throw new BestPracticesManifestShapeError(
+      `the manifest this change would write does not read back: ${err instanceof Error ? err.message : String(err)}`,
+      `pass names, paths and notes without leading or trailing spaces or surrounding quotes, then re-run.`,
+    );
+  }
+  if (canonicalEntries(readBack) !== canonicalEntries(manifest)) {
+    throw new BestPracticesManifestShapeError(
+      `the manifest this change would write reads back differently (a value would be trimmed or unquoted on read)`,
+      `pass names, paths and notes without leading or trailing spaces or surrounding quotes, then re-run.`,
+    );
+  }
+  writeFileSync(join(specsDir, "best-practices.yaml"), text);
 }
 
 function formatFlowList(items: string[]): string {
@@ -303,6 +394,19 @@ function assertEntryShape(entry: BestPracticesEntry): void {
     );
   }
   assertRepoRelativePath(entry.name, entry.path, "entry");
+  if (
+    entry.max_bytes !== undefined &&
+    !(Number.isSafeInteger(entry.max_bytes) && entry.max_bytes > 0)
+  ) {
+    throw new BestPracticesManifestShapeError(
+      `entry \`${entry.name}\` field \`max_bytes\` must be a positive integer, got ${JSON.stringify(entry.max_bytes)}`,
+    );
+  }
+  if (entry.sha256 !== undefined && !/^[0-9a-f]{64}$/.test(entry.sha256)) {
+    throw new BestPracticesManifestShapeError(
+      `entry \`${entry.name}\` field \`sha256\` must be 64 lowercase hex characters, got ${JSON.stringify(entry.sha256)}`,
+    );
+  }
   for (const [field, value] of [
     ["name", entry.name],
     ["path", entry.path],
@@ -446,15 +550,68 @@ export function selectEntriesForChangedFiles(
 // Usage:
 //   bun best_practices_manifest.ts select --specs <dir> --files "<paths>"
 //
-// Prints one `name<TAB>path` line per selected entry, in manifest order,
+// Prints one `name<TAB>path<TAB><bytes><TAB><sha256>` line per selected entry, in manifest order,
 // exit 0. An absent/empty manifest prints a `no-manifest` disposition line
 // (exit 0) — never a silent empty pass, which would be indistinguishable
 // from "entries exist, none matched". Bad input exits 2 (the house usage
 // code, never a verdict).
 // ---------------------------------------------------------------------------
 
-const CLI_USAGE =
-  'usage: bun best_practices_manifest.ts select --specs <dir> --files "<changed files, whitespace-separated>"';
+const CLI_USAGE = [
+  'usage: bun best_practices_manifest.ts select --specs <dir> --files "<changed files, whitespace-separated>"',
+  '       bun best_practices_manifest.ts add --specs <dir> --name <n> --path <p> [--scope "<globs>"] [--topics "<t1,t2>"] [--notes "<text>"] [--max-bytes <N>] [--sha256 <hex>]',
+  "       bun best_practices_manifest.ts remove --specs <dir> --name <n>",
+].join("\n");
+
+/**
+ * The `add` leg (AC-STE-879.1): build the entry from the flags, validate it
+ * through `addEntry`, check the document exists under the repo root (the
+ * specs directory's parent — the skill's `existsSync(join(repoRoot, path))`
+ * rule), then persist with `writeManifest`. Every refusal throws before the
+ * write, so the manifest is untouched.
+ */
+function runAddCommand(flags: Record<string, string>): void {
+  const specsDir = flags["specs"] ?? "specs";
+  const manifest = readManifest(specsDir);
+  const entry: BestPracticesEntry = { name: flags["name"] ?? "", path: flags["path"] ?? "" };
+  if (flags["scope"] !== undefined) entry.scope = flags["scope"].split(/\s+/).filter(Boolean);
+  if (flags["topics"] !== undefined) {
+    entry.topics = flags["topics"].split(",").map((t) => t.trim()).filter(Boolean);
+  }
+  if (flags["notes"] !== undefined) entry.notes = flags["notes"];
+  if (flags["max-bytes"] !== undefined) {
+    const raw = flags["max-bytes"];
+    if (!POSITIVE_INT_RE.test(raw)) {
+      throw new BestPracticesManifestShapeError(
+        `cannot add entry \`${entry.name}\` — --max-bytes must be a positive integer, got \`${raw}\``,
+        `pass --max-bytes as a whole number of bytes greater than zero (e.g. --max-bytes 65536).`,
+      );
+    }
+    entry.max_bytes = Number(raw);
+  }
+  if (flags["sha256"] !== undefined) entry.sha256 = flags["sha256"];
+  addEntry(manifest, entry);
+  const repoRoot = dirname(resolve(specsDir));
+  if (!isRegularDocument(join(repoRoot, entry.path))) {
+    throw new BestPracticesManifestShapeError(
+      `cannot add entry \`${entry.name}\` — document \`${entry.path}\` does not exist or is not a regular file`,
+      `create ${entry.path} first, or fix the path, then re-run add.`,
+    );
+  }
+  writeManifestVerified(specsDir, manifest);
+}
+
+/**
+ * The `remove` leg (AC-STE-879.2): remove the named entry through
+ * `removeEntry`, then persist. An unknown name throws before the write, so
+ * the manifest stays byte-identical.
+ */
+function runRemoveCommand(flags: Record<string, string>): void {
+  const specsDir = flags["specs"] ?? "specs";
+  const manifest = readManifest(specsDir);
+  removeEntry(manifest, flags["name"] ?? "");
+  writeManifestVerified(specsDir, manifest);
+}
 
 function parseCliFlags(argv: readonly string[]): Record<string, string> {
   const flags: Record<string, string> = {};
@@ -471,6 +628,15 @@ function parseCliFlags(argv: readonly string[]): Record<string, string> {
 
 if (import.meta.main) {
   const [command, ...rest] = process.argv.slice(2);
+  if (command === "add" || command === "remove") {
+    try {
+      (command === "add" ? runAddCommand : runRemoveCommand)(parseCliFlags(rest));
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(2);
+    }
+    process.exit(0);
+  }
   if (command !== "select") {
     console.error(
       `best_practices_manifest: unknown command ${JSON.stringify(command ?? "")}\n${CLI_USAGE}`,
@@ -510,8 +676,44 @@ if (import.meta.main) {
     console.log("no-match: entries exist but none scoped to the changed files");
     process.exit(0);
   }
+  // Documents resolve against the specs directory's parent — the same base the
+  // `add` leg and probe #91 use — never the process cwd.
+  const repoRoot = dirname(resolve(specsDir));
   for (const entry of selected) {
-    console.log(`${entry.name}\t${entry.path}`);
+    const docAbs = join(repoRoot, entry.path);
+    // AC-STE-878.4: a missing document is a per-entry refusal, never exit 2.
+    // A directory is no document either: it refuses the same way.
+    if (!isRegularDocument(docAbs)) {
+      console.log(`refused: ${entry.name} missing`);
+      continue;
+    }
+    // AC-STE-878.3: size check before the read — a refused document is never read.
+    const statBytes = statSync(docAbs).size;
+    if (entry.max_bytes !== undefined && statBytes > entry.max_bytes) {
+      console.log(`refused: ${entry.name} ${statBytes}`);
+      continue;
+    }
+    // One read feeds both the printed size and the digest, so they always
+    // describe the same bytes even if the file changed after the stat.
+    let content: Buffer;
+    try {
+      content = readFileSync(docAbs);
+    } catch {
+      console.log(`refused: ${entry.name} missing`);
+      continue;
+    }
+    const bytes = content.length;
+    if (entry.max_bytes !== undefined && bytes > entry.max_bytes) {
+      console.log(`refused: ${entry.name} ${bytes}`);
+      continue;
+    }
+    const sha256 = sha256Hex(content);
+    // AC-STE-879.5: a declared digest that no longer matches refuses the entry.
+    if (entry.sha256 !== undefined && entry.sha256 !== sha256) {
+      console.log(`refused: ${entry.name} sha256 ${sha256}`);
+      continue;
+    }
+    console.log(`${entry.name}\t${entry.path}\t${bytes}\t${sha256}`);
   }
   process.exit(0);
 }

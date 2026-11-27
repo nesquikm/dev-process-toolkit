@@ -725,26 +725,26 @@ describe("AC-STE-546.6 — the probe count and its pinned sites do not move", ()
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
   // Amended by AC-STE-723.7: probe count 89 -> 90.
-  test("the numbered probe list is still contiguous 1..90", () => {
+  test("the numbered probe list is still contiguous 1..91", () => { // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     const numbers = [...gateSkill().matchAll(/^(\d+)\. \*\*/gm)].map((m) => Number(m[1]));
     expect(
       numbers.length,
       "the probe count moved — a new probe id drags sixty pinned sites across fifteen files",
-    ).toBe(90); // Amended by AC-STE-659.3: probe count 85 -> 86. Amended by AC-STE-673.6: probe count 86 -> 87. Amended by AC-STE-680.6: probe count 87 -> 88. Amended by AC-STE-693.6: probe count 88 -> 89. Amended by AC-STE-723.7: probe count 89 -> 90.
+    ).toBe(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91. Amended by AC-STE-659.3: probe count 85 -> 86. Amended by AC-STE-673.6: probe count 86 -> 87. Amended by AC-STE-680.6: probe count 87 -> 88. Amended by AC-STE-693.6: probe count 88 -> 89. Amended by AC-STE-723.7: probe count 89 -> 90.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 90 }, (_, i) => i + 1));
+    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 91 }, (_, i) => i + 1)); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   // Amended by AC-STE-659.3: the NEXT-row tripwire moves #86 -> #87.
   // Amended by AC-STE-673.6: the NEXT-row tripwire moves #87 -> #88.
   // Amended by AC-STE-680.6: the NEXT-row tripwire moves #88 -> #89.
   // Amended by AC-STE-693.6: the NEXT-row tripwire moves #89 -> #90.
-  test("no `90.` row was registered", () => {
+  test("no `91.` row was registered", () => { // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-723.7: #90 -> #91.
-    expect(gateSkill()).not.toMatch(/^91\. \*\*/m);
+    expect(gateSkill()).not.toMatch(/^92\. \*\*/m); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
@@ -760,11 +760,11 @@ describe("AC-STE-546.6 — the probe count and its pinned sites do not move", ()
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(line(/numbered `\/gate-check` probes/)).toMatch(/\b90\b/);
+    expect(line(/numbered `\/gate-check` probes/)).toMatch(/\b91\b/); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(line(/which layers \d+ probes on top/)).toMatch(/\b90\b\s+probes/);
+    expect(line(/which layers \d+ probes on top/)).toMatch(/\b91\b\s+probes/); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("row #63 is still plan_ship_coherence and still names its runner", () => {

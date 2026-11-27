@@ -615,12 +615,12 @@ function probeRegistrationLines(): { number: number; line: string }[] {
 // Amended by AC-STE-680.6: probe count 86 -> 87 (the previous count moves with the cascade).
 // Amended by AC-STE-693.6: probe count 88 -> 89.
 // Amended by AC-STE-723.7: probe count 89 -> 90.
-const PREVIOUS_PROBE_COUNT = 89;
+const PREVIOUS_PROBE_COUNT = 90; // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
 /** The count after. */
 // Amended by AC-STE-680.6: probe count 87 -> 88.
 // Amended by AC-STE-693.6: probe count 88 -> 89.
 // Amended by AC-STE-723.7: probe count 89 -> 90.
-const EXPECTED_PROBE_COUNT = 90;
+const EXPECTED_PROBE_COUNT = 91; // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
 
 /**
  * Every surface pinning the probe count: STE-659's enumerated table (AC-STE-659.3) plus the pins that
@@ -716,29 +716,29 @@ describe("AC-STE-673.6 — registered as probe #87, every count pin moved with i
   });
 
   // Amended by AC-STE-680.6: the next unregistered number is #89 at 88 live registrations.
-  test("the front-door warning names the NEXT unregistered number (#90), in both places", () => {
+  test("the front-door warning names the NEXT unregistered number (#91), in both places", () => { // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     const skill = read(GATE_CHECK_SKILL);
     // Amended by AC-STE-693.6: the next unregistered number is #90 at 89 live registrations.
     // Amended by AC-STE-723.7: #90 -> #91.
-    expect(skill).toContain("registering probe #91 will turn probe #81 red");
+    expect(skill).toContain("registering probe #92 will turn probe #81 red"); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: #90 -> #91.
-    expect(skill).not.toContain("registering probe #90 will turn probe #81 red");
+    expect(skill).not.toContain("registering probe #91 will turn probe #81 red"); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     const m140 = read(surfaceAbs("tests/m140-ste-543-external-link-verdicts.test.ts"));
     // Amended by AC-STE-693.6: #89 -> #90.
     // Amended by AC-STE-723.7: #90 -> #91.
-    expect(m140).toContain("registering probe #91 will turn probe #81 red");
+    expect(m140).toContain("registering probe #92 will turn probe #81 red"); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   // Amended by AC-STE-680.6: the NEXT-row tripwire moves #88 -> #89.
-  test("M141's `no NEXT row` tripwire moved to #90", () => {
+  test("M141's `no NEXT row` tripwire moved to #91", () => { // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     const body = read(surfaceAbs("tests/m141-ste-546-surface-agreement.test.ts"));
     // Amended by AC-STE-693.6: the NEXT-row tripwire moves #89 -> #90.
     // Amended by AC-STE-723.7: #90 -> #91.
-    expect(body).toContain(String.raw`/^91\. \*\*/m`);
+    expect(body).toContain(String.raw`/^92\. \*\*/m`); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(body).not.toContain(String.raw`/^90\. \*\*/m`);
+    expect(body).not.toContain(String.raw`/^91\. \*\*/m`); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("the probe module carries an `if (import.meta.main)` entry", () => {

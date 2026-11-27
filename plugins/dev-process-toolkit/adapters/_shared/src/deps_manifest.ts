@@ -27,6 +27,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { linkedWorktreeMainRoot } from "./target_repo";
+
 export type DepsKind = "toolkit-docs";
 
 export interface DepsEntry {
@@ -313,9 +315,13 @@ export function findEntry(
 }
 
 /**
- * Resolve `entry.path` against `consumerRepoRoot`, returning an absolute
- * path. The sibling-only invariant is re-asserted here (defense in depth
- * — callers may have built the entry outside the read/add validators).
+ * Resolve `entry.path` against `consumerRepoRoot`, except inside a LINKED
+ * worktree, where it resolves against the main worktree root (STE-877): the
+ * sibling sits beside the main checkout, not beside the worktree. The main
+ * checkout, a non-git directory and a bare common directory keep
+ * `resolve(consumerRepoRoot, entry.path)` byte for byte. The sibling-only
+ * invariant is re-asserted here (defense in depth — callers may have built
+ * the entry outside the read/add validators).
  */
 export function resolveSiblingPath(
   consumerRepoRoot: string,
@@ -327,5 +333,5 @@ export function resolveSiblingPath(
       `update the entry's \`path\` to a sibling-relative form (e.g., \`../${entry.name}\`).`,
     );
   }
-  return resolve(consumerRepoRoot, entry.path);
+  return resolve(linkedWorktreeMainRoot(consumerRepoRoot) ?? consumerRepoRoot, entry.path);
 }

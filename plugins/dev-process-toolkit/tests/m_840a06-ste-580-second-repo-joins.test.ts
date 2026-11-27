@@ -52,7 +52,7 @@ const ATTACH_HELPER = join(pluginRoot, ATTACH_HELPER_REL);
 const read = (p: string) => readFileSync(p, "utf-8");
 
 /** Measured at HEAD: `wc -l` + 1 on the split. The append must not move it. */
-const SPLIT_LINES_AT_HEAD = 338; // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
+const SPLIT_LINES_AT_HEAD = 339; // Amended by AC-STE-881.5 (M_43bc84): +1 for the spec_write_seed_applied § 7 row (was 338 by AC-STE-835.2).
 /** Measured at HEAD: `body.split("\n")[154].length`. The append only grows it. */ // Amended by AC-STE-752.1 (M_d1e7b1): re-pinned after the NFR-1 move (358 -> 337 lines, -22 below).
 const LINE_177_LEN_AT_HEAD = 9675;
 /** Measured at HEAD: sixteen `<dir>/<file>.ts` paths on line 177. Re-measured by AC-STE-608.11: eighteen, the two decision front door commands naming a module that now carries a front door. */

@@ -70,9 +70,38 @@ export function undoSte869(text: string): string {
   return lines.join("\n");
 }
 
-/** Every admission to gate-check/SKILL.md undone, later edits first. Amended by AC-STE-756.6 (M_d1e7b1); Amended by AC-STE-869.3 (M_b054b1) */
+/**
+ * STE-879 (M_43bc84) — probe #91's registration, net zero: row 91 directly after row 90, paid for
+ * by joining the two probe-authoring-contract lines that open "Every new `/gate-check` probe ships
+ * with a corresponding", and the next-probe sentence moved #91 -> #92. All three as exact bytes, at
+ * their place in the shipped file. Amended by AC-STE-879.4 (M_43bc84)
+ */
+export const STE_879_ROW_LINE = 179;
+export const STE_879_ROW = "91. **`best_practices_digest_match`** — call `runBestPracticesDigestMatchProbe(projectRoot)` from `adapters/_shared/src/best_practices_digest_match.ts`. **Severity: error.** Every `specs/best-practices.yaml` entry that declares `sha256` must match the digest of its document's bytes, computed by the same `documentSha256` helper the manifest's `select` leg uses; each mismatch is one **GATE FAILED** violation naming the entry, the path, the declared and the actual digest. Violation shape follows probe #16/#63: `note` is `<repo-relative-file>:<line> — <reason>`, `message` is the NFR-10 canonical shape with `Remedy:` and `Context:` sub-lines. Vacuous when the manifest is absent or empty, and for every entry without the key; a malformed manifest or a dangling `path` is probe #76's to report. The module carries the `if (import.meta.main)` front door probe #81 requires, so this registration is ordered AND reachable. Test coverage: `tests/m_43bc84-ste-879-cli-sha256-probe.test.ts`. (M_43bc84)";
+/** The joined line in the shipped file, and the two lines it was. */
+export const STE_879_JOIN_LINE = 207;
+export const STE_879_JOIN_BEFORE: readonly [string, string] = ["Every new `/gate-check` probe ships with a corresponding", "`tests/gate-check-<slug>.test.ts` test file. Self-review refuses a probe"];
+export const STE_879_NEXT_LINE = 253;
+export const STE_879_NEXT_BEFORE = "registering probe #91 will turn probe #81 red";
+export const STE_879_NEXT_AFTER = "registering probe #92 will turn probe #81 red";
+
+/** The file with the STE-879 edit taken out, or the input unchanged if any part is not byte-for-byte in place. Amended by AC-STE-879.4 (M_43bc84) */
+export function undoSte879(text: string): string {
+  const lines = text.split("\n");
+  if (lines[STE_879_ROW_LINE - 1] !== STE_879_ROW) return text;
+  if (!lines[STE_879_ROW_LINE - 2]?.startsWith("90. ")) return text;
+  if (lines[STE_879_JOIN_LINE - 1] !== STE_879_JOIN_BEFORE.join(" ")) return text;
+  const next = lines[STE_879_NEXT_LINE - 1];
+  if (next === undefined || !next.startsWith("**Registering a probe now costs one line probe #81 counts.**") || next.split(STE_879_NEXT_AFTER).length !== 2 || next.includes(STE_879_NEXT_BEFORE)) return text;
+  lines[STE_879_NEXT_LINE - 1] = next.replace(STE_879_NEXT_AFTER, STE_879_NEXT_BEFORE);
+  lines.splice(STE_879_JOIN_LINE - 1, 1, ...STE_879_JOIN_BEFORE);
+  lines.splice(STE_879_ROW_LINE - 1, 1);
+  return lines.join("\n");
+}
+
+/** Every admission to gate-check/SKILL.md undone, later edits first. Amended by AC-STE-756.6 (M_d1e7b1); Amended by AC-STE-869.3 (M_b054b1); Amended by AC-STE-879.4 (M_43bc84) */
 export function undoGateCheckM_d1e7b1(text: string): string {
-  return undoSte825(undoSte756(undoSte869(text)));
+  return undoSte825(undoSte756(undoSte869(undoSte879(text))));
 }
 
 /** Where a pre-M_d1e7b1 1-based line of gate-check/SKILL.md sits now (both insertions). */

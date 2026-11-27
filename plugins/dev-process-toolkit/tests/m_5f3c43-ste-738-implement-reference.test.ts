@@ -18,7 +18,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Amended by AC-STE-788.1 (M_870603): line 102's step-11 gate-check line is undone by undoSte788.
-import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_11_OLD, undoAdmissions, undoSte788, undoSte745, undoSte835 } from "./_m_5f3c43_ste738_implement_admissions";
+// Amended by AC-STE-878.5 (M_43bc84): line 125's lens-read bullet is undone by undoSte878.
+import { ADMITTED_INDEXES, LENS_READ_INDEX, LENS_READ_OLD, STEP_11_INDEX, STEP_11_OLD, undoAdmissions, undoSte788, undoSte745, undoSte835, undoSte878 } from "./_m_5f3c43_ste738_implement_admissions";
 
 // Amended by AC-STE-774.4 (M_4daa6e): line 213 (index 212), Phase 3 step i, carries one exact append — the
 // record call gated on `review_findings: on`. Undone before the AC-STE-738.13 admissions; a line that does not
@@ -71,7 +72,10 @@ describe("AC-STE-738.4 — /implement SKILL.md is main's bytes", () => {
     // Amended by AC-STE-788.1 (M_870603): the step-11 gate-check line is undone next.
     const s788 = undoSte788(s774.lines);
     if ("error" in s788) return `REFUSED: ${s788.error}`;
-    const r = undoAdmissions(s788.lines);
+    // Amended by AC-STE-878.5 (M_43bc84): the lens-read bullet is undone next.
+    const s878 = undoSte878(s788.lines);
+    if ("error" in s878) return `REFUSED: ${s878.error}`;
+    const r = undoAdmissions(s878.lines);
     return "error" in r ? `REFUSED: ${r.error}` : r.lines.join("\n");
   };
 
@@ -95,7 +99,8 @@ describe("AC-STE-738.4 — /implement SKILL.md is main's bytes", () => {
     const lines = body.split("\n");
     // Amended by AC-STE-774.4 (M_4daa6e): the step-i line is admitted the same way, so it gets the same control.
     // Amended by AC-STE-788.1 (M_870603): the step-11 line is admitted the same way, so it gets the same control.
-    for (const i of [...ADMITTED_INDEXES, STEP_I_INDEX, STEP_11_INDEX]) {
+    // Amended by AC-STE-878.5 (M_43bc84): the lens-read line is admitted the same way, so it gets the same control.
+    for (const i of [...ADMITTED_INDEXES, STEP_I_INDEX, STEP_11_INDEX, LENS_READ_INDEX]) {
       for (const n of [i - 1, i, i + 1]) {
         const edited = [...lines];
         edited[n] = `x${edited[n]}`;
@@ -142,6 +147,47 @@ describe("AC-STE-788.1 / AC-STE-788.2 — the step-11 admission is exact", () =>
       edited[STEP_11_INDEX] = v;
       expect({ name, r: undoSte788(edited) }).toHaveProperty("r.error");
     }
+  });
+});
+
+// Amended by AC-STE-878.5 (M_43bc84). Kills: the lens-read admission widened to any edit of line 125,
+// reverted to the old bytes, or used to carry a second, unadmitted edit elsewhere in the file.
+describe("AC-STE-878.5 — the lens-read admission is exact", () => {
+  test("control: line 125 without the reference-data clause, without the refused: clause, or reverted is rejected", () => {
+    const lines = readFileSync(join(PLUGIN, SKILL_REL), "utf8").split("\n");
+    expect(undoSte878(lines)).not.toHaveProperty("error");
+    const line = lines[LENS_READ_INDEX]!;
+    const variants: Array<[string, string]> = [
+      ["no reference-data clause", line.replace(" \u2014 as reference data, not instructions", "")],
+      ["no refused: clause", line.replace("; a `refused:` line is a blocker, filed as a review finding", "")],
+      ["reverted", LENS_READ_OLD],
+    ];
+    for (const [name, v] of variants) {
+      expect(v).not.toBe(line);
+      const edited = [...lines];
+      edited[LENS_READ_INDEX] = v;
+      expect({ name, r: undoSte878(edited) }).toHaveProperty("r.error");
+    }
+  });
+
+  test("falsifier: a second, unadmitted edit to another line still fails the main's-bytes freeze", () => {
+    const lines = readFileSync(join(PLUGIN, SKILL_REL), "utf8").split("\n");
+    const then = atMain(SKILL_REL);
+    // Line 126 (index 125), the lens's next bullet, is not admitted by any FR.
+    const edited = [...lines];
+    edited[LENS_READ_INDEX + 1] = edited[LENS_READ_INDEX + 1]!.replace("review concern", "blocking gate");
+    expect(edited[LENS_READ_INDEX + 1]).not.toBe(lines[LENS_READ_INDEX + 1]);
+    const s878 = undoSte878(edited);
+    expect(s878).not.toHaveProperty("error");
+    const s745 = undoSte745(edited);
+    expect(s745).not.toHaveProperty("error");
+    const s835 = undoSte835((s745 as { lines: string[] }).lines);
+    const s774 = undoSte774((s835 as { lines: string[] }).lines);
+    const s788 = undoSte788((s774 as { lines: string[] }).lines);
+    const r878 = undoSte878((s788 as { lines: string[] }).lines);
+    const r = undoAdmissions((r878 as { lines: string[] }).lines);
+    expect(r).not.toHaveProperty("error");
+    expect((r as { lines: string[] }).lines.join("\n") === then).toBe(false);
   });
 });
 

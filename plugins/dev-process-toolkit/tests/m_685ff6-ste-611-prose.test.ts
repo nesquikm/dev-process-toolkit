@@ -86,7 +86,7 @@ describe("AC-STE-611.3 — /spec-write resolves the attach target before the dra
 
 describe("AC-STE-611.3 — the prose is edited in place (controls)", () => {
   test("(control) spec-write/SKILL.md is 358 split-lines", () => {
-    expect(lines().length).toBe(338); // Amended by AC-STE-835.2 (M_d1e7b1): 358 -> 337 after the NFR-1 move (AC-STE-752.1), then +1 for the STE-835 § 7 row.
+    expect(lines().length).toBe(339); // Amended by AC-STE-881.5 (M_43bc84): +1 for the spec_write_seed_applied § 7 row (was 338 by AC-STE-835.2).
   });
 
   test("(control) the line-111 prefix is unchanged", () => {

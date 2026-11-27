@@ -135,7 +135,7 @@ describe("AC-STE-394.7 — README probe-count pins move 68 → 69", () => {
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(readme()).toMatch(/\b90\b\s+numbered `\/gate-check` probes/);
+    expect(readme()).toMatch(/\b91\b\s+numbered `\/gate-check` probes/); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   // Amended by AC-STE-659.3: probe count 85 -> 86.
@@ -146,7 +146,7 @@ describe("AC-STE-394.7 — README probe-count pins move 68 → 69", () => {
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(readme()).toMatch(/layers 90 probes/);
+    expect(readme()).toMatch(/layers 91 probes/); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("no stale `68 numbered` / `layers 68 probes` token survives in README", () => {
@@ -178,7 +178,7 @@ describe("AC-STE-394.7 — gate-check SKILL.md gains the #69 entry", () => {
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(Math.max(...numbers)).toBe(90);
+    expect(Math.max(...numbers)).toBe(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("#69 is `upgrade_staleness` and sits directly after #68 `migration_coverage`", () => {
@@ -221,15 +221,15 @@ describe("AC-STE-394.7 — the three pinned test files carry the live-count pin"
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(body).toContain('"90 numbered"');
+    expect(body).toContain('"91 numbered"'); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(body).toContain("layers 90 probes");
+    expect(body).toContain("layers 91 probes"); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(body).toContain("toBe(90)");
+    expect(body).toContain("toBe(91)"); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("tests/gate-check-public-surface-count-drift.test.ts pins the live count", () => {
@@ -239,11 +239,11 @@ describe("AC-STE-394.7 — the three pinned test files carry the live-count pin"
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(body).toContain("\\b90\\b.*numbered");
+    expect(body).toContain("\\b91\\b.*numbered"); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(body).toContain("\\b90\\b\\s+probes");
+    expect(body).toContain("\\b91\\b\\s+probes"); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("tests/m108-ste-393-docs-pins.test.ts pins the live count", () => {
@@ -253,9 +253,9 @@ describe("AC-STE-394.7 — the three pinned test files carry the live-count pin"
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(body).toContain("\\b90\\b\\s+numbered");
+    expect(body).toContain("\\b91\\b\\s+numbered"); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(body).toContain("layers 90 probes");
+    expect(body).toContain("layers 91 probes"); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 });

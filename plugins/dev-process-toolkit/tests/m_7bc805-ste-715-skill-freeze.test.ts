@@ -20,6 +20,10 @@
 // whole added line in spec-review (beside the outcome line), and an exact
 // in-line sentence in tdd's § 5 AUDIT parse paragraph, taken out before the
 // AC-STE-738.3 digest is compared. The digest pin itself does not move.
+//
+// Amended by AC-STE-880 (M_43bc84): the tdd digest pin moves once more, to the
+// post-change digest of skills/tdd/SKILL.md after STE-880's edits. Every control
+// is unchanged and still rejects any unadmitted change to the new file.
 
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
@@ -64,7 +68,10 @@ const TDD_REBASE = {
   reason:
     "PR #121 puts its defect check, stranded-plant sweep, resume points and halt rows in the orchestrator's own instructions; " +
     "the operator ruled (2026-11-11) to re-base the tdd freeze at the post-change digest rather than widen the line guard",
-  sha256: "6012ecf504e9741c00b0db3ee86b31998bea5f76a464db95779673ede92214f1",
+  // Amended by AC-STE-880 (M_43bc84): STE-880 edits skills/tdd/SKILL.md (ACs AC-STE-880.1–.4, .6), so the pin is
+  // re-based to the post-change digest of that file, the same way AC-STE-738.3 re-based AC-STE-715.18.
+  // Prior pin (AC-STE-738.3): 6012ecf504e9741c00b0db3ee86b31998bea5f76a464db95779673ede92214f1.
+  sha256: "1591e93dcf2c46b5597304255d90f2c10adc22987fef4472ebc1c2aad5dd3942",
 } as const;
 
 /** The guard after the re-base: drift is any byte that moves the digest. */

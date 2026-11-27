@@ -680,15 +680,15 @@ describe("structural — gate-check's probe rows stay where the pins expect them
   // Amended by AC-STE-673.6: probe count 86 -> 87.
   // Amended by AC-STE-680.6: probe count 87 -> 88.
   // Amended by AC-STE-693.6: probe count 88 -> 89.
-  test("exactly 89 numbered probe rows, and no row 90", () => {
+  test("exactly 89 numbered probe rows, and no row 91", () => { // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     const lines = readLf(GATE_SKILL).split("\n");
     // Amended by AC-STE-659.3: probe count 85 -> 86.
     // Amended by AC-STE-673.6: probe count 86 -> 87.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(lines.filter((l) => /^[0-9]+\. \*\*/.test(l)).length).toBe(90);
-    expect(lines.some((l) => /^91\. /.test(l))).toBe(false); // Amended by AC-STE-659.3: next-row tripwire #86 -> #87. Amended by AC-STE-673.6: #87 -> #88. Amended by AC-STE-680.6: #88 -> #89. Amended by AC-STE-693.6: #89 -> #90. Amended by AC-STE-723.7: #90 -> #91.
+    expect(lines.filter((l) => /^[0-9]+\. \*\*/.test(l)).length).toBe(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
+    expect(lines.some((l) => /^92\. /.test(l))).toBe(false); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91. Amended by AC-STE-659.3: next-row tripwire #86 -> #87. Amended by AC-STE-673.6: #87 -> #88. Amended by AC-STE-680.6: #88 -> #89. Amended by AC-STE-693.6: #89 -> #90. Amended by AC-STE-723.7: #90 -> #91.
   });
 
   test("milestone budget: git diff --numstat main on gate-check shows added == deleted", () => {
