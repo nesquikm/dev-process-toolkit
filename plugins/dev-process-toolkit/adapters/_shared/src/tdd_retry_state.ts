@@ -26,13 +26,26 @@
 // and the test stayed GREEN under both. The test is the defect, the
 // implementer may not edit tests, so a retry cannot change it.
 //
+// provided-tests-pass (STE-880) halts on its first occurrence and spends
+// neither budget: on a `--tests-provided` run every named test already
+// passes at Stage RED, and re-running tests nobody may edit cannot make them
+// fail.
+//
 // Keying:
 //   test-writer / refactorer  ⇒ key = role         (run once per FR)
 //   implementer               ⇒ key = role + ac    (run per AC)
 
 import type { TddRole } from "./tdd_result";
 
-export type FailureMode = "A" | "B" | "C" | "D" | "E" | "spec-gap" | "not-load-bearing";
+export type FailureMode =
+  | "A"
+  | "B"
+  | "C"
+  | "D"
+  | "E"
+  | "spec-gap"
+  | "not-load-bearing"
+  | "provided-tests-pass";
 
 export interface RetryKey {
   role: TddRole;
@@ -107,6 +120,13 @@ export function recordTddFailure(
       decision: "halt",
       attemptNumber: 1,
       reason: `mode ${mode} on ${key.role}${acFragment} — the test stayed GREEN with the behavior broken; a retry cannot fix a test, halt`,
+    };
+  }
+  if (mode === "provided-tests-pass") {
+    return {
+      decision: "halt",
+      attemptNumber: 1,
+      reason: `mode ${mode} — every provided test passes at Stage RED; re-running them cannot make one fail, halt`,
     };
   }
   const k = keyToString(key);

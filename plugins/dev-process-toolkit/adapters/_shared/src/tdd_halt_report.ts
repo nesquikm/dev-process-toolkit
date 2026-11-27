@@ -30,6 +30,11 @@ export interface HaltReport {
   lastBlock?: string;
   rawOutput?: string;
   /**
+   * STE-880 AC.6 — the files a `--tests-provided` run used. Rendered on any
+   * halt of such a run so the report says the tests were provided, not written.
+   */
+  testsProvided?: string[];
+  /**
    * STE-296 AC.7 — unresolved missing ACs from the second audit. Set when
    * `mode === "spec-gap"`. Each entry is rendered in the report body so
    * the operator can see which ACs the spec-reviewer flagged as still
@@ -48,6 +53,8 @@ const MODE_DESCRIPTIONS: Record<FailureMode, string> = {
     "spec-review audit still reports missing ACs after the bounded retry",
   "not-load-bearing":
     "defect check — the AC's test stayed GREEN under two different plants with the behavior broken",
+  "provided-tests-pass":
+    "Stage RED — every provided test passed, so no test fails for the code to make pass",
 };
 
 /**
@@ -56,7 +63,24 @@ const MODE_DESCRIPTIONS: Record<FailureMode, string> = {
  * for what the report lacks.
  */
 function resumeCommand(report: HaltReport, at: string = report.ac ?? "<AC-id>"): string {
-  return `/dev-process-toolkit:${report.entry ?? "tdd"} ${report.fr ?? "<FR-id>"} --resume-at ${at}`;
+  return `/dev-process-toolkit:${report.entry ?? "tdd"} ${report.fr ?? "<FR-id>"} --resume-at ${at}${providedFlag(report)}`;
+}
+
+/** A path as one shell word: bare when it is plain, single-quoted otherwise. */
+function shellWord(path: string): string {
+  return /^[A-Za-z0-9_\-.\/@%+=:,]+$/.test(path) ? path : `'${path.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * ` --tests-provided <files>` on a provided run, else "" (STE-880). A provided
+ * run resumes or re-runs as a provided run — without the flag the next GREEN
+ * falls back to the whole project test command — and each path is one shell
+ * word, so the printed command runs as it stands when pasted.
+ */
+function providedFlag(report: HaltReport): string {
+  return report.testsProvided && report.testsProvided.length > 0
+    ? ` --tests-provided ${report.testsProvided.map(shellWord).join(" ")}`
+    : "";
 }
 
 /**
@@ -111,10 +135,13 @@ function falseRedExits(report: HaltReport): string {
 
 export function formatHaltReport(report: HaltReport): string {
   const lines: string[] = [];
-  // not-load-bearing halts on its first attempt: no budget ran out.
+  // not-load-bearing and provided-tests-pass halt on their first occurrence:
+  // no budget ran out, so neither header may say one did.
   lines.push(
     report.mode === "not-load-bearing"
       ? "/dev-process-toolkit:tdd: halt — a test does not guard its acceptance criterion."
+      : report.mode === "provided-tests-pass"
+      ? "/dev-process-toolkit:tdd: halt — every provided test already passes."
       : "/dev-process-toolkit:tdd: halt — bounded retry budget exhausted.",
   );
   lines.push("");
@@ -124,6 +151,9 @@ export function formatHaltReport(report: HaltReport): string {
     lines.push(`AC: ${report.ac}`);
   }
   lines.push(`retry count: ${report.retryCount}`);
+  if (report.testsProvided && report.testsProvided.length > 0) {
+    lines.push(`tests provided, not written: ${report.testsProvided.join(", ")}`);
+  }
   if (
     report.mode === "spec-gap" &&
     report.missingAcs &&
@@ -167,12 +197,25 @@ export function formatHaltReport(report: HaltReport): string {
     );
     return lines.join("\n");
   }
+  if (report.mode === "provided-tests-pass") {
+    // Nothing failed, so nothing is left for an implementer to make pass:
+    // either the files are not this FR's tests, or the code already exists.
+    const files = report.testsProvided?.join(", ") ?? "the provided files";
+    lines.push(
+      `Remedy: no provided test failed, so there is nothing to build. Check that ${files} are the tests for ${report.fr ?? "this FR"}, ` +
+        "and whether its behavior is already implemented. Then re-run with the right files: " +
+        `/dev-process-toolkit:${report.entry ?? "tdd"} ${report.fr ?? "<FR-id>"} --tests-provided <path...>.`,
+    );
+    lines.push(`Context: skill=tdd, mode=${report.mode}, role=${report.role}, retries=${report.retryCount}`);
+    return lines.join("\n");
+  }
   const resume = resumeSentence(report);
   lines.push(
     resume
       ? `Remedy: inspect the report above. ${resume}`
       : "Remedy: inspect the report above and resume manually. " +
-          "Re-run /dev-process-toolkit:tdd against the FR after fixing the " +
+          `Re-run /dev-process-toolkit:${report.entry ?? "tdd"} against the FR ` +
+          `(\`/dev-process-toolkit:${report.entry ?? "tdd"} ${report.fr ?? "<FR-id>"}${providedFlag(report)}\`) after fixing the ` +
           "identified failure mode (test-writer false-RED, implementer GREEN " +
           "miss, refactorer regression, format drift, subagent maxTurns, or " +
           "spec-review reporting unimplemented acceptance criteria)." +

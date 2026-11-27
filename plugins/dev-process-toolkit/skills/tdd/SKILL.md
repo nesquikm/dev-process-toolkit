@@ -1,7 +1,7 @@
 ---
 name: tdd
 description: Multi-agent TDD orchestrator. Runs RED → GREEN → REFACTOR → AUDIT for one FR via four forked subagents (test-writer / implementer / refactorer / spec-reviewer) with a strict tdd-result hand-off contract, bounded retries, and a deterministic halt path. Replaces the previous single-context /tdd.
-argument-hint: '<FR-id> [--resume-at <AC-id>|refactor|audit]'
+argument-hint: '<FR-id> [--resume-at <AC-id>|refactor|audit] [--tests-provided <path...>]'
 ---
 
 # TDD Orchestrator (Multi-Agent)
@@ -24,6 +24,7 @@ Children carry `context: fork` + `user-invocable: false` + an `agent:` field nam
 ## Inputs
 
 - `$ARGUMENTS` resolves to a single FR, optionally followed by `--resume-at <AC-id>`, `--resume-at refactor` or `--resume-at audit` to resume a run that halted — see § Resume after a halt.
+- `--tests-provided <path...>` takes one or more paths to existing test files the run uses instead of writing its own. Combined with `--resume-at` it is accepted, and Stage RED is skipped as on any resume.
 - The FR's ACs come from `specs/frs/<id>.md` § Acceptance Criteria.
 - The project test command comes from CLAUDE.md (Key Commands / Gating rule).
 
@@ -33,6 +34,8 @@ Children carry `context: fork` + `user-invocable: false` + an `agent:` field nam
 
 Read `specs/frs/<id>.md`. Extract the AC list (every `AC-<prefix>.<N>` line under `## Acceptance Criteria`). This is the batched input for the test-writer and the per-AC dispatch list for the implementer.
 
+On a `--tests-provided` run, check every path first: one that does not exist, or lies outside the repository, refuses in the NFR-10 shape (`Refusing: --tests-provided <path> <does not exist | is outside the repository>`) before the receipt is recorded and before any fork is dispatched.
+
 Once that FR file is resolved, its checkout is the one this cycle runs for. Record the run against it, before any stage is dispatched, with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" tdd "<that checkout root>"`. If it refuses, stop and report its block verbatim — the commit gate reads that receipt in the repository the commit targets, so without it the commit is refused later with no explanation.
 Only if that call also printed `outcome: on`, record the cycle's verdict with `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/gate_receipt.ts" outcome tdd "<that checkout root>" <pass|fail>`: `pass` after § 5 AUDIT returns `status: ok`, or `fail` on the Halt path.
 
@@ -41,6 +44,8 @@ Then, before any stage, run the stranded-plant check (§ Stage GREEN) over every
 ### 2. Stage RED — invoke `tdd-write-test` once with the batched AC list
 
 Skipped on a resume (`--resume-at`): the tests from the halted run stand, the hand-fixed one included.
+
+On a `--tests-provided` run no test-writer fork is dispatched: the orchestrator runs the named files with the project's test command and requires at least one failing test. When every named test passes, the run halts with failure mode `provided-tests-pass` and no implementer fork is dispatched.
 
 Pass the test-writer:
 
@@ -54,7 +59,7 @@ The child fork runs in isolation with `tools: Read, Grep, Glob, Write, Edit, Bas
 
 For each AC in order:
 
-- Pass the implementer **only** that AC's text + the failing-test command target.
+- Pass the implementer **only** that AC's text + the failing-test command target. On a `--tests-provided` run that failing-test command is the project's test command run on the named files, the same for every AC.
 - The child fork runs in isolation, writes the minimum code to turn the failing test GREEN, re-runs the command, runs the **defect check**, and ends with a single `tdd-result` fenced block.
 
 The defect check is what makes RED load-bearing. A test that failed before the code existed may have failed only because a symbol was missing; the check plants the smallest bug in the end state the AC's test reads and requires that test to go RED **at its assertion**, then restores the source. The implementer reads the AC's test file to place the plant, which narrows the per-AC isolation for this check: the file may hold other ACs' tests, so it reads the file only to place the plant and never implements toward them. It proves each plant changed the file (`cmp`), and a test that stays GREEN gets a second, different plant before any verdict — one plant can be an equivalent mutant or sit in a branch the test never takes. It records the check in `notes`, which this stage always fills: `defect check: <plant> → red at <test>`; `defect check: n/a — <reason>` when there was no source line to plant in; `defect check: not run — <reason>` when no turn was left, no plant reached the assertion (it changed nothing, or went RED before it — a compile error, setup), or one plant left the test GREEN and no second valid plant ran — that line names the plant. Two plants that leave the test GREEN are never `not run`. A `status: failed` whose `notes` reads `defect check: <plant 1>; <plant 2> → still GREEN` is a test that does not guard its AC: failure mode **not-load-bearing**. `recordTddFailure(…, "not-load-bearing")` halts on the first attempt and spends no budget, because the implementer may not edit tests and two plants already failed to turn it RED; `formatHaltReport` renders it with its own header and a remedy naming the AC: fix the test by hand so it fails at its assertion when the behavior breaks, then resume at that AC — through `/implement` when `/implement` started the run.
@@ -129,6 +134,7 @@ The orchestrator distinguishes:
 - **(D) format violation** — `extractTddResultBlock` or `parseTddResultBlock` rejects the child's output (no fenced block, multiple fences, missing role, missing required field, wrong role for the invocation, invalid status).
 - **(E) maxTurns exhaustion** — child stopped after `maxTurns: 8` without producing a parseable block. Counts as a failed attempt under whichever of (A) / (B) / (C) applies to the calling role.
 - **not-load-bearing** — implementer's `status: failed` with `defect check: <plant 1>; <plant 2> → still GREEN`: the AC's test stayed GREEN under two different plants with the behavior broken. Not retried — see Stage GREEN.
+- **provided-tests-pass** — on a `--tests-provided` run, every named test passed at Stage RED. Not retried: `recordTddFailure` halts on the first occurrence and spends no budget.
 
 ## Retry budget — bounded
 
@@ -158,6 +164,8 @@ For a mode-D format violation, the retry prompt is even narrower: "re-emit your 
 
 When AUDIT exits ok, the orchestrator ends with one row per AC dispatched in this run: the AC id and its defect-check line as the implementer recorded it, with `plant restored by the orchestrator in <file>` appended where the stranded-plant check fired. Below the rows comes a list headed **Unverified tests (the defect check covers one test per AC)**, so `none` there never reads as every new test having passed it. It names, each with the reason, every AC whose `ok` block carries any line other than `defect check: … → red at …` — `n/a`, `not run`, `still GREEN` on an `ok`, any other text, or no `defect check:` line at all (the parser accepts that block, so it is not retried) — and every AC whose plant the orchestrator restored or could not check; or it reads `none`. On a resume, ACs before `--resume-at` were not dispatched in this run, so this run cannot vouch for their checks: the list names each with `not dispatched in this run — resumed at <point>`.
 
+On a `--tests-provided` run the report says the tests were provided, not written, and names the files.
+
 A last list, **Backups**, names every restore and every kept backup the stranded-plant check produced in this run, the start-of-run sweep included — whichever AC or FR it belongs to — or reads `none`.
 
 Unverified tests do not halt or fail the run — a test that stayed GREEN under two plants already halted it, so it never reaches this list. They are reported so the check cannot vanish unseen: `/implement` states in its step-14 AC checklist how many ACs carry an unverified defect check.
@@ -178,7 +186,7 @@ When `/implement` started the run, the operator resumes through it instead — `
 
 When the bounded budget is exhausted — or at once on a `not-load-bearing` failure, which spends no budget — the orchestrator:
 
-1. Calls `formatHaltReport(...)` from `adapters/_shared/src/tdd_halt_report.ts` with `{ mode, role, entry, fr, ac, auditRound, retryCount, lastBlock?, rawOutput? }` — `auditRound` (true for an implementer halt in the AUDIT retry round) makes it resume at `audit`, not the AC; `entry` (`implement` when `/implement` invoked this run, else `tdd`) and `fr` make its resume command one the operator can copy as it stands.
+1. Calls `formatHaltReport(...)` from `adapters/_shared/src/tdd_halt_report.ts` with `{ mode, role, entry, fr, ac, auditRound, retryCount, lastBlock?, rawOutput?, testsProvided? }` — `auditRound` (true for an implementer halt in the AUDIT retry round) makes it resume at `audit`, not the AC; `entry` (`implement` when `/implement` invoked this run, else `tdd`) and `fr` make its resume command one the operator can copy as it stands; `testsProvided` (the named files, on a `--tests-provided` run) adds the line `tests provided, not written: <files>`.
 2. Emits the rendered report (failure mode + retry count + last `tdd-result` block, or raw output if no block was emitted).
 3. Exits non-zero — the halt is a real failure surfacing, not a routine pause.
 
@@ -195,7 +203,7 @@ The halt path **does** pause for the operator. This is intentional — the bound
 - Do NOT silently swallow format violations — surface mode D, retry once, halt.
 - Do NOT modify or delete tests during the implementer/refactorer stage — if a test is wrong, the child emits `status: failed` and the operator decides.
 - Do NOT start the next AC, or retry this one, before the stranded-plant check has run for the last implementer fork.
-- Do NOT dispatch the test-writer for Stage RED on a `--resume-at` run — only the AUDIT retry round's, for the ACs it reports missing.
+- Do NOT dispatch the test-writer for Stage RED on a `--resume-at` or `--tests-provided` run — only the AUDIT retry round's, for the ACs it reports missing.
 - Do NOT restore a file the stranded-plant check cannot match to a recorded plant — ask.
 
 ## Red flags

@@ -9,14 +9,22 @@
 /** Line 4 (index 3), the argument-hint: an exact substitution. */
 export const HINT_INDEX = 3;
 export const HINT_OLD = "[--code-only]'";
-export const HINT_NEW = "[--code-only] [--resume-at <AC-id>|refactor|audit]'";
+// Amended by AC-STE-880.5 (M_43bc84): the hint also names --tests-provided, after --resume-at.
+// HINT_NEW_STE738 is the STE-738 hint before that amendment; a line 4 carrying only it is refused.
+export const HINT_NEW_STE738 = "[--code-only] [--resume-at <AC-id>|refactor|audit]'";
+export const HINT_NEW = "[--code-only] [--resume-at <AC-id>|refactor|audit] [--tests-provided <path...>]'";
 
 /** Line 92 (index 91), Phase 2 step 8's orchestrator call: an exact append. */
 export const STEP_8_INDEX = 91;
 // Amended in the v3.5.0 fix round 2 (supervisor spec review): `entry: implement` is
 // passed on EVERY run, not only a resume, so a first run's halt names /implement.
-export const STEP_8_APPEND =
+// Amended by AC-STE-880.5 (M_43bc84): the same sentence names `--tests-provided <path...>` beside
+// `--resume-at <point>`, words replaced in place, no line added. STEP_8_APPEND_STE738 is the append
+// before that amendment; a line 92 ending with only it is refused.
+export const STEP_8_APPEND_STE738 =
   " Step 8 always passes `entry: implement` to the orchestrator, so even a first run's halt report names `/dev-process-toolkit:implement` for the resume; when `--resume-at <point>` follows the FR, it also passes that on, as `/dev-process-toolkit:tdd <FR-id> --resume-at <point>`: `docs/implement-reference.md` § Defect checks, resuming a halt and parked tests.";
+export const STEP_8_APPEND =
+  " Step 8 always passes `entry: implement` to the orchestrator, so even a first run's halt report names `/dev-process-toolkit:implement` for the resume; when `--resume-at <point>` follows the FR, or `--tests-provided <path...>` does, it also passes that on, as `/dev-process-toolkit:tdd <FR-id> --resume-at <point>` or `/dev-process-toolkit:tdd <FR-id> --tests-provided <path...>`: `docs/implement-reference.md` § Defect checks, resuming a halt and parked tests.";
 
 /** Line 280 (index 279), Phase 4 step 14's report: an exact append. */
 export const STEP_14_INDEX = 279;
