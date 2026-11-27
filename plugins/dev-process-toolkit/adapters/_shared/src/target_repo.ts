@@ -375,6 +375,27 @@ export function mainWorktreeRoot(path: string): string | null {
 }
 
 /**
+ * The main worktree root, but only when `path` is inside a LINKED worktree
+ * (STE-877): its own git dir differs from the repository's common dir. Null in
+ * the main checkout, outside git, for a bare common directory, and on any git
+ * failure — so a caller that falls back to `path` keeps today's bytes there.
+ */
+export function linkedWorktreeMainRoot(path: string): string | null {
+  const common = gitCommonDir(path);
+  if (common === null) return null;
+  let own: string;
+  try {
+    const out = gitStdout(path, ["rev-parse", "--git-dir"])?.trim();
+    if (out === undefined || out === "") return null;
+    own = realpathSync(resolve(path, out));
+  } catch {
+    return null;
+  }
+  if (own === common) return null;
+  return mainWorktreeRoot(path);
+}
+
+/**
  * Do two paths name the same REPOSITORY (STE-609)? Two worktrees of one
  * repository, or a symlink to a checkout, compare equal; two separate clones
  * do not. Outside a git work tree it falls back to realpath equality. A path
