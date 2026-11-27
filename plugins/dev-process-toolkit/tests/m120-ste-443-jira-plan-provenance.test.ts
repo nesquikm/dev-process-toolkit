@@ -1138,11 +1138,11 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(Math.max(...numbers)).toBe(90);
+    expect(Math.max(...numbers)).toBe(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(numbers.length).toBe(90);
+    expect(numbers.length).toBe(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("GUARD — README's two probe-count pins still read the live count", () => {
@@ -1154,7 +1154,7 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(featureLine[0]!).toMatch(/\b90\b.*numbered/);
+    expect(featureLine[0]!).toMatch(/\b91\b.*numbered/); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     const asideLine = body.split("\n").filter((l) => /which layers \d+ probes on top/.test(l));
     expect(asideLine.length).toBe(1);
     // Amended by AC-STE-659.3: probe count 85 -> 86.
@@ -1162,7 +1162,7 @@ describe("AC-STE-443.10 — the arm ships inside probe #73, not as a probe #75",
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(asideLine[0]!).toMatch(/\b90\b\s+probes/);
+    expect(asideLine[0]!).toMatch(/\b91\b\s+probes/); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("GUARD — the module still exports exactly one probe runner", () => {

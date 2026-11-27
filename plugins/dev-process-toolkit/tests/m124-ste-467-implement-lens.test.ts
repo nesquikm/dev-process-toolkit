@@ -43,7 +43,7 @@
 //     lesson).
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -279,9 +279,10 @@ describe("AC-STE-467.1 — module selection: scope globs vs the changed-file lis
 describe("AC-STE-467.1 — the selection runs via bun: `select` CLI leg on the module", () => {
   const runCli = (
     args: string[],
+    cwd: string = PLUGIN_ROOT,
   ): { exitCode: number; stdout: string; stderr: string } => {
     const proc = Bun.spawnSync(["bun", MODULE_ABS, ...args], {
-      cwd: PLUGIN_ROOT,
+      cwd,
     });
     return {
       exitCode: proc.exitCode,
@@ -296,20 +297,30 @@ describe("AC-STE-467.1 — the selection runs via bun: `select` CLI leg on the m
     return dir;
   };
 
-  test("select prints the matched entries (name + doc path) in manifest order, exit 0", () => {
-    const specsDir = seededSpecsDir();
-    const { exitCode, stdout } = runCli([
-      "select",
-      "--specs",
-      specsDir,
-      "--files",
-      "src/a/b.ts docs/readme.txt",
-    ]);
+  // Amended by AC-STE-878.1 (M_43bc84): select prints
+  // `name<TAB>path<TAB><bytes><TAB><sha256>`, so the documents must exist on
+  // disk — a seeded repo root holds specs/ plus the docs, and the CLI runs
+  // from that root.
+  test("select prints the matched entries (name, doc path, bytes, sha256) in manifest order, exit 0", () => {
+    const root = mkdtempSync(join(tmpdir(), "dpt-ste467-root-"));
+    const specsDir = join(root, "specs");
+    mkdirSync(specsDir, { recursive: true });
+    writeManifest(specsDir, FIXTURE_MANIFEST);
+    mkdirSync(join(root, "docs", "best-practices"), { recursive: true });
+    writeFileSync(join(root, "docs", "best-practices", "general.md"), "abc");
+    writeFileSync(join(root, "docs", "best-practices", "errors.md"), "");
+    writeFileSync(join(root, "docs", "best-practices", "adapters.md"), "x");
+    writeFileSync(join(root, "docs", "best-practices", "docs.md"), "y");
+    const { exitCode, stdout } = runCli(
+      ["select", "--specs", specsDir, "--files", "src/a/b.ts docs/readme.txt"],
+      root,
+    );
     expect({ exitCode, ranSelect: true }).toEqual({ exitCode: 0, ranSelect: true });
     const lines = stdout.split("\n").filter((l) => l.trim().length > 0);
-    expect(lines).toHaveLength(2);
-    expect(lines[0]!).toMatch(/^always-on\s+docs\/best-practices\/general\.md$/);
-    expect(lines[1]!).toMatch(/^ts-house-rules\s+docs\/best-practices\/errors\.md$/);
+    expect(lines).toEqual([
+      "always-on\tdocs/best-practices/general.md\t3\tba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "ts-house-rules\tdocs/best-practices/errors.md\t0\te3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ]);
     expect(stdout).not.toContain("adapters-rules");
     expect(stdout).not.toContain("root-docs");
   });

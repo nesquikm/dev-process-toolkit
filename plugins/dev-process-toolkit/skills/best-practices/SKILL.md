@@ -30,6 +30,8 @@ Exit non-zero. Do not silently default to a subcommand — the operator must nam
 
 All four subcommands operate through the shared helpers in `adapters/_shared/src/best_practices_manifest.ts` (`readManifest`, `writeManifest`, `addEntry`, `removeEntry`, `findEntry`). Never author `specs/best-practices.yaml` YAML by hand — the helpers enforce the canonical CLOSED schema (unknown entry keys refuse) and throw `BestPracticesManifestShapeError` (NFR-10 canonical refusal) on malformed input. The skill surfaces the thrown message **verbatim** to the operator; do not re-template.
 
+Other tools write the manifest through the same module's CLI legs, never by editing the YAML: `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/best_practices_manifest.ts" add --specs <dir> --name <n> --path <p> [--scope "<globs>"] [--topics "<t1,t2>"] [--notes "<text>"] [--max-bytes <N>] [--sha256 <hex>]` appends one entry, and `bun run "${CLAUDE_PLUGIN_ROOT}/adapters/_shared/src/best_practices_manifest.ts" remove --specs <dir> --name <n>` drops one. Both validate through `addEntry` / `writeManifest`, so a refusal there is the same `BestPracticesManifestShapeError` text.
+
 ## add
 
 Socratic flow. One `AskUserQuestion` per step, wait for the answer before asking the next. Bare-prose questions are forbidden — every operator-facing prompt below MUST be an `AskUserQuestion` `tool_use`. The `Other` free-form fallback is always available.
@@ -75,12 +77,19 @@ Issue `AskUserQuestion`:
 
 Capture the answer as the optional `notes` scalar.
 
+Then issue one `AskUserQuestion` for each of the two optional integrity fields:
+
+- `max_bytes` — Question: `Largest size in bytes this document may grow to (empty to omit)?` Options: an explicit `Omit max_bytes` choice plus `Other`. A positive integer.
+- `sha256` — Question: `Pin the document's sha256 digest (empty to omit)?` Options: the digest of the file at `path` as computed now, an explicit `Omit sha256` choice, and `Other`. 64 lowercase hex characters.
+
+Empty answers omit the field.
+
 ### Step 5 — Append manifest entry
 
 Verify the document exists on disk (`Read` / `Bash` `test -f`) — a missing `path` gets a refusal naming the file as remedy (`create <path> first, or fix the path, then re-run add`); do not append the entry. When all prior steps pass, build the entry and persist:
 
 ```ts
-const entry = { name, path, scope, topics, notes }; // optional fields omitted when empty
+const entry = { name, path, scope, topics, notes, max_bytes, sha256 }; // optional fields omitted when empty
 addEntry(manifest, entry);
 writeManifest(specsDir, manifest);
 ```
@@ -130,7 +139,7 @@ Exit non-zero. Do not prompt for the field-to-change when the target is absent �
 Issue `AskUserQuestion`:
 
 - Question: `Which field of entry '<name>' would you like to change?`
-- Options: `path` (repo-relative document path), `scope` (glob list), `topics` (topic list), `notes` (free-form scalar); `Other` is always present for free-form input but the field name MUST be one of the four editable schema fields — anything else is rejected with the NFR-10 canonical refusal (`Refusing: '<field>' is not an editable manifest field — pick one of path|scope|topics|notes`).
+- Options: `path` (repo-relative document path), `scope` (glob list), `topics` (topic list), `notes` (free-form scalar), `max_bytes` (positive integer size cap), `sha256` (pinned digest); `Other` is always present for free-form input but the field name MUST be one of the six editable schema fields — anything else is rejected with the NFR-10 canonical refusal (`Refusing: '<field>' is not an editable manifest field — pick one of path|scope|topics|notes|max_bytes|sha256`).
 
 Capture the answer as `field`. `name` is immutable — it is the manifest's primary key (changing it would orphan downstream references). To rename, delete + re-add.
 
@@ -150,10 +159,11 @@ Validate per the canonical schema (`adapters/_shared/src/best_practices_manifest
 - **`field === "path"`** — MUST be repo-relative: no leading `/`, no `..` traversal. Pre-validate before the write so the operator sees a single clean refusal rather than a deep-stack `BestPracticesManifestShapeError`. Also verify the file exists on disk; a missing target gets a refusal naming the file as remedy.
 - **`field === "scope"` / `field === "topics"`** — comma-separated string list. Empty clears the field (set to `undefined`).
 - **`field === "notes"`** — opaque scalar. Empty clears the field (set to `undefined`).
+- **`field === "max_bytes"`** — positive integer. **`field === "sha256"`** — 64 lowercase hex characters. Empty clears either field (set to `undefined`).
 
 ### Step 5 — Mutate entry in place and persist
 
-Update `entry[field] = newValue` (or `delete entry[field]` when `newValue` is empty for the optional `scope` / `topics` / `notes` fields). Call `writeManifest(specsDir, manifest)` — the helper re-runs the full schema validation, so a stale local edit that bypassed Step 4 still fails closed. The document on disk is **never** touched — `edit` is manifest-only.
+Update `entry[field] = newValue` (or `delete entry[field]` when `newValue` is empty for the optional `scope` / `topics` / `notes` / `max_bytes` / `sha256` fields). Call `writeManifest(specsDir, manifest)` — the helper re-runs the full schema validation, so a stale local edit that bypassed Step 4 still fails closed. The document on disk is **never** touched — `edit` is manifest-only.
 
 ### Step 6 — Commit gate
 

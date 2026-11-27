@@ -1217,7 +1217,8 @@ describe("AC-STE-756.5 (fix round 1) the call shape, wherever it appears", () =>
     expect(flagged).toEqual([12, 13]);
   });
 
-  test("the runner's summary on this checkout reads `conformance-probes pass: 74/74`", async () => {
+  // Amended by AC-STE-879.4 (M_43bc84): probe count 74 -> 75.
+  test("the runner's summary on this checkout reads `conformance-probes pass: 75/75`", async () => {
     expect(await gradeLiveCheckout(REPO_ROOT)).toEqual([]); // Amended by AC-STE-847.2 (M_e8850b)
   }, 300_000);
 });

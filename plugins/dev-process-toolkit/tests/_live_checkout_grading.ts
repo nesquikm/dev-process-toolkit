@@ -13,8 +13,8 @@ import {
 import { runPlanShipCoherenceProbe } from "../adapters/_shared/src/plan_ship_coherence";
 import { gradedViolations } from "./_plan_ship_grading";
 
-const FULL_PASS = "conformance-probes pass: 74/74 [";
-const WINDOW_PASS = "conformance-probes pass: 73/74 [";
+const FULL_PASS = "conformance-probes pass: 75/75 ["; // Amended by AC-STE-879.4 (M_43bc84): probe count 74 -> 75.
+const WINDOW_PASS = "conformance-probes pass: 74/75 ["; // Amended by AC-STE-879.4 (M_43bc84): probe count 74 -> 75.
 
 /** One line per refusal; `[]` means the checkout is accepted. */
 export async function gradeLiveCheckout(

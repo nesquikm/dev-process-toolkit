@@ -38,7 +38,8 @@ import {
 // Amended by AC-STE-738.13 (operator ruling 2026-11-12, v3.5.0 fix round): lines 4, 92
 // and 280 carry the /implement --resume-at admissions; each is undone before the hash.
 // Amended by AC-STE-788.1 (M_870603): line 102's step-11 gate-check line is undone by undoSte788 before the hash.
-import { ADMITTED_INDEXES, STEP_11_INDEX, STEP_14_APPEND, STEP_8_APPEND, undoAdmissions, undoSte788, undoSte745, undoSte835, currentIndex } from "./_m_5f3c43_ste738_implement_admissions";
+// Amended by AC-STE-878.5 (M_43bc84): line 125's lens-read bullet is undone by undoSte878 before the hash.
+import { ADMITTED_INDEXES, LENS_READ_INDEX, STEP_11_INDEX, STEP_14_APPEND, STEP_8_APPEND, undoAdmissions, undoSte788, undoSte745, undoSte835, undoSte878, currentIndex } from "./_m_5f3c43_ste738_implement_admissions";
 
 afterAll(cleanupTemps);
 
@@ -95,7 +96,10 @@ function appendedToLine297(body: string): { appended: string } | { error: string
   // Amended by AC-STE-788.1 / AC-STE-788.2 (M_870603): line 102 admitted as one exact line.
   const s788 = undoSte788(restored);
   if ("error" in s788) return s788;
-  const undone = undoAdmissions(s788.lines);
+  // Amended by AC-STE-878.5 (M_43bc84): line 125 admitted as one exact line.
+  const s878 = undoSte878(s788.lines);
+  if ("error" in s878) return s878;
+  const undone = undoAdmissions(s878.lines);
   if ("error" in undone) return undone;
   if (sha256(undone.lines.join("\n")) !== V300_IMPLEMENT_SHA) return { error: "a line other than 297, the step-i line, line 268 and the AC-STE-738.13 lines differs from v3.0.0" };
   const appended = line.slice(V300_LINE_297_LENGTH);
@@ -211,6 +215,15 @@ describe("AC-STE-722.8 /implement keeps its 358 split-lines", () => {
     const extra11 = [...lines];
     extra11[at(STEP_11_INDEX)] = `x${extra11[at(STEP_11_INDEX)]}`;
     expect(appendedToLine297(extra11.join("\n"))).toHaveProperty("error");
+    // Amended by AC-STE-878.5 (M_43bc84): the lens-read line gets the same neighbour and extra-edit control.
+    for (const n of [LENS_READ_INDEX - 1, LENS_READ_INDEX + 1]) {
+      const neighbour = [...lines];
+      neighbour[at(n)] = `${neighbour[at(n)]}x`;
+      expect({ n, r: appendedToLine297(neighbour.join("\n")) }).toHaveProperty("r.error");
+    }
+    const extra878 = [...lines];
+    extra878[at(LENS_READ_INDEX)] = `x${extra878[at(LENS_READ_INDEX)]}`;
+    expect(appendedToLine297(extra878.join("\n"))).toHaveProperty("error");
     const hintGone = [...lines];
     hintGone[3] = hintGone[3]!.replace(" [--resume-at <AC-id>|refactor|audit]", "");
     expect(hintGone[3]).not.toBe(lines[3]);

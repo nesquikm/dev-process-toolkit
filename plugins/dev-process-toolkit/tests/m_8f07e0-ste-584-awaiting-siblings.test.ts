@@ -645,11 +645,11 @@ describe("AC-STE-584.14 — probe count and the unreachable pin hold", () => {
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect(numbers).toHaveLength(90);
+    expect(numbers).toHaveLength(91); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     // Amended by AC-STE-680.6: probe count 87 -> 88.
     // Amended by AC-STE-693.6: probe count 88 -> 89.
     // Amended by AC-STE-723.7: probe count 89 -> 90.
-    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 90 }, (_, i) => i + 1));
+    expect([...numbers].sort((a, b) => a - b)).toEqual(Array.from({ length: 91 }, (_, i) => i + 1)); // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
   });
 
   test("module reachability reports orderedUnreachable === the shipped ORDERED_UNREACHABLE_PIN with ok: true", async () => {

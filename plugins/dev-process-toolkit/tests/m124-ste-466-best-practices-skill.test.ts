@@ -332,7 +332,11 @@ describe("AC-STE-466.2 — shape errors refuse; invalid entries are never writte
     const mod: Record<string, unknown> = await import(
       "../adapters/_shared/src/best_practices_manifest"
     );
-    expect(mod.KNOWN_KEYS).toEqual(["name", "path", "scope", "topics", "notes"]);
+    // Amended by AC-STE-878.2 (M_43bc84): the closed schema gains `max_bytes`.
+    // Amended by AC-STE-879.3 (M_43bc84): the closed schema gains `sha256`.
+    expect([...(mod.KNOWN_KEYS as string[])].sort()).toEqual(
+      ["max_bytes", "name", "notes", "path", "scope", "sha256", "topics"],
+    );
     expect(mod.LIST_KEYS).toEqual(["scope", "topics"]);
   });
 });

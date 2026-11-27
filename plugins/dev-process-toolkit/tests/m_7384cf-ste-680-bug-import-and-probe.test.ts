@@ -838,7 +838,7 @@ function probeRegistrationLines(): { number: number; line: string }[] {
 const PREVIOUS_PROBE_COUNT = 87;
 /** The live registry count. Amended by AC-STE-693.6: probe count 88 -> 89 (probe #89 landed after #88). */
 // Amended by AC-STE-723.7: probe count 89 -> 90.
-const LIVE_PROBE_COUNT = 90;
+const LIVE_PROBE_COUNT = 91; // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
 
 /** Probe-count pins (the STE-673.6 table): after #88, none may still read 87. */
 const PINS: readonly (readonly [string, string])[] = [
@@ -921,7 +921,7 @@ describe("AC-STE-680.6 — registered as probe #88 behind an `import.meta.main` 
   });
 
   // Amended by AC-STE-693.6: the next unregistered number is #90 at 89 live registrations.
-  test("the front-door warning names the NEXT unregistered number (#90)", () => {
+  test("the front-door warning names the NEXT unregistered number (#91)", () => { // Amended by AC-STE-879.4 (M_43bc84): probe count 90 -> 91.
     const skill = read(GATE_CHECK_SKILL);
     expect(skill).toContain(`registering probe #${LIVE_PROBE_COUNT + 1} will turn probe #81 red`);
     expect(skill).not.toContain(`registering probe #${PROBE_NUMBER} will turn probe #81 red`);
